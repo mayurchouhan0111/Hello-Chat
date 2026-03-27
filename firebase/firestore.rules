@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if user is an admin via tags
+    function isAdmin() {
+      return request.auth != null && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tags.hasAny(['Admin', 'SuperAdmin']);
+    }
+
+    // 1. Users collection
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && (request.auth.uid == uid || isAdmin());
+      allow delete: if isAdmin();
+
+      match /followers/{followerUid} {
+        allow read: if true;
+        allow create, delete: if request.auth != null && request.auth.uid == followerUid;
+      }
+      match /following/{followingUid} {
+        allow read: if true;
+        allow create, delete: if request.auth != null && request.auth.uid == uid;
+      }
+      match /media/{mediaId} {
+        allow read: if true;
+        allow create, update: if request.auth != null && request.auth.uid == uid;
+        allow delete: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+      }
+      match /transactions/{transactionId} {
+        allow read: if isAdmin() || (request.auth != null && request.auth.uid == uid);
+        allow write: if false; 
+      }
+    }
+    
+    // 2. Admin Logs & Reports
+    match /admin_logs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+    match /reports/{reportId} {
+      allow read, update: if isAdmin();
+      allow create: if request.auth != null;
+    }
+    match /app_config/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 3. Usernames collection
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if request.auth != null;
+    }
+
+    // 4. Rooms Collection
+    match /rooms/{roomId} {
+      allow read: if true; 
+      allow create: if request.auth != null; 
+      allow update: if request.auth != null && 
+                     (resource.data.ownerUid == request.auth.uid || 
+                      request.auth.uid in resource.data.admins ||
+                      isAdmin());
+      allow delete: if isAdmin();
+
+      match /participants/{uid} {
+        allow read: if true;
+        allow write: if request.auth != null || isAdmin();
+      }
+      match /messages/{msgId} {
+        allow read: if true;
+        allow create: if request.auth != null; 
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 5. Moments collection
+    match /moments/{momentId} {
+      allow read: if true;
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if (request.auth != null && resource.data.userId == request.auth.uid) || isAdmin();
+    }
+
+    // 6. App Banners Collection
+    match /app_banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 7. Month 7 Orchestration Collections
+    match /gifts/{giftId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /vip_tiers/{tierId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /agencies/{agencyId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

@@ -1,0 +1,139 @@
+name: hello_chat
+description: Hello Chat - Real-time Voice Room & Social Entertainment Platform
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: '>=3.16.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # ── State Management ────────────────────────────────────
+  flutter_riverpod: ^2.5.1          # Primary state management
+  riverpod_annotation: ^2.3.5       # Code generation annotations
+  hooks_riverpod: ^2.5.1            # Flutter hooks + Riverpod
+
+  # ── Navigation ──────────────────────────────────────────
+  go_router: ^13.2.0                # Declarative routing
+
+  # ── Firebase ────────────────────────────────────────────
+  firebase_core: ^2.27.0
+  firebase_auth: ^4.17.0            # Auth (phone, email, Google, Facebook)
+  cloud_firestore: ^4.15.0          # Primary database
+  firebase_storage: ^11.6.0         # File/media storage
+  firebase_messaging: ^14.7.19      # Push notifications (FCM)
+  firebase_database: ^10.4.9        # Realtime DB for live chat
+  cloud_functions: ^4.6.0           # Call Cloud Functions
+
+  # ── Auth Providers ──────────────────────────────────────
+  google_sign_in: ^6.2.1            # Google OAuth
+  flutter_facebook_auth: ^6.1.1     # Facebook OAuth
+
+  # ── Voice Streaming ─────────────────────────────────────
+  agora_rtc_engine: ^6.3.0          # Agora RTC voice rooms
+
+  # ── Payments ────────────────────────────────────────────
+  # flutter_stripe: ^10.1.1           # Stripe payment integration
+  # razorpay_flutter: ^1.3.6          # Razorpay (Malaysia/Asia market)
+
+  # ── Animations & UI ─────────────────────────────────────
+  lottie: ^3.1.0                    # Lottie animations for gifts/effects
+  rive: ^0.13.0                     # Rive animations for entry effects
+  animated_text_kit: ^4.2.2         # Text animations
+  shimmer: ^3.0.0                   # Loading shimmer effect
+  flutter_animate: ^4.5.0           # Declarative animation toolkit
+
+  # ── Images & Media ──────────────────────────────────────
+  cached_network_image: ^3.3.1      # Image caching with placeholder
+  image_picker: ^1.0.7              # Profile photo / room cover upload
+  # image_cropper: ^5.0.1             # Crop profile photos
+
+  # ── UI Components ───────────────────────────────────────
+  flutter_svg: ^2.0.10+1            # SVG support for icons/illustrations
+  gap: ^3.0.1                       # Spacing widget (Gap(16))
+  badges: ^3.1.2                    # Notification badge on icons
+  expandable: ^5.0.1                # Expandable sections
+  flutter_slidable: ^3.1.0          # Swipe actions on list items
+  modal_bottom_sheet: ^3.0.0        # Custom bottom sheets
+  pinput: ^5.0.0                    # OTP PIN input field
+  country_picker: ^2.0.21           # Country code + flag picker
+  emoji_picker_flutter: ^2.1.0      # Emoji picker for chat
+
+  # ── Charts & Progress ───────────────────────────────────
+  percent_indicator: ^4.2.3         # XP progress bar, circular indicators
+  fl_chart: ^0.67.0                 # Charts for leaderboards/stats
+
+  # ── Networking & Utils ───────────────────────────────────
+  dio: ^5.4.3+1                     # HTTP client (for Agora token server)
+  # connectivity_plus: ^6.0.2         # Network connectivity status
+  # internet_connection_checker: ^1.0.0+1
+
+  # ── Local Storage ───────────────────────────────────────
+  shared_preferences: ^2.2.2        # Lightweight key-value storage
+  flutter_secure_storage: ^9.0.0    # Secure storage for tokens
+
+  # ── Notifications ───────────────────────────────────────
+  flutter_local_notifications: ^17.1.2  # Local push notifications
+  permission_handler: ^11.3.1           # Runtime permissions
+
+  # ── Deep Links & Sharing ────────────────────────────────
+  share_plus: ^9.0.0                # Share room invite links
+  url_launcher: ^6.3.2              # Open URLs externally
+  # firebase_dynamic_links: ^5.4.0     # Firebase dynamic links for room invites
+
+  # ── Device & Platform ───────────────────────────────────
+  device_info_plus: ^10.1.0         # Device info
+  package_info_plus: ^8.0.0         # App version info
+  flutter_native_splash: ^2.4.0     # Native splash screen
+  app_badge_plus: ^1.1.1            # App icon badge count
+
+  # ── Code Quality & DI ───────────────────────────────────
+  freezed_annotation: ^2.4.1        # Immutable data classes
+  json_annotation: ^4.8.1           # JSON serialisation annotations
+  equatable: ^2.0.5                 # Value equality for entities
+
+  # ── Fonts (Google Fonts) ─────────────────────────────────
+  google_fonts: ^6.2.1
+  cloudinary_public: ^0.23.1
+  timeago: ^3.7.1
+  carousel_slider: ^5.1.2
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+  # Code generation
+  build_runner: ^2.4.8
+  riverpod_generator: ^2.4.0        # Generate Riverpod providers
+  freezed: ^2.5.2                   # Generate immutable classes
+  json_serializable: ^6.7.1         # Generate JSON serialisation
+
+flutter:
+  uses-material-design: true
+
+  # Custom fonts — Plus Jakarta Sans
+  fonts:
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/PlusJakartaSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/PlusJakartaSans-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/PlusJakartaSans-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/PlusJakartaSans-ExtraBold.ttf
+          weight: 800
+
+  assets:
+    - assets/images/
+    - assets/icons/
+    - assets/animations/lottie/
+    - assets/animations/rive/
+    - assets/fonts/

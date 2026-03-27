@@ -1,0 +1,7 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 14L14 4"></path>
+  <path d="M14 4L20 10"></path>
+  <path d="M4 14L10 20"></path>
+  <circle cx="18" cy="6" r="1" fill="currentColor"></circle>
+  <circle cx="20" cy="12" r="1" fill="currentColor"></circle>
+</svg>
