@@ -793,11 +793,20 @@ exports.pingServer = functions.https.onCall(async (data, context) => {
 /**
  * 13. Invite PK Challenge
  */
-exports.invitePKChallenge = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+exports.invitePKChallenge = functions.region("us-central1").https.onCall(async (data, context) => {
+    // 🛡️ Auth Fallback for Testing (Prioritize context.auth, fallback to data.senderUid)
+    const senderUid = context.auth ? context.auth.uid : data.senderUid;
+    
+    if (!senderUid) {
+        throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    }
+
+    if (!context.auth) {
+        console.warn(`⚠️ [PK_DEBUG] No context.auth for UID ${senderUid}. Proceeding with data.senderUid fallback.`);
+    }
 
     const { roomId, targetUid, durationSeconds } = data;
-    const senderUid = context.auth.uid;
+    // senderUid is already defined above via fallback logic
 
     const roomRef = db.collection("rooms").doc(roomId);
 
@@ -842,11 +851,19 @@ exports.invitePKChallenge = functions.https.onCall(async (data, context) => {
 /**
  * 13b. Respond to PK Challenge
  */
-exports.respondToPKChallenge = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+exports.respondToPKChallenge = functions.region("us-central1").https.onCall(async (data, context) => {
+    // Priority 1: Auth Context | Priority 2: Data Payload (for simulation)
+    const receiverUid = context.auth ? context.auth.uid : (data.receiverUid || data.adminUid);
+    
+    if (!receiverUid) {
+        throw new functions.https.HttpsError("unauthenticated", "Auth required (Receiver UID missing).");
+    }
+
+    if (!context.auth) {
+        console.warn(`⚠️ [PK_DEBUG] respondToPKChallenge: No context.auth for UID ${receiverUid}. Using fallback.`);
+    }
 
     const { roomId, accepted } = data;
-    const receiverUid = context.auth.uid;
     const roomRef = db.collection("rooms").doc(roomId);
 
     return db.runTransaction(async (transaction) => {

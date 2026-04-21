@@ -3,8 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
 
 mixin class BaseFirebaseService {
-  // ⚡ Reverting to default instance to avoid regional mismatches
-  FirebaseFunctions get _functions => FirebaseFunctions.instance;
+  // ⚡ Explicit region selection to avoid regional mismatches (matching backend)
+  FirebaseFunctions get _functions => FirebaseFunctions.instanceFor(region: 'us-central1');
 
   Future<dynamic> callFunction(String name, [Map<String, dynamic>? data]) async {
     // 🛡️ Debug Auth State

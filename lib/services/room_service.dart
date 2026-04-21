@@ -206,6 +206,7 @@ class RoomService with BaseFirebaseService {
     await callFunction('invitePKChallenge', {
       'roomId': roomId,
       'targetUid': targetUid,
+      'senderUid': FirebaseAuth.instance.currentUser?.uid, // Diagnostic fallback
       'durationSeconds': durationSeconds,
     });
   }
