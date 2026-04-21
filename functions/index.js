@@ -910,10 +910,9 @@ exports.startPKBattle = functions.https.onCall(async (data, context) => {
 });
 
 /**
- * 14. End PK Battle & Winner Determination
+ * 14. Internal/Shared End PK Battle Logic
  */
-exports.endPKBattle = functions.https.onCall(async (data, context) => {
-    const { roomId, forcedWinnerUid } = data;
+async function internalEndPKBattle(roomId, forcedWinnerUid = null) {
     const roomRef = db.collection("rooms").doc(roomId);
 
     return db.runTransaction(async (transaction) => {
@@ -940,9 +939,8 @@ exports.endPKBattle = functions.https.onCall(async (data, context) => {
             else if (rightScore > leftScore) winnerUid = rightUid;
         }
 
-        // Post-processing Top 3 Contributors
         const getTop3 = (contribs) => {
-            return Object.entries(contribs)
+            return Object.entries(contribs || {})
                 .sort(([, a], [, b]) => b - a)
                 .slice(0, 3)
                 .map(([uid, amount]) => ({ uid, amount }));
@@ -953,8 +951,8 @@ exports.endPKBattle = functions.https.onCall(async (data, context) => {
             totalDiamonds: leftScore + rightScore,
             leftScore: leftScore,
             rightScore: rightScore,
-            top3Left: getTop3(contributions.left || {}),
-            top3Right: getTop3(contributions.right || {}),
+            top3Left: getTop3(contributions.left),
+            top3Right: getTop3(contributions.right),
             endedAt: admin.firestore.Timestamp.now()
         };
 
@@ -975,6 +973,14 @@ exports.endPKBattle = functions.https.onCall(async (data, context) => {
 
         return { success: true, winnerUid: winnerUid };
     });
+}
+
+/**
+ * 14b. End PK Battle Callable
+ */
+exports.endPKBattle = functions.https.onCall(async (data, context) => {
+    const { roomId, forcedWinnerUid } = data;
+    return await internalEndPKBattle(roomId, forcedWinnerUid);
 });
 
 /**
@@ -1094,26 +1100,18 @@ exports.autoEndPKBattles = functions.pubsub.schedule('every 1 minutes').onRun(as
 
     if (roomsSnap.empty) return null;
 
-    const batches = [];
-    let currentBatch = db.batch();
     let count = 0;
-
-    for (const roomDoc of roomsSnap.docs) {
-        currentBatch.update(roomDoc.ref, {
-            pkActive: false,
-            // Additional cleanup if needed
-        });
-        count++;
-        if (count >= 400) {
-            batches.push(currentBatch.commit());
-            currentBatch = db.batch();
-            count = 0;
+    const tasks = roomsSnap.docs.map(async (roomDoc) => {
+        try {
+            await internalEndPKBattle(roomDoc.id);
+            count++;
+        } catch (e) {
+            console.error(`[PK_AUTO_END] Failed for Room ${roomDoc.id}:`, e);
         }
-    }
+    });
 
-    if (count > 0) batches.push(currentBatch.commit());
-    await Promise.all(batches);
-    console.log(`[PK_AUTO_END] terminated ${count} expired battles.`);
+    await Promise.all(tasks);
+    console.log(`[PK_AUTO_END] terminated and calculated results for ${count} expired battles.`);
     return null;
 });
 
