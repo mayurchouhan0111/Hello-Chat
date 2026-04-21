@@ -21,6 +21,17 @@ const AGORA_APP_ID = "47343e02029c4249a5b4f8d5db321b9d";
 const AGORA_APP_CERTIFICATE = "5f9f7f1205e94b00b87cb73c7cab97d3";
 
 /**
+ * --- ADMIN PERMISSION HELPERS ---
+ */
+async function isUserAdmin(uid) {
+    if (!uid) return false;
+    const userDoc = await db.collection("users").doc(uid).get();
+    if (!userDoc.exists) return false;
+    const tags = userDoc.data().tags || [];
+    return tags.includes("Admin") || tags.includes("SuperAdmin");
+}
+
+/**
  * --- AGORA VOICE TOKEN SERVER (DIRECT HTTP BYPASS) ---
  * Immune to App Check/Auth Handshake issues.
  */
@@ -850,7 +861,11 @@ exports.respondToPKChallenge = functions.https.onCall(async (data, context) => {
         }
 
         if (challenge.receiverUid !== receiverUid) {
-            throw new functions.https.HttpsError("permission-denied", "You are not the intended receiver.");
+            const isAdmin = await isUserAdmin(receiverUid);
+            if (!isAdmin) {
+                throw new functions.https.HttpsError("permission-denied", "You are not the intended receiver and not an admin.");
+            }
+            console.log(`[PK_DEBUG] Admin ${receiverUid} overriding response for ${challenge.receiverUid}`);
         }
 
         if (challenge.expiresAt.toMillis() < Date.now()) {

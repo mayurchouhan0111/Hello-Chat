@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { 
   collection, 
@@ -8,6 +8,8 @@ import {
   getDocs, 
   query, 
   where, 
+  onSnapshot,
+  or,
   serverTimestamp,
   writeBatch
 } from 'firebase/firestore';
@@ -23,12 +25,13 @@ import {
 import { useAdmin } from '../context/AdminContext';
 import { logAdminAction } from './AuditLogs';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { Sparkles, Search } from 'lucide-react';
+import { Sparkles, Search, Swords, ShieldCheck, XCircle, Trophy } from 'lucide-react';
 
 export const DevTools = () => {
 
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
+  const [pkRooms, setPkRooms] = useState([]);
   const { user } = useAdmin();
 
   const FAKE_USERS = [
@@ -155,6 +158,42 @@ export const DevTools = () => {
     } catch (err) {
       console.error(err);
       alert("Error cleaning up: " + err.message);
+      setStatus('ERROR');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🛡️ PK Diagnostic Hooks
+  useEffect(() => {
+    const q = query(
+      collection(db, "rooms"), 
+      or(where("pkActive", "==", true), where("pkChallenge", "!=", null))
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setPkRooms(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handlePKAction = async (roomId, action, accepted = false) => {
+    if (loading) return;
+    setLoading(true);
+    setStatus(`EXECUTING ${action.toUpperCase()}...`);
+    try {
+      const funcs = getFunctions();
+      if (action === 'respond') {
+        const respondToPK = httpsCallable(funcs, 'respondToPKChallenge');
+        await respondToPK({ roomId, accepted });
+      } else if (action === 'end') {
+        const endPK = httpsCallable(funcs, 'endPKBattle');
+        await endPK({ roomId });
+      }
+      setStatus(`ACTION COMPLETED! ✅`);
+      setTimeout(() => setStatus(null), 3000);
+    } catch (err) {
+      console.error(err);
+      alert(`Simulation Error: ${err.message}`);
       setStatus('ERROR');
     } finally {
       setLoading(false);
@@ -324,6 +363,83 @@ export const DevTools = () => {
            </div>
         </div>
 
+
+        {/* PK Diagnostic Center */}
+        <div className="card-glass bg-rose-500/5 border-rose-500/20 p-10 col-span-full space-y-8 text-white">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-black text-rose-400 uppercase tracking-tight flex items-center gap-3">
+              <Swords size={24} /> PK Battle Diagnostic Center
+            </h3>
+            <span className="px-3 py-1 bg-rose-500/20 text-rose-400 rounded-full text-[10px] font-black uppercase tracking-tighter">
+              {pkRooms.length} Active Events
+            </span>
+          </div>
+
+          {!pkRooms.length ? (
+            <div className="bg-slate-950/50 p-12 rounded-3xl border border-white/5 text-center space-y-4">
+              <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center mx-auto text-slate-700">
+                <ShieldCheck size={32} />
+              </div>
+              <p className="text-slate-500 font-bold uppercase tracking-widest text-[10px]">No active challenges or battles globally</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {pkRooms.map((room) => (
+                <div key={room.id} className="bg-slate-950/80 p-6 rounded-2xl border border-white/10 space-y-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h4 className="font-black text-white text-sm truncate w-40">{room.name}</h4>
+                      <p className="text-[10px] text-slate-500 font-mono mt-1 uppercase">{room.id.substring(0, 8)}...</p>
+                    </div>
+                    <span className={`px-2 py-1 rounded-md text-[8px] font-black uppercase tracking-widest ${
+                      room.pkActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+                    }`}>
+                      {room.pkActive ? 'IN BATTLE' : 'CHALLENGE PENDING'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-slate-500 font-bold uppercase">Initiator:</span>
+                      <span className="text-white font-mono">{(room.pkChallenge?.senderUid || Object.keys(room.pkTeams || {})[0] || 'Unknown').substring(0,6)}...</span>
+                    </div>
+                    <div className="flex justify-between text-[10px]">
+                      <span className="text-slate-500 font-bold uppercase">Target:</span>
+                      <span className="text-white font-mono">{(room.pkChallenge?.receiverUid || Object.keys(room.pkTeams || {})[1] || 'Unknown').substring(0,6)}...</span>
+                    </div>
+                  </div>
+
+                  {room.pkChallenge && room.pkChallenge.status === 'pending' ? (
+                    <div className="flex gap-2">
+                      <button 
+                         onClick={() => handlePKAction(room.id, 'respond', true)}
+                         className="flex-1 h-10 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-lg font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all"
+                      >
+                        <ShieldCheck size={14} /> Accept
+                      </button>
+                      <button 
+                         onClick={() => handlePKAction(room.id, 'respond', false)}
+                         className="flex-1 h-10 bg-white/5 hover:bg-white/10 text-white border border-white/10 rounded-lg font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all"
+                      >
+                        <XCircle size={14} /> Reject
+                      </button>
+                    </div>
+                  ) : room.pkActive ? (
+                    <button 
+                       onClick={() => handlePKAction(room.id, 'end')}
+                       className="w-full h-10 bg-rose-500/10 border border-rose-500/20 hover:bg-rose-500 hover:text-white text-rose-400 rounded-lg font-black uppercase text-[10px] flex items-center justify-center gap-2 transition-all"
+                    >
+                      <Trophy size={14} /> Force Terminate Battle
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-slate-600 italic">
+            * Note: Actions are performed using your Admin Identity. The backend allows this override for diagnostic purposes.
+          </p>
+        </div>
 
         {/* Search Index Indexer */}
         <div className="card-glass bg-blue-500/5 border-blue-500/20 p-10 col-span-full space-y-6">
