@@ -1,3 +1,4 @@
+import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/services/room_service.dart';
 import 'package:hello_chat/services/voice_service.dart';
@@ -41,6 +42,21 @@ final chatServiceProvider = Provider<ChatService>((ref) {
 
 final roomMessagesProvider = StreamProvider.family<List<RoomMessage>, String>((ref, roomId) {
   return ref.watch(chatServiceProvider).getMessagesStream(roomId);
+});
+
+final userActiveRoomStreamProvider = StreamProvider<RoomModel?>((ref) {
+  final user = ref.watch(authStateProvider).value;
+  if (user == null) return Stream.value(null);
+  
+  return FirebaseFirestore.instance
+      .collection('rooms')
+      .where('ownerUid', isEqualTo: user.uid)
+      .where('status', isEqualTo: 'active')
+      .limit(1)
+      .snapshots()
+      .map((snapshot) => snapshot.docs.isNotEmpty 
+          ? RoomModel.fromFirestore(snapshot.docs.first) 
+          : null);
 });
 
 final roomMicRequestsProvider = StreamProvider.family<List<String>, String>((ref, roomId) {

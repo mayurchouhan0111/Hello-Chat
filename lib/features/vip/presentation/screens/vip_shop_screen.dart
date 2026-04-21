@@ -11,9 +11,9 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 const _bg        = Color(0xFF080808);
 const _surface   = Color(0xFF111111);
 const _surface2  = Color(0xFF161616);
-const _gold      = Color(0xFFD4A843);
-const _goldLight = Color(0xFFF0C96A);
-const _goldDim   = Color(0xFF8A6D2A);
+const _gold      = Color(0xFFFFD700);
+const _goldLight = Color(0xFFFFEB3B);
+const _goldDim   = Color(0xFFFBC02D);
 const _white     = Colors.white;
 
 // ── Text styles ─────────────────────────────────────────────────────────────
@@ -648,8 +648,8 @@ class _VipCardState extends State<VipCard> {
   // Map level → accent tint so each card feels distinct
   Color get _tint {
     if (widget.tier.level <= 2) return const Color(0xFF7DB8F7); // blue-ish starter
-    if (widget.tier.level <= 5) return const Color(0xFFD4A843); // gold pro
-    return const Color(0xFFE8775A);                             // ember elite
+    if (widget.tier.level <= 5) return const Color(0xFFFFD700); // gold pro
+    return const Color(0xFFFFAB40);                             // ember elite (adjusted to warmer yellow/orange)
   }
 
   @override
@@ -711,7 +711,7 @@ class _VipCardState extends State<VipCard> {
                   child: Row(
                     children: [
                       // Icon badge
-                      _LevelBadge(level: widget.tier.level, tint: _tint),
+                      _LevelBadge(level: widget.tier.level, tint: _tint, badgeIcon: widget.tier.badgeIcon),
                       const SizedBox(width: 16),
 
                       // Name + benefits
@@ -801,7 +801,8 @@ class _VipCardState extends State<VipCard> {
 class _LevelBadge extends StatelessWidget {
   final int level;
   final Color tint;
-  const _LevelBadge({required this.level, required this.tint});
+  final String badgeIcon;
+  const _LevelBadge({required this.level, required this.tint, required this.badgeIcon});
 
   @override
   Widget build(BuildContext context) {
@@ -816,7 +817,18 @@ class _LevelBadge extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
+          if (badgeIcon.isNotEmpty)
+            ClipOval(
+              child: Image.network(
+                badgeIcon,
+                width: 40,
+                height: 40,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
+              ),
+            )
+          else
+            Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
           Positioned(
             bottom: 2,
             child: Container(
@@ -925,8 +937,12 @@ class _VipPurchaseSheet extends ConsumerWidget {
                   color: _gold.withOpacity(0.08),
                   border: Border.all(color: _gold.withOpacity(0.25)),
                 ),
-                child: const Icon(Icons.workspace_premium_rounded,
-                    color: _gold, size: 40),
+                child: tier.badgeIcon.isNotEmpty 
+                    ? Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Image.network(tier.badgeIcon, fit: BoxFit.contain),
+                      )
+                    : const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40),
               ),
 
               const SizedBox(height: 16),

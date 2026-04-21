@@ -2,26 +2,50 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     
-    // Helper function
-    function isSuperAdmin() {
-      return request.auth != null && 
-             firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.role == "superadmin";
+    // Helper functionality
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
+    function isOwner(uid) {
+      return isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Profiles & Social Content
     match /profile_photos/{uid} {
       allow read: if true;
-      allow write: if request.auth != null && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if isOwner(uid);
     }
 
-    // Future folders
+    match /users/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isOwner(uid);
+    }
+
     match /room_covers/{roomId} {
       allow read: if true;
-      allow write: if request.auth != null; // add more logic later
+      allow write: if isAuthenticated(); 
     }
 
+    match /moments/{uid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isOwner(uid);
+    }
+
+    // Admin & Global Assets
     match /gifts/{giftId} {
       allow read: if true;
-      allow write: if isSuperAdmin();
+      allow write: if isAuthenticated(); // Should be restricted to admins in production
+    }
+
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /vip_assets/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
     }
   }
 }

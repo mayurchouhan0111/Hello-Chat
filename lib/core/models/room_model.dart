@@ -23,9 +23,25 @@ class RoomModel {
   final Map<String, int>? pkScores;
   final Map<String, String>? pkTeams;
   final String? pkWinnerUid;
+  final String pkPhase;
   final int weeklyTarget;
   final int weeklyEarnings;
   final String? agencyId;
+  final int hourlyRank;
+  final bool isTrending;
+  final String? newsStatus;
+  final String notice;
+  final String welcomeMessage;
+  final bool publicScreenSetting;
+  final String roomType;
+  final String micMode;
+  final bool superMic;
+  final bool effectSwitch;
+  final String? youtubeVideoId;
+  final bool isYoutubeActive;
+  final Map<String, dynamic>? pkChallenge;
+  final Map<String, dynamic>? pkContributions;
+  final Map<String, dynamic>? pkWinnerData;
 
   RoomModel({
     required this.roomId,
@@ -50,9 +66,25 @@ class RoomModel {
     this.pkScores,
     this.pkTeams,
     this.pkWinnerUid,
+    this.pkPhase = 'none',
     this.weeklyTarget = 0,
     this.weeklyEarnings = 0,
     this.agencyId,
+    this.hourlyRank = 99,
+    this.isTrending = false,
+    this.newsStatus,
+    this.notice = "Welcome to our room!",
+    this.welcomeMessage = "Thanks for joining us!",
+    this.publicScreenSetting = true,
+    this.roomType = "Chat",
+    this.micMode = "open mode",
+    this.superMic = false,
+    this.effectSwitch = true,
+    this.youtubeVideoId,
+    this.isYoutubeActive = false,
+    this.pkChallenge,
+    this.pkContributions,
+    this.pkWinnerData,
   });
 
   Map<String, dynamic> toMap() {
@@ -79,9 +111,25 @@ class RoomModel {
       'pkScores': pkScores,
       'pkTeams': pkTeams,
       'pkWinnerUid': pkWinnerUid,
+      'pkPhase': pkPhase,
       'weeklyTarget': weeklyTarget,
       'weeklyEarnings': weeklyEarnings,
       'agencyId': agencyId,
+      'hourlyRank': hourlyRank,
+      'isTrending': isTrending,
+      'newsStatus': newsStatus,
+      'notice': notice,
+      'welcomeMessage': welcomeMessage,
+      'publicScreenSetting': publicScreenSetting,
+      'roomType': roomType,
+      'micMode': micMode,
+      'superMic': superMic,
+      'effectSwitch': effectSwitch,
+      'youtubeVideoId': youtubeVideoId,
+      'isYoutubeActive': isYoutubeActive,
+      'pkChallenge': pkChallenge,
+      'pkContributions': pkContributions,
+      'pkWinnerData': pkWinnerData,
     };
   }
 
@@ -95,23 +143,44 @@ class RoomModel {
       coverUrl: map['coverUrl'] ?? '',
       isPrivate: map['isPrivate'] ?? false,
       passwordHash: map['passwordHash'],
-      capacity: map['capacity'] ?? 10,
-      currentUsersCount: map['currentUsersCount'] ?? 0,
+      capacity: (map['capacity'] ?? 10) as int,
+      currentUsersCount: (map['currentUsersCount'] ?? 0) as int,
       backgroundMusic: map['backgroundMusic'] ?? false,
-      createdAt: (map['createdAt'] as Timestamp).toDate(),
+      createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       endedAt: (map['endedAt'] as Timestamp?)?.toDate(),
       status: map['status'] ?? 'active',
-      admins: List<String>.from(map['admins'] ?? []),
-      bannedUids: List<String>.from(map['bannedUids'] ?? []),
+      admins: (map['admins'] as Iterable?)?.whereType<String>().toList() ?? [],
+      bannedUids: (map['bannedUids'] as Iterable?)?.whereType<String>().toList() ?? [],
       pkActive: map['pkActive'] ?? false,
       pkStartTime: (map['pkStartTime'] as Timestamp?)?.toDate(),
       pkEndTime: (map['pkEndTime'] as Timestamp?)?.toDate(),
-      pkScores: Map<String, int>.from(map['pkScores'] ?? {}),
-      pkTeams: Map<String, String>.from(map['pkTeams'] ?? {}),
+      pkScores: (map['pkScores'] as Map?)?.cast<String, int>(),
+      pkTeams: (map['pkTeams'] as Map?)?.cast<String, String>(),
       pkWinnerUid: map['pkWinnerUid'],
-      weeklyTarget: map['weeklyTarget'] ?? 0,
-      weeklyEarnings: map['weeklyEarnings'] ?? 0,
+      pkPhase: map['pkPhase'] ?? 'none',
+      weeklyTarget: (map['weeklyTarget'] ?? 0) as int,
+      weeklyEarnings: (map['weeklyEarnings'] ?? 0) as int,
       agencyId: map['agencyId'],
+      hourlyRank: (map['hourlyRank'] ?? 99) as int,
+      isTrending: map['isTrending'] ?? false,
+      newsStatus: map['newsStatus'],
+      notice: map['notice'] ?? "Welcome to our room!",
+      welcomeMessage: map['welcomeMessage'] ?? "Thanks for joining us!",
+      publicScreenSetting: map['publicScreenSetting'] ?? true,
+      roomType: map['roomType'] ?? "Chat",
+      micMode: map['micMode'] ?? "open mode",
+      superMic: map['superMic'] ?? false,
+      effectSwitch: map['effectSwitch'] ?? true,
+      youtubeVideoId: map['youtubeVideoId'],
+      isYoutubeActive: map['isYoutubeActive'] ?? false,
+      pkChallenge: map['pkChallenge'] != null ? Map<String, dynamic>.from(map['pkChallenge']) : null,
+      pkContributions: map['pkContributions'] != null ? Map<String, dynamic>.from(map['pkContributions']) : null,
+      pkWinnerData: map['pkWinnerData'] != null ? Map<String, dynamic>.from(map['pkWinnerData']) : null,
     );
+  }
+
+  factory RoomModel.fromFirestore(DocumentSnapshot doc) {
+    if (!doc.exists) throw Exception("Room not found");
+    return RoomModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});
   }
 }

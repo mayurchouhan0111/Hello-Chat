@@ -85,9 +85,10 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  "We've sent a 4-digit code to ${widget.phone}. Please enter it below to verify.",
+                  "We've sent a 6-digit code to ${widget.phone}. Please enter it below to verify.",
                   style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
                 ),
+
                 const SizedBox(height: 48),
                 
                 Center(

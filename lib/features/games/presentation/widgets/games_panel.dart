@@ -42,7 +42,7 @@ class GamesPanel extends StatelessWidget {
                 "Lucky Draw",
                 "High stakes, big wins!",
                 Icons.style_rounded,
-                Colors.amber[700]!,
+                const Color(0xFFFFD700),
                 () => Navigator.push(context, MaterialPageRoute(builder: (c) => LuckyDrawScreen(roomId: roomId))),
               ),
             ],

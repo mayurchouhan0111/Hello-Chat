@@ -15,18 +15,24 @@ import {
   Zap
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAdmin } from '../context/AdminContext';
 
 export const FinancialManagement = () => {
+  const { isAdmin } = useAdmin();
   const [recharges, setRecharges] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetchFinancialData();
-  }, []);
+    if (isAdmin) {
+      fetchFinancialData();
+    }
+  }, [isAdmin]);
 
   const fetchFinancialData = async () => {
     setLoading(true);
+    setError(null);
     try {
       // 1. Fetch pending recharges
       const rq = query(collection(db, "recharges"), where("status", "==", "pending"), orderBy("createdAt", "desc"));
@@ -39,6 +45,9 @@ export const FinancialManagement = () => {
       setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error(err);
+      setError(err.message.includes('permissions') 
+        ? "Access Denied: Admin Level Required" 
+        : "Snapshot Error: Check Firestore Rules");
     } finally {
       setLoading(false);
     }

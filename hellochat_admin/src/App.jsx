@@ -13,6 +13,12 @@ import { GiftManagement } from './screens/GiftManagement';
 import { VIPManagement } from './screens/VIPManagement';
 import { AuditLogs } from './screens/AuditLogs';
 import { AgencyManagement } from './screens/AgencyManagement';
+import { MiniGamesManagement } from './screens/MiniGamesManagement';
+import { DevTools } from './screens/DevTools';
+import { WithdrawalManagement } from './screens/WithdrawalManagement';
+import { EliteBoutiqueManagement } from './screens/EliteBoutiqueManagement';
+import { FamilyManagement } from './screens/FamilyManagement';
+
 
 function App() {
   return (
@@ -50,6 +56,11 @@ function App() {
               <AgencyManagement />
             </AdminLayout>
           } />
+          <Route path="/families" element={
+            <AdminLayout>
+              <FamilyManagement />
+            </AdminLayout>
+          } />
           <Route path="/financials" element={
             <AdminLayout>
               <FinancialManagement />
@@ -70,9 +81,30 @@ function App() {
               <SystemSettings />
             </AdminLayout>
           } />
+          <Route path="/minigames" element={
+            <AdminLayout>
+              <MiniGamesManagement />
+            </AdminLayout>
+          } />
           <Route path="/logs" element={
             <AdminLayout>
               <AuditLogs />
+            </AdminLayout>
+          } />
+          <Route path="/withdrawals" element={
+            <AdminLayout>
+              <WithdrawalManagement />
+            </AdminLayout>
+          } />
+          <Route path="/dev" element={
+
+            <AdminLayout>
+              <DevTools />
+            </AdminLayout>
+          } />
+          <Route path="/boutique" element={
+            <AdminLayout>
+              <EliteBoutiqueManagement />
             </AdminLayout>
           } />
         </Routes>

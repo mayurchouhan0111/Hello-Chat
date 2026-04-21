@@ -43,6 +43,10 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hello Chat needs microphone access for you to participate in voice rooms and talk with others.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Hello Chat needs camera access to allow you to share your video in rooms.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>

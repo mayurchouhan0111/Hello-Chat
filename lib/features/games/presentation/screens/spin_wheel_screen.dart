@@ -2,7 +2,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/providers/wallet_provider.dart';
-import 'package:hello_chat/providers/game_provider.dart';
+import 'package:hello_chat/core/providers/game_provider.dart';
+import 'package:hello_chat/core/services/game_service.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 
 class SpinWheelScreen extends ConsumerStatefulWidget {
@@ -21,10 +23,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
   Timer? _timer;
   int _selectedWager = 10;
   int _todayProfits = 0;
-  int? _localBalance;
   bool _isSpinning = false;
   int _currentSegment = 0;
-  final List<Map<String, dynamic>> _spinHistory = [];
 
   @override
   void initState() {
@@ -50,58 +50,68 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
     });
   }
 
-  void _handleSpin() {
+  void _handleSpin() async {
     final settings = ref.read(gameSettingsProvider).value;
     if (settings == null || !settings['isActive'] || _isSpinning) return;
 
-    setState(() {
-      _isSpinning = true;
-      if (_localBalance != null) _localBalance = _localBalance! - _selectedWager;
-    });
-
-    final segmentsMap = (settings['segments'] as List);
-    final List<SpinItem> items = segmentsMap.map((s) => SpinItem(name: s['name'], multiplier: s['multiplier'], emoji: s['emoji'])).toList();
-    final List<int> weights = segmentsMap.map((s) => (s['weight'] as num).toInt()).toList();
-
-    final totalWeight = weights.reduce((a, b) => a + b);
-    double randomPoint = math.Random().nextInt(totalWeight).toDouble();
-    int randomIdx = 0;
-    for (int i = 0; i < weights.length; i++) {
-        if (randomPoint < weights[i]) { randomIdx = i; break; }
-        randomPoint -= weights[i];
+    final balance = ref.read(walletBalanceProvider).value?['diamonds'] ?? 0;
+    if (balance < _selectedWager) {
+       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient diamonds")));
+       return;
     }
-    
-    final targetItem = items[randomIdx];
-    final targetAngle = randomIdx * (2 * math.pi / 8);
-    final rounds = 8 + math.Random().nextInt(5);
-    final totalRotation = (rounds * 2 * math.pi) + targetAngle;
 
-    _controller.reset();
-    _animation = Tween<double>(begin: _pointerAngle % (2 * math.pi), end: totalRotation)
-        .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+    setState(() => _isSpinning = true);
 
-    _controller.addListener(() {
-      final currentAngle = _animation.value % (2 * math.pi);
-      final segment = ((currentAngle / (2 * math.pi / 8)).round()) % 8;
-      if (segment != _currentSegment) setState(() => _currentSegment = segment);
-    });
+    try {
+      final result = await ref.read(gameServiceProvider).playSpinWheel(
+        betAmount: _selectedWager,
+        roomId: widget.roomId,
+      );
+      
+      final prize = result['prize'] as int;
+      final label = result['label'] as String;
 
-    _controller.forward().then((_) {
-      final int winAmountRaw = _selectedWager * (targetItem.multiplier as num).toInt();
-      final int winCap = (settings['maxWinCap'] as num?)?.toInt() ?? 50000;
-      final int winAmount = math.min(winAmountRaw, winCap);
+      // Map backend label to segment index (based on backend outcomes array order)
+      // outcomes order: 0x, 1.1x, 1.5x, 2x, 0.5x, 5x, 0.1x, 20x
+      final List<String> backendLabels = ["0x", "1.1x", "1.5x", "2x", "0.5x", "5x", "0.1x", "20x"];
+      final targetIdx = backendLabels.indexOf(label);
+      if (targetIdx == -1) throw Exception("Invalid outcome from server");
 
+      final targetAngle = targetIdx * (2 * math.pi / 8);
+      final rounds = 8 + math.Random().nextInt(3);
+      final totalRotation = (rounds * 2 * math.pi) + targetAngle;
+
+      _controller.reset();
+      _animation = Tween<double>(begin: _pointerAngle % (2 * math.pi), end: totalRotation)
+          .animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
+
+      _controller.addListener(() {
+        final currentAngle = _animation.value % (2 * math.pi);
+        final segment = ((currentAngle / (2 * math.pi / 8)).round()) % 8;
+        if (segment != _currentSegment) setState(() => _currentSegment = segment);
+      });
+
+      await _controller.forward();
+      
       setState(() {
         _pointerAngle = totalRotation;
         _isSpinning = false;
-        _todayProfits += (winAmount - _selectedWager);
-        if (_localBalance != null) {
-           _localBalance = _localBalance! + winAmount;
-        }
-        _spinHistory.insert(0, {'item': targetItem, 'wager': _selectedWager, 'win': winAmount, 'time': DateTime.now()});
+        _todayProfits += (prize - _selectedWager);
       });
-      _showWinBanner(targetItem, winAmount);
-    });
+
+      final segmentsMap = (settings['segments'] as List);
+      final winningItem = SpinItem(
+        name: segmentsMap[targetIdx]['name'], 
+        multiplier: (prize / _selectedWager).round(), 
+        emoji: segmentsMap[targetIdx]['emoji']
+      );
+      
+      _showWinBanner(winningItem, prize);
+
+    } catch (e) {
+      setState(() => _isSpinning = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    }
   }
 
   void _showWinBanner(SpinItem item, int amount) {
@@ -162,62 +172,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
 
   Widget _ruleItem(String text) => Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13)));
 
-  void _showHistorySheet() {
-    showModalBottomSheet(
-      context: context, backgroundColor: const Color(0xFF0F172A), shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("MY RECORD", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            if (_spinHistory.isEmpty) const Expanded(child: Center(child: Text("No records found", style: TextStyle(color: Colors.white54))))
-            else Expanded(
-              child: ListView.builder(
-                itemCount: _spinHistory.length,
-                itemBuilder: (context, i) {
-                  final rec = _spinHistory[i];
-                  return ListTile(
-                    leading: Text(rec['item'].emoji, style: const TextStyle(fontSize: 24)),
-                    title: Text("Won ${rec['win']} Coins", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    subtitle: Text("Bet: ${rec['wager']} Diamonds", style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                    trailing: Text("${rec['time'].hour}:${rec['time'].minute}", style: const TextStyle(color: Colors.white24, fontSize: 10)),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showRankingSheet() {
-    final mockRanking = [
-      {'name': 'King_Player', 'win': 142000, 'avatar': '👑'},
-      {'name': 'SpinMaster', 'win': 98500, 'avatar': '💎'},
-      {'name': 'LuckyCharm', 'win': 76200, 'avatar': '🍀'},
-    ];
-    showModalBottomSheet(
-      context: context, backgroundColor: const Color(0xFF0F172A), shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("DAILY RANKING", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            Expanded(child: ListView.builder(itemCount: mockRanking.length, itemBuilder: (context, i) {
-              final player = mockRanking[i];
-              return ListTile(leading: Text(player['avatar'].toString(), style: const TextStyle(fontSize: 24)), title: Text(player['name'].toString(), style: const TextStyle(color: Colors.white)), trailing: Text("${player['win']} Coins", style: const TextStyle(color: Color(0xFFFACC15), fontWeight: FontWeight.w900)));
-            })),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   void dispose() {
     _timer?.cancel();
@@ -229,25 +183,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
   Widget build(BuildContext context) {
     final balanceAsync = ref.watch(walletBalanceProvider);
     final settingsAsync = ref.watch(gameSettingsProvider);
-
-    balanceAsync.whenData((balance) {
-      if (_localBalance == null) _localBalance = balance['diamonds'] ?? 0;
-    });
+    final statsAsync = ref.watch(luckySpinStatsProvider);
+    final historyAsync = ref.watch(userGameHistoryProvider);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.brown, size: 22),
-            onPressed: () => Navigator.pop(context)),
-        actions: [
-          IconButton(
-              icon: const Icon(Icons.help_outline, color: Colors.brown, size: 26),
-              onPressed: () => settingsAsync.whenData((s) => _showRulesSheet(s)))
-        ],
-      ),
       body: settingsAsync.when(
         data: (settings) {
           if (!settings['isActive']) return _buildMaintenanceScreen();
@@ -257,77 +197,47 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
 
           return Stack(
             children: [
-              // 1. Ferris Wheel Frame Background
+              // 1. Background Image
               Positioned.fill(
                 child: Image.asset(
-                  'assets/images/spin_bg.png',
+                  'assets/images/spin_bg.webp',
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFFFDE047)),
                 ),
               ),
 
-              // 2. Main Game Content
+              // 2. Header Elements
+              _buildHeader(settings, statsAsync.value?['currentRound'] ?? 0),
+
+              // 3. Main Circular Game
               Align(
-                alignment: const Alignment(0, -0.25), // Increased top spacing by shifting alignment down
+                alignment: const Alignment(0, -0.25),
                 child: SizedBox(
-                  width: 320,
-                  height: 320,
+                  width: 320, height: 320,
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      // The Spinning Wheel
                       SizedBox(
-                        width: 280,
-                        height: 280,
+                        width: 280, height: 280,
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            // 1. Pods (Static in background cabins)
-                            CustomPaint(
-                              size: const Size(280, 280),
-                              painter: PodsPainter(items: items, activeIndex: _currentSegment),
-                            ),
-
-                            // 2. Revolving Light (The actual selector)
+                            CustomPaint(size: const Size(280, 280), painter: PodsPainter(items: items, activeIndex: _currentSegment)),
                             AnimatedBuilder(
                               animation: _animation,
-                              builder: (context, child) => CustomPaint(
-                                size: const Size(280, 280),
-                                painter: GlowPointerPainter(angle: _animation.value),
-                              ),
+                              builder: (context, child) => CustomPaint(size: const Size(280, 280), painter: GlowPointerPainter(angle: _animation.value)),
                             ),
-
-                            // 3. Center Red Button with Countdown
                             Positioned(
                               child: GestureDetector(
-                                onTap: _handleSpin,
+                                onTap: _isSpinning ? null : _handleSpin,
                                 child: Container(
-                                  width: 80,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEF4444),
-                                    shape: BoxShape.circle,
-                                    border: Border.all(color: const Color(0xFFFFD700), width: 3),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.4),
-                                        blurRadius: 10,
-                                        spreadRadius: 1,
-                                        offset: const Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
+                                  width: 94, height: 94,
+                                  decoration: BoxDecoration(color: const Color(0xFFEF4444), shape: BoxShape.circle, border: Border.all(color: const Color(0xFFFFD700), width: 3.5)),
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      const Text(
-                                        "Select time",
-                                        style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                                      ),
-                                      Text(
-                                        "${_countdown}s",
-                                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
-                                      ),
+                                      const Text("Select time", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                      Text("${_countdown}s", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
                                     ],
                                   ),
                                 ),
@@ -340,6 +250,23 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
                   ),
                 ),
               ),
+
+              // 4. Betting Section
+              _buildBettingSection(),
+
+              // 5. Result History
+              _buildResultHistory(historyAsync.value ?? []),
+
+              // 6. Bottom Red Bar
+              _buildBottomBar(balanceAsync.value?['diamonds'] ?? 0),
+
+              // 7. Footer text
+              _buildFooterText(),
+              
+              Positioned(
+                top: 40, left: 10,
+                child: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 22), onPressed: () => Navigator.pop(context)),
+              ),
             ],
           );
         },
@@ -347,6 +274,206 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
         error: (e, _) => Center(child: Text("Error: $e")),
       ),
     );
+  }
+
+  Widget _buildHeader(Map<String, dynamic> settings, int currentRound) {
+    return Positioned(
+      top: 50, left: 20, right: 20,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text("Today's $currentRound Round", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
+          GestureDetector(
+            onTap: () => _showRulesSheet(settings),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
+              child: const Text("Rules >", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBettingSection() {
+    return Positioned(
+      bottom: 183, left: 0, right: 0,
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.stars, color: Colors.amber, size: 14),
+              const Text(" 7 = ", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              const Icon(Icons.diamond, color: Colors.cyan, size: 14),
+              const Text(" 2", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildChip(10, Colors.red, true),
+              const SizedBox(width: 10),
+              _buildChip(50, const Color(0xFFFFD700), false),
+              const SizedBox(width: 10),
+              _buildChip(100, const Color(0xFFFFD700), false),
+              const SizedBox(width: 10),
+              _buildChip(1000, const Color(0xFFFFD700), false),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+ Widget _buildChip(int value, Color color, bool isRed) {
+  bool isSelected = _selectedWager == value;
+
+  return GestureDetector(
+    onTap: () => setState(() => _selectedWager = value),
+    child: Container(
+      width: 60,                    // Compact square size
+      height: 60,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),   // 12 radius as requested
+        border: Border.all(
+          color: isSelected ? Colors.white : Colors.black26,
+          width: isSelected ? 3 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isRed)
+              const Icon(Icons.stars, color: Colors.amber, size: 18),
+            Text(
+              value.toString(),
+              style: TextStyle(
+                color: isRed ? Colors.white : Colors.brown[900],
+                fontWeight: FontWeight.w900,
+                fontSize: 16,           // Slightly bigger for better visibility
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+  Widget _buildResultHistory(List<Map<String, dynamic>> history) {
+    final settings = ref.read(gameSettingsProvider).value;
+    final segments = settings?['segments'] as List? ?? [];
+    
+    return Positioned(
+      bottom: 125, left: 0, right: 0,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+            decoration: const BoxDecoration(color: Colors.red, borderRadius: BorderRadius.only(topRight: Radius.circular(10), bottomRight: Radius.circular(10))),
+            child: const Text("Result", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: history.map((rec) {
+                  final label = rec['label'] as String? ?? "0x";
+                  final segment = segments.firstWhere((s) => "${s['multiplier']}x" == label || s['multiplier'].toString() == label.replaceAll('x',''), orElse: () => null);
+                  final emoji = segment?['emoji'] ?? '🎡';
+                  bool isNew = history.indexOf(rec) == 0;
+                  
+                  return Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Text(emoji, style: const TextStyle(fontSize: 20)),
+                      ),
+                      if (isNew) Positioned(
+                        top: -5, right: -5,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(color: Colors.yellow, borderRadius: BorderRadius.circular(4)),
+                          child: const Text("New", style: TextStyle(color: Colors.black, fontSize: 6, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(int balance) {
+    return Positioned(
+      bottom: 0, left: 0, right: 0,
+      child: Container(
+        height: 120, width: double.infinity, 
+        color: const Color(0xFFEF4444), 
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Positioned(
+              bottom: 45, left: 16, right: 16,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildBalanceBox(Icons.stars, Colors.amber, "Sisa Koin", balance.toString()),
+                  _buildBalanceBox(Icons.diamond, Colors.cyan, "Keuntungan Hari ini", _todayProfits.toString()),
+                ],
+              ),
+            ),
+            const Positioned(
+              bottom: 20,
+              child: Text("Catatan saya >", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBalanceBox(IconData icon, Color iconColor, String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(25)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: iconColor, size: 22),
+          const SizedBox(width: 8),
+          Column(
+            mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(color: Colors.black54, fontSize: 8, fontWeight: FontWeight.bold)),
+              Text(value, style: const TextStyle(color: Colors.black, fontSize: 14, fontWeight: FontWeight.w900, height: 1.1)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooterText() {
+    return const SizedBox.shrink(); // Integrated into _buildBottomBar
   }
 
   Widget _buildMaintenanceScreen() {
@@ -357,60 +484,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with SingleTi
           const Icon(Icons.build_circle, color: Colors.brown, size: 80),
           const SizedBox(height: 16),
           const Text("GAME UNAVAILABLE", style: TextStyle(color: Colors.brown, fontWeight: FontWeight.w900, fontSize: 24)),
-          const SizedBox(height: 8),
-          const Text("Admin has temporarily disabled this game.", style: TextStyle(color: Colors.brown, fontSize: 14)),
         ],
       ),
     );
-  }
-
-  Widget _buildMultipliersRow(List<SpinItem> items) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: items.map((item) => Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 36,
-                      height: 36,
-                      decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                      alignment: Alignment.center,
-                      child: Text(item.emoji, style: const TextStyle(fontSize: 20)),
-                    ),
-                    const SizedBox(height: 4),
-                    Text("${item.multiplier}x", style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              )).toList(),
-        ),
-      );
-
-  Widget _buildScoreBoard() {
-    return Row( children: [ Expanded(child: _scoreCard("Coins left", (_localBalance ?? 0).toString(), const Color(0xFFFACC15))), const SizedBox(width: 12), Expanded(child: _scoreCard("Today's profits", _todayProfits.toString(), const Color(0xFF2DD4BF))) ]);
-  }
-
-  Widget _scoreCard(String label, String value, Color color) {
-    return Container( padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white10)), child: Column( crossAxisAlignment: CrossAxisAlignment.start, children: [ Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)), const SizedBox(height: 2), Text(value, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900)) ] ));
-  }
-
-  Widget _buildWagerRow(Map<String, dynamic> settings) {
-    final wagers = [10, 50, 100, 5000];
-    return Row( mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: wagers.map((w) => _wagerChip(w)).toList() );
-  }
-
-  Widget _wagerChip(int amount) {
-    bool isSelected = _selectedWager == amount;
-    return GestureDetector( onTap: () => setState(() => _selectedWager = amount), child: AnimatedContainer( duration: const Duration(milliseconds: 200), width: 62, height: 62, decoration: BoxDecoration(color: isSelected ? const Color(0xFFFACC15) : Colors.white.withOpacity(0.05), shape: BoxShape.circle, border: Border.all(color: isSelected ? Colors.white : Colors.white12, width: 2)), child: Column( mainAxisAlignment: MainAxisAlignment.center, children: [ Icon(Icons.stars, color: isSelected ? Colors.brown : Colors.amber, size: 14), Text(amount.toString(), style: TextStyle(color: isSelected ? Colors.black : Colors.white, fontWeight: FontWeight.bold, fontSize: 14)) ] )));
-  }
-
-  Widget _buildActionButtons() {
-    return Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [ GestureDetector(onTap: _showHistorySheet, child: _miniAction(Icons.history_rounded, "My Record")), GestureDetector(onTap: _showRankingSheet, child: _miniAction(Icons.emoji_events_rounded, "Ranking")), GestureDetector(onTap: () => ref.read(gameSettingsProvider).whenData((s) => _showRulesSheet(s)), child: _miniAction(Icons.info_outline_rounded, "Rules")) ]);
-  }
-
-  Widget _miniAction(IconData icon, String text) {
-    return Column( children: [ Icon(icon, color: Colors.white24, size: 20), const SizedBox(height: 4), Text(text, style: const TextStyle(color: Colors.white24, fontSize: 9)) ]);
   }
 }
 
@@ -419,46 +495,18 @@ class SpinItem {
   SpinItem({required this.name, required this.multiplier, required this.emoji});
 }
 
-class WheelPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2); final radius = size.width / 2 - 20;
-    final wheelPaint = Paint()..color = const Color(0xFFFACC15)..strokeWidth = 3..style = PaintingStyle.stroke;
-    canvas.drawCircle(center, radius, wheelPaint);
-    final spokePaint = Paint()..color = const Color(0xFFFACC15).withOpacity(0.4)..strokeWidth = 2;
-    for (int i = 0; i < 8; i++) {
-       final angle = i * (2 * math.pi / 8) - (math.pi / 2);
-       canvas.drawLine(center, Offset(center.dx + math.cos(angle) * (radius - 10), center.dy + math.sin(angle) * (radius - 10)), spokePaint);
-    }
-    canvas.drawCircle(center, 35, Paint()..color = const Color(0xFFFDE047));
-  }
-  @override bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
 class PodsPainter extends CustomPainter {
   final List<SpinItem> items; final int activeIndex;
   PodsPainter({required this.items, required this.activeIndex});
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2); 
-    final radius = 125.0; // Optimized radius for 280x280 frame area
-    
+    final radius = 125.0; 
     for (int i = 0; i < items.length; i++) {
         final angle = i * (2 * math.pi / 8) - (math.pi / 2);
         final podCenter = Offset(center.dx + math.cos(angle) * radius, center.dy + math.sin(angle) * radius);
-        
-        TextPainter(
-          text: TextSpan(text: items[i].emoji, style: const TextStyle(fontSize: 22)), 
-          textDirection: TextDirection.ltr
-        )..layout()..paint(canvas, podCenter - const Offset(11, 24));
-        
-        TextPainter(
-          text: TextSpan(
-            text: "win ${items[i].multiplier}x", 
-            style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)
-          ), 
-          textDirection: TextDirection.ltr
-        )..layout()..paint(canvas, podCenter - const Offset(18, -12));
+        TextPainter(text: TextSpan(text: items[i].emoji, style: const TextStyle(fontSize: 22)), textDirection: TextDirection.ltr)..layout()..paint(canvas, podCenter - const Offset(11, 24));
+        TextPainter(text: TextSpan(text: "win ${items[i].multiplier}x", style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)..layout()..paint(canvas, podCenter - const Offset(18, -12));
     }
   }
   @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
@@ -476,55 +524,9 @@ class GlowPointerPainter extends CustomPainter {
     final lightPos = Offset(center.dx + math.cos(snappedAngle) * radius, center.dy + math.sin(snappedAngle) * radius);
     
     // Outer golden glow
-    canvas.drawCircle(lightPos, 42, Paint()..color = const Color(0xFFFFD700).withOpacity(0.3)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10));
-    // Inner white highlight
-    canvas.drawCircle(lightPos, 35, Paint()..color = Colors.white.withOpacity(0.4)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5));
-    // Sharp border stroke
-    canvas.drawCircle(lightPos, 34, Paint()..color = Colors.white.withOpacity(0.8)..style = PaintingStyle.stroke..strokeWidth = 2);
+    canvas.drawCircle(lightPos, 45, Paint()..color = const Color(0xFFFFD700).withOpacity(0.35)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
+    // Inner white highlight (main focused light)
+    canvas.drawCircle(lightPos, 38, Paint()..color = Colors.white.withOpacity(0.5)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
   }
   @override bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-}
-
-class SupportPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-
-    final basePath = Path()
-      ..moveTo(30, size.height - 40)
-      ..lineTo(size.width - 30, size.height - 40)
-      ..lineTo(size.width - 10, size.height - 10)
-      ..lineTo(10, size.height - 10)
-      ..close();
-    canvas.drawPath(basePath, Paint()..color = const Color(0xFF3B82F6));
-
-    _drawStripedLeg(canvas, Offset(center.dx - 55, size.height - 45), -0.18);
-    _drawStripedLeg(canvas, Offset(center.dx + 55, size.height - 45), 0.18);
-  }
-
-  void _drawStripedLeg(Canvas canvas, Offset start, double angle) {
-    final path = Path()
-      ..moveTo(start.dx - 18, start.dy)
-      ..lineTo(start.dx + 18, start.dy)
-      ..lineTo(start.dx + (angle * 90), start.dy - 145)
-      ..lineTo(start.dx + (angle * 90) - 20, start.dy - 145)
-      ..close();
-
-    canvas.drawPath(path, Paint()..color = const Color(0xFF2563EB));
-
-    canvas.save();
-    canvas.clipPath(path);
-    final stripePaint = Paint()..color = const Color(0xFFFDE047)..strokeWidth = 10;
-    for (int i = 0; i < 12; i++) {
-      canvas.drawLine(
-        Offset(start.dx - 60, start.dy - (i * 26)),
-        Offset(start.dx + 80, start.dy - (i * 26) - 20),
-        stripePaint,
-      );
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

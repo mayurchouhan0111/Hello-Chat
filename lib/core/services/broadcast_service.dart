@@ -18,11 +18,15 @@ class BroadcastModel {
 
   factory BroadcastModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final createdAt = (data['createdAt'] as Timestamp?)?.toDate() ?? 
+                      (data['timestamp'] as Timestamp?)?.toDate() ?? 
+                      DateTime.now();
+
     return BroadcastModel(
       id: doc.id,
       message: data['message'] ?? '',
       type: data['type'] ?? 'system',
-      createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      createdAt: createdAt,
       isActive: data['isActive'] ?? true,
     );
   }

@@ -10,6 +10,7 @@ import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/router/app_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:country_picker/country_picker.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -21,16 +22,13 @@ class LoginScreen extends ConsumerStatefulWidget {
 class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _phoneController = TextEditingController();
   bool _isLoading = false;
-  String _selectedCountryCode = "+91";
+  String _selectedCountryCode = "91";
+  String _selectedCountryFlag = "🇮🇳";
 
-  final List<Map<String, String>> _countries = [
-    {"code": "+91", "name": "India", "flag": "🇮🇳"},
-    {"code": "+880", "name": "Bangladesh", "flag": "🇧🇩"},
-  ];
 
   void _verifyPhone() async {
     final phoneNum = _phoneController.text.trim();
-    final phone = "$_selectedCountryCode$phoneNum";
+    final phone = "+$_selectedCountryCode$phoneNum";
     if (phoneNum.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Please enter a valid phone number")),
@@ -93,7 +91,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               Center(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
-                  child: Image.asset('assets/images/logo.png', width: 100, height: 100),
+                  child: Image.asset('assets/images/logo.webp', width: 100, height: 100),
                 ),
               ),
               const SizedBox(height: 24),
@@ -112,28 +110,41 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 label: "Phone Number",
                 hintText: 'Enter your phone number',
                 keyboardType: TextInputType.phone,
-                prefixIcon: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedCountryCode,
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
-                      onChanged: (String? newValue) {
-                        if (newValue != null) {
-                          setState(() {
-                            _selectedCountryCode = newValue;
-                          });
-                        }
-                      },
-                      items: _countries.map<DropdownMenuItem<String>>((Map<String, String> country) {
-                        return DropdownMenuItem<String>(
-                          value: country["code"],
-                          child: Text(
-                            "${country["flag"]} ${country["code"]}",
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                prefixIcon: InkWell(
+                  onTap: () {
+                    showCountryPicker(
+                      context: context,
+                      showPhoneCode: true,
+                      countryListTheme: CountryListThemeData(
+                        borderRadius: BorderRadius.circular(20),
+                        inputDecoration: InputDecoration(
+                          hintText: 'Search country',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.border),
                           ),
-                        );
-                      }).toList(),
+                        ),
+                      ),
+                      onSelect: (Country country) {
+                        setState(() {
+                          _selectedCountryCode = country.phoneCode;
+                          _selectedCountryFlag = country.flagEmoji;
+                        });
+                      },
+                    );
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "$_selectedCountryFlag +$_selectedCountryCode",
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const Icon(Icons.keyboard_arrow_down_rounded, size: 18),
+                      ],
                     ),
                   ),
                 ),

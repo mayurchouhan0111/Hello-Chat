@@ -1,8 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore;
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'dart:math';
+import '../../core/services/base_firebase_service.dart';
+import '../../core/services/game_service.dart';
 
 enum GameType { spinWheel, luckyDraw }
 
@@ -14,22 +14,24 @@ class GameResult {
   GameResult({required this.multiplier, required this.prize, required this.label});
 }
 
-class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> {
+// 🎮 Game Action Notifier (For spinning and playing)
+class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> with BaseFirebaseService {
   GameNotifier() : super(const AsyncValue.data(null));
 
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
-  // 1. Play Spin Wheel (Now calling Secure Cloud Function)
   Future<void> playSpinWheel(int betAmount) async {
     state = const AsyncValue.loading();
     try {
-      final result = await _functions.httpsCallable('playSpinWheel').call({
-        'betAmount': betAmount,
-      });
+      final user = _auth.currentUser;
+      if (user != null) {
+        await user.getIdToken(true); // Ensure fresh auth token
+      }
 
-      final data = result.data as Map<String, dynamic>;
+      final data = await callFunction('playSpinWheel', {
+        'betAmount': betAmount,
+      }) as Map<String, dynamic>;
+
       final gameResult = GameResult(
         multiplier: (data['prize'] as int) / betAmount,
         prize: data['prize'] as int,
@@ -42,15 +44,18 @@ class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> {
     }
   }
 
-  // 2. Play Lucky Draw (Now calling Secure Cloud Function)
   Future<void> playLuckyDraw(int betAmount) async {
     state = const AsyncValue.loading();
     try {
-      final result = await _functions.httpsCallable('playLuckyDraw').call({
-        'betAmount': betAmount,
-      });
+      final user = _auth.currentUser;
+      if (user != null) {
+        await user.getIdToken(true);
+      }
 
-      final data = result.data as Map<String, dynamic>;
+      final data = await callFunction('playLuckyDraw', {
+        'betAmount': betAmount,
+      }) as Map<String, dynamic>;
+
       final isWin = data['isWin'] as bool;
       final prize = data['prize'] as int;
 
@@ -69,16 +74,74 @@ final gameActionProvider = StateNotifierProvider<GameNotifier, AsyncValue<GameRe
   return GameNotifier();
 });
 
-final gameHistoryProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
-  if (uid == null) return Stream.value([]);
+// ⚙️ Game Settings Stream Provider
+final gameSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('game_settings')
+      .doc('lucky_spin')
+      .snapshots()
+      .map((snap) {
+        if (!snap.exists) {
+          return {
+            'isActive': true,
+            'minWager': 10,
+            'maxWager': 5000,
+            'maxWinCap': 50000,
+            'dailyProfitLimit': 100000,
+            'segments': [
+              {'id': '1', 'name': 'Apple', 'multiplier': 2, 'weight': 550, 'emoji': '🍎'},
+              {'id': '2', 'name': 'Orange', 'multiplier': 3, 'weight': 250, 'emoji': '🍊'},
+              {'id': '3', 'name': 'Banana', 'multiplier': 5, 'weight': 100, 'emoji': '🍌'},
+              {'id': '4', 'name': 'Watermelon', 'multiplier': 8, 'weight': 50, 'emoji': '🍉'},
+              {'id': '5', 'name': 'Grape', 'multiplier': 10, 'weight': 30, 'emoji': '🍇'},
+              {'id': '6', 'name': 'Peach', 'multiplier': 12, 'weight': 10, 'emoji': '🍑'},
+              {'id': '7', 'name': 'Strawberry', 'multiplier': 15, 'weight': 9, 'emoji': '🍓'},
+              {'id': '8', 'name': 'Pineapple', 'multiplier': 100, 'weight': 1, 'emoji': '🍍'},
+            ]
+          };
+        }
+        return snap.data()!;
+      });
+});
 
+// 📊 Lucky Spin Stats Stream Provider
+final luckySpinStatsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('games_meta')
+      .doc('lucky_spin')
+      .snapshots()
+      .map((snap) => snap.exists ? snap.data()! : {
+        'currentRound': 1,
+        'totalPool': 0,
+        'todayWinners': [],
+      });
+});
+
+// 📜 User's private game history
+final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return Stream.value([]);
+  
   return FirebaseFirestore.instance
       .collection('users')
-      .doc(uid)
+      .doc(user.uid)
       .collection('game_history')
       .orderBy('timestamp', descending: true)
       .limit(50)
       .snapshots()
-      .map((snap) => snap.docs.map((doc) => doc.data()).toList());
+      .map((snap) => snap.docs.map((d) => d.data()).toList());
+});
+
+// 🎫 Lucky Draw Settings Provider
+final luckyDrawSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('game_settings')
+      .doc('lucky_draw')
+      .snapshots()
+      .map((snap) => snap.exists ? snap.data()! : {
+        'isActive': true,
+        'ticketPrices': [10, 50, 100, 500],
+        'currentPrizePool': 0,
+        'frequencyMinutes': 30,
+      });
 });

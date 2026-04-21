@@ -75,4 +75,9 @@ class AuthService {
     await GoogleSignIn().signOut();
     await FacebookAuth.instance.logOut();
   }
+
+  // 7. Update Password (must be logged in)
+  Future<void> updatePassword(String newPassword) async {
+    await _auth.currentUser?.updatePassword(newPassword);
+  }
 }

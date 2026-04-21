@@ -11,7 +11,9 @@ import {
   MoreVertical, 
   Mic, 
   Search,
-  Zap
+  Zap,
+  Flame,
+  Diamond
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -83,8 +85,8 @@ export const RoomManagement = () => {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
          {[
            { label: 'Total Viewers', val: rooms.reduce((acc, r) => acc + (r.currentUsersCount || 0), 0), icon: Users, color: 'text-cyan-400' },
-           { label: 'Mic Slots Active', val: '1,204', icon: Mic, color: 'text-purple-400' },
-           { label: 'Gifts Flux P/M', val: '4,102', icon: ShieldAlert, color: 'text-amber-400' },
+           { label: 'Active PK Battles', val: rooms.filter(r => r.pkActive).length.toLocaleString(), icon: Flame, color: 'text-orange-400' },
+           { label: 'Economic Load', val: 'Syncing...', icon: Diamond, color: 'text-amber-400' },
            { label: 'Avg Pulse', val: '98%', icon: Activity, color: 'text-emerald-400' },
          ].map(stat => (
            <div key={stat.label} className="card-glass p-5 border-white/5 flex items-center gap-4 group hover:bg-white/5 transition-all">
@@ -135,6 +137,12 @@ export const RoomManagement = () => {
                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
                    
                    <div className="absolute bottom-4 left-6 right-6">
+                      {room.pkActive && (
+                        <div className="flex items-center gap-2 mb-3 bg-orange-600/90 backdrop-blur-md px-3 py-1 rounded-lg border border-orange-400/50 w-fit">
+                           <Flame size={12} className="text-white animate-bounce" />
+                           <span className="text-[10px] font-black text-white uppercase tracking-tighter">BATTLE ACTIVE</span>
+                        </div>
+                       )}
                       <h3 className="text-xl font-black text-white tracking-tight truncate">{room.title || 'Untitled Room'}</h3>
                       <div className="flex items-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
@@ -163,6 +171,54 @@ export const RoomManagement = () => {
                          <span className="px-2 py-1 bg-white/5 rounded-md text-[9px] font-black text-slate-400 border border-white/5 uppercase">{room.category || 'CHITCHAT'}</span>
                       </div>
                    </div>
+
+                   {room.pkActive && (
+                      <div className="mx-0 p-4 bg-black/40 rounded-2xl border border-white/5 space-y-3">
+                         <div className="flex items-center justify-between">
+                            {/* Participant A */}
+                            <div className="flex flex-col items-center gap-1">
+                               <div className="w-8 h-8 rounded-full border-2 border-cyan-400 overflow-hidden bg-slate-800">
+                                  <img 
+                                    src={`https://api.dicebear.com/7.x/avataaars/png?seed=${Object.keys(room.pkTeams || {})[0] || 'A'}`} 
+                                    onError={(e) => e.target.src = 'https://api.dicebear.com/7.x/avataaars/png?seed=error'}
+                                  />
+                               </div>
+                               <span className="text-[9px] font-black text-cyan-400">
+                                  {room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0} 💎
+                               </span>
+                            </div>
+
+                            <div className="text-[10px] font-black text-slate-500 animate-pulse">VS</div>
+
+                            {/* Participant B */}
+                            <div className="flex flex-col items-center gap-1">
+                               <div className="w-8 h-8 rounded-full border-2 border-pink-400 overflow-hidden bg-slate-800">
+                                  <img 
+                                    src={`https://api.dicebear.com/7.x/avataaars/png?seed=${Object.keys(room.pkTeams || {})[1] || 'B'}`} 
+                                    onError={(e) => e.target.src = 'https://api.dicebear.com/7.x/avataaars/png?seed=error'}
+                                  />
+                               </div>
+                               <span className="text-[9px] font-black text-pink-400">
+                                  {room.pkScores?.[Object.keys(room.pkTeams || {})[1]] || 0} 💎
+                                </span>
+                            </div>
+                         </div>
+
+                         {/* Progress Bar with Safety Fallbacks */}
+                         <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden flex">
+                            <div 
+                              style={{ 
+                                width: `${
+                                  ((room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0) + 1) / 
+                                  ((room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0) + (room.pkScores?.[Object.keys(room.pkTeams || {})[1]] || 0) + 2) * 100
+                                }%` 
+                              }} 
+                              className="bg-cyan-500 h-full shadow-[0_0_10px_#06b6d4] transition-all duration-700"
+                            ></div>
+                            <div className="flex-1 bg-pink-500 h-full shadow-[0_0_10px_#ec4899] transition-all duration-700"></div>
+                         </div>
+                      </div>
+                    )}
 
                    {/* Admin Ops Bar */}
                    <div className="grid grid-cols-2 gap-3 pt-4">

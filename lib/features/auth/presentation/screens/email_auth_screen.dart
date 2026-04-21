@@ -23,27 +23,36 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
 
-  Future<void> _handleEmailAuth() async {
-    final email = _emailController.text.trim();
+  Future<void> _handleAuth() async {
+    final identifier = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty) {
+    if (identifier.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter email and password")),
+        const SnackBar(content: Text("Please enter identifier and password")),
       );
       return;
     }
 
     setState(() => _isLoading = true);
 
+    String finalIdentifier = identifier;
+    // Check if it's a phone number (start with + or is all digits)
+    if (RegExp(r'^\+?[0-9]{7,15}$').hasMatch(identifier)) {
+      // Normalize phone number to pseudo-email
+      finalIdentifier = identifier.startsWith('+') 
+          ? "$identifier@phone.hellochat.app" 
+          : "+$identifier@phone.hellochat.app";
+    }
+
     try {
       // Logic: Try to login first, if user not found, try to register
       try {
-        await ref.read(authServiceProvider).loginWithEmail(email, password);
+        await ref.read(authServiceProvider).loginWithEmail(finalIdentifier, password);
       } on FirebaseAuthException catch (e) {
-        if (e.code == 'user-not-found' || e.code == 'invalid-credential') {
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential' || e.code == 'invalid-email') {
           // If login fails because user doesn't exist, try to register
-          await ref.read(authServiceProvider).registerWithEmail(email, password);
+          await ref.read(authServiceProvider).registerWithEmail(finalIdentifier, password);
         } else {
           rethrow;
         }
@@ -86,7 +95,7 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
               Center(
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
-                  child: Image.asset('assets/images/logo.png', width: 100, height: 100),
+                  child: Image.asset('assets/images/logo.webp', width: 100, height: 100),
                 ),
               ),
               const SizedBox(height: 24),
@@ -96,16 +105,16 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                "Enter your email and password to continue",
+                "Enter your email or phone number and password to continue",
                 style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
               ),
               const SizedBox(height: 32),
               
               AppTextField(
                 controller: _emailController,
-                label: "Email Address",
-                hintText: 'example@gmail.com',
-                keyboardType: TextInputType.emailAddress,
+                label: "Email or Phone Number",
+                hintText: 'example@gmail.com or +91...',
+                keyboardType: TextInputType.visiblePassword,
               ),
               const SizedBox(height: 16),
               
@@ -127,7 +136,7 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
               
               const SizedBox(height: 24),
               AppButton(
-                onPressed: _isLoading ? null : _handleEmailAuth,
+                onPressed: _isLoading ? null : _handleAuth,
                 text: _isLoading ? "PLEASE WAIT..." : "CONTINUE",
               ),
               

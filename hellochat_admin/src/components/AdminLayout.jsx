@@ -15,11 +15,16 @@ import {
   Gift,
   Crown,
   Building2,
-  History
+  History,
+  Gamepad2,
+  Database,
+  ArrowRightLeft,
+  ShoppingBag
 } from 'lucide-react';
 
+
 const Sidebar = () => {
-  const { logout } = useAdmin();
+  const { logout, isAdmin, isAgencyOwner } = useAdmin();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -28,19 +33,28 @@ const Sidebar = () => {
     navigate('/login');
   };
 
-  const menu = [
+  const fullMenu = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
     { name: 'Users', icon: Users, path: '/users' },
     { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
     { name: 'Gifts', icon: Gift, path: '/gifts' },
     { name: 'VIP Store', icon: Crown, path: '/vip' },
+    { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
     { name: 'Agencies', icon: Building2, path: '/agencies' },
+    { name: 'Families', icon: UsersRound, path: '/families' },
     { name: 'Financials', icon: Coins, path: '/financials' },
     { name: 'Reports', icon: ShieldAlert, path: '/reports' },
     { name: 'Moderation', icon: Flag, path: '/moderation' },
+    { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
     { name: 'Settings', icon: Settings, path: '/settings' },
     { name: 'Audit Trail', icon: History, path: '/logs' },
+    { name: 'Withdrawals', icon: ArrowRightLeft, path: '/withdrawals' },
+    { name: 'Dev Tools', icon: Database, path: '/dev' },
   ];
+
+  const menu = (isAgencyOwner && !isAdmin) 
+    ? [{ name: 'Agency Portal', icon: Building2, path: '/agencies' }] 
+    : fullMenu;
 
   return (
     <div className="w-64 bg-sidebar h-screen text-gray-300 flex flex-col border-r border-white/5 shadow-2xl">
@@ -49,7 +63,7 @@ const Sidebar = () => {
           <div className="bg-primary p-2 rounded-xl shadow-lg border border-white/10">
             <ShieldAlert className="text-white" size={24} />
           </div>
-          HELLO ADMIN
+          {isAdmin ? 'HELLO ADMIN' : 'AGENCY PORTAL'}
         </h1>
       </div>
 
@@ -84,14 +98,14 @@ const Sidebar = () => {
 };
 
 export const AdminLayout = ({ children }) => {
-  const { user, isAdmin, loading } = useAdmin();
+  const { user, isAdmin, isAgencyOwner, loading } = useAdmin();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!loading && (!user || !isAdmin)) {
+    if (!loading && (!user || (!isAdmin && !isAgencyOwner))) {
       navigate('/login');
     }
-  }, [user, isAdmin, loading, navigate]);
+  }, [user, isAdmin, isAgencyOwner, loading, navigate]);
 
   if (loading) return (
     <div className="h-screen bg-sidebar flex items-center justify-center">

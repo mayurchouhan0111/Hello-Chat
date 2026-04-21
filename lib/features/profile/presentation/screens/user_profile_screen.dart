@@ -45,9 +45,9 @@ class UserProfileScreen extends ConsumerWidget {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                         children: [
+                          _buildStatItem(userData.friendsCount, "Friends"),
                           _buildStatItem(userData.followerCount, "Fans"),
                           _buildStatItem(userData.followingCount, "Follows"),
-                          _buildStatItem(userData.level, "Level"),
                         ],
                       ),
                       const Gap(32),
@@ -57,14 +57,33 @@ class UserProfileScreen extends ConsumerWidget {
                         Row(
                           children: [
                             Expanded(
-                              child: ElevatedButton(
-                                onPressed: () {},
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.primary,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                ),
-                                child: const Text("Follow", style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: Consumer(
+                                builder: (context, ref, child) {
+                                  final followingListAsync = ref.watch(followingStreamProvider(currentUid!));
+                                  return followingListAsync.when(
+                                    data: (list) {
+                                      final isFollowing = list.contains(uid);
+                                      return ElevatedButton(
+                                        onPressed: () async {
+                                          if (isFollowing) {
+                                            await ref.read(profileServiceProvider).unfollowUser(currentUid, uid);
+                                          } else {
+                                            await ref.read(profileServiceProvider).followUser(currentUid, uid);
+                                          }
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: isFollowing ? Colors.grey[200] : AppColors.primary,
+                                          foregroundColor: isFollowing ? Colors.black87 : Colors.white,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                          padding: const EdgeInsets.symmetric(vertical: 16),
+                                        ),
+                                        child: Text(isFollowing ? "Unfollow" : "Follow", style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      );
+                                    },
+                                    loading: () => const Center(child: CircularProgressIndicator()),
+                                    error: (_, __) => const SizedBox(),
+                                  );
+                                },
                               ),
                             ),
                             const Gap(12),

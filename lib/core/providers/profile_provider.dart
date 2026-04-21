@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/services/profile_service.dart';
+import 'package:hello_chat/core/models/transaction_model.dart';
+import 'package:hello_chat/core/models/user_model.dart';
 
 final profileServiceProvider = Provider<ProfileService>((ref) {
   return ProfileService();
@@ -11,7 +13,7 @@ final userProfileProvider = StreamProvider.family<dynamic, String>((ref, uid) {
   return ref.watch(profileServiceProvider).getProfileStream(uid);
 });
 
-final currentUserProfileProvider = StreamProvider<dynamic>((ref) {
+final currentUserProfileProvider = StreamProvider<UserModel?>((ref) {
   final uid = FirebaseAuth.instance.currentUser?.uid;
   if (uid == null) return Stream.value(null);
   return ref.watch(profileServiceProvider).getProfileStream(uid);
@@ -51,4 +53,42 @@ final commentsStreamProvider = StreamProvider.family<List<Map<String, dynamic>>,
 
 final mediaStreamProvider = StreamProvider.family<Map<String, dynamic>, String>((ref, mediaId) {
   return ref.watch(profileServiceProvider).getMomentStream(mediaId);
+});
+final transactionStreamProvider = StreamProvider<List<WalletTransaction>>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return Stream.value([]);
+  
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('transactions')
+      .orderBy('timestamp', descending: true)
+      .snapshots()
+      .map((snapshot) => snapshot.docs
+          .map((doc) => WalletTransaction.fromMap(doc.data(), doc.id))
+          .toList());
+});
+
+final cpInvitesProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return Stream.value([]);
+  return ref.watch(profileServiceProvider).getCPInvitesStream(uid);
+});
+
+final warehouseItemsProvider = StreamProvider.family<List<Map<String, dynamic>>, String>((ref, category) {
+  final uid = FirebaseAuth.instance.currentUser?.uid;
+  if (uid == null) return Stream.value([]);
+  return ref.watch(profileServiceProvider).getWarehouseItemsStream(uid, category);
+});
+
+final prestigeItemsProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  return ref.watch(profileServiceProvider).getPrestigeItemsStream();
+});
+
+final friendsStreamProvider = StreamProvider.family<List<String>, String>((ref, uid) {
+  return ref.watch(profileServiceProvider).getFriendsStream(uid);
+});
+
+final familyRoomsProvider = StreamProvider.family<List<Map<String, dynamic>>, String>((ref, familyId) {
+  return ref.watch(profileServiceProvider).getFamilyRoomsStream(familyId);
 });

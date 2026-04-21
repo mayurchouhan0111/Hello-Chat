@@ -1,81 +1,63 @@
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 import '../services/cloudinary_service.dart';
+import 'base_firebase_service.dart';
 
-class ProfileService {
+class ProfileService extends BaseFirebaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final CloudinaryService _cloudinary = CloudinaryService();
 
   // Stream of user profile
   Stream<UserModel> getProfileStream(String uid) {
     return _db.collection('users').doc(uid).snapshots().map((snapshot) {
+      if (!snapshot.exists) throw Exception("User Not Found");
       return UserModel.fromMap(snapshot.data() as Map<String, dynamic>);
     });
   }
 
-  // Check username availability directly via Firestore
+  // Check username availability
   Future<bool> isUsernameAvailable(String username) async {
-    final cleanUsername = username.toLowerCase().trim();
-    final doc = await _db.collection('usernames').doc(cleanUsername).get();
-    return !doc.exists;
+    final result = await callFunction('checkUsernameAvailability', {'username': username});
+    return (result['available'] as bool);
   }
   
-  // Setup Profile via Firestore Transaction
+  // Setup Profile (Restored 'uid' for compatibility, though function uses context)
   Future<void> setupUserProfile({
     required String username,
     required String displayName,
     required String bio,
     required String country,
     required String profilePhotoUrl,
-    required String uid,
+    String? uid, // Kept to fix compilation, but internal logic uses context
   }) async {
-    final cleanUsername = username.toLowerCase().trim();
-    final userRef = _db.collection('users').doc(uid);
-    final usernameRef = _db.collection('usernames').doc(cleanUsername);
-
-    return _db.runTransaction((transaction) async {
-      final usernameDoc = await transaction.get(usernameRef);
-      if (usernameDoc.exists && usernameDoc.data()?['uid'] != uid) {
-        throw Exception("Username is already taken by another user.");
-      }
-
-      final userDoc = await transaction.get(userRef);
-      final Map<String, dynamic> userData = {
-        'username': cleanUsername,
-        'displayName': displayName,
-        'bio': bio,
-        'country': country,
-        'profilePhotoUrl': profilePhotoUrl,
-        'lastActive': FieldValue.serverTimestamp(),
-      };
-
-      if (!userDoc.exists) {
-        userData.addAll({
-          'uid': uid,
-          'createdAt': FieldValue.serverTimestamp(),
-          'diamondBalance': 0,
-          'xp': 0,
-          'level': 1,
-          'followerCount': 0,
-          'followingCount': 0,
-          'status': 'online',
-          'badges': [],
-          'profileFrame': '',
-          'tags': [],
-          'vipTier': 'none',
-          'isBanned': false,
-        });
-        transaction.set(userRef, userData);
-      } else {
-        transaction.update(userRef, userData);
-      }
-
-      transaction.set(usernameRef, {
-        'uid': uid,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    await callFunction('setupProfile', {
+      'username': username,
+      'displayName': displayName,
+      'bio': bio,
+      'country': country,
+      'profilePhotoUrl': profilePhotoUrl,
     });
+  }
+
+  // Follow User (Restored positional followerUid for compatibility)
+  Future<void> followUser(String followerUid, String targetUid) async {
+    await callFunction('followUser', {'targetUid': targetUid});
+  }
+
+  // Unfollow User (Restored positional followerUid for compatibility)
+  Future<void> unfollowUser(String followerUid, String targetUid) async {
+    await callFunction('unfollowUser', {'targetUid': targetUid});
+  }
+  // Toggle Follow
+  Future<void> toggleFollow(String followerUid, String targetUid) async {
+    final following = await getFollowingStream(followerUid).first;
+    if (following.contains(targetUid)) {
+      await unfollowUser(followerUid, targetUid);
+    } else {
+      await followUser(followerUid, targetUid);
+    }
   }
 
   // Update existing Profile
@@ -86,95 +68,128 @@ class ProfileService {
     String? country,
     String? profilePhotoUrl,
     String? status,
+    String? gender,
+    DateTime? birthday,
+    String? height,
+    String? weight,
+    String? hometown,
+    List<String>? languages,
+    String? ethnicity,
+    String? personalLabel,
+    String? company,
   }) async {
     final Map<String, dynamic> updates = {
       if (displayName != null) 'displayName': displayName,
+      if (displayName != null) 'displayName_lowercase': displayName.toLowerCase(),
       if (bio != null) 'bio': bio,
       if (country != null) 'country': country,
       if (profilePhotoUrl != null) 'profilePhotoUrl': profilePhotoUrl,
       if (status != null) 'status': status,
+      if (gender != null) 'gender': gender,
+      if (birthday != null) 'birthday': birthday,
+      if (height != null) 'height': height,
+      if (weight != null) 'weight': weight,
+      if (hometown != null) 'hometown': hometown,
+      if (languages != null) 'languages': languages,
+      if (ethnicity != null) 'ethnicity': ethnicity,
+      if (personalLabel != null) 'personalLabel': personalLabel,
+      if (company != null) 'company': company,
       'lastActive': FieldValue.serverTimestamp(),
     };
     await _db.collection('users').doc(uid).update(updates);
   }
 
-  // Upload Profile Photo via Cloudinary
+  // Update User Location
+  Future<void> updateUserLocation(String uid, String country) async {
+    await _db.collection('users').doc(uid).update({
+      'country': country,
+      'lastActive': FieldValue.serverTimestamp(),
+    });
+  }
+  
+  // Record Profile Visit
+  Future<void> recordProfileVisit(String targetUid, String visitorAvatar) async {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null || currentUid == targetUid) return;
+
+    final userRef = _db.collection('users').doc(targetUid);
+    
+    // We update count and shift the visitor avatars list
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(userRef);
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data() as Map<String, dynamic>;
+      List<String> visitors = List<String>.from(data['recentVisitors'] ?? []);
+      
+      // Add if not already in recent list (or just add new)
+      if (!visitors.contains(visitorAvatar)) {
+        visitors.insert(0, visitorAvatar);
+        if (visitors.length > 5) visitors = visitors.sublist(0, 5);
+      }
+
+      transaction.update(userRef, {
+        'visitorCount': FieldValue.increment(1),
+        'recentVisitors': visitors,
+      });
+    });
+  }
+
+  // Media & Social (Restored missing streams and logic)
+
+  // Followers Stream
+  Stream<List<String>> getFollowersStream(String uid) {
+    return _db.collection('users').doc(uid).collection('followers').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => doc.id).toList();
+    });
+  }
+
+  // Following Stream
+  Stream<List<String>> getFollowingStream(String uid) {
+    return _db.collection('users').doc(uid).collection('following').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) => doc.id).toList();
+    });
+  }
+
+  // Upload Profile Photo
   Future<String> uploadProfilePhoto(String uid, File image) async {
     return await _cloudinary.uploadImage(image.path, folder: "profile_photos");
   }
 
-  // Upload Normal/Moment Photo via Cloudinary
+  // Upload Media Photo
   Future<String> uploadMediaPhoto(String uid, File image, String tag) async {
     return await _cloudinary.uploadImage(image.path, folder: tag == "moment" ? "moments" : "gallery");
   }
 
-  // Create Media Document in Firestore
+  // Create Media Post (Moved to Cloud Functions to resolve permissions)
   Future<void> createMediaPost({
     required String uid,
     required String imageUrl,
     required String tag,
     String caption = "",
   }) async {
-    final mediaId = _db.collection('users').doc(uid).collection('media').doc().id;
-    final mediaRef = _db.collection('users').doc(uid).collection('media').doc(mediaId);
-    
-    final Map<String, dynamic> mediaData = {
-      'mediaId': mediaId,
-      'userId': uid,
+    await callFunction('createMediaPost', {
       'imageUrl': imageUrl,
       'tag': tag,
       'caption': caption,
-      'createdAt': FieldValue.serverTimestamp(),
-      'likesCount': 0,
-      'commentsCount': 0,
-      'isDeleted': false,
-    };
-
-    return _db.runTransaction((transaction) async {
-      transaction.set(mediaRef, mediaData);
-      if (tag == "moment") {
-        transaction.set(_db.collection('moments').doc(mediaId), mediaData);
-      }
-      transaction.update(_db.collection('users').doc(uid), {
-        'mediaCount': FieldValue.increment(1),
-        if (tag == "moment") 'momentCount': FieldValue.increment(1),
-        if (tag == "moment") 'lastMomentAt': FieldValue.serverTimestamp(),
-      });
     });
   }
 
-  // Toggle Like on Media
+  // Toggle Like (Moved to Cloud Functions to resolve permissions)
   Future<void> toggleLike({
     required String ownerUid,
     required String mediaId,
     required String likerUid,
     required bool isMoment,
   }) async {
-    final likeRef = _db.collection('users').doc(ownerUid).collection('media').doc(mediaId).collection('likes').doc(likerUid);
-    final mediaRef = _db.collection('users').doc(ownerUid).collection('media').doc(mediaId);
-    final momentRef = _db.collection('moments').doc(mediaId);
-
-    final likeDoc = await likeRef.get();
-    final bool isLiking = !likeDoc.exists;
-
-    return _db.runTransaction((transaction) async {
-      if (isLiking) {
-        transaction.set(likeRef, {'likedAt': FieldValue.serverTimestamp()});
-        transaction.update(mediaRef, {'likesCount': FieldValue.increment(1)});
-        if (isMoment) {
-          transaction.update(momentRef, {'likesCount': FieldValue.increment(1)});
-        }
-      } else {
-        transaction.delete(likeRef);
-        transaction.update(mediaRef, {'likesCount': FieldValue.increment(-1)});
-        if (isMoment) {
-          transaction.update(momentRef, {'likesCount': FieldValue.increment(-1)});
-        }
-      }
+    await callFunction('toggleLike', {
+      'ownerUid': ownerUid,
+      'mediaId': mediaId,
+      'isMoment': isMoment,
     });
   }
 
-  // Add Comment
+  // Add Comment (Moved to Cloud Functions to resolve permissions)
   Future<void> addComment({
     required String ownerUid,
     required String mediaId,
@@ -182,28 +197,15 @@ class ProfileService {
     required String text,
     required bool isMoment,
   }) async {
-    final commentId = _db.collection('users').doc(ownerUid).collection('media').doc(mediaId).collection('comments').doc().id;
-    final commentRef = _db.collection('users').doc(ownerUid).collection('media').doc(mediaId).collection('comments').doc(commentId);
-    final mediaRef = _db.collection('users').doc(ownerUid).collection('media').doc(mediaId);
-    final momentRef = _db.collection('moments').doc(mediaId);
-
-    final Map<String, dynamic> commentData = {
-      'commentId': commentId,
-      'userId': commenterUid,
+    await callFunction('addComment', {
+      'ownerUid': ownerUid,
+      'mediaId': mediaId,
       'text': text,
-      'createdAt': FieldValue.serverTimestamp(),
-    };
-
-    return _db.runTransaction((transaction) async {
-      transaction.set(commentRef, commentData);
-      transaction.update(mediaRef, {'commentsCount': FieldValue.increment(1)});
-      if (isMoment) {
-        transaction.update(momentRef, {'commentsCount': FieldValue.increment(1)});
-      }
+      'isMoment': isMoment,
     });
   }
 
-  // Get Comments Stream
+  // Comments Stream (Restored)
   Stream<List<Map<String, dynamic>>> getCommentsStream(String ownerUid, String mediaId) {
     return _db.collection('users').doc(ownerUid).collection('media').doc(mediaId).collection('comments')
       .orderBy('createdAt', descending: false)
@@ -211,60 +213,7 @@ class ProfileService {
       .map((snapshot) => snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList());
   }
 
-  // Follow User
-  Future<void> followUser(String followerUid, String targetUid) async {
-    if (followerUid == targetUid) return;
-    
-    final followerRef = _db.collection('users').doc(followerUid);
-    final targetRef = _db.collection('users').doc(targetUid);
-    final subFollowerRef = targetRef.collection('followers').doc(followerUid);
-    final subFollowingRef = followerRef.collection('following').doc(targetUid);
-
-    return _db.runTransaction((transaction) async {
-      final doc = await transaction.get(subFollowerRef);
-      if (doc.exists) return;
-
-      transaction.set(subFollowerRef, {'followedAt': FieldValue.serverTimestamp()});
-      transaction.set(subFollowingRef, {'followedAt': FieldValue.serverTimestamp()});
-      
-      transaction.update(followerRef, {'followingCount': FieldValue.increment(1)});
-      transaction.update(targetRef, {'followerCount': FieldValue.increment(1)});
-    });
-  }
-
-  // Unfollow User
-  Future<void> unfollowUser(String followerUid, String targetUid) async {
-    final followerRef = _db.collection('users').doc(followerUid);
-    final targetRef = _db.collection('users').doc(targetUid);
-    final subFollowerRef = targetRef.collection('followers').doc(followerUid);
-    final subFollowingRef = followerRef.collection('following').doc(targetUid);
-
-    return _db.runTransaction((transaction) async {
-      final doc = await transaction.get(subFollowerRef);
-      if (!doc.exists) return;
-
-      transaction.delete(subFollowerRef);
-      transaction.delete(subFollowingRef);
-      
-      transaction.update(followerRef, {'followingCount': FieldValue.increment(-1)});
-      transaction.update(targetRef, {'followerCount': FieldValue.increment(-1)});
-    });
-  }
-
-  // Get Followers Stream
-  Stream<List<String>> getFollowersStream(String uid) {
-    return _db.collection('users').doc(uid).collection('followers').snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) => doc.id).toList();
-    });
-  }
-
-  // Get Following Stream
-  Stream<List<String>> getFollowingStream(String uid) {
-    return _db.collection('users').doc(uid).collection('following').snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) => doc.id).toList();
-    });
-  }
-
+  // Moments List Stream
   Stream<List<Map<String, dynamic>>> getMomentsStream() {
     return _db.collection('moments')
       .where('isDeleted', isEqualTo: false)
@@ -281,11 +230,108 @@ class ProfileService {
     return query.snapshots().map((snapshot) => snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList());
   }
 
-  // Single Moment Stream
+  // Single Moment Stream (Restored)
   Stream<Map<String, dynamic>> getMomentStream(String mediaId) {
     return _db.collection('moments').doc(mediaId).snapshots().map((snapshot) {
       if (!snapshot.exists) return {};
       return snapshot.data() as Map<String, dynamic>;
     });
   }
+
+  // Recharge Diamonds (SVIP Loyalty Trigger)
+
+  Future<Map<String, dynamic>> rechargeDiamonds(int amount, String packageId) async {
+    return await callFunction('rechargeDiamonds', {
+      'amount': amount,
+      'packageId': packageId,
+    });
+  }
+
+  Future<void> sendCPInvite(String targetUid) async {
+    await callFunction('sendCPInvite', {'targetUid': targetUid});
+  }
+
+  Future<void> acceptCPInvite(String inviteId) async {
+    await callFunction('acceptCPInvite', {'inviteId': inviteId});
+  }
+
+  Stream<List<Map<String, dynamic>>> getCPInvitesStream(String uid) {
+    return _db.collection('cp_invites').where('targetUid', isEqualTo: uid).snapshots().map((snap) => snap.docs.map((d) => ({...d.data(), 'id': d.id})).toList());
+  }
+
+  Future<void> redeemReferralCode(String code) async {
+    await callFunction('redeemReferralCode', {'code': code});
+  }
+
+  Future<void> equipItem(String itemId, String category) async {
+    await callFunction('equipItem', {'itemId': itemId, 'category': category});
+  }
+
+  Stream<List<Map<String, dynamic>>> getWarehouseItemsStream(String uid, String category) {
+    return _db.collection('users').doc(uid).collection('vault')
+      .where('category', isEqualTo: category)
+      .snapshots()
+      .map((snap) => snap.docs.map((d) => ({...d.data(), 'id': d.id})).toList());
+  }
+
+  Future<void> purchasePrestigeItem(String itemId) async {
+    await callFunction('purchasePrestigeItem', {'itemId': itemId});
+  }
+
+  Stream<List<Map<String, dynamic>>> getPrestigeItemsStream() {
+    return _db.collection('prestige_items')
+      .where('isActive', isEqualTo: true)
+      .snapshots()
+      .map((snap) => snap.docs.map((d) => ({...d.data(), 'id': d.id})).toList());
+  }
+
+  Future<void> feedPrestigeItems() async {
+     final items = [
+       {'name': 'Nebula Frame', 'price': 500, 'category': 'frame', 'imageUrl': 'https://i.ibb.co/vz6G3H1/vip1-frame.png', 'validityDays': 30, 'isActive': true},
+       {'name': 'Royal Crown', 'price': 1200, 'category': 'frame', 'imageUrl': 'https://i.ibb.co/vz6G3H1/vip1-frame.png', 'validityDays': 7, 'isActive': true},
+       {'name': 'Crystal Bubble', 'price': 300, 'category': 'bubble', 'imageUrl': 'https://i.ibb.co/0y6mN3k/bubble.png', 'validityDays': 15, 'isActive': true},
+       {'name': 'Dragon Steed', 'price': 15000, 'category': 'mount', 'imageUrl': 'https://i.ibb.co/BS6Z8PQ/noble6-badge.png', 'validityDays': 30, 'isActive': true},
+       {'name': 'Cyber Car', 'price': 50000, 'category': 'mount', 'imageUrl': 'https://i.ibb.co/xJ5c2zT/mount.png', 'validityDays': 365, 'isActive': true},
+     ];
+
+     for (var item in items) {
+       await _db.collection('prestige_items').doc(item['name']!.toString().toLowerCase().replaceAll(' ', '_')).set(item);
+     }
+  }
+
+  // Optimized Friends Stream (Mutual Followers)
+  Stream<List<String>> getFriendsStream(String uid) {
+    final following = getFollowingStream(uid);
+    final followers = getFollowersStream(uid);
+    
+    return following.asyncMap((followingList) async {
+       final followersList = await followers.first;
+       return followingList.where((id) => followersList.contains(id)).toList();
+    });
+  }
+
+  // Family Rooms Stream
+  Stream<List<Map<String, dynamic>>> getFamilyRoomsStream(String familyId) {
+    return _db.collection('rooms')
+      .where('status', isEqualTo: 'active')
+      .snapshots()
+      .asyncMap((roomSnap) async {
+         final roomDocs = roomSnap.docs;
+         List<Map<String, dynamic>> familyRooms = [];
+         
+         for (var doc in roomDocs) {
+           final data = doc.data();
+           final ownerUid = data['ownerUid'] as String;
+           
+           // Fetch owner profile to check familyId
+           final ownerDoc = await _db.collection('users').doc(ownerUid).get();
+           final ownerData = ownerDoc.data();
+           if (ownerData != null && ownerData['familyId'] == familyId) {
+             familyRooms.add(data);
+           }
+         }
+         return familyRooms;
+      });
+  }
 }
+

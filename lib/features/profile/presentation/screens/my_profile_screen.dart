@@ -3,15 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:hello_chat/core/constants/app_colors.dart';
-import 'package:hello_chat/core/constants/app_spacing.dart';
 import 'package:hello_chat/core/router/app_router.dart';
-import 'package:hello_chat/providers/user_provider.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/utils/number_formatter.dart';
-import 'dart:ui';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:gap/gap.dart';
 
 import '../../../../core/providers/profile_provider.dart';
-import '../../../../core/providers/vip_provider.dart';
+import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/widgets/app_avatar.dart';
 
 class MyProfileScreen extends ConsumerWidget {
   const MyProfileScreen({super.key});
@@ -20,155 +20,96 @@ class MyProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(currentUserProfileProvider);
 
-    return profileAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (err, stack) => Scaffold(body: Center(child: Text("Error: $err"))),
-      data: (userData) {
-        if (userData == null) return const Scaffold(body: Center(child: Text("Not logged in")));
-        
-        return Scaffold(
-          backgroundColor: Colors.white,
-          body: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: profileAsync.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, stack) => Center(child: Text("Error: $err")),
+        data: (userData) {
+          if (userData == null) return const Center(child: Text("Not logged in"));
+          
+          return SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
             child: Column(
               children: [
-                // 1. Header Hero with Radial Gradient
                 _buildHeader(context, userData),
-
-                const SizedBox(height: 8),
-
-                // 2. Stats
-                _buildStats(context, userData),
-                _buildLevelProgress(userData),
-
-                const SizedBox(height: 12),
-
-                // 3. Quick Action Row
-                _buildQuickActions(context, userData),
-
-                const SizedBox(height: 12),
-
-                // 4. Menu List
-                _buildMenuList(context, userData, ref),
-
-                const SizedBox(height: 100),
+                const Gap(24),
+                _buildStatsRow(userData),
+                const Gap(24),
+                _buildShortcutCards(context, userData),
+                const Gap(24),
+                _buildMenuList(context, userData),
+                const Gap(100), // Bottom nav spacer
               ],
             ),
-          ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 
   Widget _buildHeader(BuildContext context, UserModel userData) {
     return Container(
       width: double.infinity,
+      padding: EdgeInsets.only(
+        top: MediaQuery.of(context).padding.top + 10,
+        bottom: 30,
+      ),
       decoration: const BoxDecoration(
-        gradient: RadialGradient(
-          colors: [Color(0xFFE0F2FE), Colors.white],
-          center: Alignment(0, -0.6),
-          radius: 1.2,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFE0F7FA), // Light cyan
+            Color(0xFFF3E5F5), // Light purple
+            Colors.white,
+          ],
         ),
       ),
-      child: Stack(
+      child: Column(
         children: [
-          // App Bar Area Content
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 36, 16, 12), // Reduced top to 36
-            child: Column(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Top Bar Actions
+                _buildProfileSetupPill(context, userData),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    GestureDetector(
-                      onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), // Reduced padding
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
-                        ),
-                        child: const Row(
-                          children: [
-                            Text("Profile Setup", style: TextStyle(color: Color(0xFF00E5FF), fontWeight: FontWeight.bold, fontSize: 12)), // Scaled down
-                            Icon(Icons.chevron_right_rounded, color: Color(0xFF00E5FF), size: 14),
-                          ],
-                        ),
-                      ),
+                    IconButton(
+                      icon: const Icon(Icons.settings_outlined, color: Colors.black87),
+                      onPressed: () => context.push(AppRoutes.settings),
                     ),
-                    Row(
-                      children: [
-                        const Icon(Icons.settings_outlined, color: Colors.black45, size: 22),
-                        const SizedBox(width: 12),
-                        const Icon(Icons.person_add_outlined, color: Colors.black45, size: 22),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.person_add_outlined, color: Colors.black87),
+                      onPressed: () {},
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 12), // Reduced from 20
-
-                // Avatar with Frame
-                GestureDetector(
-                  onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 76, // Reduced from 80
-                        height: 76,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 2),
-                        ),
-                        child: ClipOval(
-                          child: CachedNetworkImage(
-                            imageUrl: userData.profilePhotoUrl.isEmpty ? "https://picsum.photos/seed/${userData.uid}/200" : userData.profilePhotoUrl,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                      if (userData.profileFrame.isNotEmpty)
-                        SizedBox(
-                          width: 96, // Reduced from 100
-                          height: 96,
-                          child: Image.network(userData.profileFrame, fit: BoxFit.contain),
-                        ),
-                      if (userData.profileFrame.isEmpty)
-                        const SizedBox(width: 96, height: 96),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 6), // Reduced from 8
-
-                // Username with Emojis
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("🌹 ", style: TextStyle(fontSize: 14)),
-                    Text(
-                      userData.displayName,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: Colors.black87), // Muted for better scale
-                    ),
-                    const Text(" 🔥", style: TextStyle(fontSize: 14)),
-                  ],
-                ),
-                Text("@${userData.username}", style: const TextStyle(fontSize: 13, color: Colors.black45, fontWeight: FontWeight.bold)),
-                if (userData.vipTier != 'none')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Colors.orange, Colors.amber]),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(userData.vipTier, style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
               ],
+            ),
+          ),
+          const Gap(20),
+          GestureDetector(
+            onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
+            child: Hero(
+              tag: 'profile_avatar',
+              child: AppAvatar(
+                imageUrl: userData.profilePhotoUrl,
+                radius: 54,
+                vipTier: userData.vipTier,
+                frameUrl: userData.profileFrame,
+                frameMultiplier: 1.6,
+              ),
+            ),
+          ),
+          const Gap(16),
+          Text(
+            userData.displayName,
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w900,
+              color: Colors.black,
             ),
           ),
         ],
@@ -176,223 +117,270 @@ class MyProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStats(BuildContext context, UserModel userData) {
+  Widget _buildProfileSetupPill(BuildContext context, UserModel userData) {
+    return GestureDetector(
+      onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.8),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFF4DD0E1), width: 1.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Profile Setup",
+              style: TextStyle(
+                color: Color(0xFF00ACC1),
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Gap(2),
+            const Icon(Icons.chevron_right, size: 16, color: Color(0xFF00ACC1)),
+            Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: Colors.pinkAccent,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsRow(UserModel userData) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20), // Reduced from 40
+      padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem(userData.followerCount, "Friends"),
-          _buildStatItem(userData.followingCount, "Following"),
-          _buildStatItem(userData.followerCount, "Fans"),
+          _buildStatItem("Friends", formatCount(userData.friendsCount)),
+          _buildStatItem("Following", formatCount(userData.followingCount)),
+          _buildStatItem("Fans", formatCount(userData.followerCount)),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(int count, String label) {
+  Widget _buildStatItem(String label, String value) {
     return Column(
       children: [
-        Text(formatCount(count), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-        const SizedBox(height: 2), 
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black45, fontWeight: FontWeight.w500)),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w900,
+            color: Color(0xFF212121),
+            letterSpacing: -0.5,
+          ),
+        ),
+        const Gap(4),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Color(0xFF9E9E9E),
+            fontWeight: FontWeight.w500,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildLevelProgress(UserModel userData) {
-    const int xpPerLevel = 1000;
-    final int currentLevelXP = userData.xp % xpPerLevel;
-    final double percentage = (currentLevelXP / xpPerLevel).clamp(0.0, 1.0);
-
+  Widget _buildShortcutCards(BuildContext context, UserModel userData) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text("Level ${userData.level}", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
-              Text("${currentLevelXP}/${xpPerLevel} XP", style: const TextStyle(color: Colors.black45, fontSize: 11)),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: LinearProgressIndicator(
-              value: percentage,
-              backgroundColor: Colors.cyan.withOpacity(0.1),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.cyan),
-              minHeight: 6,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildQuickActions(BuildContext context, UserModel userData) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          _buildQuickActionItem(
-            icon: Icons.shield_rounded, 
-            label: "Lv.${userData.level}", 
-            color: const Color(0xFFE0F7FA), 
-            iconColor: Colors.cyan,
+          _buildShortcutCard(
+            label: "Lv.${userData.level}",
+            icon: Icons.diamond_rounded,
+            color: const Color(0xFFE0FBFF),
+            iconColor: const Color(0xFF00E5FF),
+            onTap: () {},
           ),
-          const SizedBox(width: 8), // Reduced from 12
-          GestureDetector(
+          const Gap(10),
+          _buildShortcutCard(
+            label: "Purchase VIP",
+            icon: Icons.vignette_rounded,
+            color: const Color(0xFFFFF3E0),
+            iconColor: const Color(0xFFFF9800),
             onTap: () => context.push(AppRoutes.vipShop),
-            child: _buildQuickActionItem(
-              icon: Icons.workspace_premium_rounded, 
-              label: "Purchase VIP", 
-              color: const Color(0xFFFFF7ED), 
-              iconColor: Colors.orange,
-            ),
           ),
-          const SizedBox(width: 8), // Reduced from 12
-          _buildQuickActionItem(
-            icon: Icons.gamepad_rounded, 
-            label: "JOY AGENCY", 
-            color: const Color(0xFFEEF2FF), 
-            iconColor: Colors.indigo,
+          const Gap(10),
+          _buildShortcutCard(
+            label: "Family",
+            icon: Icons.groups_rounded,
+            color: const Color(0xFFFFF7E6),
+            iconColor: const Color(0xFFFFB300),
+            isFamily: true,
+            onTap: () => context.push(userData.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
           ),
-          const SizedBox(width: 8), // Reduced from 12
-          GestureDetector(
-            onTap: () => context.push(AppRoutes.salaryHistory),
-            child: _buildQuickActionItem(
-              icon: Icons.auto_awesome_rounded, 
-              label: "Earn Money", 
-              color: const Color(0xFFFDF2F8), 
-              iconColor: Colors.pink,
-            ),
+          const Gap(10),
+          _buildShortcutCard(
+            label: "Earn Money",
+            icon: Icons.card_membership_rounded,
+            color: const Color(0xFFE8F5FE),
+            iconColor: const Color(0xFF42A5F5),
+            onTap: () => context.push(AppRoutes.invite),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildQuickActionItem({required IconData icon, required String label, required Color color, required Color iconColor}) {
-    return Container(
-      width: 68, // Reduced from 76
-      height: 64, 
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      padding: const EdgeInsets.all(4), // Reduced internal padding
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, color: iconColor, size: 21), 
-          const SizedBox(height: 4), 
-          Text(label, style: const TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.black54), textAlign: TextAlign.center, maxLines: 1),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMenuList(BuildContext context, UserModel userData, WidgetRef ref) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10)],
-      ),
-      child: Column(
-        children: [
-          _buildMenuTile(
-            Icons.videogame_asset_outlined, "Fun Plaza", 
-            color: Colors.orange, 
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.library_books_rounded, color: Colors.orange, size: 16), // Scaled
-                const Text(" x1", style: TextStyle(color: Colors.orange, fontSize: 9, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 4),
-                Container(width: 5, height: 5, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
-              ],
-            ),
+  Widget _buildShortcutCard({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required Color iconColor,
+    bool isFamily = false,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 90,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(16),
           ),
-          _buildMenuTile(Icons.trending_up_rounded, "Creator Center", color: Colors.teal),
-          _buildMenuTile(
-            Icons.campaign_outlined, "Event Center", 
-            color: Colors.lightBlue,
-            trailing: const CircleAvatar(radius: 10, backgroundImage: NetworkImage("https://picsum.photos/seed/event/100")),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (isFamily)
+                const Icon(Icons.groups_rounded, color: Color(0xFFFFB300), size: 30)
+              else
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: Colors.white,
+                  child: Icon(icon, color: iconColor, size: 24),
+                ),
+              const Gap(8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: iconColor.withOpacity(0.8),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+              ),
+            ],
           ),
-          _buildMenuTile(
-            Icons.account_balance_wallet_outlined, "Wallet", 
-            color: Colors.pinkAccent,
-            onTap: () => context.push(AppRoutes.wallet),
-          ),
-          _buildMenuTile(
-            Icons.inventory_2_outlined, "Item Bag", 
-            color: Colors.amber, 
-            trailing: const Text("3", style: TextStyle(color: Colors.black26, fontSize: 12, fontWeight: FontWeight.bold)),
-            onTap: () => context.push(AppRoutes.prestigeStore),
-          ),
-          
-          // ADMIN SECTION
-          if (userData.tags.contains("Admin") || userData.tags.contains("SuperAdmin"))
-            _buildAdminSection(context, ref),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildAdminSection(BuildContext context, WidgetRef ref) {
+  Widget _buildMenuList(BuildContext context, UserModel userData) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 24, 16, 8),
-          child: Text("ADMIN TOOLS", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.black26, letterSpacing: 1.5)),
+        _buildMenuTile(
+          icon: Icons.analytics_outlined,
+          label: "Creator Center",
+          iconColor: const Color(0xFF26C6DA),
+          onTap: () {},
         ),
         _buildMenuTile(
-          Icons.settings_suggest_rounded, 
-          "🔧 Feed Sample VIP Tiers", 
-          color: Colors.redAccent,
-          onTap: () async {
-            try {
-              await ref.read(vipServiceProvider).feedSampleTiers();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sample VIP Tiers Updated!")));
-              }
-            } catch (e) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-              }
-            }
-          },
+          icon: Icons.campaign_outlined,
+          label: "Event Center",
+          iconColor: const Color(0xFF4DD0E1),
+          trailing: _buildEventBanner(),
+          onTap: () {},
+        ),
+        const Gap(12),
+        _buildMenuTile(
+          icon: Icons.account_balance_wallet_outlined,
+          label: "Wallet",
+          iconColor: const Color(0xFFF06292),
+          onTap: () => context.push(AppRoutes.wallet),
+        ),
+        _buildMenuTile(
+          icon: Icons.inventory_2_outlined,
+          label: "Item Bag",
+          iconColor: const Color(0xFFFFB74D),
+          count: 1,
+          onTap: () => context.push(AppRoutes.propWarehouse),
+        ),
+        _buildMenuTile(
+          icon: Icons.post_add_rounded,
+          label: "Post",
+          iconColor: const Color(0xFF4DB6AC),
+          onTap: () {},
         ),
       ],
     );
   }
 
-  Widget _buildMenuTile(IconData icon, String label, {required Color color, Widget? trailing, VoidCallback? onTap}) {
-    return ListTile(
-      onTap: onTap,
-      leading: Container(
-        padding: const EdgeInsets.all(6), // Reduced from 8
-        decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-        child: Icon(icon, color: color, size: 18), // Reduced from 20
+  Widget _buildMenuTile({
+    required IconData icon,
+    required String label,
+    required Color iconColor,
+    Widget? trailing,
+    int? count,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(bottom: BorderSide(color: Color(0xFFF5F5F5), width: 1)),
       ),
-      title: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black87)), // Reduced from 15
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (trailing != null) trailing,
-          const SizedBox(width: 4),
-          const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 18),
-        ],
+      child: ListTile(
+        onTap: onTap,
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: iconColor.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: iconColor, size: 22),
+        ),
+        title: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (count != null)
+              Text(
+                count.toString(),
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+            if (trailing != null) trailing,
+            const Gap(4),
+            const Icon(Icons.chevron_right, color: Color(0xFFBDBDBD)),
+          ],
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0), // Tight vertical
-      visualDensity: const VisualDensity(vertical: -2), // Maximum vertical density
+    );
+  }
+
+  Widget _buildEventBanner() {
+    return Container(
+      width: 60,
+      height: 28,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        image: const DecorationImage(
+          image: NetworkImage("https://picsum.photos/seed/event/200"),
+          fit: BoxFit.cover,
+        ),
+      ),
     );
   }
 }

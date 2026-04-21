@@ -3,10 +3,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/core/services/cloudinary_service.dart';
+import 'package:hello_chat/core/services/base_firebase_service.dart';
 
 final giftServiceProvider = Provider<GiftService>((ref) {
   return GiftService(ref.read(cloudinaryServiceProvider));
@@ -16,11 +18,10 @@ final giftsStreamProvider = StreamProvider<List<GiftModel>>((ref) {
   return ref.watch(giftServiceProvider).getGiftsStream();
 });
 
-class GiftService {
+class GiftService extends BaseFirebaseService {
   final CloudinaryService _cloudinary;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instance;
 
   GiftService(this._cloudinary);
 
@@ -97,13 +98,57 @@ class GiftService {
     required GiftModel gift,
     String? targetUid,
     int quantity = 1,
+    bool isMoment = false,
   }) async {
-    final callable = _functions.httpsCallable('sendGiftWithCombo');
-    await callable.call({
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("User not authenticated.");
+
+    // Refresh token to prevent UNAUTHENTICATED error on Blaze/Cloud Run
+    await user.getIdToken(true);
+
+    await callFunction('sendGiftWithCombo', {
       'roomId': roomId,
       'giftId': gift.giftId,
-      'targetUid': targetUid ?? roomId, // If no target, default to room
+      'targetUid': targetUid ?? roomId,
       'quantity': quantity,
+      'isMoment': isMoment,
     });
+
+    // PK Battle Integration: Update scores if target is on a PK team
+    if (!isMoment && targetUid != null) {
+      _updatePKScore(roomId, targetUid, gift.priceInDiamonds * quantity);
+    }
+  }
+
+  Future<void> _updatePKScore(String roomId, String targetUid, int points) async {
+    try {
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      if (!roomDoc.exists) return;
+      final roomData = roomDoc.data()!;
+      if (roomData['pkActive'] != true) return;
+
+      final pkTeams = Map<String, dynamic>.from(roomData['pkTeams'] ?? {});
+      final side = pkTeams[targetUid];
+      if (side == null) return;
+
+      final pkScores = Map<String, dynamic>.from(roomData['pkScores'] ?? {});
+      String? hostUid;
+      
+      // Find the score-key (host) associated with this side
+      for (var uid in pkScores.keys) {
+        if (pkTeams[uid] == side) {
+          hostUid = uid;
+          break;
+        }
+      }
+
+      if (hostUid != null) {
+        await _db.collection('rooms').doc(roomId).update({
+          'pkScores.$hostUid': FieldValue.increment(points),
+        });
+      }
+    } catch (e) {
+      debugPrint("Error updating PK score: $e");
+    }
   }
 }

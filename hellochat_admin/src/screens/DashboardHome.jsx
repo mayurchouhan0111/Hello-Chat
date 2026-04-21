@@ -20,15 +20,25 @@ import {
   ArrowUpRight,
   ArrowDownRight
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAdmin } from '../context/AdminContext';
 import { motion } from 'framer-motion';
 
 export const DashboardHome = () => {
+  const { isAdmin, isAgencyOwner, loading: authLoading } = useAdmin();
+  const navigate = useNavigate();
   const [stats, setStats] = useState({
     totalUsers: 0,
     activeRooms: 0,
     totalDiamonds: 0,
     recentReports: []
   });
+
+  useEffect(() => {
+    if (!authLoading && isAgencyOwner && !isAdmin) {
+      navigate('/agencies');
+    }
+  }, [isAgencyOwner, isAdmin, authLoading, navigate]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -61,9 +71,16 @@ export const DashboardHome = () => {
 
   const cards = [
     { label: 'Total Users', value: stats.totalUsers.toLocaleString(), icon: Users, color: 'from-blue-600 to-indigo-600', growth: '+12%' },
+    { label: 'Live PKs', value: stats.activePKs?.toLocaleString() || '0', icon: Flame, color: 'from-orange-500 to-red-500', growth: 'Hot' },
     { label: 'Live Rooms', value: stats.activeRooms.toLocaleString(), icon: Volume2, color: 'from-cyan-500 to-blue-500', growth: '+5%' },
-    { label: 'Economic Load', value: 'Syncing...', icon: Diamond, color: 'from-amber-500 to-yellow-500', growth: 'Stable' }
   ];
+
+  useEffect(() => {
+    const unsubPKs = onSnapshot(query(collection(db, "rooms"), where("pkActive", "==", true)), (snap) => {
+      setStats(prev => ({ ...prev, activePKs: snap.size }));
+    });
+    return () => unsubPKs();
+  }, []);
 
   return (
     <div className="space-y-10 animate-fade-in text-white pb-20">

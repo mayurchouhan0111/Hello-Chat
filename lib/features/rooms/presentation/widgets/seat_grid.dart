@@ -4,6 +4,7 @@ import '../../../../core/models/user_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../core/widgets/app_avatar.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
 class SeatGrid extends ConsumerWidget {
@@ -35,7 +36,7 @@ class SeatGrid extends ConsumerWidget {
       itemBuilder: (context, index) {
         final participant = participants.firstWhere(
           (p) => p.seatIndex == index, 
-          orElse: () => Participant(uid: '', joinedAt: DateTime.now(), isMuted: true, role: 'audience')
+          orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'audience')
         );
 
         final isOccupied = participant.uid.isNotEmpty;
@@ -78,23 +79,30 @@ class SeatGrid extends ConsumerWidget {
         final u = user as UserModel;
         return Stack(
           alignment: Alignment.center,
+          clipBehavior: Clip.none,
           children: [
             // Speaking Animation Border
             _buildSpeakingBorder(ref, p.uid),
             
-            CircleAvatar(
-              radius: 28,
-              backgroundImage: CachedNetworkImageProvider(u.profilePhotoUrl),
-              child: p.isMuted 
-                ? Align(
-                    alignment: Alignment.bottomRight,
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                      child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
-                    ),
-                  )
-                : null,
+            Stack(
+              alignment: Alignment.bottomRight,
+              clipBehavior: Clip.none,
+              children: [
+                AppAvatar(
+                  imageUrl: u.profilePhotoUrl,
+                  frameUrl: u.profileFrame,
+                  vipTier: u.vipTier,
+                  radius: 28,
+                  showFrame: true,
+                  frameMultiplier: 1.4,
+                ),
+                if (p.isMuted)
+                  Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                    child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
+                  ),
+              ],
             ),
             
             if (p.role == 'host')
@@ -102,12 +110,12 @@ class SeatGrid extends ConsumerWidget {
                 top: 0,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(color: Colors.amber, borderRadius: BorderRadius.circular(4)),
+                  decoration: BoxDecoration(color: const Color(0xFFFFD700), borderRadius: BorderRadius.circular(4)),
                   child: const Text("OWNER", style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.bold)),
                 ),
               ),
           ],
-        );
+        ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fadeIn();
       },
       loading: () => const CircularProgressIndicator(strokeWidth: 2),
       error: (_, __) => const Icon(Icons.error, color: Colors.red),
@@ -115,18 +123,33 @@ class SeatGrid extends ConsumerWidget {
   }
 
   Widget _buildSpeakingBorder(WidgetRef ref, String uid) {
-    // For now we simulate speaking. In real app, we'd watch a speaking state for this UID
-    // Using a random fake simulation for now as requested
-    return Container(
-      width: 62,
-      height: 62,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 2),
-      ),
-    ).animate(onPlay: (controller) => controller.repeat(reverse: true))
-     .scale(begin: const Offset(1, 1), end: const Offset(1.1, 1.1), duration: 1.seconds)
-     .fade(begin: 0.3, end: 1);
+    // In a production app, we would watch a 'isSpeaking' provider here.
+    // For this UI demo, we simulate the premium ripple effect.
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        for (int i = 0; i < 3; i++)
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: Colors.cyanAccent.withOpacity(0.5),
+                width: 1.5,
+              ),
+            ),
+          ).animate(onPlay: (c) => c.repeat())
+           .scale(
+             begin: const Offset(1, 1), 
+             end: const Offset(1.5, 1.5), 
+             duration: 1200.ms, 
+             delay: (i * 400).ms,
+             curve: Curves.easeOutCubic,
+           )
+           .fadeOut(duration: 1200.ms),
+      ],
+    );
   }
 
   Widget _buildSeatName(WidgetRef ref, String uid) {

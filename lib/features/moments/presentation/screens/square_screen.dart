@@ -9,8 +9,13 @@ import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/router/app_router.dart';
+import 'package:flutter/services.dart';
+import 'package:like_button/like_button.dart';
+import 'package:hello_chat/core/services/profile_service.dart';
 
 import '../../../../core/providers/moment_filter_provider.dart';
+import 'package:hello_chat/features/rooms/presentation/widgets/gift_panel.dart';
+import 'package:gap/gap.dart';
 
 class SquareScreen extends ConsumerStatefulWidget {
   const SquareScreen({super.key});
@@ -23,10 +28,14 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
   @override
   Widget build(BuildContext context) {
     final activeFilter = ref.watch(momentFilterProvider);
-    final momentsAsync = ref.watch(filteredMomentsProvider);
+    final momentsAsync = ref.watch(
+      activeFilter == MomentFilter.square 
+        ? momentsStreamProvider 
+        : followingMomentsProvider
+    );
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -34,7 +43,7 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
         title: Row(
           children: [
             _buildTabItem("Square", MomentFilter.square, activeFilter == MomentFilter.square),
-            const SizedBox(width: 20),
+            Gap(16),
             _buildTabItem("Follow", MomentFilter.following, activeFilter == MomentFilter.following),
           ],
         ),
@@ -44,35 +53,47 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
             onPressed: () {},
           ),
           IconButton(
-            icon: const Icon(Icons.edit_note_rounded, color: Colors.black, size: 32),
+            icon: const Icon(Icons.edit_note_rounded, color: Colors.black, size: 28), // Compacted
             onPressed: () => context.push(AppRoutes.addMoment),
           ),
           const SizedBox(width: 8),
         ],
       ),
       body: momentsAsync.when(
-        skipLoadingOnRefresh: true, // This helps preserve state
+        skipLoadingOnRefresh: true,
         loading: () => momentsAsync.hasValue 
-          ? _buildMomentList(momentsAsync.value!, activeFilter)
+          ? _buildCombinedList(momentsAsync.value!, activeFilter)
           : const Center(child: CircularProgressIndicator()),
         error: (err, stack) => Center(child: Text("Error: $err")),
-        data: (moments) => _buildMomentList(moments, activeFilter),
+        data: (moments) => _buildCombinedList(moments, activeFilter),
       ),
     );
   }
 
-  Widget _buildMomentList(List<Map<String, dynamic>> moments, MomentFilter filter) {
-    if (moments.isEmpty) {
-      return _buildEmptyState(filter);
-    }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: moments.length,
-      itemBuilder: (context, index) {
-        return _buildMomentCard(moments[index]);
-      },
+  Widget _buildCombinedList(List<Map<String, dynamic>> moments, MomentFilter filter) {
+    return CustomScrollView(
+      slivers: [
+        if (moments.isEmpty)
+          SliverFillRemaining(child: _buildEmptyState(filter))
+        else
+          SliverPadding(
+            padding: const EdgeInsets.all(16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  return _buildMomentCard(moments[index]).animate().fadeIn(
+                    duration: 400.ms, 
+                    delay: (index * 100).clamp(0, 1000).ms
+                  ).moveY(begin: 20, end: 0, curve: Curves.easeOutBack);
+                },
+                childCount: moments.length,
+              ),
+            ),
+          ),
+      ],
     );
   }
+
 
   Widget _buildMomentCard(Map<String, dynamic> moment) {
     final userId = moment['userId'] as String;
@@ -93,61 +114,61 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
         },
       ),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12), // Reduced from 20
+        margin: const EdgeInsets.only(bottom: 8), // Compacted from 12
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(20), // More "cute"
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.02),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
-            ),
-          ],
+          borderRadius: BorderRadius.circular(16), // Balanced cute
+          boxShadow: const [], // Flat design
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8), // Tightened
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 6), // Compacted
               child: Row(
                 children: [
                   profileAsync.when(
                     data: (user) {
                       final profileUrl = (user as UserModel).profilePhotoUrl;
-                      return CircleAvatar(
-                        radius: 18,
-                        backgroundImage: profileUrl.isNotEmpty 
-                          ? CachedNetworkImageProvider(profileUrl) 
-                          : null,
-                        child: profileUrl.isEmpty ? const Icon(Icons.person, size: 18) : null,
+                      return GestureDetector(
+                        onTap: () => context.push(AppRoutes.userProfile, extra: user.uid),
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundImage: profileUrl.isNotEmpty 
+                            ? CachedNetworkImageProvider(profileUrl) 
+                            : null,
+                          child: profileUrl.isEmpty ? const Icon(Icons.person, size: 18) : null,
+                        ),
                       );
                     },
-                    loading: () => const CircleAvatar(radius: 18, backgroundColor: Color(0xFFEEEEEE)),
-                    error: (_, __) => const CircleAvatar(radius: 18, child: Icon(Icons.person)),
+                    loading: () => const CircleAvatar(radius: 16, backgroundColor: Color(0xFFEEEEEE)), // Compacted
+                    error: (_, __) => const CircleAvatar(radius: 16, child: Icon(Icons.person, size: 16)),
                   ),
-                  const SizedBox(width: 10), // Reduced from 12
+                  Gap(8), // Reduced from 12
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        profileAsync.when(
-                          data: (user) => Text(
-                            (user as UserModel).displayName,
-                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), // Muted
+                    child: GestureDetector(
+                      onTap: () => profileAsync.whenData((user) => context.push(AppRoutes.userProfile, extra: (user as UserModel).uid)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          profileAsync.when(
+                            data: (user) => Text(
+                              (user as UserModel).displayName,
+                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13), // Reduced from 14
+                            ).animate().fadeIn(),
+                            loading: () => Container(width: 50, height: 8, color: const Color(0xFFEEEEEE)),
+                            error: (_, __) => const Text("User"),
                           ),
-                          loading: () => Container(width: 60, height: 10, color: const Color(0xFFEEEEEE)),
-                          error: (_, __) => const Text("User"),
-                        ),
-                        Text(
-                          timeago.format(createdAt),
-                          style: TextStyle(color: Colors.grey[400], fontSize: 11), // Scaled
-                        ),
-                      ],
+                          Text(
+                            timeago.format(createdAt),
+                            style: TextStyle(color: Colors.grey[400], fontSize: 9.5), // Reduced from 11
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  const Icon(Icons.more_horiz, color: Colors.black12, size: 20),
+                  const Icon(Icons.more_horiz, color: Colors.black12, size: 18),
                 ],
               ),
             ),
@@ -155,10 +176,10 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
             // Caption
             if (moment['caption'] != null && moment['caption'].toString().isNotEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: Text(
                   moment['caption'],
-                  style: const TextStyle(fontSize: 15, color: Colors.black87, height: 1.4),
+                  style: const TextStyle(fontSize: 13.5, color: Colors.black87, height: 1.3),
                 ),
               ),
 
@@ -173,7 +194,7 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
                     child: CachedNetworkImage(
                       imageUrl: moment['imageUrl'],
                       width: double.infinity,
-                      height: 300,
+                      height: 260, // Compacted from 300
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(color: Colors.grey[100]),
                       errorWidget: (context, url, error) => const Icon(Icons.error),
@@ -184,29 +205,44 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
 
             // Footer Actions
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12), // Reduced
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 10), // Compacted
               child: Row(
                 children: [
-                  _buildAction(
-                    isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded, 
-                    "${moment['likesCount'] ?? 0}", 
-                    isLiked ? Colors.redAccent : Colors.grey[300]!,
-                    isActive: isLiked,
-                    onTap: () {
-                      if (currentUser == null) return;
+                  LikeButton(
+                    size: 20,
+                    isLiked: isLiked,
+                    likeCount: moment['likesCount'] ?? 0,
+                    countPostion: CountPostion.right,
+                    likeBuilder: (bool isLiked) {
+                      return Icon(
+                        isLiked ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
+                        color: isLiked ? Colors.redAccent : Colors.grey[300],
+                        size: 20,
+                      );
+                    },
+                    countBuilder: (int? count, bool isLiked, String text) {
+                      return Text(
+                        text,
+                        style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 12),
+                      );
+                    },
+                    onTap: (isLiked) async {
+                      HapticFeedback.mediumImpact();
+                      if (currentUser == null) return !isLiked;
                       ref.read(profileServiceProvider).toggleLike(
                         ownerUid: moment['userId'], 
                         mediaId: moment['mediaId'], 
                         likerUid: currentUser.uid, 
                         isMoment: true,
                       );
+                      return !isLiked;
                     },
                   ),
-                  const SizedBox(width: 16), // Reduced from 24
+                  Gap(16),
                   _buildAction(
                     Icons.chat_bubble_outline_rounded, 
                     "${moment['commentsCount'] ?? 0}", 
-                    Colors.grey[200]!, // Subtler
+                    Colors.grey[200]!,
                     onTap: () => context.push(
                       AppRoutes.momentDetail,
                       extra: {
@@ -216,12 +252,31 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
                     ),
                   ),
                   const Spacer(),
-                  const Icon(Icons.card_giftcard_rounded, color: AppColors.primary, size: 20).animate().scale(delay: 1.seconds, duration: 2.seconds).fadeIn(),
+                  GestureDetector(
+                    onTap: () => _showGiftPanel(moment['mediaId'], moment['userId']),
+                    child: const Icon(Icons.card_giftcard_rounded, color: AppColors.primary, size: 18)
+                      .animate()
+                      .scale(delay: 1.seconds, duration: 2.seconds)
+                      .fadeIn(),
+                  ),
                 ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showGiftPanel(String mediaId, String ownerUid) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => GiftPanel(
+        roomId: mediaId,
+        targetUid: ownerUid,
+        isMoment: true,
       ),
     );
   }
@@ -245,18 +300,14 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
     );
   }
 
-  Widget _buildAction(IconData icon, String count, Color iconColor, {required VoidCallback onTap, bool isActive = false}) {
+  Widget _buildAction(IconData icon, String count, Color iconColor, {required VoidCallback onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Row(
         children: [
-          Icon(icon, color: iconColor, size: 22)
-            .animate(target: isActive ? 1 : 0)
-            .scale(begin: const Offset(1, 1), end: const Offset(1.3, 1.3), duration: 200.ms, curve: Curves.elasticOut)
-            .then()
-            .scale(begin: const Offset(1.3, 1.3), end: const Offset(1, 1), duration: 200.ms),
-          const SizedBox(width: 6),
-          Text(count, style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 13)),
+          Icon(icon, color: iconColor, size: 20),
+          Gap(6),
+          Text(count, style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold, fontSize: 12)),
         ],
       ),
     );
@@ -300,15 +351,21 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Row(
-            children: [
-              if (isActive && filter == MomentFilter.following) ...[
-                 const Icon(Icons.insights_rounded, color: AppColors.cyanAccent, size: 16).animate(onPlay: (controller) => controller.repeat()).shake(),
-                 const SizedBox(width: 4),
-              ],
-              Text(label, style: TextStyle(color: isActive ? Colors.black : Colors.grey[400], fontSize: isActive ? 18 : 15, fontWeight: isActive ? FontWeight.bold : FontWeight.w500)),
-            ],
+          Text(
+            label,
+            style: TextStyle(
+              color: isActive ? Colors.black : Colors.grey[400],
+              fontSize: 15,
+              fontWeight: isActive ? FontWeight.w900 : FontWeight.w600,
+            ),
           ),
+          if (isActive)
+            Container(
+              margin: const EdgeInsets.only(top: 2),
+              width: 4,
+              height: 4,
+              decoration: const BoxDecoration(color: Color(0xFF00E5FF), shape: BoxShape.circle),
+            ),
         ],
       ),
     );

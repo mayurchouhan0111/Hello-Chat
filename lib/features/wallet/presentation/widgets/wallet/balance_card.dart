@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
+import 'package:hello_chat/core/widgets/premium_bean.dart';
 
 class BalanceCard extends StatelessWidget {
   final bool isDiamond;
@@ -19,100 +21,81 @@ class BalanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 85, // Reduced from 100
+      width: double.infinity,
       margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Reduced vertical
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14), // Milder rounded
+        color: const Color(0xFFFFF0E0), // Peach/Light orange
+        borderRadius: BorderRadius.circular(22),
         gradient: LinearGradient(
-          colors: isDiamond 
-              ? [const Color(0xFFFFF0E0), const Color(0xFFFFE4C4)]
-              : [const Color(0xFFFFF8E1), const Color(0xFFFFF3CD)],
+          colors: [
+            const Color(0xFFFFF0E0).withOpacity(0.95),
+            const Color(0xFFFDDAB7),
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
       ),
-      child: isDiamond ? _buildDiamondLayout() : _buildBeansLayout(),
+      child: Stack(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildMainBalanceUI(),
+              const SizedBox(height: 12),
+              _buildBottomLink(),
+            ],
+          ),
+          Positioned(
+            top: 4,
+            right: 0,
+            child: Row(
+              children: [
+                _buildSmallIconBox(Icons.history_rounded, onTap: onHistoryTap),
+                const SizedBox(width: 12),
+                _buildSmallIconBox(Icons.account_balance_wallet_rounded, onTap: onTransferTap),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildDiamondLayout() {
+  Widget _buildMainBalanceUI() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              children: [
-                const Text("💎", style: TextStyle(fontSize: 20)),
-                const SizedBox(width: 8),
-                Text(
-                  "$balance",
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.black87), // Muted scaled
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            GestureDetector(
-              onTap: onHistoryTap,
-              child: const Row(
-                children: [
-                  Text("Account Balance ", style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w600)),
-                  Icon(Icons.chevron_right_rounded, color: Colors.orange, size: 14),
-                ],
-              ),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            _buildIconButton(Icons.receipt_long_outlined, onHistoryTap),
-            const SizedBox(width: 12),
-            _buildIconButton(Icons.card_giftcard_rounded, onTransferTap),
-          ],
+        if (isDiamond) 
+          const PremiumDiamond(size: 38) 
+        else 
+          const PremiumBean(size: 38),
+        const SizedBox(width: 8),
+        Text(
+          "$balance",
+          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900, color: Colors.black87),
         ),
       ],
     );
   }
 
-  Widget _buildBeansLayout() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Row(
-              children: [
-                const Text("Current estimated total earnings", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(width: 2),
-                const Icon(Icons.info_outline_rounded, color: Colors.grey, size: 13),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              "≈ \$${estimatedEarnings?.toStringAsFixed(0) ?? '0'}",
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Text("current beans ", style: TextStyle(color: Colors.grey, fontSize: 13)),
-                const Text("🫘", style: TextStyle(fontSize: 12)),
-                Text(" $balance", style: const TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ],
-        ),
-        _buildIconButton(Icons.receipt_long_outlined, onHistoryTap),
-      ],
+  Widget _buildBottomLink() {
+    return GestureDetector(
+      onTap: onHistoryTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Text(
+            "Account Balance",
+            style: TextStyle(color: Color(0xFFF57C00), fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+          SizedBox(width: 4),
+          Icon(Icons.chevron_right_rounded, color: Color(0xFFF57C00), size: 16),
+        ],
+      ),
     );
   }
 
-  Widget _buildIconButton(IconData icon, VoidCallback? onTap) {
+  Widget _buildSmallIconBox(IconData icon, {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -120,9 +103,8 @@ class BalanceCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.5),
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.black.withOpacity(0.05)),
         ),
-        child: Icon(icon, color: Colors.grey[700], size: 20),
+        child: Icon(icon, color: const Color(0xFFF57C00), size: 20),
       ),
     );
   }

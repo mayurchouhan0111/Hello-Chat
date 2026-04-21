@@ -4,6 +4,7 @@ import 'package:gap/gap.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/providers/chat_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
@@ -27,6 +28,20 @@ class PrivateChatScreen extends ConsumerStatefulWidget {
 class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
   final TextEditingController _msgController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _isTyping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _markRead();
+  }
+
+  void _markRead() {
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null) {
+      ref.read(chatServiceProvider).markAsRead(widget.chatId, currentUid);
+    }
+  }
 
   void _sendMessage() async {
     final text = _msgController.text.trim();
@@ -34,6 +49,9 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
 
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null) return;
+
+    // Reset typing state
+    if (_isTyping) setState(() => _isTyping = false);
 
     await ref.read(chatServiceProvider).sendPrivateMessage(
       chatId: widget.chatId, 
@@ -44,6 +62,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
 
     _msgController.clear();
     _scrollController.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+    _markRead();
   }
 
   @override
@@ -53,92 +72,190 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF3F7FA),
+      backgroundColor: AppColors.background, // Hello Chat primary background
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: AppColors.primary, // Hello Chat Brand Purple
         elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: profileAsync.when(
-          data: (user) => Row(
+          data: (user) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundImage: (user as UserModel).profilePhotoUrl.isNotEmpty 
-                  ? NetworkImage(user.profilePhotoUrl) 
-                  : null,
-                child: user.profilePhotoUrl.isEmpty ? const Icon(Icons.person) : null,
-              ),
-              const Gap(10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                   Text(user.displayName, style: const TextStyle(color: Colors.black, fontSize: 16)),
-                   const Text("Online", style: TextStyle(color: Colors.green, fontSize: 10)),
-                ],
-              ),
+               Text((user as UserModel).displayName, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)), // Compacted
+               const Text("online", style: TextStyle(color: Colors.white70, fontSize: 9)), // Compacted
             ],
           ),
-          loading: () => const Text("Loading..."),
-          error: (_, __) => const Text("Unknown User"),
+          loading: () => const Text("Loading...", style: TextStyle(color: Colors.white, fontSize: 14)),
+          error: (_, __) => const Text("User", style: TextStyle(color: Colors.white, fontSize: 14)),
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.more_vert, color: Colors.black), onPressed: () {}),
+          profileAsync.maybeWhen(
+            data: (user) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: CircleAvatar(
+                radius: 15,
+                backgroundImage: (user as UserModel).profilePhotoUrl.isNotEmpty 
+                  ? CachedNetworkImageProvider(user.profilePhotoUrl) 
+                  : null,
+                child: user.profilePhotoUrl.isEmpty ? const Icon(Icons.person, color: Colors.white70, size: 16) : null,
+              ),
+            ),
+            orElse: () => const SizedBox.shrink(),
+          ),
+          IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: () {}),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          Expanded(
-            child: messagesAsync.when(
-              data: (messages) => ListView.builder(
-                controller: _scrollController,
-                reverse: true,
-                padding: const EdgeInsets.all(16),
-                itemCount: messages.length,
-                itemBuilder: (context, index) {
-                  final msg = messages[index];
-                  final isMe = msg['senderUid'] == currentUid;
-                  return _buildMessageBubble(msg, isMe);
-                },
-              ),
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, __) => Center(child: Text("Error: $e")),
+          // CUSTOM HELLO CHAT PATTERN BACKGROUND
+          Positioned.fill(
+            child: CustomPaint(
+              painter: ChatBackgroundPainter(),
             ),
           ),
-          _buildInputArea(),
+          Column(
+            children: [
+              Expanded(
+                child: messagesAsync.when(
+                  data: (messages) => _buildMessageList(messages, currentUid),
+                  loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                  error: (e, __) => Center(child: Text("Error: $e")),
+                ),
+              ),
+              SafeArea(child: _buildInputArea()),
+            ],
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMessageList(List<Map<String, dynamic>> messages, String? currentUid) {
+    if (messages.isEmpty) {
+      return Center(
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.yellow[100],
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.yellow[200]!),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock, size: 14, color: Colors.black54),
+              SizedBox(width: 8),
+              Text("Messages are end-to-end encrypted", style: TextStyle(fontSize: 12, color: Colors.black54)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      reverse: true,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+      itemCount: messages.length,
+      itemBuilder: (context, index) {
+        final msg = messages[index];
+        final isMe = msg['senderUid'] == currentUid;
+        
+        // Date Grouping logic (simplified)
+        bool showDate = false;
+        if (index == messages.length - 1) {
+          showDate = true;
+        } else {
+          final currentMsgDate = (msg['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final nextMsgDate = (messages[index + 1]['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+          if (currentMsgDate.day != nextMsgDate.day) {
+            showDate = true;
+          }
+        }
+
+        return Column(
+          children: [
+            if (showDate) _buildDateHeader(msg['timestamp'] as Timestamp?),
+            _buildMessageBubble(msg, isMe),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDateHeader(Timestamp? timestamp) {
+    final date = timestamp?.toDate() ?? DateTime.now();
+    String dateStr = timeago.format(date);
+    if (date.day == DateTime.now().day) dateStr = "TODAY";
+    else if (date.day == DateTime.now().subtract(const Duration(days: 1)).day) dateStr = "YESTERDAY";
+    else dateStr = "${date.day}/${date.month}/${date.year}";
+
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFD1E4F5).withOpacity(0.6),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(dateStr, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w900, color: Colors.black54)),
       ),
     );
   }
 
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe) {
     final timestamp = (msg['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
+    final timeStr = "${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}";
     
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.7),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: EdgeInsets.only(
+          bottom: 4,
+          left: isMe ? 60 : 0,
+          right: isMe ? 0 : 60,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: isMe ? AppColors.primary : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(isMe ? 20 : 0),
-            bottomRight: Radius.circular(isMe ? 0 : 20),
-          ),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 5, offset: const Offset(0, 2))],
+          borderRadius: BorderRadius.circular(20), // More rounded for "cute"
+          boxShadow: const [], // Strictly NO shadow
         ),
         child: Column(
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              msg['text'] ?? "",
-              style: TextStyle(color: isMe ? Colors.white : Colors.black87, fontSize: 15),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Text(
+                msg['text'] ?? "",
+                style: TextStyle(
+                  color: isMe ? Colors.white : Colors.black87, 
+                  fontSize: 13, // Reduced from 15.5
+                  height: 1.25,
+                ),
+              ),
             ),
-            const Gap(4),
-            Text(
-              timeago.format(timestamp, locale: 'en_short'),
-              style: TextStyle(color: isMe ? Colors.white70 : Colors.grey[400], fontSize: 10),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  timeStr,
+                  style: TextStyle(color: isMe ? Colors.white70 : Colors.grey[500], fontSize: 9), // Compact
+                ),
+                if (isMe) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    msg['isRead'] == true ? Icons.done_all : Icons.done,
+                    size: 12,
+                    color: msg['isRead'] == true ? AppColors.diamond : Colors.white70,
+                  ),
+                ],
+              ],
             ),
           ],
         ),
@@ -148,32 +265,113 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
 
   Widget _buildInputArea() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      decoration: const BoxDecoration(color: Colors.white),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: Row(
         children: [
-          IconButton(icon: const Icon(Icons.add_circle_outline, color: Colors.grey), onPressed: () {}),
           Expanded(
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(25)),
-              child: TextField(
-                controller: _msgController,
-                decoration: const InputDecoration(hintText: "Type a message...", border: InputBorder.none),
-                onSubmitted: (_) => _sendMessage(),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(25),
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey, size: 20),
+                    onPressed: () {},
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: _msgController,
+                      onChanged: (val) {
+                        if (val.isNotEmpty && !_isTyping) setState(() => _isTyping = true);
+                        if (val.isEmpty && _isTyping) setState(() => _isTyping = false);
+                      },
+                      maxLines: null,
+                      decoration: const InputDecoration(
+                        hintText: "Message",
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        errorBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.attach_file, color: Colors.grey, size: 20),
+                    onPressed: () {},
+                  ),
+                  if (!_isTyping)
+                    IconButton(
+                      icon: const Icon(Icons.camera_alt, color: Colors.grey, size: 20),
+                      onPressed: () {},
+                    ),
+                ],
               ),
             ),
           ),
-          const Gap(12),
-          CircleAvatar(
-            backgroundColor: AppColors.primary,
-            child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.white, size: 20),
-              onPressed: _sendMessage,
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _sendMessage,
+            child: CircleAvatar(
+              radius: 20, // Reduced from 24
+              backgroundColor: AppColors.primary,
+              child: const Icon(
+                Icons.send,
+                color: Colors.white,
+                size: 18, // Reduced
+              ),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class ChatBackgroundPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double spacing = 80;
+    final List<IconData> icons = [
+      Icons.favorite_outline_rounded,
+      Icons.chat_bubble_outline_rounded,
+      Icons.star_outline_rounded,
+      Icons.diamond_outlined,
+      Icons.emoji_emotions_outlined,
+    ];
+
+    int iconIndex = 0;
+    for (double y = 0; y < size.height; y += spacing) {
+      for (double x = 0; x < size.width; x += spacing) {
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: String.fromCharCode(icons[iconIndex % icons.length].codePoint),
+            style: TextStyle(
+              fontSize: 22,
+              fontFamily: icons[iconIndex % icons.length].fontFamily,
+              package: icons[iconIndex % icons.length].fontPackage,
+              color: AppColors.primary.withOpacity(0.04), // Branded color
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        
+        // Artistic rotation and placement
+        canvas.save();
+        canvas.translate(x + 20, y + 20);
+        canvas.rotate(0.2); 
+        textPainter.paint(canvas, Offset.zero);
+        canvas.restore();
+        
+        iconIndex++;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

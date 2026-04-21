@@ -75,11 +75,25 @@ class ChatService {
     required String text,
     String type = 'text',
   }) async {
+    // 1. Enforcement Test: Check for mutual blocks
+    final senderDoc = await _db.collection('users').doc(senderUid).get();
+    final receiverDoc = await _db.collection('users').doc(receiverUid).get();
+
+    final List senderBlocked = (senderDoc.data()?['blockedUids'] ?? []) as List;
+    final List receiverBlocked = (receiverDoc.data()?['blockedUids'] ?? []) as List;
+
+    if (senderBlocked.contains(receiverUid)) {
+      throw Exception("You have blocked this user. Unblock them to send a message.");
+    }
+    if (receiverBlocked.contains(senderUid)) {
+      throw Exception("You cannot send messages to this user.");
+    }
+
     final batch = _db.batch();
     final chatRef = _db.collection('chats').doc(chatId);
     final messageRef = chatRef.collection('messages').doc();
 
-    // 1. Add Message
+    // 2. Add Message
     batch.set(messageRef, {
       'messageId': messageRef.id,
       'senderUid': senderUid,
@@ -90,7 +104,7 @@ class ChatService {
       'isRead': false,
     });
 
-    // 2. Update Chat Head
+    // 3. Update Chat Head
     batch.update(chatRef, {
       'lastMessage': text,
       'lastMessageTime': FieldValue.serverTimestamp(),

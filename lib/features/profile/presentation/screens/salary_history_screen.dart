@@ -4,6 +4,7 @@ import '../../../../core/constants/app_colors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../../../core/services/salary_service.dart';
 
 class SalaryHistoryScreen extends ConsumerWidget {
   const SalaryHistoryScreen({super.key});
@@ -24,29 +25,21 @@ class SalaryHistoryScreen extends ConsumerWidget {
           onPressed: () => Navigator.pop(context),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .collection('salary_history')
-            .orderBy('timestamp', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-          if (snapshot.hasError) return Center(child: Text("Error: ${snapshot.error}"));
-          
-          final docs = snapshot.data?.docs ?? [];
+      body: ref.watch(salaryHistoryProvider(uid)).when(
+        data: (docs) {
           if (docs.isEmpty) return _buildEmptyState();
 
           return ListView.builder(
             padding: const EdgeInsets.all(16),
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
+              final data = docs[index];
               return _buildSalaryCard(data);
             },
           );
         },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (err, _) => Center(child: Text("Error: $err")),
       ),
     );
   }
@@ -95,7 +88,7 @@ class SalaryHistoryScreen extends ConsumerWidget {
               ),
               Text(
                 "+◈ $amount",
-                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w900, fontSize: 18),
+                style: const TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 18),
               ),
             ],
           ),
@@ -103,8 +96,8 @@ class SalaryHistoryScreen extends ConsumerWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildMetric("Earnings", "◈ $totalEarnings"),
-              _buildMetric("Target", "◈ $target"),
+              _buildMetric("Earnings", "◈ $totalEarnings", isDiamond: true),
+              _buildMetric("Target", "◈ $target", isDiamond: true),
               _buildMetric("Agency Split", data['agencyId'] != null ? "10%" : "N/A"),
             ],
           ),
@@ -113,13 +106,13 @@ class SalaryHistoryScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildMetric(String label, String value) {
+  Widget _buildMetric(String label, String value, {bool isDiamond = false}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
         const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+        Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: isDiamond ? const Color(0xFFFFD700) : Colors.black87)),
       ],
     );
   }

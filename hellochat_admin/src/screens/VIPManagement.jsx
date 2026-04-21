@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { db } from '../firebase';
 import { 
   collection, 
   query, 
@@ -10,6 +9,12 @@ import {
   orderBy,
   serverTimestamp
 } from 'firebase/firestore';
+import { 
+  ref, 
+  uploadBytesResumable, 
+  getDownloadURL 
+} from 'firebase/storage';
+import { db, storage } from '../firebase';
 import { 
   Crown, 
   Diamond, 
@@ -22,7 +27,10 @@ import {
   Plus,
   Trash2,
   Save,
-  MessageSquare
+  MessageSquare,
+  Upload,
+  Loader2,
+  Image as ImageIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAdmin } from '../context/AdminContext';
@@ -33,16 +41,19 @@ export const VIPManagement = () => {
   const [loading, setLoading] = useState(true);
   const [editingTier, setEditingTier] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [category, setCategory] = useState("vip_tiers"); // "vip_tiers" or "noble_tiers"
+  const [uploadingField, setUploadingField] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const { user } = useAdmin();
 
   useEffect(() => {
-    const q = query(collection(db, "vip_tiers"), orderBy("level", "asc"));
+    const q = query(collection(db, category), orderBy("sortOrder", "asc"));
     const unsub = onSnapshot(q, (snap) => {
       setTiers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [category]);
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -51,14 +62,292 @@ export const VIPManagement = () => {
         ...editingTier,
         updatedAt: serverTimestamp()
       };
-      await setDoc(doc(db, "vip_tiers", editingTier.id || editingTier.tierId), data, { merge: true });
-      await logAdminAction(user, "VIP_TIER_UPDATE", editingTier.id || editingTier.tierId, { name: data.name, price: data.monthlyPriceInDiamonds });
+      await setDoc(doc(db, category, editingTier.id || editingTier.tierId), data, { merge: true });
+      await logAdminAction(user, `${category.toUpperCase()}_UPDATE`, editingTier.id || editingTier.tierId, { name: data.name, price: data.monthlyPriceInDiamonds });
       setEditingTier(null);
       setCreating(false);
     } catch (err) {
       alert("Error: " + err.message);
     }
   };
+
+  const handleFileUpload = async (e, field) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingField(field);
+    setUploadProgress(0);
+
+    const storageRef = ref(storage, `vip_assets/${category}/${editingTier.id}/${field}_${Date.now()}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        setUploadProgress(progress);
+      },
+      (error) => {
+        alert("Upload failed: " + error.message);
+        setUploadingField(null);
+      },
+      () => {
+        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+          setEditingTier(prev => ({ ...prev, [field]: downloadURL }));
+          setUploadingField(null);
+          // Optional: Show a brief success state
+          const originalName = editingTier.name;
+          setEditingTier(prev => ({ ...prev, _lastUploaded: field }));
+          setTimeout(() => {
+            setEditingTier(prev => {
+              const { _lastUploaded, ...rest } = prev;
+              return rest;
+            });
+          }, 3000);
+        });
+      }
+    );
+  };
+
+  const handleSeedAll = async () => {
+    if(!window.confirm("CRITICAL ACTION: This will overwrite ALL existing VIP and Noble tiers. Continue?")) return;
+    setLoading(true);
+    try {
+      const vipTiers = [
+        {
+          tierId: 'vip1',
+          name: 'VIP 1',
+          level: 1,
+          monthlyPriceInDiamonds: 1000000,
+          monthlyPriceInUSD: 10.0,
+          benefits: ["badge", "entry_effect"],
+          profileFrame: "",
+          entryAnimation: "vip_entry_1",
+          badgeIcon: "https://picsum.photos/101",
+          backgroundImage: '',
+          themeColor: '#10B981',
+          entryRequirement: 'Recharge 1,000,000 Diamonds',
+          priorityMicAccess: false,
+          isActive: true,
+          sortOrder: 1
+        },
+        {
+          tierId: 'vip2',
+          name: 'VIP 2',
+          level: 2,
+          monthlyPriceInDiamonds: 5000000,
+          monthlyPriceInUSD: 50.0,
+          benefits: ["badge", "entry_effect", "mic_ring"],
+          profileFrame: "",
+          entryAnimation: "vip_entry_2",
+          badgeIcon: "https://picsum.photos/102",
+          backgroundImage: '',
+          themeColor: '#059669',
+          entryRequirement: 'Recharge 5,000,000 Diamonds',
+          priorityMicAccess: false,
+          isActive: true,
+          sortOrder: 2
+        },
+        {
+          tierId: 'vip3',
+          name: 'VIP 3',
+          level: 3,
+          monthlyPriceInDiamonds: 20000000,
+          monthlyPriceInUSD: 200.0,
+          benefits: ["badge", "entry_effect", "mic_ring", "priority_mic"],
+          profileFrame: "",
+          entryAnimation: "vip_entry_3",
+          badgeIcon: "https://picsum.photos/103",
+          backgroundImage: '',
+          themeColor: '#3B82F6',
+          entryRequirement: 'Recharge 20,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 3
+        },
+        {
+          tierId: 'vip4',
+          name: 'VIP 4',
+          level: 4,
+          monthlyPriceInDiamonds: 50000000,
+          monthlyPriceInUSD: 500.0,
+          benefits: ["badge", "entry_effect", "exclusive_gifts", "priority_mic"],
+          profileFrame: "",
+          entryAnimation: "vip_entry_4",
+          badgeIcon: "https://picsum.photos/104",
+          backgroundImage: '',
+          themeColor: '#8B5CF6',
+          entryRequirement: 'Recharge 50,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 4
+        },
+        {
+          tierId: 'vip5',
+          name: 'VIP 5',
+          level: 5,
+          monthlyPriceInDiamonds: 100000000,
+          monthlyPriceInUSD: 1000.0,
+          benefits: ["royal_frame", "badge", "custom_id", "kick_protection"],
+          profileFrame: "https://picsum.photos/204",
+          entryAnimation: "vip_entry_5",
+          badgeIcon: "https://picsum.photos/105",
+          backgroundImage: '',
+          themeColor: '#F59E0B',
+          entryRequirement: 'Recharge 100,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 5
+        },
+        {
+          tierId: 'vip6',
+          name: 'VIP 6',
+          level: 6,
+          monthlyPriceInDiamonds: 150000000,
+          monthlyPriceInUSD: 1500.0,
+          benefits: ["royal_frame", "badge", "custom_id", "kick_protection", "god_badge"],
+          profileFrame: "https://picsum.photos/205",
+          entryAnimation: "vip_entry_6",
+          badgeIcon: "https://picsum.photos/106",
+          backgroundImage: '',
+          themeColor: '#EF4444',
+          entryRequirement: 'Recharge 150,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 6
+        },
+        {
+          tierId: 'vip7',
+          name: 'SVIP',
+          level: 7,
+          monthlyPriceInDiamonds: 200000000,
+          monthlyPriceInUSD: 2000.0,
+          benefits: ["all_access", "master_badge", "world_announce"],
+          profileFrame: "https://picsum.photos/206",
+          entryAnimation: "svip_entry",
+          badgeIcon: "https://picsum.photos/107",
+          backgroundImage: '',
+          themeColor: '#FFFFFF',
+          entryRequirement: 'Recharge 200,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 7
+        },
+
+
+      ];
+
+      const nobleTiers = [
+        {
+          tierId: 'knight',
+          name: 'Knight',
+          level: 1,
+          monthlyPriceInDiamonds: 200000,
+          monthlyPriceInUSD: 200.0,
+          benefits: ["noble_badge", "priority_mic"],
+          badgeIcon: "https://picsum.photos/110",
+          profileFrame: "",
+          entryAnimation: 'noble_1',
+          backgroundImage: '',
+          themeColor: '#34D399',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 1
+        },
+        {
+          tierId: 'viscount',
+          name: 'Viscount',
+          level: 2,
+          monthlyPriceInDiamonds: 1000000,
+          monthlyPriceInUSD: 1000.0,
+          benefits: ["noble_badge", "entry_effect", "priority_mic"],
+          badgeIcon: "https://picsum.photos/111",
+          profileFrame: "",
+          entryAnimation: 'noble_2',
+          backgroundImage: '',
+          themeColor: '#10B981',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 2
+        },
+        {
+          tierId: 'marquis',
+          name: 'Marquis',
+          level: 4,
+          monthlyPriceInDiamonds: 5000000,
+          monthlyPriceInUSD: 5000.0,
+          benefits: ["noble_frame", "kick_protection", "priority_mic"],
+          badgeIcon: "https://picsum.photos/113",
+          profileFrame: "",
+          entryAnimation: 'noble_4',
+          backgroundImage: '',
+          themeColor: '#3B82F6',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 3
+        },
+        {
+          tierId: 'king',
+          name: 'King',
+          level: 6,
+          monthlyPriceInDiamonds: 50000000,
+          monthlyPriceInUSD: 50000.0,
+          benefits: ["golden_entry", "kick_protection", "mute_immunity"],
+          badgeIcon: "https://picsum.photos/115",
+          profileFrame: "",
+          entryAnimation: 'noble_6',
+          backgroundImage: '',
+          themeColor: '#F59E0B',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 4
+        },
+        {
+          tierId: 'emperor',
+          name: 'Emperor',
+          level: 7,
+          monthlyPriceInDiamonds: 200000000,
+          monthlyPriceInUSD: 200000.0,
+          benefits: ["dragon_entry", "god_badge", "kick_protection", "mute_immunity"],
+          badgeIcon: "https://picsum.photos/116",
+          profileFrame: "",
+          entryAnimation: 'noble_7',
+          backgroundImage: '',
+          themeColor: '#FFFFFF',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 5
+        },
+
+      ];
+
+
+      const svipLevels = [
+        { level: 1, name: "SVIP 1", rechargeThreshold: 10000000, color: "#FDE047" },
+        { level: 2, name: "SVIP 2", rechargeThreshold: 30000000, color: "#FACC15" },
+        { level: 3, name: "SVIP 3", rechargeThreshold: 50000000, color: "#EAB308" },
+        { level: 4, name: "SVIP 4", rechargeThreshold: 100000000, color: "#CA8A04" },
+        { level: 5, name: "SVIP 5", rechargeThreshold: 200000000, color: "#A16207" },
+        { level: 6, name: "SVIP 6", rechargeThreshold: 300000000, color: "#854D0E" },
+        { level: 7, name: "SVIP 7", rechargeThreshold: 500000000, color: "#713F12" },
+      ];
+
+      const batch = [];
+      vipTiers.forEach(v => batch.push(setDoc(doc(db, "vip_tiers", v.tierId), { ...v, isActive: true, createdAt: serverTimestamp() })));
+      nobleTiers.forEach(n => batch.push(setDoc(doc(db, "noble_tiers", n.tierId), { ...n, isActive: true, createdAt: serverTimestamp() })));
+      svipLevels.forEach(s => batch.push(setDoc(doc(db, "svip_levels", `svip${s.level}`), { ...s, isActive: true, createdAt: serverTimestamp() })));
+      
+      await Promise.all(batch);
+      await logAdminAction(user, "FULL_ECONOMY_RESEED", "system", { status: "success" });
+      alert("Economy Seeding Successful! All Tiers (VIP, Noble, SVIP) Initialized.");
+
+    } catch (err) {
+      alert("Seed Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   const createTier = () => {
     const newId = `vip_${tiers.length + 1}`;
@@ -102,22 +391,52 @@ export const VIPManagement = () => {
            </h1>
            <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">VIP Membership & Economy Orchestration • {tiers.length} Tiers</p>
         </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleSeedAll}
+            className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+          >
+            Reset & Seed All
+          </button>
+          <button 
+            onClick={createTier}
+            className="px-6 py-3 bg-white/5 hover:bg-amber-500 hover:text-slate-950 text-amber-500 border border-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+          >
+            <Plus size={14} className="inline mr-2" /> New Tier
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-4 border-b border-white/5 pb-6">
         <button 
-          onClick={createTier}
-          className="px-6 py-3 bg-white/5 hover:bg-amber-500 hover:text-slate-950 text-amber-500 border border-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+          onClick={() => setCategory("vip_tiers")}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'vip_tiers' ? 'bg-amber-500 text-slate-950' : 'bg-white/5 text-slate-500'}`}
         >
-          <Plus size={14} className="inline mr-2" /> New Tier
+          VIP Memberships
+        </button>
+        <button 
+          onClick={() => setCategory("noble_tiers")}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'noble_tiers' ? 'bg-purple-500 text-white' : 'bg-white/5 text-slate-500'}`}
+        >
+          Noble Hall (Aristocracy)
+        </button>
+        <button 
+          onClick={() => setCategory("svip_levels")} // Current SVIP collection
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'svip_levels' ? 'bg-rose-500 text-white outline outline-1 outline-rose-400' : 'bg-white/5 text-slate-500'}`}
+        >
+          SVIP (High-Stake)
         </button>
       </div>
+
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         
         {/* Tiers List */}
         <div className="space-y-8">
-           <div className="flex items-center justify-between px-2">
-              <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">Tier Configuration HUD</h4>
-              <Sparkles className="text-amber-500 animate-pulse" size={16} />
-           </div>
+            <div className="flex items-center justify-between px-2">
+               <h4 className="text-xs font-black uppercase tracking-widest text-slate-500">{category === 'vip_tiers' ? 'VIP' : 'Noble'} Configuration HUD</h4>
+               <Sparkles className={category === 'vip_tiers' ? 'text-amber-500 animate-pulse' : 'text-purple-400 animate-pulse'} size={16} />
+            </div>
 
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {loading ? (
@@ -206,26 +525,90 @@ export const VIPManagement = () => {
                      </div>
 
                      <div className="space-y-6">
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Membership Privileges</p>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           {['Profile Frame', 'Entry Animation', 'Badge Icon'].map(assetField => (
-                             <div key={assetField} className="space-y-2">
-                                <label className="text-[9px] font-black text-slate-700 uppercase">{assetField} URL</label>
+                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 text-amber-500">Visual Assets (Upload or URL)</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           {[
+                             { label: 'Profile Frame', field: 'profileFrame' },
+                             { label: 'Entry Animation', field: 'entryAnimation' },
+                             { label: 'Badge Icon', field: 'badgeIcon' },
+                             { label: 'Background Image', field: 'backgroundImage' }
+                           ].map((asset) => (
+                             <div key={asset.field} className="space-y-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                                <div className="flex items-center justify-between">
+                                   <label className="text-[10px] font-black text-slate-400 uppercase">{asset.label}</label>
+                                   {editingTier[asset.field] && (
+                                     <a href={editingTier[asset.field]} target="_blank" rel="noreferrer" className="text-[9px] text-amber-500 font-bold hover:underline">View Asset</a>
+                                   )}
+                                </div>
+                                
+                                {/* Asset Preview */}
+                                <div className="h-24 w-full bg-slate-950 rounded-xl border border-white/5 flex items-center justify-center overflow-hidden relative group">
+                                   {editingTier[asset.field] ? (
+                                      asset.field.toLowerCase().includes('animation') ? (
+                                        <div className="text-[10px] text-slate-500 font-black uppercase text-center px-4">Animation Link Saved</div>
+                                      ) : (
+                                        <img 
+                                          src={editingTier[asset.field]} 
+                                          alt="preview" 
+                                          className="h-full w-full object-contain p-2"
+                                          onError={(e) => {
+                                            e.target.src = "https://placehold.co/200x200/1e293b/475569?text=Broken+Link";
+                                          }} 
+                                        />
+                                      )
+                                   ) : (
+                                      <ImageIcon className="text-slate-800" size={24} />
+                                   )}
+                                   
+                                   {/* Success Checkmark overlay */}
+                                   {editingTier._lastUploaded === asset.field && (
+                                     <motion.div 
+                                       initial={{ scale: 0, opacity: 0 }}
+                                       animate={{ scale: 1, opacity: 1 }}
+                                       className="absolute inset-0 bg-emerald-500/90 flex items-center justify-center backdrop-blur-sm z-10"
+                                     >
+                                        <CheckCircle className="text-white" size={32} />
+                                     </motion.div>
+                                   )}
+                                   
+                                   {uploadingField === asset.field && (
+                                     <div className="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center backdrop-blur-sm">
+                                        <Loader2 className="text-amber-500 animate-spin mb-2" size={20} />
+                                        <div className="text-[10px] font-black text-white">{Math.round(uploadProgress)}%</div>
+                                     </div>
+                                   )}
+
+                                   <label className="absolute inset-0 bg-amber-500/80 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-all">
+                                      <Upload className="text-slate-950" size={20} />
+                                      <input 
+                                        type="file" 
+                                        className="hidden" 
+                                        accept="image/*,.gif,.svga,.lottie"
+                                        onChange={(e) => handleFileUpload(e, asset.field)}
+                                      />
+                                   </label>
+                                </div>
+
                                 <input 
-                                  className="input-field w-full h-10 bg-white/5 text-[10px] text-slate-300"
-                                  value={editingTier[assetField.replace(' ', '').charAt(0).toLowerCase() + assetField.replace(' ', '').slice(1)] || ''}
-                                  onChange={(e) => setEditingTier({...editingTier, [assetField.replace(' ', '').charAt(0).toLowerCase() + assetField.replace(' ', '').slice(1)]: e.target.value})}
+                                  className="input-field w-full h-8 bg-black/20 text-[9px] text-slate-500 font-mono border-none"
+                                  placeholder="Or paste URL here..."
+                                  value={editingTier[asset.field] || ''}
+                                  onChange={(e) => setEditingTier({...editingTier, [asset.field]: e.target.value})}
                                 />
                              </div>
                            ))}
-                           <label className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors cursor-pointer group col-span-full">
+                           
+                           <label className="flex items-center gap-4 p-5 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors cursor-pointer group col-span-full">
                                 <input 
                                   type="checkbox" 
                                   className="w-5 h-5 rounded-lg border-white/10 bg-transparent text-amber-500 focus:ring-amber-500 focus:ring-offset-0"
                                   checked={editingTier.priorityMicAccess}
                                   onChange={(e) => setEditingTier({...editingTier, priorityMicAccess: e.target.checked})}
                                 />
-                                <span className="text-xs font-bold text-slate-400 group-hover:text-white transition-colors uppercase tracking-tight">Priority Microphone Access</span>
+                                <div className="flex flex-col">
+                                   <span className="text-xs font-black text-slate-300 group-hover:text-white transition-colors uppercase tracking-tight">Priority Microphone Access</span>
+                                   <span className="text-[9px] text-slate-600 font-bold uppercase mt-1">Users can jump to the front of mic queues</span>
+                                </div>
                            </label>
                         </div>
                      </div>

@@ -55,9 +55,9 @@ class AppColors {
   ];
 
   // Diamond/Currency (Standardized to Yellow/Gold)
-  static const Color diamond = Color(0xFFFFC107); // Amber Primary
+  static const Color diamond = Color(0xFFFFD700); // Bright Yellow/Gold
   static const Color beans   = Color(0xFFFFD700); // Gold
-  static const Color cyanAccent = Color(0xFFFFD600); // Legacy map to Yellow
+  static const Color cyanAccent = Color(0xFFFFD700); // Legacy map to Yellow
 
   // Explore Card Colors
   static const Color contributionCard = Color(0xFFFFF1E6);

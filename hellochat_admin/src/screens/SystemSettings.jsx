@@ -29,12 +29,15 @@ import {
   Radio,
   BarChart3,
   Megaphone,
-  Send
+  Send,
+  Gift
 } from 'lucide-react';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAdmin } from '../context/AdminContext';
 import { logAdminAction } from './AuditLogs';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
+import { httpsCallable } from 'firebase/functions';
 
 export const SystemSettings = () => {
   const [config, setConfig] = useState({
@@ -53,7 +56,30 @@ export const SystemSettings = () => {
   const [broadcastImage, setBroadcastImage] = useState('');
   const [isPush, setIsPush] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
+  const [rewardAmount, setRewardAmount] = useState('');
   const { user } = useAdmin();
+
+  const handleGlobalReward = async () => {
+    if (!rewardAmount || isNaN(rewardAmount)) return;
+    setLoading(true);
+    setStatus('DISTRIBUTING...');
+    try {
+      const distribute = httpsCallable(functions, 'distributeGlobalReward');
+      const result = await distribute({ amount: parseInt(rewardAmount), reason: "Event Reward" });
+      
+      await logAdminAction(user, "GLOBAL_REWARD", "ECONOMY", { amount: rewardAmount });
+      
+      setStatus('REWARDS TRANSMITTED! 🎁');
+      setRewardAmount('');
+      setTimeout(() => setStatus(null), 4000);
+      alert(result.data.message);
+    } catch (err) {
+      alert("Reward Error: " + err.message);
+      setStatus('DISTRIBUTION FAILED');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetchConfig();
@@ -103,9 +129,11 @@ export const SystemSettings = () => {
         message: broadcastMsg,
         imageUrl: broadcastImage,
         isPush: isPush,
-        timestamp: serverTimestamp(),
-        type: 'system_broadcast'
+        createdAt: serverTimestamp(), // Match Flutter createdAt
+        isActive: true, // Match Flutter isActive filter
+        type: 'system' // Match Flutter type
       });
+
       await logAdminAction(user, "GLOBAL_BROADCAST", "SYSTEM", { message: broadcastMsg, isPush: isPush });
       setBroadcastMsg('');
       setBroadcastImage('');
@@ -214,7 +242,7 @@ export const SystemSettings = () => {
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base Payout Threshold (Beans)</label>
                    <input 
                     type="number" className="input-field w-full h-14 bg-slate-950/50"
-                    value={config.salary?.threshold}
+                    value={config.salary?.threshold || 0}
                     onChange={e => setConfig({...config, salary: {...config.salary, threshold: parseInt(e.target.value)}})}
                    />
                 </div>
@@ -222,12 +250,59 @@ export const SystemSettings = () => {
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global Agency Multiplier</label>
                    <input 
                     type="number" step="0.01" className="input-field w-full h-14 bg-slate-950/50"
-                    value={config.salary?.multiplier}
+                    value={config.salary?.multiplier || 0}
                     onChange={e => setConfig({...config, salary: {...config.salary, multiplier: parseFloat(e.target.value)}})}
                    />
                 </div>
              </div>
           </div>
+
+          {/* Maintenance & Rewards (Month 7 Finalization) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+             {/* Maintenance Logic */}
+             <div className={`card-glass p-8 border-white/5 space-y-6 transition-all ${config.isMaintenance ? 'bg-orange-500/10 border-orange-500/30 ring-4 ring-orange-500/10' : 'bg-slate-900/40'}`}>
+                <div className="flex items-center justify-between">
+                   <h4 className="text-xs font-black text-orange-400 tracking-[0.2em] uppercase flex items-center gap-2">
+                      <Zap size={14} /> Maintenance Protocol
+                   </h4>
+                   <div className={`w-3 h-3 rounded-full ${config.isMaintenance ? 'bg-orange-500 animate-pulse' : 'bg-slate-800'}`}></div>
+                </div>
+                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed">When active, the mobile app will be locked for all users except admins. Useful for database migrations or large deployments.</p>
+                <div className="pt-2">
+                   <button 
+                    onClick={() => setConfig({...config, isMaintenance: !config.isMaintenance})}
+                    className={`w-full py-4 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${config.isMaintenance ? 'bg-white text-orange-600' : 'bg-orange-500/10 text-orange-500 border border-orange-500/20'}`}
+                   >
+                     {config.isMaintenance ? 'Disable Maintenance Mode' : 'Go Offline for Maintenance'}
+                   </button>
+                </div>
+             </div>
+
+             {/* System Rewards */}
+             <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
+                <h4 className="text-xs font-black text-rose-400 tracking-[0.2em] uppercase flex items-center gap-2">
+                   <Gift size={14} /> Global Rewards
+                </h4>
+                <p className="text-[10px] font-bold text-slate-500 uppercase">Mass distribute diamonds to all registered users (100+). Use for compensation or events.</p>
+                <div className="flex gap-4">
+                   <input 
+                    type="number" className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex-1 outline-none font-bold" placeholder="Amount..." 
+                    value={rewardAmount}
+                    onChange={(e) => setRewardAmount(e.target.value)}
+                   />
+                   <button 
+                    onClick={handleGlobalReward}
+                    disabled={loading || !rewardAmount}
+                    className="px-6 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase transition-all disabled:opacity-50"
+                   >
+                      {loading ? 'Distributing...' : 'Distribute'}
+                   </button>
+                </div>
+
+             </div>
+          </div>
+
+
 
           {/* Broadcast Tool */}
           <div className="card-glass bg-slate-950/40 p-10 border-white/5 shadow-2xl relative overflow-hidden group">

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
 
 class RechargeOptionTile extends StatelessWidget {
   final String title;
-  final String? subtitle;
+  final dynamic subtitle;
   final Widget icon;
   final String? bonus;
   final String? description;
@@ -38,7 +39,7 @@ class RechargeOptionTile extends StatelessWidget {
                 if (subtitle != null)
                   Row(
                     children: [
-                      Text(subtitle!, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      subtitle is Widget ? subtitle : Text(subtitle.toString(), style: const TextStyle(color: Colors.grey, fontSize: 12)),
                       if (bonus != null) ...[
                         const SizedBox(width: 8),
                         _buildBonusChip(bonus!),
@@ -67,7 +68,9 @@ class RechargeOptionTile extends StatelessWidget {
           onTap: onTap,
           leading: icon,
           title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-          subtitle: subtitle != null ? Text(subtitle!, style: const TextStyle(color: Colors.grey, fontSize: 12)) : null,
+          subtitle: subtitle != null 
+              ? (subtitle is Widget ? subtitle : Text(subtitle.toString(), style: const TextStyle(color: Colors.grey, fontSize: 12)))
+              : null,
           trailing: const Icon(Icons.chevron_right_rounded, size: 20, color: Colors.grey),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         ),
@@ -80,11 +83,11 @@ class RechargeOptionTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: const Color(0xFFE0F2F1), // Teal/Light green
+        color: const Color(0xFFFFF9C4), // Light yellow
         borderRadius: BorderRadius.circular(9),
-        border: Border.all(color: Colors.teal.withOpacity(0.1)),
+        border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
       ),
-      child: Text(text, style: const TextStyle(color: Colors.teal, fontSize: 9, fontWeight: FontWeight.bold)),
+      child: Text(text, style: const TextStyle(color: Color(0xFFFFD700), fontSize: 9, fontWeight: FontWeight.bold)),
     );
   }
 
@@ -110,7 +113,16 @@ class RechargeOptionTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: Colors.grey[200]!),
         ),
-        child: Center(child: Text("◈ $amount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+        child: Center(
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const PremiumDiamond(size: 16),
+              const SizedBox(width: 4),
+              Text("$amount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+            ],
+          ),
+        ),
       ),
     );
   }

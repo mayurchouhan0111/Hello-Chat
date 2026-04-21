@@ -11,34 +11,36 @@ import 'core/router/app_router.dart';
 import 'core/constants/app_strings.dart';
 
 import 'core/services/notification_service.dart';
+import 'core/services/config_service.dart';
+import 'core/providers/profile_provider.dart';
+import 'core/widgets/location_listener.dart';
+import 'core/widgets/global_presence_observer.dart';
+
+
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  debugPrint('--- [APP START] ---');
+  
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  debugPrint('--- [FIREBASE INITIALIZED] ---');
 
-  // Connect to Local Emulators if in Debug Mode
+  /*
+  // Connect to Local Emulators (Used for development)
   if (kDebugMode) {
-    try {
-      // 10.0.2.2 for Android Emulator, localhost for others
-      final String host = (defaultTargetPlatform == TargetPlatform.android) 
-          ? "10.0.2.2" : "localhost";
-      
-      FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
-      FirebaseFunctions.instance.useFunctionsEmulator(host, 5001);
-      FirebaseAuth.instance.useAuthEmulator(host, 9099);
-      
-      print('--- Firebase Emulators Connected: $host ---');
-    } catch (e) {
-      print('Failed to connect to emulators: $e');
-    }
+    _connectToEmulators();
   }
+  */
 
   // Initialize Notifications
-  final notifications = NotificationService();
-  await notifications.initialize();
+  NotificationService().initialize().then((_) {
+    debugPrint('--- [NOTIFICATIONS READY] ---');
+  }).catchError((e) {
+    debugPrint('--- [NOTIFICATIONS ERROR: $e] ---');
+  });
   
   runApp(
     const ProviderScope(
@@ -47,18 +49,115 @@ void main() async {
   );
 }
 
+void _connectToEmulators() {
+  try {
+    // For Android Emulators use 10.0.2.2 to reach the PC host
+    // For iOS emulators or real devices on same Wi-Fi, use your local PC IP
+    final String host = (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) 
+        ? "10.0.2.2" 
+        : "192.168.1.197"; 
+    
+    FirebaseFirestore.instance.settings = Settings(
+      persistenceEnabled: false,
+      host: '$host:8085',
+      sslEnabled: false,
+    );
+    
+    // Crucial: Use the same host/port for regional function instance
+    FirebaseFunctions.instanceFor(region: 'us-central1').useFunctionsEmulator(host, 5001);
+    FirebaseAuth.instance.useAuthEmulator(host, 9099);
+    
+    debugPrint('--- [EMULATORS: TRYING TO CONNECT TO $host] ---');
+  } catch (e) {
+    debugPrint('Error connecting to emulators: $e');
+  }
+}
+
 class HelloChatApp extends ConsumerWidget {
   const HelloChatApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final configAsync = ref.watch(globalConfigProvider);
+    final profileAsync = ref.watch(currentUserProfileProvider);
 
-    return MaterialApp.router(
-      title: AppStrings.appName,
-      debugShowCheckedModeBanner: false,
-      theme: appTheme,
-      routerConfig: router,
+    return LocationListener(
+      child: GlobalPresenceObserver(
+        child: MaterialApp.router(
+          title: AppStrings.appName,
+          debugShowCheckedModeBanner: false,
+          theme: appTheme,
+          routerConfig: router,
+          builder: (context, child) {
+            return Stack(
+              children: [
+                if (child != null) child,
+                
+                // 🛡️ Maintenance Overlay
+                configAsync.maybeWhen(
+                  data: (config) {
+                    final isAdmin = profileAsync.value?.isAdmin ?? false;
+                    if (config.isMaintenance && !isAdmin) {
+                       return _buildMaintenanceScreen();
+                    }
+                    return const SizedBox.shrink();
+                  },
+                  orElse: () => const SizedBox.shrink(),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
+
+  Widget _buildMaintenanceScreen() {
+    return Container(
+      color: const Color(0xFF0F172A),
+      width: double.infinity,
+      height: double.infinity,
+      child: Material(
+        color: Colors.transparent,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(32),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.orange.withOpacity(0.1),
+              ),
+              child: const Icon(Icons.build_circle_rounded, color: Colors.orange, size: 80),
+            ),
+            const SizedBox(height: 40),
+            const Text(
+              "System Optimization",
+              style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1),
+            ),
+            const SizedBox(height: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 40),
+              child: Text(
+                "Hello Chat is currently undergoing scheduled maintenance to improve your social experience. We will be back shortly!",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: 60),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Text("ESTIMATED RESUME: 2:00 PM", style: TextStyle(color: Colors.orange, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 }

@@ -167,7 +167,7 @@ class _GiftNotificationBanner extends ConsumerWidget {
                 end: Alignment.centerRight,
               ),
               borderRadius: BorderRadius.circular(30),
-              border: Border.all(color: Colors.amber.withOpacity(0.5), width: 1),
+              border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.5), width: 1),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -187,7 +187,7 @@ class _GiftNotificationBanner extends ConsumerWidget {
                     ),
                     Text(
                       text,
-                      style: const TextStyle(color: Colors.amber, fontSize: 12),
+                      style: const TextStyle(color: Color(0xFFFFD700), fontSize: 12),
                     ),
                   ],
                 ),

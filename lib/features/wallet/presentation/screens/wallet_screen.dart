@@ -19,7 +19,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this); // Added History Tab
+    _tabController = TabController(length: 2, vsync: this);
   }
 
   @override
@@ -60,7 +60,6 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
                 children: [
                   DiamondTab(diamondBalance: balance['diamonds'] ?? 0),
                   BeansTab(beansBalance: balance['beans'] ?? 0),
-                  _buildHistoryTab(),
                 ],
               ),
             ),
@@ -82,18 +81,17 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: Colors.transparent,
         labelColor: Colors.black,
-        unselectedLabelColor: Colors.grey[400],
-        labelPadding: const EdgeInsets.only(right: 16),
-        labelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.normal),
+        unselectedLabelColor: Colors.black26,
+        labelPadding: const EdgeInsets.only(right: 20),
+        labelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, family: 'Roboto'),
+        unselectedLabelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.normal),
         indicator: const RoundUnderlineTabIndicator(
-          borderSide: BorderSide(width: 3.5, color: Colors.black),
+          borderSide: BorderSide(width: 4, color: Colors.orangeAccent),
           insets: EdgeInsets.only(bottom: 2),
         ),
         tabs: const [
           Tab(text: 'Diamonds'),
           Tab(text: 'Beans'),
-          Tab(text: 'History'),
         ],
       ),
     );
@@ -145,7 +143,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
         break;
       case TransactionType.gift_sent:
         icon = Icons.unarchive_rounded;
-        color = Colors.orange;
+        color = const Color(0xFFFFD700);
         break;
       case TransactionType.gift_received:
         icon = Icons.archive_rounded;

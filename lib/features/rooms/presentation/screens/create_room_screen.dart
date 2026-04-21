@@ -54,6 +54,9 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
 
     setState(() => _isLoading = true);
     try {
+      // UX Check: Immediate feedback if owner of another room
+      // (The service also enforces this, but we catch it here for cleaner handling)
+      
       String? coverUrl;
       if (_selectedImage != null) {
         coverUrl = await ref.read(cloudinaryServiceProvider).uploadImage(_selectedImage!.path);
@@ -73,7 +76,13 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed to create room: $e")));
+        String message = e.toString();
+        if (message.contains("Exception:")) message = message.split("Exception:").last.trim();
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ));
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -83,14 +92,15 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: AppColors.surfaceLight,
       appBar: AppBar(
-        title: const Text("Create Room", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
+        title: const Text("Create Live Room", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w900, fontSize: 18)),
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.black),
-          onPressed: () => context.pop(),
+          icon: const Icon(Icons.chevron_left_rounded, color: AppColors.textPrimary, size: 28),
+          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       body: SingleChildScrollView(
@@ -139,8 +149,8 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
               ),
             ),
             const Gap(20),
-            const Text("Select Theme", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const Gap(10),
+            const Text("SELECT THEME", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: AppColors.textSecondary, letterSpacing: 1.2)),
+            const Gap(12),
             Wrap(
               spacing: 10,
               runSpacing: 10,
@@ -148,18 +158,23 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                 final isSelected = _selectedTheme == theme;
                 return GestureDetector(
                   onTap: () => setState(() => _selectedTheme = theme),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
-                      color: isSelected ? AppColors.cyanAccent : Colors.grey[100],
+                      gradient: isSelected ? const LinearGradient(colors: AppColors.primaryGradient) : null,
+                      color: isSelected ? null : Colors.white,
                       borderRadius: BorderRadius.circular(20),
-                      border: isSelected ? Border.all(color: AppColors.cyanAccent) : null,
+                      boxShadow: isSelected ? [
+                        BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))
+                      ] : null,
                     ),
                     child: Text(
                       theme,
                       style: TextStyle(
-                        color: isSelected ? Colors.white : Colors.black87,
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: isSelected ? Colors.white : AppColors.textSecondary,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
                       ),
                     ),
                   ),
@@ -174,7 +189,7 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                 Switch(
                   value: _isPrivate,
                   onChanged: (val) => setState(() => _isPrivate = val),
-                  activeColor: AppColors.cyanAccent,
+                  activeColor: AppColors.primary,
                 ),
               ],
             ),
@@ -203,7 +218,7 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                     label: Text("$cap Seats"),
                     selected: isSelected,
                     onSelected: (val) => setState(() => _capacity = cap),
-                    selectedColor: AppColors.cyanAccent,
+                    selectedColor: AppColors.primary,
                     labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
                   ),
                 );
@@ -217,24 +232,37 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                 Switch(
                   value: _bgMusic,
                   onChanged: (val) => setState(() => _bgMusic = val),
-                  activeColor: AppColors.cyanAccent,
+                  activeColor: AppColors.primary,
                 ),
               ],
             ),
             const Gap(40),
-            SizedBox(
+            Container(
               width: double.infinity,
-              height: 55,
+              height: 58,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: AppColors.primaryGradient,
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(29),
+                boxShadow: [
+                  BoxShadow(color: AppColors.primary.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 6)),
+                ],
+              ),
               child: ElevatedButton(
                 onPressed: _isLoading ? null : _createRoom,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.cyanAccent,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                  backgroundColor: Colors.transparent,
+                  foregroundColor: Colors.white,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(29)),
                   elevation: 0,
                 ),
                 child: _isLoading 
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text("Create Live Room", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                  : const Text("Launch Your Room", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
               ),
             ),
           ],

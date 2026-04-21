@@ -6,20 +6,37 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/services/report_service.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class FollowListScreen extends ConsumerWidget {
-  final String type; // "Followers" or "Following"
-  const FollowListScreen({super.key, required this.type});
+  final String type; // "Followers", "Following", or "Blocked"
+  final String? targetUid; 
+  
+  const FollowListScreen({super.key, required this.type, this.targetUid});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final user = ref.watch(authStateProvider).value;
-    if (user == null) return const Scaffold(body: Center(child: Text("Not logged in")));
+    final currentAuthUser = ref.watch(authStateProvider).value;
+    final effectiveUid = targetUid ?? currentAuthUser?.uid;
+
+    if (effectiveUid == null) return const Scaffold(body: Center(child: Text("Not logged in")));
 
     // Stream the list of UIDs
-    final uidsAsync = type == "Followers" 
-      ? ref.watch(followersStreamProvider(user.uid))
-      : ref.watch(followingStreamProvider(user.uid));
+    late final AsyncValue<List<String>> uidsAsync;
+    
+    if (type == "Blocked") {
+      final profile = ref.watch(currentUserProfileProvider);
+      uidsAsync = profile.when(
+        data: (user) => AsyncValue.data(user?.blockedUids ?? []),
+        loading: () => const AsyncValue.loading(),
+        error: (e, s) => AsyncValue.error(e, s),
+      );
+    } else {
+      uidsAsync = type == "Followers" 
+        ? ref.watch(followersStreamProvider(effectiveUid))
+        : ref.watch(followingStreamProvider(effectiveUid));
+    }
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -41,9 +58,16 @@ class FollowListScreen extends ConsumerWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.people_outline_rounded, size: 64, color: Colors.grey[300]),
+                  Icon(
+                    type == "Blocked" ? Icons.block_rounded : Icons.people_outline_rounded, 
+                    size: 64, 
+                    color: Colors.grey[300]
+                  ),
                   const SizedBox(height: 16),
-                  Text("No one here yet", style: TextStyle(color: Colors.grey[500])),
+                  Text(
+                    type == "Blocked" ? "No blocked users" : "No one here yet", 
+                    style: TextStyle(color: Colors.grey[500])
+                  ),
                 ],
               ),
             );
@@ -53,7 +77,7 @@ class FollowListScreen extends ConsumerWidget {
             itemCount: uids.length,
             separatorBuilder: (context, index) => const Divider(height: 1, indent: 80),
             itemBuilder: (context, index) {
-              return _FollowUserCard(uid: uids[index]);
+              return _FollowUserCard(uid: uids[index], type: type);
             },
           );
         },
@@ -64,54 +88,178 @@ class FollowListScreen extends ConsumerWidget {
 
 class _FollowUserCard extends ConsumerWidget {
   final String uid;
-  const _FollowUserCard({required this.uid});
+  final String type;
+  const _FollowUserCard({required this.uid, required this.type});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profileAsync = ref.watch(userProfileProvider(uid));
 
     return profileAsync.when(
-      loading: () => const ListTile(title: Text("Loading...")),
-      error: (err, stack) => ListTile(title: Text("Error: $err")),
+      loading: () => Container(
+        height: 72,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.centerLeft,
+        child: const Text("Loading...", style: TextStyle(color: Colors.grey)),
+      ),
+      error: (err, stack) => Container(
+        height: 72,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        alignment: Alignment.centerLeft,
+        child: Text("Error: $err", style: const TextStyle(color: Colors.redAccent)),
+      ),
       data: (profile) {
+        if (profile == null) return const SizedBox.shrink();
         final userData = profile as UserModel;
-        return ListTile(
+        return InkWell(
           onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
-          leading: CircleAvatar(
-            radius: 28,
-            backgroundImage: userData.profilePhotoUrl.isNotEmpty 
-                ? NetworkImage(userData.profilePhotoUrl) 
-                : null,
-            child: userData.profilePhotoUrl.isEmpty 
-                ? const Icon(Icons.person) 
-                : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                // 1. Safe Avatar
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    shape: BoxShape.circle,
+                  ),
+                  child: ClipOval(
+                    child: userData.profilePhotoUrl.isNotEmpty && Uri.tryParse(userData.profilePhotoUrl)?.hasAbsolutePath == true
+                      ? CachedNetworkImage(
+                          imageUrl: userData.profilePhotoUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          errorWidget: (context, url, error) => const Icon(Icons.person, color: Colors.grey),
+                        )
+                      : const Icon(Icons.person, color: Colors.grey, size: 28),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                // 2. Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _safeString(userData.displayName), 
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "ID: ${_safeString(userData.username)}", 
+                        style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // 3. Action
+                Container(
+                  constraints: const BoxConstraints(minWidth: 80, maxWidth: 100),
+                  height: 32,
+                  child: _buildActionButton(context, ref, userData.uid),
+                ),
+              ],
+            ),
           ),
-          title: Text(userData.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: Text("ID: ${userData.username}"),
-          trailing: _buildActionButton(context, ref, userData.uid),
         );
       },
     );
   }
 
+  String _safeString(String? input) {
+    if (input == null || input.isEmpty) return "User";
+    try {
+      return input.trim();
+    } catch (e) {
+      return "User";
+    }
+  }
+
   Widget _buildActionButton(BuildContext context, WidgetRef ref, String targetUid) {
     final currentUser = ref.read(authStateProvider).value;
+    if (currentUser == null) return const SizedBox.shrink();
     
-    return OutlinedButton(
+    final isBlockedType = type == "Blocked";
+    
+    if (isBlockedType) {
+      return OutlinedButton(
+        onPressed: () async {
+          try {
+            await ref.read(reportServiceProvider).unblockUser(targetUid);
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User unblocked.")));
+            }
+          } catch (e) {
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+            }
+          }
+        },
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: Colors.red.withOpacity(0.3)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+        child: const Text("Unblock", style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+      );
+    }
+
+    // Dynamic Friend / Following / Follow Logic
+    final followingList = ref.watch(followingStreamProvider(currentUser.uid)).value ?? [];
+    final followersList = ref.watch(followersStreamProvider(currentUser.uid)).value ?? [];
+
+    final isFollowing = followingList.contains(targetUid);
+    final isFollower = followersList.contains(targetUid);
+    final isFriends = isFollowing && isFollower;
+
+    String buttonText = "Follow";
+    bool shouldUnfollow = false;
+
+    if (isFriends) {
+      buttonText = "Friends";
+      shouldUnfollow = true;
+    } else if (isFollowing) {
+      buttonText = "Following"; // Change from Unfollow to Following to match profile
+      shouldUnfollow = true;
+    } else {
+      buttonText = "Follow";
+      shouldUnfollow = false;
+    }
+
+    // Colors matching standard UI UX logic
+    final bgColor = shouldUnfollow ? Colors.grey[200] : AppColors.primary;
+    final fgColor = shouldUnfollow ? Colors.black87 : Colors.white;
+
+    return ElevatedButton(
       onPressed: () async {
-        if (currentUser == null) return;
         try {
-          await ref.read(profileServiceProvider).unfollowUser(currentUser.uid, targetUid);
+          if (shouldUnfollow) {
+            await ref.read(profileServiceProvider).unfollowUser(currentUser.uid, targetUid);
+          } else {
+            await ref.read(profileServiceProvider).followUser(currentUser.uid, targetUid);
+          }
         } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+          }
         }
       },
-      style: OutlinedButton.styleFrom(
-        side: BorderSide(color: Colors.grey[300]!),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: bgColor,
+        foregroundColor: fgColor,
+        elevation: shouldUnfollow ? 0 : 2,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         padding: const EdgeInsets.symmetric(horizontal: 16),
       ),
-      child: Text("Unfollow", style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+      child: Text(buttonText, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
     );
   }
 }
