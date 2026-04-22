@@ -57,4 +57,10 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+    
+    // 🛡️ FIREBASE BoM: Ensures compatible versions of all Firebase libraries
+    implementation(platform("com.google.firebase:firebase-bom:33.0.0"))
+    
+    // 🛡️ APP CHECK: Native Play Integrity library
+    implementation("com.google.firebase:firebase-appcheck-playintegrity")
 }

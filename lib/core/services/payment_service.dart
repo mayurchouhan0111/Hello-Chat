@@ -7,6 +7,10 @@ class PaymentService extends BaseFirebaseService {
 
   /// Initializes a Stripe payment session.
   /// Returns a 'paymentIntentClientSecret' and 'ephemeralKey'.
+  // TODO: Add Client Production Credentials here
+  static const String STRIPE_PUBLISHABLE_KEY = "pk_test_placeholder"; // Replace with client's Stripe Key
+  static const String RAZORPAY_KEY_ID = "rzp_test_placeholder";      // Replace with client's Razorpay ID
+
   Future<Map<String, dynamic>> initializeStripePayment({
     required int diamondAmount,
     required double priceInUSD,

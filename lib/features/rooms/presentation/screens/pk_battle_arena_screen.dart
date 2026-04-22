@@ -298,8 +298,17 @@ class _PKResultOverlayState extends ConsumerState<_PKResultOverlay> {
             _secondsRemaining--;
           } else {
             _countdownTimer?.cancel();
-            // Automatically trigger cleanup if host, or the UI will naturally refresh 
-            // once the host clicks CLEANUP.
+            
+            // 🚀 Final navigation and auto-cleanup
+            final myUid = ref.read(authStateProvider).value?.uid;
+            if (widget.room.ownerUid == myUid) {
+              // Auto-cleanup for host
+              ref.read(roomServiceProvider).endPKBattle(widget.room.roomId);
+            }
+            // Return to the main room automatically
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
           }
         });
       }

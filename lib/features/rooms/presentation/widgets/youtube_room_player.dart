@@ -90,63 +90,70 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.room.isYoutubeActive || widget.room.youtubeVideoId == null || _controller == null) {
+    if (!widget.room.isYoutubeActive ||
+        widget.room.youtubeVideoId == null ||
+        _controller == null) {
       return const SizedBox.shrink();
     }
 
-    final isOwner = ref.watch(authStateProvider).value?.uid == widget.room.ownerUid;
+    return Consumer(builder: (context, ref, child) {
+      final myUid = ref.watch(authStateProvider).value?.uid;
+      final isOwner = myUid == widget.room.ownerUid;
 
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white10),
-        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    Icon(Icons.live_tv_rounded, color: Colors.red, size: 16),
-                    Gap(8),
-                    Text("YouTube Shared Watch",
-                        style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
-                  ],
+      return Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white10),
+          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.live_tv_rounded, color: Colors.red, size: 16),
+                      Gap(8),
+                      Text("YouTube Shared Watch",
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
                 ),
-              ),
-              if (isOwner)
-                IconButton(
-                  onPressed: () =>
-                      ref.read(roomServiceProvider).stopYoutube(widget.room.roomId),
-                  icon: const Icon(Icons.power_settings_new_rounded,
-                      color: Colors.redAccent, size: 18),
+                if (isOwner)
+                  IconButton(
+                    onPressed: () => ref
+                        .read(roomServiceProvider)
+                        .stopYoutube(widget.room.roomId),
+                    icon: const Icon(Icons.power_settings_new_rounded,
+                        color: Colors.redAccent, size: 18),
+                  ),
+              ],
+            ),
+            SizedBox(
+              height: 210,
+              width: double.infinity,
+              child: ClipRRect(
+                borderRadius:
+                    const BorderRadius.vertical(bottom: Radius.circular(20)),
+                child: SafeYoutubePlayer(
+                  controller: _controller!,
+                  videoId: widget.room.youtubeVideoId ?? '',
                 ),
-            ],
-          ),
-          SizedBox(
-            height: 210,
-            width: double.infinity,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-              child: SafeYoutubePlayer(
-                controller: _controller!,
-                videoId: widget.room.youtubeVideoId ?? '',
               ),
             ),
-          ),
-        ],
-      ),
-    );
+          ],
+        ),
+      );
+    });
   }
 }

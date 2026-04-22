@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
@@ -27,6 +28,26 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   debugPrint('--- [FIREBASE INITIALIZED] ---');
+
+  // 🛡️ INITIALIZE APP CHECK
+  // This resolves the [unauthenticated] error by proving the app's integrity.
+  await FirebaseAppCheck.instance.activate(
+    androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
+    appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
+  );
+  debugPrint('--- [APP CHECK READY] ---');
+
+  // 🛡️ FORCE DEBUG TOKEN LOGGING
+  // This triggers a token fetch which forces the native SDK to print the Debug Token in Logcat.
+  if (kDebugMode) {
+    try {
+      final token = await FirebaseAppCheck.instance.getToken();
+      debugPrint('🛡️ [AppCheck Diagnostic] Current Token: ${token?.substring(0, 10)}...');
+      debugPrint('🛡️ [AppCheck Diagnostic] Check your Logcat (Native logs) for the "Debug Secret" to paste into Firebase Console.');
+    } catch (e) {
+      debugPrint('🛡️ [AppCheck Diagnostic] Error fetching token: $e');
+    }
+  }
 
   /*
   // Connect to Local Emulators (Used for development)

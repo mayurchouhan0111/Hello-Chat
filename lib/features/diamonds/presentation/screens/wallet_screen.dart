@@ -5,12 +5,14 @@ import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/premium_bean.dart';
 import '../../../../core/widgets/premium_diamond.dart';
+import '../../../../core/widgets/visa_icon.dart';
 
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../wallet/presentation/screens/transaction_history_screen.dart';
 import '../../../wallet/presentation/screens/bean_exchange_screen.dart';
 import '../../../../core/services/payment_service.dart';
+import '../../../../providers/wallet_provider.dart';
 
 class WalletScreen extends ConsumerStatefulWidget {
   const WalletScreen({super.key});
@@ -206,7 +208,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     iconColor: Colors.cyan[300],
                     title: "Reseller Recharge",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.020",
-                    onTap: () {},
+                    onTap: () => _handleRecharge("100", "2.00", method: "Reseller"),
                   ),
                 ]),
 
@@ -218,11 +220,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     title: "Touch 'n Go",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.076 MYR",
                     bonus: "+1",
-                    onTap: () {},
+                    onTap: () => _handleRecharge("17", "1.50", method: "Touch 'n Go"),
                   ),
                   const Divider(height: 1, thickness: 0.3, indent: 76),
                   _buildExpandableRefinedTile(
-                    imageUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Visa_2021.svg/512px-Visa_2021.svg.png",
+                    customIcon: VisaIcon(size: 28),
                     title: "VISA/Master",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.089 MYR",
                     bonus: "+1",
@@ -235,7 +237,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     title: "Google Wallet",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.12 MYR",
                     bonus: "+1",
-                    onTap: () {},
+                    onTap: () => _handleRecharge("17", "2.00", method: "Google Wallet"),
                   ),
                 ]),
 
@@ -252,6 +254,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     bool isActive = _activeTab == text;
     return GestureDetector(
       onTap: () => setState(() => _activeTab = text),
+      behavior: HitTestBehavior.opaque,
       child: Column(
         children: [
           Text(
@@ -367,7 +370,8 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   }
 
   Widget _buildExpandableRefinedTile({
-    required String imageUrl,
+    String? imageUrl,
+    Widget? customIcon,
     required String title,
     required String subtitle,
     required String bonus,
@@ -378,6 +382,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       children: [
         _buildRefinedTile(
           imageUrl: imageUrl,
+          customIcon: customIcon,
           title: title,
           subtitle: subtitle,
           bonus: bonus,
@@ -405,11 +410,11 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                 crossAxisSpacing: 8,
                 childAspectRatio: 1.25,
                 children: [
-                  _buildPackageItem("262", "USD 5.99", onTap: () => _handleRecharge("262", "5.99")),
-                  _buildPackageItem("890", "USD 19.99", bonus: "+5", isBigDeal: true, onTap: () => _handleRecharge("890", "19.99")),
-                  _buildPackageItem("2,255", "USD 49.99", bonus: "+5", onTap: () => _handleRecharge("2,255", "49.99")),
-                  _buildPackageItem("4,562", "USD 99.99", bonus: "+5", onTap: () => _handleRecharge("4,562", "99.99")),
-                  _buildPackageItem("9,205", "USD 199.99", bonus: "+5", onTap: () => _handleRecharge("9,205", "199.99")),
+                  _buildPackageItem("262", "USD 5.99", method: "Stripe"),
+                  _buildPackageItem("890", "USD 19.99", bonus: "+5", isBigDeal: true, method: "Stripe"),
+                  _buildPackageItem("2,255", "USD 49.99", bonus: "+5", method: "Stripe"),
+                  _buildPackageItem("4,562", "USD 99.99", bonus: "+5", method: "Stripe"),
+                  _buildPackageItem("9,205", "USD 199.99", bonus: "+5", method: "Stripe"),
                   _buildCustomAmountItem(),
                 ],
               ),
@@ -420,9 +425,10 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     );
   }
 
-  Widget _buildPackageItem(String amount, String price, {String? bonus, bool isBigDeal = false, VoidCallback? onTap}) {
+  Widget _buildPackageItem(String amount, String price, {String? bonus, bool isBigDeal = false, String method = "Default", VoidCallback? onTap}) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: onTap ?? () => _handleRecharge(amount, price, method: method),
+      behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
           color: const Color(0xFFF9FAFB),
@@ -466,17 +472,188 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     );
   }
 
-  void _handleRecharge(String amount, String price) async {
+  void _handleRecharge(String amount, String price, {String method = "Default"}) async {
+    debugPrint("--- [WALLET] _handleRecharge called: $amount diamonds, $price USD, method: $method ---");
+    final diamondCount = int.parse(amount.replaceAll(',', ''));
+
+    // 1. If Stripe, show fake card entry first
+    if (method == "Stripe") {
+      final cardCompleted = await _showFakeCardEntry();
+      if (!cardCompleted) return;
+    }
+
+    // 2. Show Simulated Processing Dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(color: Colors.orangeAccent),
+            const SizedBox(height: 24),
+            const Text(
+              "Processing Payment...",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Connecting to Secure Gateway ($price USD)",
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+
+    // 3. Wait 2 seconds to mimic real payment processing
+    await Future.delayed(const Duration(seconds: 2));
+
     try {
-      final session = await ref.read(paymentServiceProvider).initializeStripePayment(
-        diamondAmount: int.parse(amount.replaceAll(',', '')),
-        priceInUSD: double.parse(price),
-      );
-      // Native SDK payment bridge call would trigger here
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Processing stripe payment...")));
+      // 4. Perform the actual balance update
+      await ref.read(walletActionProvider.notifier).simulateRecharge(diamondCount);
+      
+      if (mounted) {
+        // 5. Close the processing dialog
+        Navigator.pop(context);
+
+        // 6. Show Success Feedback
+        _showSuccessDialog(diamondCount);
+      }
     } catch (e) {
+      if (mounted) Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Recharge error: $e")));
     }
+  }
+
+  Future<bool> _showFakeCardEntry() async {
+    return await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(child: Container(width: 40, height: 4, decoration: const BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.all(Radius.circular(2))))),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                VisaIcon(size: 32),
+                const SizedBox(width: 12),
+                const Text("Add Credit or Debit Card", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              decoration: InputDecoration(
+                labelText: "Card Number",
+                hintText: "0000 0000 0000 0000",
+                prefixIcon: const Icon(Icons.credit_card),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: "Expiry",
+                      hintText: "MM/YY",
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    keyboardType: TextInputType.datetime,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      labelText: "CVC",
+                      hintText: "123",
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              height: 54,
+              child: ElevatedButton(
+                onPressed: () {
+                  debugPrint("--- [WALLET] Pay Now clicked ---");
+                  Navigator.pop(context, true);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text("Pay Now", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    ) ?? false;
+  }
+
+  void _showSuccessDialog(int amount) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.check_circle_outline_rounded, color: Colors.green, size: 64),
+            const SizedBox(height: 16),
+            const Text(
+              "Payment Successful!",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "◈ $amount Diamonds have been added to your wallet.",
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text("Awesome!", style: TextStyle(color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildCustomAmountItem() {

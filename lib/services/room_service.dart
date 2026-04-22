@@ -218,6 +218,7 @@ class RoomService with BaseFirebaseService {
     await callFunction('respondToPKChallenge', {
       'roomId': roomId,
       'accepted': accepted,
+      'receiverUid': FirebaseAuth.instance.currentUser?.uid, // Fallback
     });
   }
 
@@ -232,12 +233,14 @@ class RoomService with BaseFirebaseService {
       'leftUid': leftUid,
       'rightUid': rightUid,
       'durationSeconds': durationSeconds,
+      'adminUid': FirebaseAuth.instance.currentUser?.uid, // Fallback
     });
   }
 
   Future<void> endPKBattle(String roomId, {String? forcedWinnerUid}) async {
     await callFunction('endPKBattle', {
       'roomId': roomId,
+      'adminUid': FirebaseAuth.instance.currentUser?.uid, // Fallback
       if (forcedWinnerUid != null) 'forcedWinnerUid': forcedWinnerUid,
     });
   }

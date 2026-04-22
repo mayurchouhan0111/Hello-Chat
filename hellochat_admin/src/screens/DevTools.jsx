@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, app } from '../firebase';
 import { 
   collection, 
   doc, 
@@ -164,14 +164,20 @@ export const DevTools = () => {
     }
   };
 
-  // 🛡️ PK Diagnostic Hooks
+  // 🛡️ PK Diagnostic Hooks - More permissive query to ensure we see everything
   useEffect(() => {
+    // We listen to all active rooms and filter for PK status locally 
+    // to avoid index requirement issues during development.
     const q = query(
       collection(db, "rooms"), 
-      or(where("pkActive", "==", true), where("pkChallenge", "!=", null))
+      where("status", "==", "active")
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setPkRooms(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const activePkRooms = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(room => room.pkActive || (room.pkChallenge && room.pkChallenge.status === 'pending'));
+      
+      setPkRooms(activePkRooms);
     });
     return () => unsubscribe();
   }, []);
@@ -181,10 +187,15 @@ export const DevTools = () => {
     setLoading(true);
     setStatus(`EXECUTING ${action.toUpperCase()}...`);
     try {
-      const funcs = getFunctions();
+      const funcs = getFunctions(app, 'us-central1');
       if (action === 'respond') {
         const respondToPK = httpsCallable(funcs, 'respondToPKChallenge');
-        await respondToPK({ roomId, accepted });
+        await respondToPK({ 
+          roomId, 
+          accepted, 
+          receiverUid: user?.uid, // Send explicit UID as fallback
+          adminUid: user?.uid 
+        });
       } else if (action === 'end') {
         const endPK = httpsCallable(funcs, 'endPKBattle');
         await endPK({ roomId });

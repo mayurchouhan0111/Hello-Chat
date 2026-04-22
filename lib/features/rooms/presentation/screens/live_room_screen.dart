@@ -240,7 +240,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("The host has ended this room.")),
               );
-              if (GoRouter.of(context).canPop()) context.pop();
+              if (GoRouter.of(context).canPop()) {
+                context.pop();
+              }
             }
           }
 
@@ -289,7 +291,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text("Disconnected due to inactivity or connection loss.")),
                 );
-                if (GoRouter.of(context).canPop()) context.pop();
+                if (GoRouter.of(context).canPop()) {
+                  context.pop();
+                }
               }
             }
           }

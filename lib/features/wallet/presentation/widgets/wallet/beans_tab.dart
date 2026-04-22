@@ -1,19 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:hello_chat/core/widgets/premium_bean.dart';
 import 'package:hello_chat/core/widgets/premium_diamond.dart';
+import 'package:hello_chat/core/widgets/visa_icon.dart';
 import 'balance_card.dart';
 import 'beans_info_section.dart';
 import '../../screens/withdraw_beans_screen.dart';
 
-class BeansTab extends StatefulWidget {
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hello_chat/providers/wallet_provider.dart';
+
+class BeansTab extends ConsumerStatefulWidget {
   final int beansBalance;
   const BeansTab({super.key, required this.beansBalance});
 
   @override
-  State<BeansTab> createState() => _BeansTabState();
+  ConsumerState<BeansTab> createState() => _BeansTabState();
 }
 
-class _BeansTabState extends State<BeansTab> {
+class _BeansTabState extends ConsumerState<BeansTab> {
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -119,31 +123,28 @@ class _BeansTabState extends State<BeansTab> {
             ],
           ),
           title: "Beans Exchange",
-          onTap: () {},
+          onTap: () => _handleSimulation(100, "Internal Exchange"),
         ),
         _buildMethodItem(
           iconWidget: const Icon(Icons.face_retouching_natural_rounded, color: Colors.cyan, size: 24),
           title: "Reseller Recharge",
           subtitle: "1 Bean ≈ 0.020",
-          onTap: () {},
+          onTap: () => _handleSimulation(100, "Reseller"),
         ),
         _buildMethodItem(
           iconWidget: const Icon(Icons.account_balance_wallet_rounded, color: Colors.orange, size: 24),
           title: "Touch 'n Go",
           subtitle: "1 Bean ≈ 0.076 MYR",
           hasBonus: true,
-          onTap: () {},
+          onTap: () => _handleSimulation(50, "Touch 'n Go"),
         ),
         _buildMethodItem(
-          iconWidget: Container(
-            width: 24, height: 24,
-            decoration: BoxDecoration(color: Colors.grey[200], borderRadius: BorderRadius.circular(4)),
-          ),
+          iconWidget: VisaIcon(size: 24),
           title: "VISA/Master",
           subtitle: "1 Bean ≈ 0.089 MYR",
           hasBonus: true,
           isExpanded: true,
-          onTap: () {},
+          onTap: () => _handleSimulation(100, "VISA/Master"),
         ),
       ],
     );
@@ -222,45 +223,89 @@ class _BeansTabState extends State<BeansTab> {
   }
 
   Widget _buildPackageItem({required int amount, int? bonus, required String price, bool isHot = false}) {
-    return Stack(
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey[50], 
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.black.withOpacity(0.02)),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const PremiumBean(size: 14),
-                  const SizedBox(width: 4),
-                  Text("$amount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  if (bonus != null)
-                    Text("+$bonus", style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(price, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-            ],
-          ),
-        ),
-        if (isHot)
-          Positioned(
-            top: 0, left: 0,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                borderRadius: BorderRadius.only(topLeft: Radius.circular(16), bottomRight: Radius.circular(8)),
-              ),
-              child: const Text("BIG DEAL", style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+    return GestureDetector(
+      onTap: () => _handleSimulation(amount, "Package $amount"),
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
+        children: [
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50], 
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.black.withOpacity(0.02)),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const PremiumBean(size: 14),
+                    const SizedBox(width: 4),
+                    Text("$amount", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                    if (bonus != null)
+                      Text("+$bonus", style: const TextStyle(color: Colors.orange, fontSize: 11, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(price, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+              ],
             ),
           ),
-      ],
+          if (isHot)
+            Positioned(
+              top: 0, left: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: const BoxDecoration(
+                  color: Colors.red,
+                  borderRadius: BorderRadius.only(topLeft: Radius.circular(16), bottomRight: Radius.circular(8)),
+                ),
+                child: const Text("BIG DEAL", style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)),
+              ),
+            ),
+        ],
+      ),
     );
+  }
+
+  void _handleSimulation(int amount, String method) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 20),
+            const CircularProgressIndicator(color: Colors.orangeAccent),
+            const SizedBox(height: 24),
+            Text("Simulation: $method", style: const TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text("Recharging $amount Beans...", style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+
+    await Future.delayed(const Duration(seconds: 2));
+
+    try {
+      await ref.read(walletActionProvider.notifier).simulateBeansRecharge(amount);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            backgroundColor: Colors.orangeAccent,
+            content: Text("Successfully added $amount Beans!"),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+    }
   }
 }
