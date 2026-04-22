@@ -23,7 +23,7 @@ export const AdminProvider = ({ children }) => {
           const isAuthAgency = data?.isAgencyOwner === true || tags.includes("Agency");
           
           setUser(authUser);
-          setUserData(data);
+          setUserData({ uid: authUser.uid, ...data });
           setIsAdmin(isAuthAdmin);
           setIsAgencyOwner(isAuthAgency);
         } else {

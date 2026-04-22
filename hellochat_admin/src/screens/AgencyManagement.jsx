@@ -49,8 +49,9 @@ export const AgencyManagement = () => {
   }, [isAdmin, isAgencyOwner, currentUser]);
 
   useEffect(() => {
-    if (selectedAgency?.uid) {
-      fetchAgencyHosts(selectedAgency.uid);
+    const agencyUid = selectedAgency?.uid || selectedAgency?.id;
+    if (agencyUid) {
+      fetchAgencyHosts(agencyUid);
     }
   }, [selectedAgency]);
 
@@ -148,9 +149,10 @@ export const AgencyManagement = () => {
     if (!window.confirm(`Assign ${targetUser.displayName} as a Host for ${selectedAgency.displayName}?`)) return;
     
     try {
+      const agencyUid = selectedAgency.uid || selectedAgency.id;
       const userRef = doc(db, "users", targetUser.id || targetUser.uid);
       await updateDoc(userRef, {
-        agencyId: selectedAgency.uid,
+        agencyId: agencyUid,
         agencyName: selectedAgency.displayName || 'Unnamed Agency',
         role: 'host',
         assignedAt: serverTimestamp()
@@ -198,6 +200,13 @@ export const AgencyManagement = () => {
                    <p className="text-xl font-black text-white">{hosts.length}</p>
                 </div>
              </div>
+             {/* Admin: Show Agency ID for debugging if needed */}
+             {isAdmin && (
+                <div className="bg-slate-900/50 border border-white/5 p-4 rounded-3xl hidden md:block">
+                   <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Agency UID</p>
+                   <p className="text-[10px] font-mono text-slate-400">{(selectedAgency.uid || selectedAgency.id)}</p>
+                </div>
+             )}
           </div>
         )}
       </div>
