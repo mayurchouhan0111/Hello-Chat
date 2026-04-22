@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, getDocs, doc, deleteDoc, updateDoc, onSnapshot, orderBy, writeBatch } from 'firebase/firestore';
+import { collection, query, getDocs, doc, deleteDoc, updateDoc, onSnapshot, orderBy, writeBatch, increment } from 'firebase/firestore';
 import { 
   Users, 
   Volume2, 
@@ -309,7 +309,10 @@ export const RoomManagement = () => {
 
                     <div className="pt-3 border-t border-white/5">
                       <button 
-                        onClick={() => updateDoc(doc(db, "rooms", room.id), { weeklyEarnings: increment(10000) })}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateDoc(doc(db, "rooms", room.id), { weeklyEarnings: increment(10000) });
+                        }}
                         className="w-full flex items-center justify-center gap-2 p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-wider transition-all"
                       >
                         <Zap size={12} /> +10K Diamonds (Star Mission Test)
