@@ -710,14 +710,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 let agencySharePercent = 0;
 
                 if (agencyId) {
-                    hostSharePercent = 0.7;
-                    agencySharePercent = 0.1;
                     const agencyRef = db.collection("agencies").doc(agencyId);
-                    const agencyBeans = Math.floor(totalCost * agencySharePercent);
-                    transaction.update(agencyRef, {
-                        beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
-                        totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
-                    });
+                    const agencyDoc = await transaction.get(agencyRef);
+
+                    if (agencyDoc.exists) {
+                        hostSharePercent = 0.7;
+                        agencySharePercent = 0.1;
+                        const agencyBeans = Math.floor(totalCost * agencySharePercent);
+                        transaction.update(agencyRef, {
+                            beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
+                            totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
+                        });
+                    } else {
+                        console.warn(`⚠️ Agency ${agencyId} not found for receiver ${targetUid}. Falling back to standard share.`);
+                    }
                 }
 
                 const beansEarned = Math.floor(totalCost * hostSharePercent);
