@@ -1190,40 +1190,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   Widget _buildRoomEndedSummary() {
-    return Container(
-      width: double.infinity,
-      color: Colors.black,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.meeting_room_rounded, color: Colors.white24, size: 80),
-          const Gap(20),
-          const Text(
-            "Live Session Ended",
-            style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
-          ),
-          const Gap(10),
-          const Text(
-            "The host has closed this room.",
-            style: TextStyle(color: Colors.white54, fontSize: 14),
-          ),
-          const Gap(40),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF00E5FF),
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(25)),
-            ),
-            onPressed: () {
-               ref.read(voiceServiceProvider).leaveRoom(); // Safety leave
-               if (mounted) context.pop();
-            },
-            child: const Text("Back to Home", style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(voiceServiceProvider).leaveRoom(); // Safety leave
+        if (Navigator.canPop(context)) context.pop();
+      }
+    });
+    return const Scaffold(backgroundColor: Colors.black);
   }
 
   Widget _buildFloatingBadge(String text, Color color) {

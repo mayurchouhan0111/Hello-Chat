@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/models/room_model.dart';
@@ -12,6 +13,10 @@ import '../widgets/chat_widget.dart';
 import '../widgets/gift_panel.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_provider.dart';
+import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/models/user_model.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'dart:math';
 
 class PKBattleArenaScreen extends ConsumerWidget {
   final RoomModel room;
@@ -302,13 +307,21 @@ class _PKResultOverlayState extends ConsumerState<_PKResultOverlay> {
             // 🚀 Final navigation and auto-cleanup
             final myUid = ref.read(authStateProvider).value?.uid;
             if (widget.room.ownerUid == myUid) {
-              // Auto-cleanup for host
-              ref.read(roomServiceProvider).endPKBattle(widget.room.roomId);
+              // Auto-cleanup for host: clear the PK state to return to regular room
+              ref.read(roomServiceProvider).updateRoomSettings(widget.room.roomId, {
+                'pkActive': false,
+                'pkPhase': FieldValue.delete(),
+                'pkChallenge': FieldValue.delete(),
+                'pkScores': FieldValue.delete(),
+                'pkTeams': FieldValue.delete(),
+                'pkWinnerUid': FieldValue.delete(),
+                'pkWinnerData': FieldValue.delete(),
+              });
             }
-            // Return to the main room automatically
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            }
+            // Do NOT call Navigator.pop() here because PKBattleArenaScreen is built 
+            // inline inside LiveRoomScreen body. Popping here would kick the user out of the room entirely!
+            // When the host clears the pkPhase above, the stream will update and the UI will 
+            // automatically revert to the SeatGrid layout.
           }
         });
       }
@@ -326,29 +339,80 @@ class _PKResultOverlayState extends ConsumerState<_PKResultOverlay> {
     final data = widget.room.pkWinnerData ?? {};
     final winnerUid = data['winnerUid'] as String?;
     final totalDiamonds = data['totalDiamonds'] ?? 0;
-    final winnerName = data['winnerName'] ?? "Unknown";
+    
+    final AsyncValue<dynamic>? winnerProfileAsync = 
+        winnerUid != null ? ref.watch(userProfileProvider(winnerUid)) : null;
+
+    final String winnerName = winnerProfileAsync?.when(
+      data: (user) => (user as UserModel?)?.displayName ?? "Unknown",
+      loading: () => "Loading...",
+      error: (_, __) => "Unknown",
+    ) ?? "Unknown";
+
+    final String? winnerAvatar = winnerProfileAsync?.when(
+      data: (user) {
+         final u = user as UserModel?;
+         return (u != null && u.profilePhotoUrl.isNotEmpty) ? u.profilePhotoUrl : null;
+      },
+      loading: () => null,
+      error: (_, __) => null,
+    );
 
     return Container(
       color: Colors.black.withOpacity(0.9),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 80)
-              .animate(onPlay: (c) => c.repeat())
-              .scale(duration: 1.seconds, begin: const Offset(1, 1), end: const Offset(1.2, 1.2), curve: Curves.elasticOut)
-              .shimmer(),
-            const Gap(16),
-            Text(
-              winnerUid == null ? "DRAW!" : "WINNER!",
-              style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900),
-            ).animate().fadeIn(),
-            if (winnerUid != null)
-              Text(
-                winnerName,
-                style: const TextStyle(color: Colors.amber, fontSize: 20, fontWeight: FontWeight.bold),
-              ),
-            const Gap(32),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // 🎇 Fireworks Particles Background
+          if (winnerUid != null)
+            ...List.generate(40, (index) {
+              final rnd = Random(index);
+              final startX = rnd.nextDouble() * MediaQuery.of(context).size.width;
+              final startY = rnd.nextDouble() * MediaQuery.of(context).size.height;
+              final endY = startY - 100 - rnd.nextDouble() * 200;
+              final color = [Colors.cyanAccent, Colors.pinkAccent, Colors.amber, Colors.purpleAccent][rnd.nextInt(4)];
+              
+              return Positioned(
+                left: startX,
+                top: startY,
+                child: Icon(Icons.star, color: color, size: rnd.nextDouble() * 20 + 8)
+                  .animate(onPlay: (c) => c.repeat())
+                  .fade(duration: 800.ms, delay: (rnd.nextInt(1000)).ms)
+                  .scale(begin: Offset.zero, end: const Offset(1.5, 1.5))
+                  .moveY(begin: 0, end: endY - startY, duration: (1000 + rnd.nextInt(1000)).ms),
+              );
+            }),
+
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (winnerAvatar != null)
+                  Container(
+                    width: 100, height: 100,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.amber, width: 4),
+                      image: DecorationImage(image: CachedNetworkImageProvider(winnerAvatar), fit: BoxFit.cover),
+                      boxShadow: [BoxShadow(color: Colors.amber.withOpacity(0.6), blurRadius: 40, spreadRadius: 10)],
+                    ),
+                  ).animate().scale(duration: 800.ms, curve: Curves.elasticOut)
+                else
+                  const Icon(Icons.emoji_events_rounded, color: Colors.amber, size: 80)
+                    .animate(onPlay: (c) => c.repeat())
+                    .scale(duration: 1.seconds, begin: const Offset(1, 1), end: const Offset(1.2, 1.2), curve: Curves.elasticOut)
+                    .shimmer(),
+                const Gap(16),
+                Text(
+                  winnerUid == null ? "DRAW!" : "WINNER!",
+                  style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900, fontStyle: FontStyle.italic),
+                ).animate().fadeIn(),
+                if (winnerUid != null)
+                  Text(
+                    winnerName,
+                    style: const TextStyle(color: Colors.amber, fontSize: 24, fontWeight: FontWeight.bold),
+                  ).animate().slideY(begin: 0.5, end: 0, duration: 500.ms),
+                const Gap(32),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               decoration: BoxDecoration(
@@ -380,6 +444,8 @@ class _PKResultOverlayState extends ConsumerState<_PKResultOverlay> {
             ),
           ],
         ),
+      ),
+        ],
       ),
     );
   }

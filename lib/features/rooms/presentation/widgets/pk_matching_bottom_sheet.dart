@@ -9,6 +9,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:hello_chat/services/room_service.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:hello_chat/core/providers/pk_mode_provider.dart';
 
 class PKMatchingBottomSheet extends ConsumerStatefulWidget {
   final String roomId;
@@ -21,7 +22,7 @@ class PKMatchingBottomSheet extends ConsumerStatefulWidget {
 class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  String _selectedMode = 'ROOM PK';
+  // Removed local mode state; using Riverpod provider instead
 
   @override
   void initState() {
@@ -140,10 +141,11 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
       );
 
   Widget _modeButton(String label, {bool isFirst = false, bool isComingSoon = false}) {
-    final isSelected = _selectedMode == label && !isComingSoon;
+    final selectedMode = ref.watch(pkModeProvider); // Riverpod state
+    final isSelected = selectedMode == label && !isComingSoon;
     return Expanded(
       child: GestureDetector(
-        onTap: isComingSoon ? null : () => setState(() => _selectedMode = label),
+        onTap: isComingSoon ? null : () => ref.read(pkModeProvider.notifier).state = label,
         child: Opacity(
           opacity: isComingSoon ? 0.5 : 1.0,
           child: Container(

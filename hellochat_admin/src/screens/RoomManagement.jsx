@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, query, getDocs, doc, deleteDoc, updateDoc, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, getDocs, doc, deleteDoc, updateDoc, onSnapshot, orderBy, writeBatch } from 'firebase/firestore';
 import { 
   Users, 
   Volume2, 
@@ -13,12 +13,14 @@ import {
   Search,
   Zap,
   Flame,
-  Diamond
+  Diamond,
+  CheckSquare
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const RoomManagement = () => {
   const [rooms, setRooms] = useState([]);
+  const [selectedRooms, setSelectedRooms] = useState([]); // Multi-select for termination
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -78,6 +80,48 @@ export const RoomManagement = () => {
            <button className="bg-white/5 border border-white/10 p-4 rounded-2xl hover:bg-white/10 transition-all text-white">
               <Zap size={20} />
            </button>
+           {/* Select All Button */}
+           <button 
+             onClick={() => {
+               if (selectedRooms.length === filteredRooms.length && filteredRooms.length > 0) {
+                 setSelectedRooms([]); // Deselect all
+               } else {
+                 setSelectedRooms(filteredRooms.map(r => r.id)); // Select all current
+               }
+             }}
+             className="flex items-center gap-2 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-xs font-black uppercase tracking-widest transition-all"
+           >
+             <CheckSquare size={14} /> 
+             {selectedRooms.length === filteredRooms.length && filteredRooms.length > 0 ? 'DESELECT ALL' : 'SELECT ALL'}
+           </button>
+           {/* Bulk terminate button */}
+           <button
+             onClick={async () => {
+               if (selectedRooms.length === 0) {
+                 alert('No rooms selected for termination.');
+                 return;
+               }
+               if (!window.confirm(`Terminate ${selectedRooms.length} selected room(s)? This action cannot be undone.`)) return;
+               try {
+                 // Firestore batches can hold up to 500 operations.
+                 const chunkSize = 400;
+                 for (let i = 0; i < selectedRooms.length; i += chunkSize) {
+                   const chunk = selectedRooms.slice(i, i + chunkSize);
+                   const batch = writeBatch(db);
+                   for (const id of chunk) {
+                     batch.update(doc(db, "rooms", id), { status: 'ended', currentUsersCount: 0 });
+                   }
+                   await batch.commit();
+                 }
+                 setSelectedRooms([]);
+               } catch (err) {
+                 alert('Error terminating rooms: ' + err.message);
+               }
+             }}
+             className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl hover:bg-red-500 text-red-500 hover:text-white text-xs font-black uppercase tracking-widest transition-all"
+           >
+             <Trash2 size={14} /> TERMINATE SELECTED
+           </button>
         </div>
       </div>
 
@@ -120,6 +164,21 @@ export const RoomManagement = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 className="card-glass p-0 border-white/5 bg-slate-800/20 overflow-hidden group hover:border-cyan-500/30 transition-all shadow-2xl relative"
               >
+                {/* Selection Checkbox */}
+                <div className="absolute top-2 left-2 z-20">
+                  <input
+                    type="checkbox"
+                    checked={selectedRooms.includes(room.id)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setSelectedRooms((prev) =>
+                        checked ? [...prev, room.id] : prev.filter((id) => id !== room.id)
+                      );
+                    }}
+                    className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                </div>
+
                 {/* Visual Status Indicator */}
                 <div className="absolute top-4 left-4 z-10">
                    <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
@@ -186,6 +245,20 @@ export const RoomManagement = () => {
                                <span className="text-[9px] font-black text-cyan-400">
                                   {room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0} 💎
                                </span>
+                               <button 
+                                 onClick={(e) => {
+                                   e.stopPropagation();
+                                   const uid = Object.keys(room.pkTeams || {})[0];
+                                   if (uid) {
+                                     updateDoc(doc(db, "rooms", room.id), {
+                                       [`pkScores.${uid}`]: Number(room.pkScores?.[uid] || 0) + 100
+                                     });
+                                   }
+                                 }}
+                                 className="mt-1 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/40 text-[8px] font-bold transition-colors"
+                               >
+                                 +100 PTS
+                               </button>
                             </div>
 
                             <div className="text-[10px] font-black text-slate-500 animate-pulse">VS</div>
@@ -201,6 +274,20 @@ export const RoomManagement = () => {
                                <span className="text-[9px] font-black text-pink-400">
                                   {room.pkScores?.[Object.keys(room.pkTeams || {})[1]] || 0} 💎
                                 </span>
+                                <button 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const uid = Object.keys(room.pkTeams || {})[1];
+                                    if (uid) {
+                                      updateDoc(doc(db, "rooms", room.id), {
+                                        [`pkScores.${uid}`]: Number(room.pkScores?.[uid] || 0) + 100
+                                      });
+                                    }
+                                  }}
+                                  className="mt-1 px-2 py-0.5 bg-pink-500/20 text-pink-400 border border-pink-500/30 rounded hover:bg-pink-500/40 text-[8px] font-bold transition-colors"
+                                >
+                                  +100 PTS
+                                </button>
                             </div>
                          </div>
 

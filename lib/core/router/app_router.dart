@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/auth/presentation/screens/login_screen.dart';
@@ -334,9 +335,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.pkBattle,
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final roomId = state.extra as String? ?? '';
-          return ActivePKBattleScreen(roomId: roomId);
+          return MaterialPage(
+            key: state.pageKey,
+            child: ActivePKBattleScreen(roomId: roomId),
+            maintainState: false,
+          );
         },
       ),
     ],
