@@ -307,6 +307,15 @@ export const RoomManagement = () => {
                       </div>
                     )}
 
+                    <div className="pt-3 border-t border-white/5">
+                      <button 
+                        onClick={() => updateDoc(doc(db, "rooms", room.id), { weeklyEarnings: increment(10000) })}
+                        className="w-full flex items-center justify-center gap-2 p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-wider transition-all"
+                      >
+                        <Zap size={12} /> +10K Diamonds (Star Mission Test)
+                      </button>
+                    </div>
+
                    {/* Admin Ops Bar */}
                    <div className="grid grid-cols-2 gap-3 pt-4">
                       <button className="flex items-center justify-center gap-2 p-3 bg-white/5 border border-white/5 rounded-xl hover:bg-white/10 text-xs font-black uppercase tracking-widest text-slate-300 transition-all">

@@ -1,110 +1,258 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:hello_chat/core/models/room_model.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
 
-class RoomStarProgressWidget extends StatefulWidget {
-  final int currentStars;
-  final double progress; // 0.0 to 1.0
+class RoomStarProgressWidget extends StatelessWidget {
+  final RoomModel room;
 
-  const RoomStarProgressWidget({
-    super.key,
-    this.currentStars = 0,
-    this.progress = 0.0,
-  });
+  const RoomStarProgressWidget({super.key, required this.room});
 
-  @override
-  State<RoomStarProgressWidget> createState() => _RoomStarProgressWidgetState();
-}
+  // Thresholds
+  static const List<int> thresholds = [0, 1000, 10000, 50000, 100000, 250000];
 
-class _RoomStarProgressWidgetState extends State<RoomStarProgressWidget> {
-  bool _isExpanded = false;
+  int get currentLevel {
+    final diamonds = room.weeklyEarnings;
+    for (int i = thresholds.length - 1; i >= 0; i--) {
+      if (diamonds >= thresholds[i]) return i;
+    }
+    return 0;
+  }
 
-  Color _getStarColor(int stars) {
-    // Distinct premium colors for each star level
-    switch (stars) {
-      case 0: return Colors.white38;
-      case 1: return const Color(0xFFFFD700); // Gold
-      case 2: return const Color(0xFF00E5FF); // Cyan
-      case 3: return const Color(0xFFE91E63); // Pink
-      case 4: return const Color(0xFF9C27B0); // Purple
-      case 5: return const Color(0xFFFF4500); // Red-Orange
-      case 6: return const Color(0xFF6200EA); // Deep Purple
-      case 7: return const Color(0xFF00C853); // Green
-      case 8: return const Color(0xFFD50000); // Deep Red
-      case 9: return const Color(0xFFFFAB00); // Amber
-      default: return const Color(0xFF00E5FF).withBlue((stars * 10) % 255); // Dynamic
+  Color getLevelColor(int level) {
+    switch (level) {
+      case 0: return Colors.white54;
+      case 1: return const Color(0xFF00E5FF); // Cyan
+      case 2: return const Color(0xFF00C853); // Green
+      case 3: return const Color(0xFF9C27B0); // Purple
+      case 4: return const Color(0xFFFF4081); // Pink
+      case 5: return const Color(0xFFFFD700); // Gold
+      default: return const Color(0xFFFFD700);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final activeColor = _getStarColor(widget.currentStars);
-    final bool isBoxOpen = widget.currentStars >= 5;
+    final level = currentLevel;
+    final color = getLevelColor(level);
+    final diamonds = room.weeklyEarnings;
     
-    // Scale factor for "progressive" opening of the box if Stars >= 5
-    final double overflowProgress = (widget.currentStars >= 5) 
-        ? (widget.currentStars - 5) + widget.progress 
-        : 0.0;
+    // Overall progress towards max level (250k)
+    final double overallProgress = (diamonds / thresholds.last).clamp(0.0, 1.0);
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.black38,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white12, width: 1),
+        color: Colors.black.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
-          // Icon - Changes to Box at Star 5
-          Icon(
-            isBoxOpen ? Icons.inventory_2_rounded : Icons.stars_rounded, 
-            color: activeColor, 
-            size: 14 + (isBoxOpen ? (overflowProgress * 0.5).clamp(0.0, 3.0) : 0.0)
-          ),
-          const Gap(6),
-          // Ticket Text
-          Text(
-            "Ticket ${widget.currentStars} Star",
-            style: TextStyle(
-              color: activeColor, 
-              fontSize: 10, 
-              fontWeight: FontWeight.w900,
-            ),
+          // 1. Level Button
+          _buildLevelButton(context, level, color),
+          
+          const Gap(12),
+          
+          // 2. Progress Track
+          Expanded(
+            child: _buildProgressTrack(level, color, diamonds),
           ),
           
-          // Small Progress Bar (always horizontal, not expanding)
-          if (widget.progress > 0) ...[
-            const Gap(8),
-            SizedBox(
-              width: 30,
-              height: 2,
-              child: Stack(
-                children: [
-                  Container(decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(1))),
-                  FractionallySizedBox(
-                    widthFactor: widget.progress.clamp(0.01, 1.0),
-                    child: Container(decoration: BoxDecoration(color: activeColor, borderRadius: BorderRadius.circular(1))),
-                  ),
-                ],
+          const Gap(12),
+          
+          // 3. Gift Box
+          _buildGiftBox(level, color, overallProgress),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLevelButton(BuildContext context, int level, Color color) {
+    return GestureDetector(
+      onTap: () => _showLevelsOverlay(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [color.withOpacity(0.2), color.withOpacity(0.1)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+          boxShadow: [
+            BoxShadow(color: color.withOpacity(0.1), blurRadius: 8, spreadRadius: 1),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.star_rounded, color: color, size: 16),
+            const Gap(4),
+            Text(
+              "$level Star",
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.5,
               ),
             ),
           ],
+        ),
+      ),
+    ).animate(key: ValueKey(level)).shimmer(duration: 2.seconds).scale(duration: 300.ms);
+  }
 
-          // Box Percentage when open
-          if (isBoxOpen) ...[
-            const Gap(6),
-            Text(
-              "${(overflowProgress * 10).toInt()}%", 
-              style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold)
-            ),
-          ],
+  Widget _buildProgressTrack(int level, Color color, int diamonds) {
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Base Line
+        Container(
+          height: 2,
+          decoration: BoxDecoration(
+            color: Colors.white10,
+            borderRadius: BorderRadius.circular(1),
+          ),
+        ),
+        
+        // Active Progress Line
+        LayoutBuilder(
+          builder: (context, constraints) {
+            // Find current progress between nodes
+            double progressRatio = 0;
+            if (level < thresholds.length - 1) {
+              final lower = thresholds[level];
+              final upper = thresholds[level + 1];
+              progressRatio = ((diamonds - lower) / (upper - lower)).clamp(0.0, 1.0);
+            } else {
+              progressRatio = 1.0;
+            }
+
+            // Total progress across 5 spans
+            final double totalProgress = (level + progressRatio) / (thresholds.length - 1);
+
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: Container(
+                height: 2,
+                width: constraints.maxWidth * totalProgress,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [color.withOpacity(0.5), color]),
+                  borderRadius: BorderRadius.circular(1),
+                  boxShadow: [
+                    BoxShadow(color: color.withOpacity(0.3), blurRadius: 4),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+
+        // Node Stars
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(5, (index) {
+            final nodeLevel = index + 1;
+            final isReached = level >= nodeLevel;
+            final nodeColor = isReached ? getLevelColor(nodeLevel) : Colors.white24;
+            
+            return Icon(
+              Icons.star_rounded,
+              size: isReached ? 12 : 10,
+              color: nodeColor,
+            ).animate(target: isReached ? 1 : 0).scale(duration: 400.ms).shimmer(enabled: isReached);
+          }),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGiftBox(int level, Color color, double progress) {
+    // Progressive opening: as we approach Star 5, the box opens more.
+    // If level 5, it is "full/glow" but only "fully opens" on click.
+    final bool isHighlyCharged = level >= 4;
+    final double openFactor = progress; // 0.0 to 1.0
+
+    return GestureDetector(
+      onTap: () => _handleBoxTap(),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (isHighlyCharged)
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: color.withOpacity(0.3), blurRadius: 15, spreadRadius: 5),
+                ],
+              ),
+            ).animate(onPlay: (c) => c.repeat()).scale(begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2), duration: 2.seconds),
+          
+          Icon(
+            level >= 5 ? Icons.card_giftcard_rounded : Icons.inventory_2_outlined,
+            color: color,
+            size: 24,
+          ).animate(key: ValueKey(level))
+           .scale(duration: 400.ms, curve: Curves.easeOutBack)
+           .rotate(begin: -0.05 * openFactor, end: 0.05 * openFactor, duration: 1.seconds, iterations: isHighlyCharged ? 0 : 1),
         ],
       ),
-    ).animate(key: ValueKey(widget.currentStars))
-     .fadeIn(duration: 300.ms)
-     .scale(begin: const Offset(1, 1), end: const Offset(1.05, 1.05), duration: 200.ms);
+    );
+  }
+
+  void _showLevelsOverlay(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => Center(
+        child: Container(
+          width: 300,
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: Colors.white10),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Star Levels", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+              const Gap(20),
+              ...List.generate(5, (index) {
+                final l = index + 1;
+                final c = getLevelColor(l);
+                final t = thresholds[l];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.star_rounded, color: c, size: 20),
+                      const Gap(12),
+                      Text("Star $l", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      Text("$t", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      const Gap(4),
+                      const PremiumDiamond(size: 10),
+                    ],
+                  ),
+                );
+              }),
+              const Gap(16),
+              AppButton(text: "Close", onPressed: () => Navigator.pop(context), color: Colors.white10),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _handleBoxTap() {
+    // Logic for fully opening the box
   }
 }
-
-

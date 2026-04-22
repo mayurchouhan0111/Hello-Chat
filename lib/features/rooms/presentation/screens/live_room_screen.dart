@@ -370,6 +370,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                           ),
 
                           _buildBroadcastTicker(),
+                          
+                          // 🏅 Sub-Top Bar (Ranks & Category)
+                          _buildSubTopBar(room),
+                          
+                          // 🌟 Star Progress Bar
+                          RoomStarProgressWidget(room: room),
+                          
                           const Gap(8),
 
                           // B. YouTube Player (Synced Watch Party)
@@ -567,31 +574,34 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           ),
 
           // 3. Viewers & Close
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.4),
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.group_rounded, color: Colors.white, size: 14),
-                const Gap(4),
-                // 🛡️ Scoped Watcher for viewers to prevent 'defunct element' crashes on exit
-                Consumer(
-                  builder: (context, ref, child) {
-                    final async = ref.watch(roomParticipantsProvider(widget.roomId));
-                    return async.when(
-                      data: (pts) => Text(
-                        "${pts.length}", 
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)
-                      ),
-                      loading: () => Text("${room.currentUsersCount}", style: const TextStyle(color: Colors.white, fontSize: 11)),
-                      error: (_, __) => Text("${room.currentUsersCount}", style: const TextStyle(color: Colors.white, fontSize: 11)),
-                    );
-                  },
-                ),
-              ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.group_rounded, color: Colors.white, size: 14),
+                  const Gap(4),
+                  // 🛡️ Scoped Watcher for viewers to prevent 'defunct element' crashes on exit
+                  Consumer(
+                    builder: (context, ref, child) {
+                      final async = ref.watch(roomParticipantsProvider(widget.roomId));
+                      return async.when(
+                        data: (pts) => Text(
+                          "${pts.length}", 
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)
+                        ),
+                        loading: () => Text("${room.currentUsersCount}", style: const TextStyle(color: Colors.white, fontSize: 11)),
+                        error: (_, __) => Text("${room.currentUsersCount}", style: const TextStyle(color: Colors.white, fontSize: 11)),
+                      );
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           const Gap(4),
@@ -600,13 +610,34 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               onPressed: () => _showRoomSettings(room),
               icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 20),
               padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
             ),
           IconButton(
             onPressed: _leaveRoom,
             icon: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubTopBar(RoomModel room) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          _buildDynamicBadge(
+            icon: Icons.emoji_events_rounded,
+            text: "No.${room.hourlyRank} This Hour",
+            color: Colors.orangeAccent,
+          ),
+          const Gap(8),
+          _buildDynamicBadge(
+            icon: Icons.volume_up_rounded,
+            text: "${room.roomType} Room",
+            color: Colors.blueAccent,
           ),
         ],
       ),
