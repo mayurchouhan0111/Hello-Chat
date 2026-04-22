@@ -688,6 +688,14 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const giftData = giftDoc.data();
             const totalCost = (giftData.priceInDiamonds || 0) * qty;
 
+            // 🔍 2.5 Preliminary Agency Read (Transactions must read before write)
+            let agencyDoc = null;
+            let agencyRef = null;
+            if (receiverDoc.exists && receiverDoc.data().agencyId) {
+                agencyRef = db.collection("agencies").doc(receiverDoc.data().agencyId);
+                agencyDoc = await transaction.get(agencyRef);
+            }
+
             // 💰 3. Balance Check
             const currentBalance = senderDoc.data().diamondBalance || 0;
             if (currentBalance < totalCost) {
@@ -709,21 +717,16 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 let hostSharePercent = 0.8;
                 let agencySharePercent = 0;
 
-                if (agencyId) {
-                    const agencyRef = db.collection("agencies").doc(agencyId);
-                    const agencyDoc = await transaction.get(agencyRef);
-
-                    if (agencyDoc.exists) {
-                        hostSharePercent = 0.7;
-                        agencySharePercent = 0.1;
-                        const agencyBeans = Math.floor(totalCost * agencySharePercent);
-                        transaction.update(agencyRef, {
-                            beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
-                            totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
-                        });
-                    } else {
-                        console.warn(`⚠️ Agency ${agencyId} not found for receiver ${targetUid}. Falling back to standard share.`);
-                    }
+                if (agencyId && agencyDoc && agencyDoc.exists) {
+                    hostSharePercent = 0.7;
+                    agencySharePercent = 0.1;
+                    const agencyBeans = Math.floor(totalCost * agencySharePercent);
+                    transaction.update(agencyRef, {
+                        beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
+                        totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
+                    });
+                } else if (agencyId) {
+                    console.warn(`⚠️ Agency ${agencyId} not found for receiver ${targetUid}. Falling back to standard share.`);
                 }
 
                 const beansEarned = Math.floor(totalCost * hostSharePercent);
