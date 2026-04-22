@@ -37,28 +37,8 @@ class RoomStarProgressWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     final level = currentLevel;
     final color = getLevelColor(level);
-    final diamonds = room.weeklyEarnings;
-    
-    // Overall progress towards max level (250k)
-    final double overallProgress = (diamonds / thresholds.last).clamp(0.0, 1.0);
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // 1. Level Button
-        _buildLevelButton(context, level, color),
-        
-        const Gap(6),
-        
-        // 2. Progress Track
-        _buildProgressTrack(level, color, diamonds),
-        
-        const Gap(6),
-        
-        // 3. Gift Box
-        _buildGiftBox(level, color, overallProgress),
-      ],
-    );
+    return _buildLevelButton(context, level, color);
   }
 
   Widget _buildLevelButton(BuildContext context, int level, Color color) {
@@ -88,88 +68,6 @@ class RoomStarProgressWidget extends StatelessWidget {
         ),
       ),
     ).animate(key: ValueKey(level)).scale(duration: 300.ms);
-  }
-
-  Widget _buildProgressTrack(int level, Color color, int diamonds) {
-    return SizedBox(
-      width: 60, // Fixed compact width
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Base Line
-          Container(
-            height: 1.5,
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(1),
-            ),
-          ),
-          
-          // Active Progress Line
-          LayoutBuilder(
-            builder: (context, constraints) {
-              double progressRatio = 0;
-              if (level < thresholds.length - 1) {
-                final lower = thresholds[level];
-                final upper = thresholds[level + 1];
-                progressRatio = ((diamonds - lower) / (upper - lower)).clamp(0.0, 1.0);
-              } else {
-                progressRatio = 1.0;
-              }
-              final double totalProgress = (level + progressRatio) / (thresholds.length - 1);
-  
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  height: 1.5,
-                  width: constraints.maxWidth * totalProgress,
-                  decoration: BoxDecoration(
-                    color: color,
-                    borderRadius: BorderRadius.circular(1),
-                  ),
-                ),
-              );
-            },
-          ),
-  
-          // Node Stars (Small diamonds for compactness)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(5, (index) {
-              final isReached = level >= (index + 1);
-              return Container(
-                width: 4,
-                height: 4,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isReached ? color : Colors.white24,
-                ),
-              );
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildGiftBox(int level, Color color, double progress) {
-    final double openFactor = progress; 
-
-    return GestureDetector(
-      onTap: () => _handleBoxTap(),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(
-            level >= 5 ? Icons.card_giftcard_rounded : Icons.inventory_2_outlined,
-            color: color,
-            size: 18,
-          ).animate(key: ValueKey(level))
-           .scale(duration: 400.ms, curve: Curves.easeOutBack)
-           .rotate(begin: -0.05 * openFactor, end: 0.05 * openFactor, duration: 1.seconds),
-        ],
-      ),
-    );
   }
 
   void _showLevelsOverlay(BuildContext context) {
