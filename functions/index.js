@@ -692,7 +692,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             let agencyDoc = null;
             let agencyRef = null;
             if (receiverDoc.exists && receiverDoc.data().agencyId) {
-                agencyRef = db.collection("agencies").doc(receiverDoc.data().agencyId);
+                // IMPORTANT: Agencies are Users with isAgencyOwner: true
+                agencyRef = db.collection("users").doc(receiverDoc.data().agencyId);
                 agencyDoc = await transaction.get(agencyRef);
             }
 
@@ -717,16 +718,18 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 let hostSharePercent = 0.8;
                 let agencySharePercent = 0;
 
-                if (agencyId && agencyDoc && agencyDoc.exists) {
+                // Only pay agency if user exists AND is actually an agency owner
+                if (agencyId && agencyDoc && agencyDoc.exists && agencyDoc.data().isAgencyOwner) {
                     hostSharePercent = 0.7;
                     agencySharePercent = 0.1;
                     const agencyBeans = Math.floor(totalCost * agencySharePercent);
                     transaction.update(agencyRef, {
                         beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
+                        // Also track total earnings if field exists
                         totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
                     });
                 } else if (agencyId) {
-                    console.warn(`⚠️ Agency ${agencyId} not found for receiver ${targetUid}. Falling back to standard share.`);
+                    console.warn(`⚠️ Agency Owner ${agencyId} not found or invalid for receiver ${targetUid}. Skipping commission.`);
                 }
 
                 const beansEarned = Math.floor(totalCost * hostSharePercent);

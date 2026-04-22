@@ -349,22 +349,34 @@ export const UserManagement = () => {
         }
     };
 
-    const handleAppointAgency = async (user) => {
+    const handleToggleAgencyStatus = async (user) => {
         const targetUid = user.id || user.uid;
-        if (!window.confirm(`Appoint ${user.displayName} as an Agency Owner?`)) return;
+        const isCurrentlyOwner = user.isAgencyOwner === true;
+        const action = isCurrentlyOwner ? 'Revoke' : 'Appoint';
+        
+        if (!window.confirm(`${action} Agency Owner status for ${user.displayName}?`)) return;
         
         setIsSeeding(true);
         try {
             const userRef = doc(db, "users", targetUid);
             const userSnap = await getDoc(userRef);
-            const currentTags = userSnap.data()?.tags || [];
+            let tags = userSnap.data()?.tags || [];
             
-            await updateDoc(userRef, {
-                isAgencyOwner: true,
-                tags: Array.from(new Set([...currentTags, "Agency"]))
-            });
-            
-            alert(`${user.displayName} is now a verified Agency Owner.`);
+            if (isCurrentlyOwner) {
+                tags = tags.filter(t => t !== "Agency");
+                await updateDoc(userRef, {
+                    isAgencyOwner: false,
+                    tags: tags
+                });
+                alert(`${user.displayName} is no longer an Agency Owner.`);
+            } else {
+                tags = Array.from(new Set([...tags, "Agency"]));
+                await updateDoc(userRef, {
+                    isAgencyOwner: true,
+                    tags: tags
+                });
+                alert(`${user.displayName} is now a verified Agency Owner.`);
+            }
             fetchUsers();
         } catch (err) {
             alert("Error: " + err.message);
@@ -457,6 +469,12 @@ export const UserManagement = () => {
                           <Diamond size={10} className="text-indigo-400" />
                           <span className="text-[10px] font-black text-slate-300">{user.diamondBalance || 0}</span>
                        </div>
+                       {user.agencyId && (
+                         <div className="flex items-center gap-1.5 pt-1">
+                            <Building2 size={10} className="text-amber-500" />
+                            <span className="text-[10px] font-black text-amber-500/80 uppercase tracking-tighter">Hosted</span>
+                         </div>
+                       )}
                        <div className="flex items-center gap-1.5 pt-1">
                           <UserPlus size={10} className="text-slate-500" />
                           <span className="text-[10px] font-black text-slate-300">{user.followerCount || 0} Foll.</span>
@@ -489,9 +507,9 @@ export const UserManagement = () => {
                        <Zap size={16} />
                      </button>
                      <button 
-                        onClick={() => handleAppointAgency(user)}
-                        className="p-2.5 bg-amber-500/10 text-amber-400 border border-amber-500/10 rounded-xl hover:bg-amber-500 hover:text-white transition-all shadow-amber-500/20 shadow-lg"
-                        title="Appoint as Agency Owner"
+                        onClick={() => handleToggleAgencyStatus(user)}
+                        className={`p-2.5 border rounded-xl transition-all shadow-lg ${user.isAgencyOwner ? 'bg-amber-500 text-white border-amber-400 shadow-amber-500/40' : 'bg-amber-500/10 text-amber-400 border-amber-500/10 shadow-amber-500/20'}`}
+                        title={user.isAgencyOwner ? "Revoke Agency Status" : "Appoint as Agency Owner"}
                      >
                        <Building2 size={16} />
                      </button>

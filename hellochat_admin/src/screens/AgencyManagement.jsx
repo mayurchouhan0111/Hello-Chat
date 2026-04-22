@@ -24,7 +24,8 @@ import {
   TrendingUp,
   Building2,
   Trash2,
-  X
+  X,
+  ChevronLeft
 } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -172,14 +173,15 @@ export const AgencyManagement = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 pb-8 border-b border-white/5">
         <div>
           <div className="flex items-center gap-4">
-             {isAdmin && selectedAgency && (
-               <button 
-                  onClick={() => setSelectedAgency(null)}
-                  className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 transition-all"
-               >
-                  <Search size={20} />
-               </button>
-             )}
+              {isAdmin && selectedAgency && (
+                <button 
+                   onClick={() => setSelectedAgency(null)}
+                   className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-indigo-400 transition-all group"
+                   title="Return to Agency List"
+                >
+                   <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+                </button>
+              )}
              <h1 className="text-4xl font-black text-white tracking-widest uppercase">
                {isAdmin && !selectedAgency ? 'All Agencies' : 'Agency Portal'}
              </h1>
