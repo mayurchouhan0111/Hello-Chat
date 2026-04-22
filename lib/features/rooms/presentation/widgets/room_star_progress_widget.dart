@@ -3,6 +3,7 @@ import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:hello_chat/core/models/room_model.dart';
 import 'package:hello_chat/core/widgets/premium_diamond.dart';
+import 'package:hello_chat/core/widgets/app_button.dart';
 
 class RoomStarProgressWidget extends StatelessWidget {
   final RoomModel room;
@@ -161,11 +162,13 @@ class RoomStarProgressWidget extends StatelessWidget {
             final isReached = level >= nodeLevel;
             final nodeColor = isReached ? getLevelColor(nodeLevel) : Colors.white24;
             
-            return Icon(
+            final star = Icon(
               Icons.star_rounded,
               size: isReached ? 12 : 10,
               color: nodeColor,
-            ).animate(target: isReached ? 1 : 0).scale(duration: 400.ms).shimmer(enabled: isReached);
+            ).animate(target: isReached ? 1 : 0).scale(duration: 400.ms);
+            
+            return isReached ? star.shimmer(duration: 2.seconds) : star;
           }),
         ),
       ],
@@ -201,7 +204,7 @@ class RoomStarProgressWidget extends StatelessWidget {
             size: 24,
           ).animate(key: ValueKey(level))
            .scale(duration: 400.ms, curve: Curves.easeOutBack)
-           .rotate(begin: -0.05 * openFactor, end: 0.05 * openFactor, duration: 1.seconds, iterations: isHighlyCharged ? 0 : 1),
+           .rotate(begin: -0.05 * openFactor, end: 0.05 * openFactor, duration: 1.seconds),
         ],
       ),
     );
@@ -244,7 +247,7 @@ class RoomStarProgressWidget extends StatelessWidget {
                 );
               }),
               const Gap(16),
-              AppButton(text: "Close", onPressed: () => Navigator.pop(context), color: Colors.white10),
+              AppButton(text: "Close", onPressed: () => Navigator.pop(context)),
             ],
           ),
         ),
