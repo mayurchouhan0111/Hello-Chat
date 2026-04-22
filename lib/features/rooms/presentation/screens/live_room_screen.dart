@@ -371,11 +371,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
                           _buildBroadcastTicker(),
                           
-                          // 🏅 Sub-Top Bar (Ranks & Category)
+                          // 🏅 Sub-Top Bar (Ranks, Category & Star Progress)
                           _buildSubTopBar(room),
-                          
-                          // 🌟 Star Progress Bar
-                          RoomStarProgressWidget(room: room),
                           
                           const Gap(8),
 
@@ -639,6 +636,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             text: "${room.roomType} Room",
             color: Colors.blueAccent,
           ),
+          const Spacer(),
+          // 🌟 Compact Star Progress
+          RoomStarProgressWidget(room: room),
         ],
       ),
     );

@@ -42,32 +42,22 @@ class RoomStarProgressWidget extends StatelessWidget {
     // Overall progress towards max level (250k)
     final double overallProgress = (diamonds / thresholds.last).clamp(0.0, 1.0);
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          // 1. Level Button
-          _buildLevelButton(context, level, color),
-          
-          const Gap(12),
-          
-          // 2. Progress Track
-          Expanded(
-            child: _buildProgressTrack(level, color, diamonds),
-          ),
-          
-          const Gap(12),
-          
-          // 3. Gift Box
-          _buildGiftBox(level, color, overallProgress),
-        ],
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 1. Level Button
+        _buildLevelButton(context, level, color),
+        
+        const Gap(6),
+        
+        // 2. Progress Track
+        _buildProgressTrack(level, color, diamonds),
+        
+        const Gap(6),
+        
+        // 3. Gift Box
+        _buildGiftBox(level, color, overallProgress),
+      ],
     );
   }
 
@@ -75,133 +65,105 @@ class RoomStarProgressWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showLevelsOverlay(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [color.withOpacity(0.2), color.withOpacity(0.1)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withOpacity(0.5), width: 1.5),
-          boxShadow: [
-            BoxShadow(color: color.withOpacity(0.1), blurRadius: 8, spreadRadius: 1),
-          ],
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.4), width: 1),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.star_rounded, color: color, size: 16),
-            const Gap(4),
+            Icon(Icons.star_rounded, color: color, size: 14),
+            const Gap(2),
             Text(
-              "$level Star",
+              "$level",
               style: TextStyle(
                 color: color,
-                fontSize: 12,
+                fontSize: 10,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 0.5,
               ),
             ),
           ],
         ),
       ),
-    ).animate(key: ValueKey(level)).shimmer(duration: 2.seconds).scale(duration: 300.ms);
+    ).animate(key: ValueKey(level)).scale(duration: 300.ms);
   }
 
   Widget _buildProgressTrack(int level, Color color, int diamonds) {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        // Base Line
-        Container(
-          height: 2,
-          decoration: BoxDecoration(
-            color: Colors.white10,
-            borderRadius: BorderRadius.circular(1),
+    return SizedBox(
+      width: 60, // Fixed compact width
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Base Line
+          Container(
+            height: 1.5,
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              borderRadius: BorderRadius.circular(1),
+            ),
           ),
-        ),
-        
-        // Active Progress Line
-        LayoutBuilder(
-          builder: (context, constraints) {
-            // Find current progress between nodes
-            double progressRatio = 0;
-            if (level < thresholds.length - 1) {
-              final lower = thresholds[level];
-              final upper = thresholds[level + 1];
-              progressRatio = ((diamonds - lower) / (upper - lower)).clamp(0.0, 1.0);
-            } else {
-              progressRatio = 1.0;
-            }
-
-            // Total progress across 5 spans
-            final double totalProgress = (level + progressRatio) / (thresholds.length - 1);
-
-            return Align(
-              alignment: Alignment.centerLeft,
-              child: Container(
-                height: 2,
-                width: constraints.maxWidth * totalProgress,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [color.withOpacity(0.5), color]),
-                  borderRadius: BorderRadius.circular(1),
-                  boxShadow: [
-                    BoxShadow(color: color.withOpacity(0.3), blurRadius: 4),
-                  ],
+          
+          // Active Progress Line
+          LayoutBuilder(
+            builder: (context, constraints) {
+              double progressRatio = 0;
+              if (level < thresholds.length - 1) {
+                final lower = thresholds[level];
+                final upper = thresholds[level + 1];
+                progressRatio = ((diamonds - lower) / (upper - lower)).clamp(0.0, 1.0);
+              } else {
+                progressRatio = 1.0;
+              }
+              final double totalProgress = (level + progressRatio) / (thresholds.length - 1);
+  
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  height: 1.5,
+                  width: constraints.maxWidth * totalProgress,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(1),
+                  ),
                 ),
-              ),
-            );
-          },
-        ),
-
-        // Node Stars
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: List.generate(5, (index) {
-            final nodeLevel = index + 1;
-            final isReached = level >= nodeLevel;
-            final nodeColor = isReached ? getLevelColor(nodeLevel) : Colors.white24;
-            
-            final star = Icon(
-              Icons.star_rounded,
-              size: isReached ? 12 : 10,
-              color: nodeColor,
-            ).animate(target: isReached ? 1 : 0).scale(duration: 400.ms);
-            
-            return isReached ? star.shimmer(duration: 2.seconds) : star;
-          }),
-        ),
-      ],
+              );
+            },
+          ),
+  
+          // Node Stars (Small diamonds for compactness)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(5, (index) {
+              final isReached = level >= (index + 1);
+              return Container(
+                width: 4,
+                height: 4,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isReached ? color : Colors.white24,
+                ),
+              );
+            }),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildGiftBox(int level, Color color, double progress) {
-    // Progressive opening: as we approach Star 5, the box opens more.
-    // If level 5, it is "full/glow" but only "fully opens" on click.
-    final bool isHighlyCharged = level >= 4;
-    final double openFactor = progress; // 0.0 to 1.0
+    final double openFactor = progress; 
 
     return GestureDetector(
       onTap: () => _handleBoxTap(),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (isHighlyCharged)
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(color: color.withOpacity(0.3), blurRadius: 15, spreadRadius: 5),
-                ],
-              ),
-            ).animate(onPlay: (c) => c.repeat()).scale(begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2), duration: 2.seconds),
-          
           Icon(
             level >= 5 ? Icons.card_giftcard_rounded : Icons.inventory_2_outlined,
             color: color,
-            size: 24,
+            size: 18,
           ).animate(key: ValueKey(level))
            .scale(duration: 400.ms, curve: Curves.easeOutBack)
            .rotate(begin: -0.05 * openFactor, end: 0.05 * openFactor, duration: 1.seconds),
