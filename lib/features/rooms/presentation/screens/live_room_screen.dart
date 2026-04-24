@@ -395,19 +395,27 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                           ),
                         ),
 
-                        // C. Floating Chat Area
-                        SizedBox(
-                          height: 160,
-                          child: messagesAsync.when(
-                            data: (msgs) => ChatWidget(messages: msgs),
-                            loading: () => const SizedBox.shrink(),
-                            error: (_, __) => const SizedBox.shrink(),
-                          ),
-                        ),
-
                         // D. Master Controls
                         _buildBottomBar(room),
+                        // Added some bottom padding to help the scroll
+                        const Gap(20),
                       ],
+                    ),
+                  ),
+
+                  // 🏁 FLOATING CHAT OVERLAY (STAY ON TOP OF EVERYTHING)
+                  Positioned(
+                    bottom: 80, // Perfectly floats above the bottom bar
+                    left: 0,
+                    right: MediaQuery.of(context).size.width * 0.25, // Leaves 25% of the right side free for seat taps
+                    height: 180, // Fixed height for the chat pane
+                    child: IgnorePointer(
+                      ignoring: false, // Let users scroll the chat
+                      child: messagesAsync.when(
+                        data: (msgs) => ChatWidget(messages: msgs),
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      ),
                     ),
                   ),
 
