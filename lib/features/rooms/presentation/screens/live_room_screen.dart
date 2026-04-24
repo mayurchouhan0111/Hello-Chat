@@ -389,47 +389,48 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                     loading: () => const Center(child: CircularProgressIndicator()),
                                     error: (e, __) => const SizedBox(),
                                   ),
-                                ),
-                              ],
+                                  // D. SCROLL SPACER (To allow scrolling past the floating chat)
+                                  const SizedBox(height: 180),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
 
-                        // D. Master Controls
-                        _buildBottomBar(room),
-                        // Added some bottom padding to help the scroll
-                        const Gap(20),
-                      ],
-                    ),
-                  ),
-
-                  // 🏁 FLOATING CHAT OVERLAY (STAY ON TOP OF EVERYTHING)
-                  Positioned(
-                    bottom: 80, // Perfectly floats above the bottom bar
-                    left: 0,
-                    right: MediaQuery.of(context).size.width * 0.25, // Leaves 25% of the right side free for seat taps
-                    height: 180, // Fixed height for the chat pane
-                    child: IgnorePointer(
-                      ignoring: false, // Let users scroll the chat
-                      child: messagesAsync.when(
-                        data: (msgs) => ChatWidget(messages: msgs),
-                        loading: () => const SizedBox.shrink(),
-                        error: (_, __) => const SizedBox.shrink(),
+                          // D. Master Controls (Fixed at bottom)
+                          _buildBottomBar(room),
+                        ],
                       ),
                     ),
-                  ),
 
-                  // 🛡️ PK Invitation Banner (Floating)
-                  if (!room.pkActive && room.pkChallenge != null)
+                    // ✨ 3. FLOATING CHAT OVERLAY (Stack Layer)
                     Positioned(
-                      top: 100, left: 20, right: 20,
-                      child: PKChallengeBanner(room: room),
+                      bottom: 80, // Above bottom bar
+                      left: 12,
+                      right: 40, // Lean towards left to show more background action
+                      child: IgnorePointer(
+                        ignoring: false, // Make it scrollable
+                        child: SizedBox(
+                          height: 200,
+                          child: messagesAsync.when(
+                            data: (msgs) => ChatWidget(messages: msgs),
+                            loading: () => const SizedBox.shrink(),
+                            error: (_, __) => const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
                     ),
-                ],
+
+                    // 🛡️ PK Invitation Banner (Floating)
+                    if (!room.pkActive && room.pkChallenge != null)
+                      Positioned(
+                        top: 100, left: 20, right: 20,
+                        child: PKChallengeBanner(room: room),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
-        );
       },
       loading: () => const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator())),
       error: (e, __) => Scaffold(backgroundColor: Colors.black, body: Center(child: Text("Error: $e"))),
