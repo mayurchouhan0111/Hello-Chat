@@ -33,9 +33,9 @@ class SeatGrid extends ConsumerWidget {
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 10,
-        childAspectRatio: 0.85,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.9,
       ),
       itemCount: capacity,
       itemBuilder: (context, index) {
@@ -51,7 +51,7 @@ class SeatGrid extends ConsumerWidget {
           child: Column(
             children: [
               _buildSeatIcon(ref, participant, isOccupied, index, avatarRadius, iconSize),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               if (isOccupied)
                 _buildSeatName(ref, participant.uid, fontSize)
               else
