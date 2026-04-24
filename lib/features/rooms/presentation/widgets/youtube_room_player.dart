@@ -71,7 +71,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
     setState(() {
       _currentVolume = (_currentVolume + delta).clamp(0, 100);
-      web.evaluateJavascript(source: 'player.setVolume($_currentVolume);');
+      web.evaluateJavascript(source: 'player.unMute(); player.setVolume($_currentVolume);');
       _startHideTimer();
     });
   }
@@ -130,29 +130,29 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     return Container(
       key: ValueKey("yt_player_${widget.room.roomId}"),
       width: double.infinity,
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.black,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 20)],
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 15, offset: Offset(0, 5))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Player Surface
+          // 📺 THE PLAYER SURFACE
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: _toggleControls,
             onDoubleTap: _showControlsPermanently,
             onLongPress: _showControlsPermanently,
             child: Stack(
-              alignment: Alignment.center,
+              alignment: Alignment.bottomCenter,
               children: [
                 SizedBox(
-                  height: 200,
+                  height: 220,
                   width: double.infinity,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(24),
+                    borderRadius: BorderRadius.circular(20),
                     child: SafeYoutubePlayer(
                       controller: _controller!,
                       videoId: widget.room.youtubeVideoId ?? '',
@@ -160,80 +160,68 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                   ),
                 ),
                 
-                // Control Overlay (Center)
+                // 🛠️ SIMPLE CONTROL BAR (ONLY IF OWNER)
                 if (_showControls && isOwner)
-                  Positioned.fill(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black38,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Center(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _buildControlButton(Icons.replay_10_rounded, () {
-                              _startHideTimer();
-                              _seekRelative(-10);
-                            }),
-                            const Gap(24),
-                            _buildControlButton(
-                              _controller!.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                              () {
-                                final web = _controller!.value.webViewController;
-                                if (_controller!.value.isPlaying) {
-                                  _controller!.pause();
-                                  web?.evaluateJavascript(source: 'player.pauseVideo();');
-                                } else {
-                                  _controller!.play();
-                                  web?.evaluateJavascript(source: 'player.playVideo();');
-                                }
-                                _startHideTimer();
-                                setState(() {});
-                              },
-                              size: 44,
-                            ),
-                            const Gap(24),
-                            _buildControlButton(Icons.forward_30_rounded, () {
-                              _startHideTimer();
-                              _seekRelative(20);
-                            }),
-                          ],
-                        ),
-                      ),
+                  Container(
+                    margin: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white10),
                     ),
-                  ),
-                
-                // Top Utilities
-                if (_showControls && isOwner)
-                  Positioned(
-                    top: 12, right: 12,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.black45,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _buildMiniIconButton(Icons.volume_down_rounded, () {
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // BACK 10s
+                        _buildActionIcon(Icons.replay_10_rounded, () => _seekRelative(-10)),
+                        const Gap(8),
+                        
+                        // PLAY / PAUSE
+                        _buildActionIcon(
+                          _controller!.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                          () {
+                            final web = _controller!.value.webViewController;
+                            if (_controller!.value.isPlaying) {
+                              _controller!.pause();
+                              web?.evaluateJavascript(source: 'player.pauseVideo();');
+                            } else {
+                              _controller!.play();
+                              web?.evaluateJavascript(source: 'player.playVideo();');
+                            }
                             _startHideTimer();
-                            _adjustVolume(-10);
-                          }),
-                          const Gap(12),
-                          _buildMiniIconButton(Icons.volume_up_rounded, () {
-                            _startHideTimer();
-                            _adjustVolume(10);
-                          }),
-                          const Gap(12),
-                          const VerticalDivider(color: Colors.white24, width: 1, indent: 4, endIndent: 4),
-                          const Gap(12),
-                          _buildMiniIconButton(Icons.power_settings_new_rounded, () {
-                            ref.read(roomServiceProvider).stopYoutube(widget.room.roomId);
-                          }, color: Colors.redAccent),
-                        ],
-                      ),
+                            setState(() {});
+                          },
+                          isPrimary: true,
+                        ),
+                        const Gap(8),
+
+                        // FORWARD 20s
+                        _buildActionIcon(Icons.forward_30_rounded, () => _seekRelative(20)),
+                        
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: SizedBox(height: 24, child: VerticalDivider(color: Colors.white24, width: 1)),
+                        ),
+
+                        // VOLUME DOWN
+                        _buildActionIcon(Icons.volume_down_rounded, () => _adjustVolume(-10)),
+                        
+                        // VOLUME UP
+                        _buildActionIcon(Icons.volume_up_rounded, () => _adjustVolume(10)),
+
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 4),
+                          child: SizedBox(height: 24, child: VerticalDivider(color: Colors.white24, width: 1)),
+                        ),
+
+                        // CLOSE
+                        _buildActionIcon(
+                          Icons.close_rounded,
+                          () => ref.read(roomServiceProvider).stopYoutube(widget.room.roomId),
+                          color: Colors.redAccent,
+                        ),
+                      ],
                     ),
                   ),
               ],
@@ -244,25 +232,18 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     );
   }
 
-  Widget _buildControlButton(IconData icon, VoidCallback onTap, {double size = 28}) {
-    return GestureDetector(
-      onTap: onTap, // Important: Intercept tap so it doesn't close the overlay
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-            color: Colors.white24,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white10)
-        ),
-        child: Icon(icon, color: Colors.white, size: size),
-      ),
-    );
-  }
-
-  Widget _buildMiniIconButton(IconData icon, VoidCallback onTap, {Color color = Colors.white}) {
+  Widget _buildActionIcon(IconData icon, VoidCallback onTap, {bool isPrimary = false, Color color = Colors.white}) {
     return GestureDetector(
       onTap: onTap,
-      child: Icon(icon, color: color, size: 20),
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: EdgeInsets.all(isPrimary ? 12 : 8),
+        decoration: BoxDecoration(
+          color: isPrimary ? Colors.white.withOpacity(0.15) : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: color, size: isPrimary ? 32 : 24),
+      ),
     );
   }
 }
