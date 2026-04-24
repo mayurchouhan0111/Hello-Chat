@@ -28,21 +28,17 @@ class SeatGrid extends ConsumerWidget {
     final double iconSize = capacity == 8 ? 24 : (capacity == 12 ? 22 : 20);
     final double fontSize = capacity == 8 ? 11 : (capacity == 12 ? 10 : 9);
 
-    return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: capacity == 8 ? 12 : (capacity == 12 ? 24 : 32),
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: 4,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.95,
       ),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 4,
-          childAspectRatio: 0.85,
-        ),
-        itemCount: capacity,
-        itemBuilder: (context, index) {
+      itemCount: capacity,
+      itemBuilder: (context, index) {
         final participant = participants.firstWhere(
           (p) => p.seatIndex == index, 
           orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'audience')
@@ -64,9 +60,8 @@ class SeatGrid extends ConsumerWidget {
           ),
         ).animate().scale(duration: 300.ms, curve: Curves.easeOutBack).fadeIn(duration: 300.ms);
       },
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildSeatIcon(WidgetRef ref, Participant p, bool isOccupied, int index, double radius, double iconSize) {
     if (!isOccupied) {
