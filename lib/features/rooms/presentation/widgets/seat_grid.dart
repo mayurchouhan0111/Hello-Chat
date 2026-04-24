@@ -53,7 +53,7 @@ class SeatGrid extends ConsumerWidget {
                 Text("${index + 1}", style: const TextStyle(color: Colors.white70, fontSize: 11)),
             ],
           ),
-        );
+        ).animate().scale(duration: 300.ms, curve: Curves.easeOutBack).fadeIn(duration: 300.ms);
       },
     );
   }

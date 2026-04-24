@@ -41,7 +41,7 @@ class RoomService with BaseFirebaseService {
     String? coverUrl,
     bool isPrivate = false,
     String? password,
-    int capacity = 10,
+    int capacity = 8,
     bool backgroundMusic = false,
   }) async {
     final uid = _auth.currentUser?.uid;
@@ -185,6 +185,15 @@ class RoomService with BaseFirebaseService {
 
   Future<void> updateRoomSettings(String roomId, Map<String, dynamic> updates) async {
     await _db.collection('rooms').doc(roomId).update(updates);
+  }
+
+  Future<void> setRoomCapacity(String roomId, int capacity) async {
+    if (![8, 12, 16].contains(capacity)) {
+       throw Exception("Invalid capacity. Allowed values: 8, 12, 16.");
+    }
+    await _db.collection('rooms').doc(roomId).update({
+      'capacity': capacity,
+    });
   }
 
   // ⚔️ Professional PK Battle Management

@@ -382,7 +382,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                   child: profiles.when(
                                     data: (pts) => SeatGrid(
                                       participants: pts,
-                                      capacity: 8,
+                                      capacity: room.capacity,
                                       onSeatTap: (idx) => _onSeatTap(idx, pts),
                                       onUserLongPress: _showUserOptions,
                                     ),
@@ -1008,6 +1008,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               },
             ),
             ListTile(
+              leading: const Icon(Icons.grid_view_rounded, color: Colors.blueAccent),
+              title: const Text("Manage Room Capacity", style: TextStyle(color: Colors.white)),
+              subtitle: const Text("Expand to 8, 12, or 16 seats", style: TextStyle(color: Colors.white38, fontSize: 11)),
+              onTap: () {
+                Navigator.pop(context);
+                _showCapacitySettings();
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.block, color: Colors.redAccent),
               title: const Text("Blacklist", style: TextStyle(color: Colors.redAccent)),
               onTap: () {
@@ -1016,6 +1025,59 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               },
             ),
             const Gap(24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showCapacitySettings() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Room Expansion", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const Gap(8),
+            const Text("Choose how many seats to unlock in your room.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+            const Gap(20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [8, 12, 16].map((cap) => GestureDetector(
+                onTap: () async {
+                  Navigator.pop(context);
+                  await ref.read(roomServiceProvider).setRoomCapacity(widget.roomId, cap);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text("Room expanded to $cap seats!")),
+                    );
+                  }
+                },
+                child: Container(
+                  width: 80, height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("$cap", style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
+                      const Text("SEATS", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                    ],
+                  ),
+                ),
+              )).toList(),
+            ),
+            const Gap(32),
           ],
         ),
       ),
