@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -53,16 +54,25 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
   void _seekRelative(int seconds) {
     if (_controller == null) return;
+    final web = _controller!.value.webViewController;
+    if (web == null) return;
+
     final currentPos = _controller!.value.position;
-    final newPos = currentPos + Duration(seconds: seconds);
-    _controller!.seekTo(newPos);
+    final newSeconds = (currentPos.inSeconds + seconds).clamp(0, _controller!.metadata.duration.inSeconds);
+    
+    web.evaluateJavascript(source: 'player.seekTo($newSeconds, true);');
+    _startHideTimer();
   }
 
   void _adjustVolume(int delta) {
     if (_controller == null) return;
+    final web = _controller!.value.webViewController;
+    if (web == null) return;
+
     setState(() {
       _currentVolume = (_currentVolume + delta).clamp(0, 100);
-      _controller!.setVolume(_currentVolume);
+      web.evaluateJavascript(source: 'player.setVolume($_currentVolume);');
+      _startHideTimer();
     });
   }
 
@@ -82,6 +92,32 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     super.dispose();
   }
 
+  Timer? _hideTimer;
+
+  void _showControlsPermanently() {
+    _hideTimer?.cancel();
+    setState(() => _showControls = true);
+    _startHideTimer();
+  }
+
+  void _startHideTimer() {
+    _hideTimer?.cancel();
+    _hideTimer = Timer(const Duration(seconds: 10), () {
+      if (mounted && _showControls) {
+        setState(() => _showControls = false);
+      }
+    });
+  }
+
+  void _toggleControls() {
+    if (_showControls) {
+       _hideTimer?.cancel();
+       setState(() => _showControls = false);
+    } else {
+       _showControlsPermanently();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.room.isYoutubeActive || widget.room.youtubeVideoId == null || _controller == null) {
@@ -92,6 +128,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     final isOwner = myUid == widget.room.ownerUid;
 
     return Container(
+      key: ValueKey("yt_player_${widget.room.roomId}"),
       width: double.infinity,
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
@@ -102,8 +139,12 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // Player Surface
           GestureDetector(
-            onTap: () => setState(() => _showControls = !_showControls),
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggleControls,
+            onDoubleTap: _showControlsPermanently,
+            onLongPress: _showControlsPermanently,
             child: Stack(
               alignment: Alignment.center,
               children: [
@@ -118,6 +159,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                     ),
                   ),
                 ),
+                
+                // Control Overlay (Center)
                 if (_showControls && isOwner)
                   Positioned.fill(
                     child: Container(
@@ -125,40 +168,72 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                         color: Colors.black38,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _buildControlButton(Icons.replay_10_rounded, () => _seekRelative(-10)),
-                              const Gap(20),
-                              _buildControlButton(
-                                _controller!.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                () => _controller!.value.isPlaying ? _controller!.pause() : _controller!.play(),
-                                size: 48,
-                              ),
-                              const Gap(20),
-                              _buildControlButton(Icons.forward_30_rounded, () => _seekRelative(20)),
-                            ],
-                          ),
-                        ],
+                      child: Center(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildControlButton(Icons.replay_10_rounded, () {
+                              _startHideTimer();
+                              _seekRelative(-10);
+                            }),
+                            const Gap(24),
+                            _buildControlButton(
+                              _controller!.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                              () {
+                                final web = _controller!.value.webViewController;
+                                if (_controller!.value.isPlaying) {
+                                  _controller!.pause();
+                                  web?.evaluateJavascript(source: 'player.pauseVideo();');
+                                } else {
+                                  _controller!.play();
+                                  web?.evaluateJavascript(source: 'player.playVideo();');
+                                }
+                                _startHideTimer();
+                                setState(() {});
+                              },
+                              size: 44,
+                            ),
+                            const Gap(24),
+                            _buildControlButton(Icons.forward_30_rounded, () {
+                              _startHideTimer();
+                              _seekRelative(20);
+                            }),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                if (_showControls)
+                
+                // Top Utilities
+                if (_showControls && isOwner)
                   Positioned(
-                    top: 10, right: 10,
-                    child: Column(
-                      children: [
-                        if (isOwner) _buildMiniButton(Icons.volume_up_rounded, () => _adjustVolume(10)),
-                        const Gap(8),
-                        if (isOwner) _buildMiniButton(Icons.volume_down_rounded, () => _adjustVolume(-10)),
-                        const Gap(8),
-                        if (isOwner) _buildMiniButton(Icons.close_rounded, () {
-                          ref.read(roomServiceProvider).stopYoutube(widget.room.roomId);
-                        }, color: Colors.redAccent),
-                      ],
+                    top: 12, right: 12,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black45,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _buildMiniIconButton(Icons.volume_down_rounded, () {
+                            _startHideTimer();
+                            _adjustVolume(-10);
+                          }),
+                          const Gap(12),
+                          _buildMiniIconButton(Icons.volume_up_rounded, () {
+                            _startHideTimer();
+                            _adjustVolume(10);
+                          }),
+                          const Gap(12),
+                          const VerticalDivider(color: Colors.white24, width: 1, indent: 4, endIndent: 4),
+                          const Gap(12),
+                          _buildMiniIconButton(Icons.power_settings_new_rounded, () {
+                            ref.read(roomServiceProvider).stopYoutube(widget.room.roomId);
+                          }, color: Colors.redAccent),
+                        ],
+                      ),
                     ),
                   ),
               ],
@@ -169,33 +244,25 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     );
   }
 
-  Widget _buildControlButton(IconData icon, VoidCallback onTap, {double size = 32}) {
-    return Material(
-      color: Colors.white10,
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Icon(icon, color: Colors.white, size: size),
+  Widget _buildControlButton(IconData icon, VoidCallback onTap, {double size = 28}) {
+    return GestureDetector(
+      onTap: onTap, // Important: Intercept tap so it doesn't close the overlay
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            color: Colors.white24,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white10)
         ),
+        child: Icon(icon, color: Colors.white, size: size),
       ),
     );
   }
 
-  Widget _buildMiniButton(IconData icon, VoidCallback onTap, {Color color = Colors.white}) {
-    return Material(
-      color: Colors.black54,
-      shape: const CircleBorder(),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Icon(icon, color: color, size: 16),
-        ),
-      ),
+  Widget _buildMiniIconButton(IconData icon, VoidCallback onTap, {Color color = Colors.white}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Icon(icon, color: color, size: 20),
     );
   }
 }

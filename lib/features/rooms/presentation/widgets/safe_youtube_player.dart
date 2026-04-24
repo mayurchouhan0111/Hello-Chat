@@ -28,15 +28,24 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    widget.controller.addListener(_handleControllerCommands);
   }
 
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
+  void _handleControllerCommands() {
+    if (!_isPlayerReady) return;
+    
+    final value = widget.controller.value;
+    final web = value.webViewController;
+    if (web == null) return;
+
+    // 1. Playback State Sync
+    if (value.isPlaying) {
+      web.evaluateJavascript(source: 'player.playVideo();');
+    } else {
+      web.evaluateJavascript(source: 'player.pauseVideo();');
+    }
   }
 
-  // Safe parsing helper for bridge data
   int _safeInt(dynamic value, {int defaultValue = -1}) {
     if (value is int) return value;
     if (value is String) return int.tryParse(value) ?? defaultValue;
@@ -54,16 +63,25 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
   @override
   void didUpdateWidget(SafeYoutubePlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      oldWidget.controller.removeListener(_handleControllerCommands);
+      widget.controller.addListener(_handleControllerCommands);
+    }
     
-    // Check if video ID changed and player is ready
     final oldId = oldWidget.videoId;
     final newId = widget.videoId;
-    
     if (newId != oldId && _isPlayerReady) {
       widget.controller.value.webViewController?.evaluateJavascript(
         source: 'player.loadVideoById("$newId");'
       );
     }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerCommands);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
