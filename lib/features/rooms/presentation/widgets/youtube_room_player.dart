@@ -160,22 +160,22 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                   ),
                 ),
                 
-                // 🛠️ SIMPLE CONTROL BAR (ONLY IF OWNER)
+                // 🛠️ COMPACT & CLEAN CONTROL DOCK
                 if (_showControls && isOwner)
                   Container(
-                    margin: const EdgeInsets.all(12),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.85),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white10),
+                      color: Colors.black.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(color: Colors.white12),
+                      boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 10)],
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         // BACK 10s
                         _buildActionIcon(Icons.replay_10_rounded, () => _seekRelative(-10)),
-                        const Gap(8),
                         
                         // PLAY / PAUSE
                         _buildActionIcon(
@@ -194,25 +194,52 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                           },
                           isPrimary: true,
                         ),
-                        const Gap(8),
 
                         // FORWARD 20s
                         _buildActionIcon(Icons.forward_30_rounded, () => _seekRelative(20)),
                         
                         const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: SizedBox(height: 24, child: VerticalDivider(color: Colors.white24, width: 1)),
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: SizedBox(height: 16, child: VerticalDivider(color: Colors.white24, width: 1)),
                         ),
 
-                        // VOLUME DOWN
-                        _buildActionIcon(Icons.volume_down_rounded, () => _adjustVolume(-10)),
-                        
-                        // VOLUME UP
-                        _buildActionIcon(Icons.volume_up_rounded, () => _adjustVolume(10)),
+                        // 🔊 COMPACT VOLUME SLIDER
+                        Icon(
+                          _currentVolume == 0 ? Icons.volume_off_rounded : 
+                          _currentVolume < 50 ? Icons.volume_down_rounded : Icons.volume_up_rounded,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                        SizedBox(
+                          width: 60,
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                              activeTrackColor: Colors.white,
+                              inactiveTrackColor: Colors.white24,
+                              thumbColor: Colors.white,
+                            ),
+                            child: Slider(
+                              value: _currentVolume.toDouble(),
+                              min: 0, max: 100,
+                              onChanged: (val) {
+                                setState(() {
+                                  _currentVolume = val.toInt();
+                                  _controller?.value.webViewController?.evaluateJavascript(
+                                    source: 'player.unMute(); player.setVolume($_currentVolume);'
+                                  );
+                                  _startHideTimer();
+                                });
+                              },
+                            ),
+                          ),
+                        ),
 
                         const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: SizedBox(height: 24, child: VerticalDivider(color: Colors.white24, width: 1)),
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: SizedBox(height: 16, child: VerticalDivider(color: Colors.white24, width: 1)),
                         ),
 
                         // CLOSE
