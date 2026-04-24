@@ -37,9 +37,9 @@ class SeatGrid extends ConsumerWidget {
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 6,
-          childAspectRatio: 0.9,
+          mainAxisSpacing: 16,
+          crossAxisSpacing: 4,
+          childAspectRatio: 0.85,
         ),
         itemCount: capacity,
         itemBuilder: (context, index) {
