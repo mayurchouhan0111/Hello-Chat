@@ -23,14 +23,20 @@ class SeatGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Dynamic layout based on capacity to keep it compact and wide
+    final int crossAxisCount = capacity == 8 ? 4 : (capacity == 12 ? 6 : 8);
+    final double avatarRadius = capacity == 8 ? 28 : (capacity == 12 ? 22 : 18);
+    final double iconSize = capacity == 8 ? 24 : (capacity == 12 ? 18 : 14);
+    final double fontSize = capacity == 8 ? 11 : (capacity == 12 ? 9 : 8);
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: capacity > 10 ? 4 : 4, // 4 seats per row
-        mainAxisSpacing: 20,
-        crossAxisSpacing: 10,
-        childAspectRatio: 0.8,
+        crossAxisCount: crossAxisCount,
+        mainAxisSpacing: capacity == 8 ? 20 : 12,
+        crossAxisSpacing: 8,
+        childAspectRatio: 0.75,
       ),
       itemCount: capacity,
       itemBuilder: (context, index) {
@@ -45,12 +51,12 @@ class SeatGrid extends ConsumerWidget {
           onTap: () => onSeatTap(index),
           child: Column(
             children: [
-              _buildSeatIcon(ref, participant, isOccupied, index),
-              const SizedBox(height: 6),
+              _buildSeatIcon(ref, participant, isOccupied, index, avatarRadius, iconSize),
+              const SizedBox(height: 4),
               if (isOccupied)
-                _buildSeatName(ref, participant.uid)
+                _buildSeatName(ref, participant.uid, fontSize)
               else
-                Text("${index + 1}", style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                Text("${index + 1}", style: TextStyle(color: Colors.white70, fontSize: fontSize)),
             ],
           ),
         ).animate().scale(duration: 300.ms, curve: Curves.easeOutBack).fadeIn(duration: 300.ms);
@@ -58,17 +64,17 @@ class SeatGrid extends ConsumerWidget {
     );
   }
 
-  Widget _buildSeatIcon(WidgetRef ref, Participant p, bool isOccupied, int index) {
+  Widget _buildSeatIcon(WidgetRef ref, Participant p, bool isOccupied, int index, double radius, double iconSize) {
     if (!isOccupied) {
       return Container(
-        width: 56,
-        height: 56,
+        width: radius * 2,
+        height: radius * 2,
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.15),
+          color: Colors.white.withOpacity(0.12),
           shape: BoxShape.circle,
           border: Border.all(color: Colors.white10, width: 1),
         ),
-        child: const Icon(Icons.chair_alt_rounded, color: Colors.white38, size: 24),
+        child: Icon(Icons.chair_alt_rounded, color: Colors.white38, size: iconSize),
       );
     }
 
@@ -82,7 +88,7 @@ class SeatGrid extends ConsumerWidget {
           clipBehavior: Clip.none,
           children: [
             // Speaking Animation Border
-            _buildSpeakingBorder(ref, p.uid),
+            _buildSpeakingBorder(ref, p.uid, radius),
             
             Stack(
               alignment: Alignment.bottomRight,
@@ -92,46 +98,44 @@ class SeatGrid extends ConsumerWidget {
                   imageUrl: u.profilePhotoUrl,
                   frameUrl: u.profileFrame,
                   vipTier: u.vipTier,
-                  radius: 28,
+                  radius: radius,
                   showFrame: true,
                   frameMultiplier: 1.4,
                 ),
                 if (p.isMuted)
                   Container(
-                    padding: const EdgeInsets.all(3),
+                    padding: const EdgeInsets.all(2),
                     decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                    child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
+                    child: Icon(Icons.mic_off, color: Colors.white, size: radius > 20 ? 10 : 8),
                   ),
               ],
             ),
             
             if (p.role == 'host')
               Positioned(
-                top: 0,
+                top: -6,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                   decoration: BoxDecoration(color: const Color(0xFFFFD700), borderRadius: BorderRadius.circular(4)),
-                  child: const Text("OWNER", style: TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.bold)),
+                  child: Text("OWNER", style: TextStyle(color: Colors.black, fontSize: radius > 20 ? 8 : 6, fontWeight: FontWeight.bold)),
                 ),
               ),
           ],
         ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fadeIn();
       },
-      loading: () => const CircularProgressIndicator(strokeWidth: 2),
-      error: (_, __) => const Icon(Icons.error, color: Colors.red),
+      loading: () => SizedBox(width: radius, height: radius, child: const CircularProgressIndicator(strokeWidth: 2)),
+      error: (_, __) => Icon(Icons.error, color: Colors.red, size: radius),
     );
   }
 
-  Widget _buildSpeakingBorder(WidgetRef ref, String uid) {
-    // In a production app, we would watch a 'isSpeaking' provider here.
-    // For this UI demo, we simulate the premium ripple effect.
+  Widget _buildSpeakingBorder(WidgetRef ref, String uid, double radius) {
     return Stack(
       alignment: Alignment.center,
       children: [
         for (int i = 0; i < 3; i++)
           Container(
-            width: 56,
-            height: 56,
+            width: radius * 2,
+            height: radius * 2,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               border: Border.all(
@@ -142,7 +146,7 @@ class SeatGrid extends ConsumerWidget {
           ).animate(onPlay: (c) => c.repeat())
            .scale(
              begin: const Offset(1, 1), 
-             end: const Offset(1.5, 1.5), 
+             end: const Offset(1.3, 1.3), 
              duration: 1200.ms, 
              delay: (i * 400).ms,
              curve: Curves.easeOutCubic,
@@ -152,16 +156,16 @@ class SeatGrid extends ConsumerWidget {
     );
   }
 
-  Widget _buildSeatName(WidgetRef ref, String uid) {
+  Widget _buildSeatName(WidgetRef ref, String uid, double fontSize) {
     final userAsync = ref.watch(userProfileProvider(uid));
     return userAsync.when(
       data: (user) => Text(
         (user as UserModel).displayName,
-        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+        style: TextStyle(color: Colors.white, fontSize: fontSize, fontWeight: FontWeight.bold),
         overflow: TextOverflow.ellipsis,
       ),
-      loading: () => const Text("...", style: TextStyle(color: Colors.white, fontSize: 10)),
-      error: (_, __) => const Text("?", style: TextStyle(color: Colors.white, fontSize: 10)),
+      loading: () => Text("...", style: TextStyle(color: Colors.white, fontSize: fontSize)),
+      error: (_, __) => Text("?", style: TextStyle(color: Colors.white, fontSize: fontSize)),
     );
   }
 }
