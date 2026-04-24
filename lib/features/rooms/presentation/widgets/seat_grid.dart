@@ -3,7 +3,6 @@ import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
@@ -23,20 +22,20 @@ class SeatGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Dynamic layout based on capacity to keep it compact and wide
-    final int crossAxisCount = capacity == 8 ? 4 : (capacity == 12 ? 6 : 8);
-    final double avatarRadius = capacity == 8 ? 28 : (capacity == 12 ? 22 : 18);
-    final double iconSize = capacity == 8 ? 24 : (capacity == 12 ? 18 : 14);
-    final double fontSize = capacity == 8 ? 11 : (capacity == 12 ? 9 : 8);
+    // 🪑 Professional 4-Column Grid for all capacities
+    const int crossAxisCount = 4;
+    final double avatarRadius = capacity == 8 ? 28 : (capacity == 12 ? 26 : 24);
+    final double iconSize = capacity == 8 ? 24 : (capacity == 12 ? 22 : 20);
+    final double fontSize = capacity == 8 ? 11 : (capacity == 12 ? 10 : 9);
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: crossAxisCount,
-        mainAxisSpacing: capacity == 8 ? 20 : 12,
-        crossAxisSpacing: 8,
-        childAspectRatio: 0.75,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 10,
+        childAspectRatio: 0.85,
       ),
       itemCount: capacity,
       itemBuilder: (context, index) {
@@ -87,7 +86,6 @@ class SeatGrid extends ConsumerWidget {
           alignment: Alignment.center,
           clipBehavior: Clip.none,
           children: [
-            // Speaking Animation Border
             _buildSpeakingBorder(ref, p.uid, radius),
             
             Stack(
@@ -106,7 +104,7 @@ class SeatGrid extends ConsumerWidget {
                   Container(
                     padding: const EdgeInsets.all(2),
                     decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                    child: Icon(Icons.mic_off, color: Colors.white, size: radius > 20 ? 10 : 8),
+                    child: Icon(Icons.mic_off, color: Colors.white, size: radius > 22 ? 10 : 8),
                   ),
               ],
             ),
@@ -117,13 +115,13 @@ class SeatGrid extends ConsumerWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                   decoration: BoxDecoration(color: const Color(0xFFFFD700), borderRadius: BorderRadius.circular(4)),
-                  child: Text("OWNER", style: TextStyle(color: Colors.black, fontSize: radius > 20 ? 8 : 6, fontWeight: FontWeight.bold)),
+                  child: Text("OWNER", style: TextStyle(color: Colors.black, fontSize: radius > 22 ? 8 : 6, fontWeight: FontWeight.bold)),
                 ),
               ),
           ],
         ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fadeIn();
       },
-      loading: () => SizedBox(width: radius, height: radius, child: const CircularProgressIndicator(strokeWidth: 2)),
+      loading: () => SizedBox(width: radius * 2, height: radius * 2, child: const Center(child: SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2)))),
       error: (_, __) => Icon(Icons.error, color: Colors.red, size: radius),
     );
   }
