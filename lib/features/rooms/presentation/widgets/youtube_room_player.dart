@@ -18,6 +18,8 @@ class YouTubeRoomPlayer extends ConsumerStatefulWidget {
 
 class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
   YoutubePlayerController? _controller;
+  int _currentVolume = 100;
+  bool _showControls = true;
 
   @override
   void initState() {
@@ -36,12 +38,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
         flags: const YoutubePlayerFlags(
           autoPlay: true,
           mute: false, 
-          hideControls: false, 
+          hideControls: true, 
           disableDragSeek: false,
-          loop: false,
-          isLive: false,
-          forceHD: false,
-          enableCaption: false,
           useHybridComposition: true, 
         ),
       )..addListener(_onPlayerStateChange);
@@ -50,35 +48,31 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
   }
 
   void _onPlayerStateChange() {
-    if (_controller != null && _controller!.value.isPlaying) {
-      debugPrint('YouTube Player: PLAYING state reached');
-    }
+    if (mounted) setState(() {});
+  }
+
+  void _seekRelative(int seconds) {
+    if (_controller == null) return;
+    final currentPos = _controller!.value.position;
+    final newPos = currentPos + Duration(seconds: seconds);
+    _controller!.seekTo(newPos);
+  }
+
+  void _adjustVolume(int delta) {
+    if (_controller == null) return;
+    setState(() {
+      _currentVolume = (_currentVolume + delta).clamp(0, 100);
+      _controller!.setVolume(_currentVolume);
+    });
   }
 
   @override
   void didUpdateWidget(YouTubeRoomPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
-    final newId = widget.room.youtubeVideoId;
-    final oldId = oldWidget.room.youtubeVideoId;
-    final isActive = widget.room.isYoutubeActive;
-
-    debugPrint('📺 [YouTubePlayer] Update: Active=$isActive, ID=$newId, PrevID=$oldId');
-
-    if (newId != oldId && newId != null && newId.isNotEmpty) {
-      debugPrint('📺 [YouTubePlayer] ID Changed. Initializing/Updating controller...');
-      _initController(newId);
-    }
-    
-    // Force initialization if active but controller is null
-    if (isActive && _controller == null && newId != null && newId.isNotEmpty) {
-      debugPrint('📺 [YouTubePlayer] System Active but Controller Null. Emergency Init.');
-      _initController(newId);
-    }
-    
-    if (!isActive && oldWidget.room.isYoutubeActive) {
-      debugPrint('📺 [YouTubePlayer] System Deactivated. Pausing video.');
-      _controller?.pause();
+    if (widget.room.youtubeVideoId != oldWidget.room.youtubeVideoId && 
+        widget.room.youtubeVideoId != null && 
+        widget.room.youtubeVideoId!.isNotEmpty) {
+      _initController(widget.room.youtubeVideoId!);
     }
   }
 
@@ -90,70 +84,118 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.room.isYoutubeActive ||
-        widget.room.youtubeVideoId == null ||
-        _controller == null) {
+    if (!widget.room.isYoutubeActive || widget.room.youtubeVideoId == null || _controller == null) {
       return const SizedBox.shrink();
     }
 
-    return Consumer(builder: (context, ref, child) {
-      final myUid = ref.watch(authStateProvider).value?.uid;
-      final isOwner = myUid == widget.room.ownerUid;
+    final myUid = ref.watch(authStateProvider).value?.uid;
+    final isOwner = myUid == widget.room.ownerUid;
 
-      return Container(
-        width: double.infinity,
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.black,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white10),
-          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10)],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 20)],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _showControls = !_showControls),
+            child: Stack(
+              alignment: Alignment.center,
               children: [
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Icon(Icons.live_tv_rounded, color: Colors.red, size: 16),
-                      Gap(8),
-                      Text("YouTube Shared Watch",
-                          style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold)),
-                    ],
+                SizedBox(
+                  height: 200,
+                  width: double.infinity,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: SafeYoutubePlayer(
+                      controller: _controller!,
+                      videoId: widget.room.youtubeVideoId ?? '',
+                    ),
                   ),
                 ),
-                if (isOwner)
-                  IconButton(
-                    onPressed: () => ref
-                        .read(roomServiceProvider)
-                        .stopYoutube(widget.room.roomId),
-                    icon: const Icon(Icons.power_settings_new_rounded,
-                        color: Colors.redAccent, size: 18),
+                if (_showControls && isOwner)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black38,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              _buildControlButton(Icons.replay_10_rounded, () => _seekRelative(-10)),
+                              const Gap(20),
+                              _buildControlButton(
+                                _controller!.value.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                () => _controller!.value.isPlaying ? _controller!.pause() : _controller!.play(),
+                                size: 48,
+                              ),
+                              const Gap(20),
+                              _buildControlButton(Icons.forward_30_rounded, () => _seekRelative(20)),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (_showControls)
+                  Positioned(
+                    top: 10, right: 10,
+                    child: Column(
+                      children: [
+                        if (isOwner) _buildMiniButton(Icons.volume_up_rounded, () => _adjustVolume(10)),
+                        const Gap(8),
+                        if (isOwner) _buildMiniButton(Icons.volume_down_rounded, () => _adjustVolume(-10)),
+                        const Gap(8),
+                        if (isOwner) _buildMiniButton(Icons.close_rounded, () {
+                          ref.read(roomServiceProvider).stopYoutube(widget.room.roomId);
+                        }, color: Colors.redAccent),
+                      ],
+                    ),
                   ),
               ],
             ),
-            SizedBox(
-              height: 210,
-              width: double.infinity,
-              child: ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(bottom: Radius.circular(20)),
-                child: SafeYoutubePlayer(
-                  controller: _controller!,
-                  videoId: widget.room.youtubeVideoId ?? '',
-                ),
-              ),
-            ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildControlButton(IconData icon, VoidCallback onTap, {double size = 32}) {
+    return Material(
+      color: Colors.white10,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Icon(icon, color: Colors.white, size: size),
         ),
-      );
-    });
+      ),
+    );
+  }
+
+  Widget _buildMiniButton(IconData icon, VoidCallback onTap, {Color color = Colors.white}) {
+    return Material(
+      color: Colors.black54,
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(icon, color: color, size: 16),
+        ),
+      ),
+    );
   }
 }

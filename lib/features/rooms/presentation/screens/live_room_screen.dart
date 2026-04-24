@@ -344,7 +344,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               roomId: widget.roomId,
               child: Stack(
                 children: [
-                  // 1. Background (Full Screen)
+                  // 1. Background
                   Positioned.fill(
                     child: Image.network(
                       room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/600/1200" : room.coverUrl,
@@ -352,67 +352,62 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                       errorBuilder: (_, __, ___) => Container(color: Colors.black),
                     ),
                   ),
-                  
-                  // Subtle Overlay to ensure text readability
-                  Positioned.fill(child: Container(color: Colors.black.withOpacity(0.3))),
+                  Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
 
                   // 2. MAIN UI LAYER
-                  Directionality(
-                    textDirection: TextDirection.ltr, // 🧪 MIRROR FIX: Force Left-to-Right
-                    child: SafeArea(
-                      child: Column(
-                        children: [
-                          // A. Top Bar (Plain/Transparent)
-                          profiles.when(
-                            data: (pts) => _buildTopBar(room, pts),
-                            loading: () => const SizedBox(height: 50),
-                            error: (_, __) => const SizedBox(height: 50),
-                          ),
-
-                          _buildBroadcastTicker(),
-                          
-                          // 🏅 Sub-Top Bar (Ranks, Category & Star Progress)
-                          _buildSubTopBar(room),
-                          
-                          const Gap(8),
-
-                          // B. YouTube Player (Synced Watch Party)
-                          YouTubeRoomPlayer(room: room),
-
-                          // C. Seat Grid (Mics) - Expanded to fill most of the screen
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: profiles.when(
-                                data: (pts) => SeatGrid(
-                                  participants: pts,
-                                  capacity: 8,
-                                  onSeatTap: (idx) => _onSeatTap(idx, pts),
-                                  onUserLongPress: _showUserOptions,
+                  SafeArea(
+                    child: Column(
+                      children: [
+                        // A. Top Stats & Header
+                        profiles.when(
+                          data: (pts) => _buildTopBar(room, pts),
+                          loading: () => const SizedBox(height: 50),
+                          error: (_, __) => const SizedBox(height: 50),
+                        ),
+                        _buildBroadcastTicker(),
+                        _buildSubTopBar(room),
+                        
+                        // B. THE SCROLLABLE HUB: Player + Seats
+                        Expanded(
+                          child: SingleChildScrollView(
+                            physics: const BouncingScrollPhysics(),
+                            child: Column(
+                              children: [
+                                // YouTube Player (Dynamic Visibility)
+                                YouTubeRoomPlayer(room: room),
+                                
+                                // Seat Grid (Flexible height based on content)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  child: profiles.when(
+                                    data: (pts) => SeatGrid(
+                                      participants: pts,
+                                      capacity: 8,
+                                      onSeatTap: (idx) => _onSeatTap(idx, pts),
+                                      onUserLongPress: _showUserOptions,
+                                    ),
+                                    loading: () => const Center(child: CircularProgressIndicator()),
+                                    error: (e, __) => const SizedBox(),
+                                  ),
                                 ),
-                                loading: () => const Center(child: CircularProgressIndicator()),
-                                error: (e, __) => Center(child: Text("Sync Error", style: TextStyle(color: Colors.white54))),
-                              ),
+                              ],
                             ),
                           ),
+                        ),
 
-                          // C. Compact Chat Area (Fixed Height - Shows approx 3 messages)
-                          SizedBox(
-                            height: 180, // Fixed height for 3-4 messages
-                            child: Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: messagesAsync.when(
-                                data: (msgs) => ChatWidget(messages: msgs),
-                                loading: () => const SizedBox.shrink(),
-                                error: (_, __) => const SizedBox.shrink(),
-                              ),
-                            ),
+                        // C. Floating Chat Area
+                        SizedBox(
+                          height: 160,
+                          child: messagesAsync.when(
+                            data: (msgs) => ChatWidget(messages: msgs),
+                            loading: () => const SizedBox.shrink(),
+                            error: (_, __) => const SizedBox.shrink(),
                           ),
+                        ),
 
-                          // D. Controls (Plain/Transparent)
-                          _buildBottomBar(room),
-                        ],
-                      ),
+                        // D. Master Controls
+                        _buildBottomBar(room),
+                      ],
                     ),
                   ),
 
