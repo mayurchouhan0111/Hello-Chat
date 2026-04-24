@@ -13,7 +13,8 @@ class ProfileService extends BaseFirebaseService {
   Stream<UserModel> getProfileStream(String uid) {
     return _db.collection('users').doc(uid).snapshots().map((snapshot) {
       if (!snapshot.exists) throw Exception("User Not Found");
-      return UserModel.fromMap(snapshot.data() as Map<String, dynamic>);
+      final data = snapshot.data();
+      return UserModel.fromMap(Map<String, dynamic>.from(data as Map));
     });
   }
 

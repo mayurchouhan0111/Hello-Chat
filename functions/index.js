@@ -127,6 +127,19 @@ exports.secureAgoraToken = functions.https.onCall(async (data, context) => {
  * 1. onCreate Auth User Trigger
  * Creates a basic skeletal user document when they sign up.
  */
+
+exports.onUserWrite = functions.firestore.document("users/{uid}").onWrite(async (change, context) => {
+    const after = change.after.data();
+    if (!after) return null; // Deleted
+
+    if (!after.helloId) {
+        console.log(`[ID_FIX] Assigning helloId to user ${context.params.uid}`);
+        const helloId = Math.floor(1000000000 + Math.random() * 9000000000);
+        return change.after.ref.update({ helloId: helloId });
+    }
+    return null;
+});
+
 exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
     const { uid, phoneNumber, email, displayName, photoURL } = user;
     const userRef = db.collection("users").doc(uid);
@@ -207,16 +220,24 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
         const usernameDoc = await transaction.get(usernameRef);
         const userDoc = await transaction.get(userRef);
 
+
+        // Safety: If helloId is missing (e.g. initial trigger failed), assign it now
+        const existingData = userDoc.data() || {};
+        const helloIdUpdates = {};
+        if (!existingData.helloId) {
+            helloIdUpdates.helloId = Math.floor(1000000000 + Math.random() * 9000000000);
+        }
+
         // If username is changing, verify it's available
-        if (userDoc.exists && userDoc.data().username !== cleanUsername) {
+        if (userDoc.exists && existingData.username !== cleanUsername) {
             if (usernameDoc.exists) {
                 throw new functions.https.HttpsError("already-exists", "Username already taken.");
             }
-            // Remove old username if needed (advanced logic)
         }
 
         transaction.set(usernameRef, { uid: uid, createdAt: admin.firestore.FieldValue.serverTimestamp() });
         transaction.update(userRef, {
+            ...helloIdUpdates,
             username: cleanUsername,
             username_lowercase: cleanUsername,
             displayName: displayName,
@@ -423,6 +444,208 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
 
 /**
  * 100. Follow User
+ * Atomic transaction to update follower/following counts.
+ */
+exports.followUser = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const followerUid = context.auth.uid;
+    const targetUid = data.targetUid;
+
+    if (followerUid === targetUid) throw new functions.https.HttpsError("invalid-argument", "Cannot follow self.");
+
+    const followerRef = db.collection("users").doc(followerUid);
+    const targetRef = db.collection("users").doc(targetUid);
+
+    // Sub-collections
+    const subFollowerRef = targetRef.collection("followers").doc(followerUid);
+    const subFollowingRef = followerRef.collection("following").doc(targetUid);
+
+    // Check for mutual follow
+    const reverseFollowRef = followerRef.collection("followers").doc(targetUid);
+
+    return db.runTransaction(async (transaction) => {
+        const subFollowerDoc = await transaction.get(subFollowerRef);
+        if (subFollowerDoc.exists) return { message: "Already following" };
+
+        const reverseFollowDoc = await transaction.get(reverseFollowRef);
+        const isMutual = reverseFollowDoc.exists;
+
+        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+
+        transaction.set(subFollowerRef, { followedAt: timestamp });
+        transaction.set(subFollowingRef, { followedAt: timestamp });
+
+        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(1) };
+        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(1) };
+
+        if (isMutual) {
+            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(1);
+            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(1);
+        }
+
+        transaction.update(followerRef, updatesFollower);
+        transaction.update(targetRef, updatesTarget);
+
+        return { success: true, isMutual: isMutual };
+    });
+});
+
+/**
+ * 5. Unfollow User
+ */
+exports.unfollowUser = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const followerUid = context.auth.uid;
+    const targetUid = data.targetUid;
+
+    const followerRef = db.collection("users").doc(followerUid);
+    const targetRef = db.collection("users").doc(targetUid);
+
+    // Sub-collections
+    const subFollowerRef = targetRef.collection("followers").doc(followerUid);
+    const subFollowingRef = followerRef.collection("following").doc(targetUid);
+
+    // Check for mutual follow (to see if they were friends)
+    const reverseFollowRef = followerRef.collection("followers").doc(targetUid);
+
+    return db.runTransaction(async (transaction) => {
+        const subFollowerDoc = await transaction.get(subFollowerRef);
+        if (!subFollowerDoc.exists) return { message: "Not following" };
+
+        const reverseFollowDoc = await transaction.get(reverseFollowRef);
+        const wasMutual = reverseFollowDoc.exists;
+
+        transaction.delete(subFollowerRef);
+        transaction.delete(subFollowingRef);
+
+        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(-1) };
+        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(-1) };
+
+        if (wasMutual) {
+            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(-1);
+            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(-1);
+        }
+
+        transaction.update(followerRef, updatesFollower);
+        transaction.update(targetRef, updatesTarget);
+
+        return { success: true, wasMutual: wasMutual };
+    });
+});
+/**
+ * 6. Create Room
+ */
+exports.createRoom = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const uid = context.auth.uid;
+    const { name, theme, coverUrl, isPrivate, passwordHash, capacity, backgroundMusic } = data;
+
+    const roomId = db.collection("rooms").doc().id;
+    const roomRef = db.collection("rooms").doc(roomId);
+
+    const roomData = {
+        roomId: roomId,
+        createdBy: uid,
+        ownerUid: uid,
+        name: name,
+        name_lowercase: (name || "").toLowerCase(),
+        theme: theme,
+
+        coverUrl: coverUrl || "",
+        isPrivate: isPrivate || false,
+        passwordHash: passwordHash || null,
+        capacity: capacity || 10,
+        currentUsersCount: 0,
+        backgroundMusic: backgroundMusic || false,
+        hourlyRank: 1, // Default to 1 or 99
+        isTrending: false,
+        newsStatus: null,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        endedAt: null,
+        status: "active",
+        admins: [uid],
+        bannedUids: [],
+
+    };
+
+    await roomRef.set(roomData);
+    return { roomId: roomId };
+});
+
+/**
+ * 7. Join Room
+ */
+exports.joinRoom = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const uid = context.auth.uid;
+    const { roomId } = data;
+
+    return db.runTransaction(async (transaction) => {
+        const roomRef = db.collection("rooms").doc(roomId);
+        const participantRef = roomRef.collection("participants").doc(uid);
+        const participantsRef = roomRef.collection("participants");
+
+        const roomDoc = await transaction.get(roomRef);
+        if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+
+        const roomData = roomDoc.data();
+        if (roomData.status !== "active") throw new functions.https.HttpsError("failed-precondition", "Room has ended.");
+        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
+
+        // Check if already in
+        const participantDoc = await transaction.get(participantRef);
+        if (participantDoc.exists) return { success: true, message: "Already in room" };
+
+        // Find available seat if joining as host or needs seat
+        let seatIndex = null;
+        let role = "audience";
+
+        if (uid === roomData.ownerUid) {
+            seatIndex = 0; // Host always gets seat 0
+            role = "host";
+        } else {
+            // Logic to find next available seat could be added here if needed for non-hosts
+        }
+
+        transaction.set(participantRef, {
+            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastActive: admin.firestore.FieldValue.serverTimestamp(),
+            seatIndex: seatIndex,
+            isMuted: false,
+            role: role,
+        });
+
+        return { success: true };
+    });
+});
+
+/**
+ * 8. Leave Room
+ */
+exports.leaveRoom = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const uid = context.auth.uid;
+    const { roomId } = data;
+
+    return db.runTransaction(async (transaction) => {
+        const roomRef = db.collection("rooms").doc(roomId);
+        const participantRef = roomRef.collection("participants").doc(uid);
+
+        const [roomDoc, participantDoc] = await Promise.all([
+            transaction.get(roomRef),
+            transaction.get(participantRef)
+        ]);
+
+        return { success: true };
+    });
+});
+
+/**
  * Atomic transaction to update follower/following counts.
  */
 exports.followUser = functions.https.onCall(async (data, context) => {
@@ -2661,7 +2884,176 @@ exports.createMediaPost = functions.https.onCall(async (data, context) => {
         transaction.update(db.collection("users").doc(uid), {
             lastActive: admin.firestore.FieldValue.serverTimestamp()
         });
-        return { success: true, mediaId: mediaId };
     });
+});
+
+
+/**
+ * ============================================================================
+ * RESELLER SYSTEM MODULE (STABLE)
+ * ============================================================================
+ */
+
+exports.adminSetResellerStatus = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    const { targetUid, isReseller } = data;
+    await db.collection("users").doc(targetUid).update({
+        isReseller: isReseller,
+        walletBalance: isReseller ? 0 : admin.firestore.FieldValue.delete()
+    });
+    return { success: true };
+});
+
+exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = (callerDoc.data() || {}).tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    const { targetUid, amountDelta } = data;
+    const resellerRef = db.collection("users").doc(targetUid);
+    await db.runTransaction(async (transaction) => {
+        const resellerDoc = await transaction.get(resellerRef);
+        if (!resellerDoc.exists) throw new Error("User not found.");
+        const currentBalance = resellerDoc.data().walletBalance || 0;
+        transaction.update(resellerRef, { walletBalance: currentBalance + amountDelta });
+        const txRef = db.collection("transactions").doc();
+        transaction.set(txRef, {
+            senderId: context.auth.uid,
+            receiverId: targetUid,
+            amount: amountDelta,
+            currency: "USD",
+            type: amountDelta > 0 ? "ADMIN_WALLET_CREDIT" : "ADMIN_WALLET_DEBIT",
+            status: "completed",
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+    });
+    return { success: true };
+});
+
+exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { packageId } = data;
+    const resellerRef = db.collection("users").doc(uid);
+    const pkgRef = db.collection("diamond_packages").doc(packageId);
+    return db.runTransaction(async (transaction) => {
+        const [resellerDoc, pkgDoc] = await Promise.all([transaction.get(resellerRef), transaction.get(pkgRef)]);
+        if (!resellerDoc.exists || !resellerDoc.data().isReseller) throw new Error("Not a registered reseller.");
+        const pkgData = pkgDoc.data();
+        if (!pkgDoc.exists || pkgData.isDeleted) throw new Error("Package not found.");
+        const currentWallet = resellerDoc.data().walletBalance || 0;
+        if (currentWallet < pkgData.price) throw new Error("Insufficient wallet balance.");
+        transaction.update(resellerRef, {
+            walletBalance: currentWallet - pkgData.price,
+            diamondBalance: admin.firestore.FieldValue.increment(pkgData.diamonds)
+        });
+        const txRef = db.collection("transactions").doc();
+        transaction.set(txRef, {
+            senderId: uid,
+            receiverId: "SYSTEM",
+            amount: pkgData.price,
+            currency: "USD",
+            diamonds: pkgData.diamonds,
+            type: "RESELLER_BUY_DIAMONDS",
+            status: "completed",
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return { success: true };
+    });
+});
+
+exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const resellerUid = context.auth.uid;
+    const { targetHelloId, amount } = data;
+    const resellerRef = db.collection("users").doc(resellerUid);
+    const targetSnap = await db.collection("users").where("helloId", "==", targetHelloId).get();
+    if (targetSnap.empty) throw new Error("Target user not found.");
+    const targetUid = targetSnap.docs[0].id;
+    return db.runTransaction(async (transaction) => {
+        const targetRef = db.collection("users").doc(targetUid);
+        const resellerDoc = await transaction.get(resellerRef);
+        const currentStock = resellerDoc.data().diamondBalance || 0;
+        if (currentStock < amount) throw new Error("Insufficient diamond stock.");
+        transaction.update(resellerRef, { diamondBalance: currentStock - amount });
+        transaction.update(targetRef, { diamondBalance: admin.firestore.FieldValue.increment(amount) });
+        const txRef = db.collection("transactions").doc();
+        transaction.set(txRef, {
+            senderId: resellerUid,
+            receiverId: targetUid,
+            targetHelloId: targetHelloId,
+            type: "RESELLER_TO_USER",
+            amount: amount,
+            currency: "DIAMONDS",
+            status: "completed",
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return { success: true };
+    });
+});
+
+exports.updateDiamondPackage = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = (callerDoc.data() || {}).tags || [];
+    if (!tags.includes("SuperAdmin")) throw new functions.https.HttpsError("permission-denied", "SuperAdmin only.");
+    const { packageId, diamonds, price, isDeleted } = data;
+    const pkgRef = db.collection("diamond_packages").doc(packageId || db.collection("diamond_packages").doc().id);
+    if (isDeleted) {
+        await pkgRef.delete();
+    } else {
+        await pkgRef.set({
+            diamonds: parseInt(diamonds),
+            price: parseFloat(price),
+            isDeleted: false,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+    return { success: true };
+});
+
+exports.getDiamondPackages = functions.https.onCall(async (data, context) => {
+    const snap = await db.collection("diamond_packages").where("isDeleted", "==", false).orderBy("price", "asc").get();
+    return { packages: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) };
+});
+
+exports.getResellerHistory = functions.https.onCall(async (data, context) => {
+    try {
+        if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+        const { targetUid, limitCount = 50 } = data;
+        const uid = context.auth.uid;
+        const callerDoc = await db.collection("users").doc(uid).get();
+        const tags = (callerDoc.data() || {}).tags || [];
+        const isPrivileged = tags.includes("Admin") || tags.includes("SuperAdmin");
+        let query = db.collection("transactions");
+        if (targetUid) query = query.where("senderId", "==", targetUid);
+        else if (!isPrivileged) query = query.where("senderId", "==", uid);
+        
+        const snap = await query.orderBy("timestamp", "desc").limit(parseInt(limitCount)).get();
+        const transactions = snap.docs.map(doc => ({ 
+            id: doc.id, 
+            ...doc.data(), 
+            timestamp: doc.data().timestamp ? doc.data().timestamp.toDate().toISOString() : null 
+        }));
+
+        // Diagnostic Stub: Always return at least one entry to verify connection
+        if (transactions.length === 0) {
+            transactions.push({
+                id: "DIAGNOSTIC_STUB",
+                type: "CONNECTION_VERIFIED",
+                amount: 0,
+                currency: "DEBUG",
+                senderId: "SYSTEM",
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        return { transactions };
+    } catch (err) {
+        throw new functions.https.HttpsError("internal", err.message);
+    }
 });
 

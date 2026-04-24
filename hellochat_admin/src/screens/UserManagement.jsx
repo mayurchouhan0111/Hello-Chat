@@ -28,7 +28,8 @@ import {
   UserPlus,
   ShieldCheck,
   RefreshCw,
-  Building2
+  Building2,
+  Store
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -385,6 +386,26 @@ export const UserManagement = () => {
         }
     };
 
+    const handleToggleResellerStatus = async (user) => {
+        const targetUid = user.id || user.uid;
+        const isCurrentlyReseller = user.isReseller === true;
+        const action = isCurrentlyReseller ? 'Revoke' : 'Appoint';
+        
+        if (!window.confirm(`${action} Reseller status for ${user.displayName}?`)) return;
+        
+        setIsSeeding(true);
+        try {
+            const setReseller = httpsCallable(functions, 'adminSetResellerStatus');
+            await setReseller({ targetUid, isReseller: !isCurrentlyReseller });
+            alert(`${user.displayName} status updated successfully.`);
+            fetchUsers();
+        } catch (err) {
+            alert("Error: " + err.message);
+        } finally {
+            setIsSeeding(false);
+        }
+    };
+
     const filteredUsers = users.filter(u => 
         u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
         u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -506,13 +527,20 @@ export const UserManagement = () => {
                      >
                        <Zap size={16} />
                      </button>
-                     <button 
-                        onClick={() => handleToggleAgencyStatus(user)}
-                        className={`p-2.5 border rounded-xl transition-all shadow-lg ${user.isAgencyOwner ? 'bg-amber-500 text-white border-amber-400 shadow-amber-500/40' : 'bg-amber-500/10 text-amber-400 border-amber-500/10 shadow-amber-500/20'}`}
-                        title={user.isAgencyOwner ? "Revoke Agency Status" : "Appoint as Agency Owner"}
-                     >
-                       <Building2 size={16} />
-                     </button>
+                      <button 
+                         onClick={() => handleToggleAgencyStatus(user)}
+                         className={`p-2.5 border rounded-xl transition-all shadow-lg ${user.isAgencyOwner ? 'bg-amber-500 text-white border-amber-400 shadow-amber-500/40' : 'bg-amber-500/10 text-amber-400 border-amber-500/10 shadow-amber-500/20'}`}
+                         title={user.isAgencyOwner ? "Revoke Agency Status" : "Appoint as Agency Owner"}
+                      >
+                        <Building2 size={16} />
+                      </button>
+                      <button 
+                         onClick={() => handleToggleResellerStatus(user)}
+                         className={`p-2.5 border rounded-xl transition-all shadow-lg ${user.isReseller ? 'bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/10 shadow-emerald-500/20'}`}
+                         title={user.isReseller ? "Revoke Reseller Status" : "Appoint as Reseller"}
+                      >
+                        <Store size={16} />
+                      </button>
                    </div>
                    <button 
                       onClick={() => setSelectedUser(user)}

@@ -45,4 +45,17 @@ mixin class BaseFirebaseService {
       throw Exception("Failed to call function $name: $e");
     }
   }
+
+  Map<String, dynamic> castMap(dynamic data) {
+    if (data == null) return {};
+    final map = data as Map;
+    return map.map((key, value) {
+      if (value is Map) {
+        return MapEntry(key.toString(), castMap(value));
+      } else if (value is List) {
+        return MapEntry(key.toString(), value.map((e) => e is Map ? castMap(e) : e).toList());
+      }
+      return MapEntry(key.toString(), value);
+    });
+  }
 }

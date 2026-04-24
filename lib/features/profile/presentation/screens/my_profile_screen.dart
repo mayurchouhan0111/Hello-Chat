@@ -304,6 +304,13 @@ class MyProfileScreen extends ConsumerWidget {
           iconColor: const Color(0xFFF06292),
           onTap: () => context.push(AppRoutes.wallet),
         ),
+        if (userData.isReseller)
+          _buildMenuTile(
+            icon: Icons.store_rounded,
+            label: "Reseller Center",
+            iconColor: const Color(0xFF10B981), // Emerald
+            onTap: () => context.push(AppRoutes.resellerCenter),
+          ),
         _buildMenuTile(
           icon: Icons.inventory_2_outlined,
           label: "Item Bag",

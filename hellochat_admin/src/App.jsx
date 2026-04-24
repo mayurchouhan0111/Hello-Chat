@@ -18,6 +18,7 @@ import { DevTools } from './screens/DevTools';
 import { WithdrawalManagement } from './screens/WithdrawalManagement';
 import { EliteBoutiqueManagement } from './screens/EliteBoutiqueManagement';
 import { FamilyManagement } from './screens/FamilyManagement';
+import { ResellerManagement } from './screens/ResellerManagement';
 
 
 function App() {
@@ -105,6 +106,11 @@ function App() {
           <Route path="/boutique" element={
             <AdminLayout>
               <EliteBoutiqueManagement />
+            </AdminLayout>
+          } />
+          <Route path="/resellers" element={
+            <AdminLayout>
+              <ResellerManagement />
             </AdminLayout>
           } />
         </Routes>

@@ -61,6 +61,8 @@ class UserModel {
   final String? ethnicity;
   final String? personalLabel;
   final String? company;
+  final bool isReseller;
+  final double walletBalance;
 
   UserModel({
     required this.uid,
@@ -123,6 +125,8 @@ class UserModel {
     this.ethnicity,
     this.personalLabel,
     this.company,
+    this.isReseller = false,
+    this.walletBalance = 0.0,
   });
 
   factory UserModel.fromMap(Map<String, dynamic> data) {
@@ -195,6 +199,8 @@ class UserModel {
       ethnicity: data['ethnicity'] as String?,
       personalLabel: data['personalLabel'] as String?,
       company: data['company'] as String?,
+      isReseller: (data['isReseller'] as bool?) ?? false,
+      walletBalance: (data['walletBalance'] as num? ?? 0.0).toDouble(),
     );
   }
 
@@ -260,6 +266,8 @@ class UserModel {
       'ethnicity': ethnicity,
       'personalLabel': personalLabel,
       'company': company,
+      'isReseller': isReseller,
+      'walletBalance': walletBalance,
     };
   }
 
@@ -324,6 +332,8 @@ class UserModel {
     String? ethnicity,
     String? personalLabel,
     String? company,
+    bool? isReseller,
+    double? walletBalance,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -386,6 +396,8 @@ class UserModel {
       ethnicity: ethnicity ?? this.ethnicity,
       personalLabel: personalLabel ?? this.personalLabel,
       company: company ?? this.company,
+      isReseller: isReseller ?? this.isReseller,
+      walletBalance: walletBalance ?? this.walletBalance,
     );
   }
 

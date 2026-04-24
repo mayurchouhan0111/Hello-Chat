@@ -26,6 +26,33 @@ import '../../features/profile/presentation/screens/invite_get_coins_screen.dart
 import '../../features/profile/presentation/screens/love_house_screen.dart';
 import '../../features/profile/presentation/screens/cp_level_screen.dart';
 import '../../features/profile/presentation/screens/prop_warehouse_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../features/auth/presentation/screens/login_screen.dart';
+import '../../features/auth/presentation/screens/otp_screen.dart';
+import '../../features/auth/presentation/screens/forgot_password_screen.dart';
+import '../../features/rooms/presentation/screens/search_screen.dart' as room_search;
+import '../../features/auth/presentation/screens/splash_screen.dart';
+import '../../features/auth/presentation/screens/email_auth_screen.dart';
+import '../../features/profile/presentation/screens/profile_setup_screen.dart';
+import '../../features/profile/presentation/screens/reset_password_screen.dart';
+import '../../features/profile/presentation/screens/edit_profile_screen.dart';
+import '../../features/profile/presentation/screens/profile_detail_screen.dart';
+import '../../features/profile/presentation/screens/follow_list_screen.dart';
+import '../../features/diamonds/presentation/screens/wallet_screen.dart';
+import '../../features/vip/presentation/screens/vip_shop_screen.dart';
+import '../../features/profile/presentation/screens/salary_history_screen.dart';
+import '../../features/profile/presentation/screens/prestige_store_screen.dart';
+import '../../features/profile/presentation/screens/noble_hall_screen.dart';
+import '../../features/profile/presentation/screens/vip_center_screen.dart';
+import '../../features/profile/presentation/screens/prestige_vault_screen.dart';
+import '../../features/profile/presentation/screens/agency/agency_portal_screen.dart';
+import '../../features/profile/presentation/screens/agency/svip_privileges_screen.dart';
+import '../../features/profile/presentation/screens/invite_get_coins_screen.dart';
+import '../../features/profile/presentation/screens/love_house_screen.dart';
+import '../../features/profile/presentation/screens/cp_level_screen.dart';
+import '../../features/profile/presentation/screens/prop_warehouse_screen.dart';
 import '../../features/profile/presentation/screens/family/family_portal_screen.dart';
 import '../../features/profile/presentation/screens/family/create_family_screen.dart';
 import '../../features/profile/presentation/screens/family/family_list_screen.dart';
@@ -33,6 +60,7 @@ import '../../features/profile/presentation/screens/family/join_requests_screen.
 import '../../features/profile/presentation/screens/family/family_battle_screen.dart';
 import '../../features/profile/presentation/screens/settings_screen.dart';
 import '../../features/chats/presentation/screens/private_chat_screen.dart';
+import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
 
 
 
@@ -93,6 +121,7 @@ class AppRoutes {
   static const settings         = '/settings';
   static const chatDetail       = '/chat-detail';
   static const pkBattle         = '/pk-battle';
+  static const resellerCenter   = '/reseller-center';
 }
 
 
@@ -343,6 +372,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             maintainState: false,
           );
         },
+      ),
+      GoRoute(
+        path: AppRoutes.resellerCenter,
+        builder: (context, state) => const ResellerDashboardScreen(),
       ),
     ],
 

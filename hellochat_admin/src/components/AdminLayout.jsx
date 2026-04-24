@@ -19,7 +19,8 @@ import {
   Gamepad2,
   Database,
   ArrowRightLeft,
-  ShoppingBag
+  ShoppingBag,
+  Store
 } from 'lucide-react';
 
 
@@ -40,6 +41,7 @@ const Sidebar = () => {
     { name: 'Gifts', icon: Gift, path: '/gifts' },
     { name: 'VIP Store', icon: Crown, path: '/vip' },
     { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
+    { name: 'Resellers', icon: Store, path: '/resellers' },
     { name: 'Agencies', icon: Building2, path: '/agencies' },
     { name: 'Families', icon: UsersRound, path: '/families' },
     { name: 'Financials', icon: Coins, path: '/financials' },
