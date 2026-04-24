@@ -389,38 +389,39 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                     loading: () => const Center(child: CircularProgressIndicator()),
                                     error: (e, __) => const SizedBox(),
                                   ),
-                                  // D. SCROLL SPACER (To allow scrolling past the floating chat)
-                                  const SizedBox(height: 180),
-                                ],
-                              ),
+                                ),
+                                // D. SCROLL SPACER (To allow scrolling past the floating chat)
+                                const SizedBox(height: 180),
+                              ],
                             ),
                           ),
+                        ),
 
-                          // D. Master Controls (Fixed at bottom)
-                          _buildBottomBar(room),
-                        ],
-                      ),
+                        // D. Master Controls (Fixed at bottom)
+                        _buildBottomBar(room),
+                      ],
                     ),
+                  ),
 
-                    // ✨ 3. FLOATING CHAT OVERLAY (Stack Layer)
-                    Positioned(
-                      bottom: 80, // Above bottom bar
-                      left: 12,
-                      right: 40, // Lean towards left to show more background action
-                      child: IgnorePointer(
-                        ignoring: false, // Make it scrollable
-                        child: SizedBox(
-                          height: 200,
-                          child: messagesAsync.when(
-                            data: (msgs) => ChatWidget(messages: msgs),
-                            loading: () => const SizedBox.shrink(),
-                            error: (_, __) => const SizedBox.shrink(),
-                          ),
+                  // ✨ 3. FLOATING CHAT OVERLAY (Stack Layer)
+                  Positioned(
+                    bottom: 80, // Above bottom bar
+                    left: 12,
+                    right: 40, // Lean towards left to show more background action
+                    child: IgnorePointer(
+                      ignoring: false, // Make it scrollable
+                      child: SizedBox(
+                        height: 200,
+                        child: messagesAsync.when(
+                          data: (msgs) => ChatWidget(messages: msgs),
+                          loading: () => const SizedBox.shrink(),
+                          error: (_, __) => const SizedBox.shrink(),
                         ),
                       ),
                     ),
+                  ),
 
-                    // 🛡️ PK Invitation Banner (Floating)
+                  // 🛡️ PK Invitation Banner (Floating)
                     if (!room.pkActive && room.pkChallenge != null)
                       Positioned(
                         top: 100, left: 20, right: 20,
@@ -431,7 +432,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               ),
             ),
           ),
-      },
+        ),
       loading: () => const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator())),
       error: (e, __) => Scaffold(backgroundColor: Colors.black, body: Center(child: Text("Error: $e"))),
     );
