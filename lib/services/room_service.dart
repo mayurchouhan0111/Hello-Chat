@@ -148,11 +148,30 @@ class RoomService with BaseFirebaseService {
   Future<void> takeSeat(String roomId, int index) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    await _db.collection('rooms').doc(roomId).collection('participants').doc(uid).update({
-      'seatIndex': index,
-      'role': 'speaker',
-      'isMuted': false,
-    });
+    
+    final roomRef = _db.collection('rooms').doc(roomId);
+    
+    try {
+      await _db.runTransaction((transaction) async {
+        // Check if anyone else has this seat index
+        final seatQuery = await roomRef.collection('participants')
+          .where('seatIndex', isEqualTo: index)
+          .get();
+        
+        if (seatQuery.docs.isNotEmpty) {
+          throw Exception("Seat already taken");
+        }
+
+        transaction.update(roomRef.collection('participants').doc(uid), {
+          'seatIndex': index,
+          'role': 'speaker', // Switch role to speaker if they were audience
+          // We don't reset isMuted if switching to avoid re-muting someone who was talking
+        });
+      });
+    } catch (e) {
+      debugPrint("Error taking seat: $e");
+      rethrow;
+    }
   }
 
   Future<void> leaveSeat(String roomId) async {

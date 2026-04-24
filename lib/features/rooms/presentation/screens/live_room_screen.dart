@@ -1062,17 +1062,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
 
     if (participantOnSeat.uid.isEmpty) {
-      // Seat is empty - Join it
-      if (myParticipation.seatIndex != -1) {
-        // I am already on another seat
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("You are already on a seat. Leave it first.")),
-          );
-        }
-        return;
-      }
-      
+      // Seat is empty - Join it or Switch to it
       await ref.read(roomServiceProvider).takeSeat(widget.roomId, index);
     } else if (participantOnSeat.uid == uid) {
       // It's my seat - Leave it
