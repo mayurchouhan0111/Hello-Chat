@@ -23,6 +23,7 @@ import {
   Store,
   Image
 } from 'lucide-react';
+import logo from '../assets/logo.webp';
 
 
 const Sidebar = () => {
@@ -64,8 +65,13 @@ const Sidebar = () => {
     <div className="w-72 bg-[#0D0D0E] h-screen text-gray-400 flex flex-col border-r border-white/[0.03] shadow-2xl z-50">
       <div className="p-8">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#00E5FF] rounded-2xl flex items-center justify-center shadow-lg shadow-[#00E5FF]/20 rotate-3 transition-transform hover:rotate-0">
-            <ShieldAlert className="text-black" size={24} />
+          <div className="w-10 h-10 flex items-center justify-center relative">
+            <div className="absolute inset-0 bg-[#00E5FF]/20 blur-xl rounded-full"></div>
+            <img 
+              src={logo} 
+              className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_rgba(0,229,255,0.3)] hover:scale-110 transition-transform duration-300" 
+              alt="Logo"
+            />
           </div>
           <div>
             <h1 className="text-lg font-black text-white leading-none tracking-tighter">

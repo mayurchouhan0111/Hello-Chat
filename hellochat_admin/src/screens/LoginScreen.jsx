@@ -5,6 +5,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, Smartphone, Key, ChevronRight, Zap, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import logo from '../assets/logo.webp';
 
 export const LoginScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -81,11 +82,16 @@ export const LoginScreen = () => {
           
           <div className="text-center mb-12">
             <motion.div 
-              animate={{ rotate: [0, 5, -5, 0] }}
+              animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.02, 1] }}
               transition={{ duration: 10, repeat: Infinity }}
-              className="w-20 h-20 bg-[#00E5FF] rounded-3xl mx-auto flex items-center justify-center shadow-2xl shadow-[#00E5FF]/20 mb-8 rotate-3"
+              className="w-24 h-24 mx-auto flex items-center justify-center relative mb-8"
             >
-              <ShieldAlert className="text-black" size={32} />
+              <div className="absolute inset-0 bg-[#00E5FF]/20 blur-[30px] rounded-full animate-pulse"></div>
+              <img 
+                src={logo} 
+                className="w-20 h-20 object-contain relative z-10 drop-shadow-[0_0_20px_rgba(0,229,255,0.4)]" 
+                alt="Logo"
+              />
             </motion.div>
             <h1 className="text-3xl font-black text-white tracking-tighter uppercase mb-2">Hello Chat Access</h1>
             <p className="text-[10px] font-black text-gray-600 tracking-[0.4em] uppercase">Administration Terminal v5</p>
