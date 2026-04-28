@@ -90,10 +90,10 @@ export const LoginScreen = () => {
               className="w-32 h-32 mx-auto flex items-center justify-center relative mb-10"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 blur-[50px] rounded-full"></div>
-              <div className="w-28 h-28 bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[36px] flex items-center justify-center shadow-2xl relative z-10">
+              <div className="w-28 h-28 bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[36px] flex items-center justify-center shadow-2xl relative z-10 overflow-hidden">
                 <img 
                   src={logo} 
-                  className="w-20 h-20 object-contain drop-shadow-[0_0_20px_rgba(0,229,255,0.6)]" 
+                  className="w-20 h-20 object-contain rounded-[28px] drop-shadow-[0_0_20px_rgba(0,229,255,0.6)]" 
                   alt="Logo"
                 />
               </div>

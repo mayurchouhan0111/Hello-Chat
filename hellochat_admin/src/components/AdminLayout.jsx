@@ -70,7 +70,7 @@ const Sidebar = () => {
             <div className="absolute -inset-1 bg-gradient-to-r from-[#00E5FF] to-[#6366F1] opacity-20 blur-lg"></div>
             <img 
               src={logo} 
-              className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_12px_rgba(0,229,255,0.6)] group-hover:scale-110 transition-transform duration-500" 
+              className="w-10 h-10 object-contain rounded-xl relative z-10 drop-shadow-[0_0_12px_rgba(0,229,255,0.6)] group-hover:scale-110 transition-transform duration-500" 
               alt="Logo"
             />
           </div>
