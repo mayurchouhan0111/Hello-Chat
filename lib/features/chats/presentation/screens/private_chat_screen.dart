@@ -84,7 +84,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
           data: (user) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-               Text((user as UserModel).displayName, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)), // Compacted
+               Text(user?.displayName ?? "Hello Chat User", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)), // Compacted
                const Text("online", style: TextStyle(color: Colors.white70, fontSize: 9)), // Compacted
             ],
           ),
@@ -97,10 +97,10 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: CircleAvatar(
                 radius: 15,
-                backgroundImage: (user as UserModel).profilePhotoUrl.isNotEmpty 
-                  ? CachedNetworkImageProvider(user.profilePhotoUrl) 
+                backgroundImage: (user?.profilePhotoUrl ?? '').isNotEmpty 
+                  ? CachedNetworkImageProvider(user!.profilePhotoUrl) 
                   : null,
-                child: user.profilePhotoUrl.isEmpty ? const Icon(Icons.person, color: Colors.white70, size: 16) : null,
+                child: (user?.profilePhotoUrl ?? '').isEmpty ? const Icon(Icons.person, color: Colors.white70, size: 16) : null,
               ),
             ),
             orElse: () => const SizedBox.shrink(),

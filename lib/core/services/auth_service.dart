@@ -2,12 +2,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   Stream<User?> get user => _auth.authStateChanges();
+  User? get currentUser => _auth.currentUser;
 
   // 1. Phone Auth
   Future<void> verifyPhoneNumber({
@@ -71,9 +73,19 @@ class AuthService {
 
   // 6. Logout
   Future<void> logout() async {
-    await _auth.signOut();
-    await GoogleSignIn().signOut();
-    await FacebookAuth.instance.logOut();
+    try {
+      await _auth.signOut();
+    } catch (e) {
+      debugPrint("Firebase SignOut Error: $e");
+    }
+    
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
+    
+    try {
+      await FacebookAuth.instance.logOut();
+    } catch (_) {}
   }
 
   // 7. Update Password (must be logged in)

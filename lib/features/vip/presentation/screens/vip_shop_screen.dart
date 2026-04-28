@@ -127,15 +127,20 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
                     );
                   }
 
+                  final userData = profileAsync.value;
+                  final currentVip = (userData is UserModel) ? userData.vipTier : 'none';
+
                   return SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                             (context, index) {
                           final tier = filtered[index];
+                          final isActive = currentVip.toLowerCase() == tier.name.toLowerCase();
                           return _AnimatedVipCard(
                             tier: tier,
                             index: index,
+                            isActive: isActive,
                             onTap: () => _showPurchaseSheet(context, tier),
                           );
                         },
@@ -581,10 +586,12 @@ class CategoryTabs extends StatelessWidget {
 class _AnimatedVipCard extends StatefulWidget {
   final VIPTierModel tier;
   final int index;
+  final bool isActive;
   final VoidCallback onTap;
   const _AnimatedVipCard({
     required this.tier,
     required this.index,
+    required this.isActive,
     required this.onTap,
   });
 
@@ -626,7 +633,7 @@ class _AnimatedVipCardState extends State<_AnimatedVipCard>
       opacity: _fade,
       child: SlideTransition(
         position: _slide,
-        child: VipCard(tier: widget.tier, onTap: widget.onTap),
+        child: VipCard(tier: widget.tier, onTap: widget.onTap, isActive: widget.isActive),
       ),
     );
   }
@@ -635,21 +642,51 @@ class _AnimatedVipCardState extends State<_AnimatedVipCard>
 // ── VIP Card ─────────────────────────────────────────────────────────────────
 class VipCard extends StatefulWidget {
   final VIPTierModel tier;
+  final bool isActive;
   final VoidCallback onTap;
-  const VipCard({super.key, required this.tier, required this.onTap});
+  const VipCard({super.key, required this.tier, required this.onTap, required this.isActive});
 
   @override
   State<VipCard> createState() => _VipCardState();
 }
 
-class _VipCardState extends State<VipCard> {
+class _VipCardState extends State<VipCard> with SingleTickerProviderStateMixin {
   bool _pressed = false;
+  late final AnimationController _shimmerCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmerCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    );
+    if (widget.isActive) {
+      _shimmerCtrl.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(VipCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !_shimmerCtrl.isAnimating) {
+      _shimmerCtrl.repeat();
+    } else if (!widget.isActive && _shimmerCtrl.isAnimating) {
+      _shimmerCtrl.stop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _shimmerCtrl.dispose();
+    super.dispose();
+  }
 
   // Map level → accent tint so each card feels distinct
   Color get _tint {
     if (widget.tier.level <= 2) return const Color(0xFF7DB8F7); // blue-ish starter
     if (widget.tier.level <= 5) return const Color(0xFFFFD700); // gold pro
-    return const Color(0xFFFFAB40);                             // ember elite (adjusted to warmer yellow/orange)
+    return const Color(0xFFFFAB40);                             // ember elite
   }
 
   @override
@@ -669,7 +706,17 @@ class _VipCardState extends State<VipCard> {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
             color: _surface,
-            border: Border.all(color: Colors.white.withOpacity(0.05)),
+            border: Border.all(
+              color: widget.isActive ? _gold.withOpacity(0.4) : Colors.white.withOpacity(0.05),
+              width: widget.isActive ? 1.5 : 1,
+            ),
+            boxShadow: widget.isActive ? [
+              BoxShadow(
+                color: _gold.withOpacity(0.12),
+                blurRadius: 20,
+                spreadRadius: -2,
+              )
+            ] : [],
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(20),
@@ -684,27 +731,48 @@ class _VipCardState extends State<VipCard> {
                     width: 3,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [_tint.withOpacity(0.8), _tint.withOpacity(0.1)],
+                        colors: [
+                          _tint.withOpacity(0.8), 
+                          _tint.withOpacity(0.1)
+                        ],
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                       ),
                     ),
                   ),
                 ),
-                // Subtle tint glow top-left
-                Positioned(
-                  top: -20,
-                  left: 0,
-                  child: Container(
-                    width: 120,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: RadialGradient(
-                        colors: [_tint.withOpacity(0.06), Colors.transparent],
-                      ),
+
+                // Sparkling / Shimmer light effect for active card
+                if (widget.isActive)
+                  Positioned.fill(
+                    child: AnimatedBuilder(
+                      animation: _shimmerCtrl,
+                      builder: (context, child) {
+                        return FractionallySizedBox(
+                          widthFactor: 2.0,
+                          alignment: Alignment(
+                            -1.5 + (_shimmerCtrl.value * 3.0),
+                            0,
+                          ),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Colors.transparent,
+                                  _gold.withOpacity(0.08),
+                                  _gold.withOpacity(0.15),
+                                  _gold.withOpacity(0.08),
+                                  Colors.transparent,
+                                ],
+                                stops: const [0.1, 0.45, 0.5, 0.55, 0.9],
+                                transform: const GradientRotation(math.pi / 4),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
 
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 18, 18, 18),
@@ -774,9 +842,9 @@ class _VipCardState extends State<VipCard> {
                                 colors: [_gold, _goldDim],
                               ),
                             ),
-                            child: const Text(
-                              'SELECT',
-                              style: TextStyle(
+                            child: Text(
+                              widget.isActive ? 'CURRENT' : 'SELECT',
+                              style: const TextStyle(
                                 color: Colors.black,
                                 fontWeight: FontWeight.w900,
                                 fontSize: 10,
@@ -895,12 +963,19 @@ class _GoldSpinner extends StatelessWidget {
 }
 
 // ── Purchase Sheet ────────────────────────────────────────────────────────────
-class _VipPurchaseSheet extends ConsumerWidget {
+class _VipPurchaseSheet extends ConsumerStatefulWidget {
   final VIPTierModel tier;
   const _VipPurchaseSheet({required this.tier});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_VipPurchaseSheet> createState() => _VipPurchaseSheetState();
+}
+
+class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
       child: BackdropFilter(
@@ -937,10 +1012,10 @@ class _VipPurchaseSheet extends ConsumerWidget {
                   color: _gold.withOpacity(0.08),
                   border: Border.all(color: _gold.withOpacity(0.25)),
                 ),
-                child: tier.badgeIcon.isNotEmpty 
+                child: widget.tier.badgeIcon.isNotEmpty 
                     ? Padding(
                         padding: const EdgeInsets.all(12),
-                        child: Image.network(tier.badgeIcon, fit: BoxFit.contain),
+                        child: Image.network(widget.tier.badgeIcon, fit: BoxFit.contain),
                       )
                     : const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40),
               ),
@@ -949,7 +1024,7 @@ class _VipPurchaseSheet extends ConsumerWidget {
 
               // Tier name
               Text(
-                tier.name,
+                widget.tier.name,
                 style: const TextStyle(
                   color: _white,
                   fontSize: 22,
@@ -985,7 +1060,7 @@ class _VipPurchaseSheet extends ConsumerWidget {
                   crossAxisSpacing: 10,
                   childAspectRatio: 3.8,
                 ),
-                itemCount: tier.benefits.length,
+                itemCount: widget.tier.benefits.length,
                 itemBuilder: (_, i) => Container(
                   padding:
                   const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1002,7 +1077,7 @@ class _VipPurchaseSheet extends ConsumerWidget {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          tier.benefits[i],
+                          widget.tier.benefits[i],
                           style: const TextStyle(
                             color: Colors.white60,
                             fontSize: 10.5,
@@ -1031,7 +1106,7 @@ class _VipPurchaseSheet extends ConsumerWidget {
                     const Icon(Icons.diamond_rounded, color: _gold, size: 16),
                     const SizedBox(width: 8),
                     Text(
-                      tier.monthlyPriceInDiamonds.toString(),
+                      widget.tier.monthlyPriceInDiamonds.toString(),
                       style: const TextStyle(
                         color: _goldLight,
                         fontSize: 24,
@@ -1051,17 +1126,19 @@ class _VipPurchaseSheet extends ConsumerWidget {
 
               // Confirm button
               GestureDetector(
-                onTap: () => _handleConfirm(context, ref),
+                onTap: _isLoading ? null : () => _handleConfirm(),
                 child: Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(vertical: 17),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(16),
-                    gradient: const LinearGradient(
-                      colors: [_goldLight, _gold, _goldDim],
-                      stops: [0.0, 0.5, 1.0],
+                    gradient: LinearGradient(
+                      colors: _isLoading 
+                        ? [Colors.grey.shade800, Colors.grey.shade900]
+                        : [_goldLight, _gold, _goldDim],
+                      stops: const [0.0, 0.5, 1.0],
                     ),
-                    boxShadow: [
+                    boxShadow: _isLoading ? [] : [
                       BoxShadow(
                         color: _gold.withOpacity(0.25),
                         blurRadius: 20,
@@ -1070,30 +1147,37 @@ class _VipPurchaseSheet extends ConsumerWidget {
                     ],
                   ),
                   alignment: Alignment.center,
-                  child: Text(
-                    'Unlock Membership  ◈ ${tier.monthlyPriceInDiamonds}',
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 15,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
+                  child: _isLoading 
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                      )
+                    : Text(
+                        'Unlock Membership  ◈ ${widget.tier.monthlyPriceInDiamonds}',
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
                 ),
               ),
 
               const SizedBox(height: 12),
 
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Not now',
-                  style: TextStyle(
-                    color: Colors.white24,
-                    fontSize: 13,
+              if (!_isLoading)
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Not now',
+                    style: TextStyle(
+                      color: Colors.white24,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
-              ),
             ],
           ),
         ),
@@ -1101,21 +1185,23 @@ class _VipPurchaseSheet extends ConsumerWidget {
     );
   }
 
-  void _handleConfirm(BuildContext context, WidgetRef ref) async {
-    Navigator.pop(context);
+  void _handleConfirm() async {
+    setState(() => _isLoading = true);
     try {
-      await ref.read(vipServiceProvider).purchaseVIP(tier);
-      if (context.mounted) {
+      await ref.read(vipServiceProvider).purchaseVIP(widget.tier);
+      if (mounted) {
+        Navigator.pop(context); // Close sheet on success
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${tier.name} VIP Activated!'),
+          content: Text('${widget.tier.name} VIP Activated!'),
           backgroundColor: const Color(0xFF1A6B3A),
           behavior: SnackBarBehavior.floating,
         ));
       }
     } catch (e) {
-      if (context.mounted) {
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed: $e'),
+          content: Text('Purchase Failed: $e'),
           backgroundColor: const Color(0xFF6B1A1A),
           behavior: SnackBarBehavior.floating,
         ));

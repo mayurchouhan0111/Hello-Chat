@@ -52,3 +52,6 @@ app.*.map.json
 .firebaserc
 # Do NOT ignore .firebaserc if you want project cross-linking, 
 # but ignoring it is safer for public repos.
+
+# Local Netlify folder
+.netlify

@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'room_provider.dart';
 
 final chatListStreamProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final authState = ref.watch(authStateProvider);
+  final uid = authState.value?.uid;
   if (uid == null) return Stream.value([]);
   
   return ref.watch(chatServiceProvider).getChatListStream(uid);
@@ -15,7 +17,8 @@ final privateMessagesStreamProvider = StreamProvider.family<List<Map<String, dyn
 });
 
 final unreadTotalProvider = StreamProvider<int>((ref) {
-  final uid = FirebaseAuth.instance.currentUser?.uid;
+  final authState = ref.watch(authStateProvider);
+  final uid = authState.value?.uid;
   if (uid == null) return Stream.value(0);
 
   return ref.watch(chatServiceProvider).getChatListStream(uid).map((chats) {

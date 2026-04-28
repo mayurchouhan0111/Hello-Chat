@@ -1,34 +1,11 @@
+import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../features/auth/presentation/screens/login_screen.dart';
-import '../../features/auth/presentation/screens/otp_screen.dart';
-import '../../features/auth/presentation/screens/forgot_password_screen.dart';
-import '../../features/rooms/presentation/screens/search_screen.dart' as room_search;
-import '../../features/auth/presentation/screens/splash_screen.dart';
-import '../../features/auth/presentation/screens/email_auth_screen.dart';
-import '../../features/profile/presentation/screens/profile_setup_screen.dart';
-import '../../features/profile/presentation/screens/reset_password_screen.dart';
-import '../../features/profile/presentation/screens/edit_profile_screen.dart';
-import '../../features/profile/presentation/screens/profile_detail_screen.dart';
-import '../../features/profile/presentation/screens/follow_list_screen.dart';
-import '../../features/diamonds/presentation/screens/wallet_screen.dart';
-import '../../features/vip/presentation/screens/vip_shop_screen.dart';
-import '../../features/profile/presentation/screens/salary_history_screen.dart';
-import '../../features/profile/presentation/screens/prestige_store_screen.dart';
-import '../../features/profile/presentation/screens/noble_hall_screen.dart';
-import '../../features/profile/presentation/screens/vip_center_screen.dart';
-import '../../features/profile/presentation/screens/prestige_vault_screen.dart';
-import '../../features/profile/presentation/screens/agency/agency_portal_screen.dart';
-import '../../features/profile/presentation/screens/agency/svip_privileges_screen.dart';
-import '../../features/profile/presentation/screens/invite_get_coins_screen.dart';
-import '../../features/profile/presentation/screens/love_house_screen.dart';
-import '../../features/profile/presentation/screens/cp_level_screen.dart';
-import '../../features/profile/presentation/screens/prop_warehouse_screen.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/otp_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
@@ -62,11 +39,10 @@ import '../../features/profile/presentation/screens/settings_screen.dart';
 import '../../features/chats/presentation/screens/private_chat_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
 
-
-
 import '../../features/rooms/presentation/screens/home_screen.dart';
 import '../../features/moments/presentation/screens/add_moment_screen.dart';
 import '../../features/leaderboards/presentation/screens/celebrity_ranking_screen.dart';
+import '../../features/leaderboards/presentation/screens/contribution_ranking_screen.dart';
 import '../../features/leaderboards/presentation/screens/leaderboard_screen.dart';
 import '../../features/moments/presentation/screens/moment_detail_screen.dart';
 import '../../features/games/presentation/screens/spin_wheel_screen.dart';
@@ -74,8 +50,6 @@ import '../../features/rooms/presentation/screens/create_room_screen.dart';
 import '../../features/rooms/presentation/screens/live_room_screen.dart';
 import '../../features/rooms/presentation/screens/active_pk_battle_screen.dart';
 import '../providers/auth_provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AppRoutes {
   // Auth
@@ -124,46 +98,53 @@ class AppRoutes {
   static const resellerCenter   = '/reseller-center';
 }
 
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    notifyListeners();
+    _subscription = stream.asBroadcastStream().listen(
+      (dynamic _) => notifyListeners(),
+    );
+  }
 
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
+}
 
 final routerProvider = Provider<GoRouter>((ref) {
-  final authState = ref.watch(authStateProvider);
+  // Use a listenable to refresh the router on auth state changes
+  final authStream = ref.watch(authServiceProvider).user;
 
   return GoRouter(
     initialLocation: AppRoutes.splash,
+    refreshListenable: GoRouterRefreshStream(authStream),
     redirect: (context, state) async {
-      final user = authState.value;
-      final isLoggingIn = state.matchedLocation == AppRoutes.login || 
-                          state.matchedLocation == AppRoutes.otpVerify ||
-                          state.matchedLocation == AppRoutes.emailAuth ||
-                          state.matchedLocation == AppRoutes.forgotPassword ||
-                          state.matchedLocation == AppRoutes.splash;
+      // Get the current user directly from the service
+      final user = ref.read(authServiceProvider).currentUser;
+      
+      final authRoutes = [
+        AppRoutes.login,
+        AppRoutes.otpVerify,
+        AppRoutes.emailAuth,
+        AppRoutes.forgotPassword,
+        AppRoutes.resetPassword,
+        AppRoutes.splash,
+      ];
+      final isAuthRoute = authRoutes.contains(state.matchedLocation);
 
       if (user == null) {
-        return isLoggingIn ? null : AppRoutes.login;
+        // 🔒 Unauthenticated: only allow auth routes
+        return isAuthRoute ? null : AppRoutes.login;
       }
 
-      // If user is logged in, check if they have a profile (username set)
-      try {
-        final userDoc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get()
-            .timeout(const Duration(seconds: 3));
-            
-        final hasProfile = userDoc.exists && (userDoc.data()?['username'] as String? ?? '').isNotEmpty;
-
-        if (!hasProfile) {
-          return state.matchedLocation == AppRoutes.profileSetup ? null : AppRoutes.profileSetup;
-        }
-
-        if (isLoggingIn) return AppRoutes.home;
-      } catch (e) {
-        debugPrint('--- [ROUTER PROFILE CHECK ERROR/TIMEOUT: $e] ---');
-        // On error or timeout, if we were at splash or login, just go home 
-        // and let the Home screen or individual screens handle state.
-        // This prevents the app from hanging.
-        if (isLoggingIn) return AppRoutes.home;
+      // 🏠 Authenticated: If on login/splash/profile setup, force Home
+      if (isAuthRoute || state.matchedLocation == AppRoutes.profileSetup) {
+        debugPrint('--- [ROUTER: User Authenticated, Force Redirect to Home] ---');
+        return AppRoutes.home;
       }
 
       return null;
@@ -197,7 +178,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.leaderboard,
-        builder: (context, state) => const CelebrityRankingScreen(),
+        builder: (context, state) => const LeaderboardScreen(),
       ),
       GoRoute(
         path: AppRoutes.profileSetup,
@@ -233,10 +214,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const WalletScreen(),
       ),
       GoRoute(
-        path: AppRoutes.leaderboard,
-        builder: (context, state) => const CelebrityRankingScreen(),
-      ),
-      GoRoute(
         path: AppRoutes.addMoment,
         builder: (context, state) => const AddMomentScreen(),
       ),
@@ -259,9 +236,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const CreateRoomScreen(),
       ),
       GoRoute(
-        path: AppRoutes.liveRoom,
+        name: AppRoutes.liveRoom,
+        path: '/live-room/:roomId',
         builder: (context, state) {
-          final roomId = state.extra as String? ?? '';
+          final roomId = state.pathParameters['roomId'] ?? '';
           return LiveRoomScreen(roomId: roomId);
         },
       ),
@@ -285,7 +263,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.vipCenter,
         builder: (context, state) => const VIPCarouselScreen(),
       ),
-
       GoRoute(
         path: AppRoutes.prestigeVault,
         builder: (context, state) => const PrestigeVaultScreen(),
@@ -378,7 +355,5 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const ResellerDashboardScreen(),
       ),
     ],
-
-
   );
 });

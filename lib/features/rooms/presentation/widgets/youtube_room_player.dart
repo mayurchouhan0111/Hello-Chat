@@ -21,6 +21,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
   YoutubePlayerController? _controller;
   int _currentVolume = 100;
   bool _showControls = true;
+  bool _wasPausedByUser = false;
 
   @override
   void initState() {
@@ -49,7 +50,15 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
   }
 
   void _onPlayerStateChange() {
-    if (mounted) setState(() {});
+    if (!mounted || _controller == null) return;
+
+    // 🔄 Auto-Resume Logic for slow networks
+    final state = _controller!.value.playerState;
+    if (state == PlayerState.unStarted || (state == PlayerState.paused && !_wasPausedByUser)) {
+      _controller!.play();
+    }
+
+    setState(() {});
   }
 
   void _seekRelative(int seconds) {
@@ -88,6 +97,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
+    _controller?.removeListener(_onPlayerStateChange);
     _controller?.dispose();
     super.dispose();
   }
@@ -183,9 +194,11 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
                           () {
                             final web = _controller!.value.webViewController;
                             if (_controller!.value.isPlaying) {
+                              _wasPausedByUser = true;
                               _controller!.pause();
                               web?.evaluateJavascript(source: 'player.pauseVideo();');
                             } else {
+                              _wasPausedByUser = false;
                               _controller!.play();
                               web?.evaluateJavascript(source: 'player.playVideo();');
                             }

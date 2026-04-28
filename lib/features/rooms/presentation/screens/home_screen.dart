@@ -57,7 +57,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (i == 2) {
             final activeRoom = ref.read(userActiveRoomStreamProvider).value;
             if (activeRoom != null) {
-              context.push(AppRoutes.liveRoom, extra: activeRoom.roomId);
+              context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': activeRoom.roomId});
             } else {
               context.push(AppRoutes.createRoom);
             }
@@ -136,7 +136,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Row(
               children: [
-// (skipping unchanged code)
                 Expanded(
                   child: SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
@@ -323,7 +322,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (activeRoom) => GestureDetector(
         onTap: () {
           if (activeRoom != null) {
-            context.push(AppRoutes.liveRoom, extra: activeRoom.roomId);
+            context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': activeRoom.roomId});
           } else {
             context.push(AppRoutes.createRoom);
           }
@@ -464,7 +463,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildImageGridItem(RoomModel room) {
     return GestureDetector(
-      onTap: () => context.push(AppRoutes.liveRoom, extra: room.roomId),
+      onTap: () => context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': room.roomId}),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

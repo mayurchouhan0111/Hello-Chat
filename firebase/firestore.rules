@@ -68,6 +68,10 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if false; // Writes handled by server functions
       }
+      // Contributors & Ranking
+      match /contributors/{contributorId} {
+        allow read: if true;
+      }
     }
 
     // Global Collections

@@ -71,9 +71,8 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
         backgroundMusic: _bgMusic,
         coverUrl: coverUrl,
       );
-      if (mounted) {
-        context.pushReplacement(AppRoutes.liveRoom, extra: roomId);
-      }
+      if (!mounted) return;
+      context.pushReplacementNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
     } catch (e) {
       if (mounted) {
         String message = e.toString();

@@ -13,6 +13,7 @@ import '../../../../core/models/message_model.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/providers/overlay_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/router/app_router.dart';
 import '../widgets/seat_grid.dart';
@@ -39,6 +40,7 @@ import '../widgets/room_settings_sheet.dart';
 import '../widgets/room_user_options_sheet.dart';
 import '../widgets/youtube_panel.dart';
 import '../widgets/youtube_room_player.dart';
+import '../widgets/room_invite_sheet.dart';
 
 class LiveRoomScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -56,8 +58,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     if (state == AppLifecycleState.resumed) {
       ref.read(roomServiceProvider).updateParticipantPresence(widget.roomId);
     } else if (state == AppLifecycleState.paused) {
-      // We don't forcefully leave anymore; RTDB onDisconnect will handle signal loss/kill.
-      // This allows users to check notifications without being kicked.
+      // We don't forcefully leave anymore
     }
   }
 
@@ -102,6 +103,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   @override
   void initState() {
     super.initState();
+    
+    // 🛡️ Auto-Clear PIP: If we are entering a room, hide any existing minimized bubbles.
+    Future.microtask(() => ref.read(roomOverlayProvider.notifier).clear());
+
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -143,7 +148,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _presenceTimer?.cancel();
-    ref.read(voiceServiceProvider).leaveRoom();
+    
+    // 🎧 Voice Persistence Logic
+    // If we are minimizing, we stay in the voice channel!
+    final isMinimized = ref.read(roomOverlayProvider).isMinimized;
+    if (!isMinimized) {
+      ref.read(voiceServiceProvider).leaveRoom();
+    }
+    
     _chatController.dispose();
     super.dispose();
   }
@@ -155,9 +167,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     });
     final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
     final myUid = ref.read(authStateProvider).value?.uid;
-
     if (room != null && myUid == room.ownerUid) {
-      // Owner Logic
       if (!mounted) return;
       final result = await showDialog<String>(
         context: context,
@@ -174,6 +184,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
             ),
             TextButton(
+              onPressed: () => Navigator.pop(context, 'minimize'),
+              child: const Text("MINIMIZE", style: TextStyle(color: Colors.greenAccent)),
+            ),
+            TextButton(
               onPressed: () => Navigator.pop(context, 'leave'),
               child: const Text("JUST LEAVE", style: TextStyle(color: Colors.orangeAccent)),
             ),
@@ -186,26 +200,61 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         ),
       );
 
-      if (result == 'end') {
+      if (result == 'minimize') {
+        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
+        if (mounted && GoRouter.of(context).canPop()) context.pop();
+      } else if (result == 'end') {
+        if (!mounted) return;
+        await ref.read(voiceServiceProvider).leaveRoom();
+        if (!mounted) return;
         await ref.read(roomServiceProvider).endRoom(widget.roomId);
         if (mounted && GoRouter.of(context).canPop()) context.pop();
       } else if (result == 'leave') {
+        if (!mounted) return;
+        await ref.read(voiceServiceProvider).leaveRoom();
+        if (!mounted) return;
         await ref.read(roomServiceProvider).leaveRoom(widget.roomId);
         if (mounted && GoRouter.of(context).canPop()) context.pop();
       } else {
-        setState(() => _isLeavingRoom = false);
+        if (mounted) setState(() => _isLeavingRoom = false);
       }
     } else {
-      // Guest Logic
-      try {
+      // For Guests: show a quick Choice Dialog (Leave or Minimize)
+      final result = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: const Text("Exit Room", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          content: const Text("Would you like to stay in the room via a floating bubble?", style: TextStyle(color: Colors.white70)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'cancel'),
+              child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'leave'),
+              child: const Text("LEAVE", style: TextStyle(color: Colors.redAccent)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent.withOpacity(0.2)),
+              onPressed: () => Navigator.pop(context, 'minimize'),
+              child: const Text("MINIMIZE", style: TextStyle(color: Colors.greenAccent)),
+            ),
+          ],
+        ),
+      );
+
+      if (result == 'minimize') {
+        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
+        if (mounted && GoRouter.of(context).canPop()) context.pop();
+      } else if (result == 'leave') {
+        if (!mounted) return;
+        await ref.read(voiceServiceProvider).leaveRoom();
+        if (!mounted) return;
         await ref.read(roomServiceProvider).leaveRoom(widget.roomId);
         if (mounted && GoRouter.of(context).canPop()) context.pop();
-      } catch (e) {
-        debugPrint("Error leaving room: $e");
-        if (mounted) {
-          setState(() => _isLeavingRoom = false);
-          if (GoRouter.of(context).canPop()) context.pop();
-        }
+      } else {
+        if (mounted) setState(() => _isLeavingRoom = false);
       }
     }
   }
@@ -228,13 +277,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     final messagesAsync = ref.watch(roomMessagesProvider(widget.roomId));
     final profiles = ref.watch(roomParticipantsProvider(widget.roomId));
 
-    // 🛡️ Monitor Room Status: Ends the session if room is deleted or archived
     ref.listen(currentRoomStreamProvider(widget.roomId), (prev, next) {
       if (!mounted) return;
       if (next.hasValue) {
         final room = next.value;
         if (room != null) {
-          // Room end check
           if (room.status == 'ended') {
             if (!_isLeavingRoom && mounted && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -246,7 +293,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             }
           }
 
-          // ⚔️ Challenge Feedback logic
           final prevRoom = prev?.value;
           if (prevRoom != null && room.pkChallenge != null && prevRoom.pkChallenge != null) {
             final myUid = ref.read(authStateProvider).value?.uid;
@@ -274,11 +320,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       }
     });
 
-    // 🛡️ Monitor Participants: Handles Entry Effects and Presence Logic
     ref.listen(roomParticipantsProvider(widget.roomId), (prev, next) {
       if (!mounted) return;
       
-      // 1. SILENT PRESENCE GUARD (Departure logic)
       if (!_isLeavingVoluntarily && !_isLeavingRoom) {
         final myUid = ref.read(authStateProvider).value?.uid;
         if (myUid != null && next.hasValue) {
@@ -300,14 +344,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       }
 
-      // 2. ROOM ENTRY EFFECTS (Join logic)
       if (_entryParticipant == null && next.hasValue) {
         final pts = next.value!;
         final now = DateTime.now();
         for (var p in pts) {
-          // Generous 10-second window to account for server sync latency
           final isNew = p.joinedAt.isAfter(now.subtract(const Duration(seconds: 10)));
-          
           if (isNew) {
              if (mounted) {
                setState(() => _entryParticipant = p);
@@ -320,10 +361,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     
     return roomAsync.when(
       data: (room) {
-        if (room == null) return Scaffold(backgroundColor: Colors.orange, body: Center(child: Text("Room Missing", style: TextStyle(color: Colors.white))));
+        if (room == null) {
+          return const Scaffold(
+            backgroundColor: Colors.orange,
+            body: Center(child: Text("Room Missing", style: TextStyle(color: Colors.white))),
+          );
+        }
         if (room.status == 'ended') return _buildRoomEndedSummary();
 
-        // ⚔️ PK Mode Switch (Restore if active)
         if (room.pkActive || room.pkPhase == 'finished') {
           return profiles.when(
             data: (pts) => PKBattleArenaScreen(room: room, participants: pts),
@@ -344,7 +389,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               roomId: widget.roomId,
               child: Stack(
                 children: [
-                  // 1. Background
                   Positioned.fill(
                     child: Image.network(
                       room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/600/1200" : room.coverUrl,
@@ -354,91 +398,111 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   ),
                   Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
 
-                  // 2. MAIN UI LAYER
                   SafeArea(
                     child: Column(
                       children: [
-                        // A. Top Stats & Header
                         profiles.when(
                           data: (pts) => _buildTopBar(room, pts),
                           loading: () => const SizedBox(height: 50),
                           error: (_, __) => const SizedBox(height: 50),
                         ),
-                        _buildBroadcastTicker(),
+
                         _buildSubTopBar(room),
                         
-                        // B. THE SCROLLABLE HUB: Player + Seats
                         Expanded(
                           child: SingleChildScrollView(
                             physics: const BouncingScrollPhysics(),
                             child: Column(
-                              children: [
-                                // YouTube Player (Dynamic Visibility)
+                                children: [
                                 YouTubeRoomPlayer(room: room),
-                                
-                                // Seat Grid (Flexible height based on content)
+                                  if (!room.isYoutubeActive) ...[
+                                    const SizedBox(height: 8),
+                                    profiles.maybeWhen(
+                                      data: (pts) {
+                                        final myUid = ref.read(authStateProvider).value?.uid;
+                                        final isOwner = room.ownerUid == myUid;
+                                        
+                                        // 👑 The Host Seat is now visible to EVERYONE in the room!
+                                        final hostPart = pts.firstWhere(
+                                          (p) => p.seatIndex == 0,
+                                          orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'host'),
+                                        );
+                                        return _buildHostSeat(hostPart, room);
+                                      },
+                                      orElse: () => const SizedBox.shrink(), 
+                                    ),
+                                  ],
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                  child: profiles.when(
+                                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                                  child: profiles.maybeWhen(
                                     data: (pts) => SeatGrid(
                                       participants: pts,
                                       capacity: room.capacity,
-                                      onSeatTap: (idx) => _onSeatTap(idx, pts),
+                                      lockedSeats: room.lockedSeats,
+                                      isYoutubeActive: room.isYoutubeActive,
+                                      ownerUid: room.ownerUid,
+                                      onSeatTap: (idx) => _onSeatTap(idx, pts, room),
+                                      onSeatLongPress: (idx) => _onSeatLongPress(idx, room),
                                       onUserLongPress: _showUserOptions,
                                     ),
-                                    loading: () => const Center(child: CircularProgressIndicator()),
-                                    error: (e, __) => const SizedBox(),
+                                    orElse: () => const SizedBox(height: 300), // Stable estimated height
                                   ),
                                 ),
-                                // D. SCROLL SPACER (To allow scrolling past the floating chat)
-                                const SizedBox(height: 180),
+                                const SizedBox(height: 120), // Reduced from 180 to optimize space
                               ],
                             ),
                           ),
                         ),
 
-                        // D. Master Controls (Fixed at bottom)
                         _buildBottomBar(room),
                       ],
                     ),
                   ),
 
-                  // ✨ 3. FLOATING CHAT OVERLAY (Stack Layer)
+                  if (!room.pkActive && room.pkChallenge != null)
+                    Positioned(
+                      top: 100, left: 20, right: 20,
+                      child: PKChallengeBanner(room: room),
+                    ),
+
                   Positioned(
-                    bottom: 80, // Above bottom bar
+                    bottom: 115, // Moved down slightly as requested
                     left: 12,
-                    right: 40, // Lean towards left to show more background action
+                    right: 40,
                     child: IgnorePointer(
-                      ignoring: false, // Make it scrollable
-                      child: SizedBox(
-                        height: 200,
-                        child: messagesAsync.when(
-                          data: (msgs) => ChatWidget(messages: msgs),
-                          loading: () => const SizedBox.shrink(),
-                          error: (_, __) => const SizedBox.shrink(),
+                      ignoring: false,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        child: ShaderMask(
+                          shaderCallback: (Rect bounds) {
+                            return const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.white],
+                              stops: [0.0, 0.2], // Fade out the top 20%
+                            ).createShader(bounds);
+                          },
+                          blendMode: BlendMode.dstIn,
+                          child: messagesAsync.when(
+                            data: (msgs) => ChatWidget(messages: msgs),
+                            loading: () => const SizedBox.shrink(),
+                            error: (_, __) => const SizedBox.shrink(),
+                          ),
                         ),
                       ),
                     ),
                   ),
-
-                  // 🛡️ PK Invitation Banner (Floating)
-                    if (!room.pkActive && room.pkChallenge != null)
-                      Positioned(
-                        top: 100, left: 20, right: 20,
-                        child: PKChallengeBanner(room: room),
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
           ),
-        ),
+        );
+      },
       loading: () => const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator())),
       error: (e, __) => Scaffold(backgroundColor: Colors.black, body: Center(child: Text("Error: $e"))),
     );
   }
 
-  // 💎 NEW: Premium Glassmorphic Wrapper
   Widget _buildGlassOverlay({required Widget child, bool isBottom = false}) {
     return ClipRRect(
       child: BackdropFilter(
@@ -468,14 +532,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   Widget _buildTopBar(RoomModel room, List<Participant> participants) {
-    // Determine top contributors (top 3 by mock score for now)
     final guestParticipants = participants.where((p) => p.uid != room.ownerUid).toList();
     
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 10, 8, 0),
+      padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
       child: Row(
         children: [
-          // 1. Host Info Pill
           Container(
             height: 36,
             padding: const EdgeInsets.only(left: 4, right: 10),
@@ -522,60 +584,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     ),
                   ),
                 const Gap(6),
-                Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                  child: const Icon(Icons.add, color: Colors.white, size: 10),
+                GestureDetector(
+                  onTap: () => showModalBottomSheet(
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => RoomInviteSheet(roomId: room.roomId),
+                  ),
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
+                    child: const Icon(Icons.add, color: Colors.white, size: 10),
+                  ),
                 ),
               ],
             ),
           ),
-          const Gap(8),
-
-          // 2. Contributor List
-          Expanded(
-            child: SizedBox(
-              height: 44,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: guestParticipants.length,
-                itemBuilder: (context, index) {
-                  final p = guestParticipants[index];
-                  // Mock scores for the reference look
-                  final scores = ["6K", "3K", "1.5K", "800", "500"];
-                  final score = index < scores.length ? scores[index] : "0";
-
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        AppAvatar(
-                          radius: 14,
-                          imageUrl: p.profilePhotoUrl.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : p.profilePhotoUrl,
-                          showFrame: false,
-                        ),
-                        const Gap(2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0.5),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.5),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            score, 
-                            style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.bold)
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ),
-
-          // 3. Viewers & Close
+          const Spacer(),
           Flexible(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -588,7 +612,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 children: [
                   const Icon(Icons.group_rounded, color: Colors.white, size: 14),
                   const Gap(4),
-                  // 🛡️ Scoped Watcher for viewers to prevent 'defunct element' crashes on exit
                   Consumer(
                     builder: (context, ref, child) {
                       final async = ref.watch(roomParticipantsProvider(widget.roomId));
@@ -627,7 +650,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   Widget _buildSubTopBar(RoomModel room) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
       child: Row(
         children: [
           _buildDynamicBadge(
@@ -641,8 +664,34 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             text: "${room.roomType} Room",
             color: Colors.blueAccent,
           ),
+          const Gap(12),
+          // 👥 Moved Forward: Participant Avatars
+          Consumer(builder: (context, ref, child) {
+            final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+            final topParticipants = participants.where((p) => p.uid != room.ownerUid).take(4).toList();
+            
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (int i = 0; i < topParticipants.length; i++)
+                  Align(
+                    widthFactor: 0.6,
+                    child: AppAvatar(
+                      radius: 12,
+                      imageUrl: topParticipants[i].profilePhotoUrl.isEmpty 
+                          ? "https://picsum.photos/seed/${topParticipants[i].uid}/100" 
+                          : topParticipants[i].profilePhotoUrl,
+                    ),
+                  ),
+                if (participants.length > 4)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text("...", style: TextStyle(color: Colors.white70, fontSize: 10)),
+                  ),
+              ],
+            );
+          }),
           const Spacer(),
-          // 🌟 Compact Star Progress
           RoomStarProgressWidget(room: room),
         ],
       ),
@@ -709,24 +758,36 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
       child: Row(
         children: [
-          // 1. Text Field (Flexible space)
           Expanded(
             child: Container(
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.transparent,
+                color: Colors.black.withOpacity(0.3),
                 borderRadius: BorderRadius.circular(20),
                 border: Border.all(color: Colors.white24),
               ),
               child: TextField(
                 controller: _chatController,
-                cursorColor: Colors.black54,
-                style: const TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w600),
-                decoration: const InputDecoration(
+                cursorColor: Colors.white,
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                decoration: InputDecoration(
                   hintText: "Say hi...",
-                  hintStyle: TextStyle(color: Colors.black26, fontSize: 12),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                  filled: true,
+                  fillColor: Colors.black.withOpacity(0.5),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: const BorderSide(color: Colors.white24),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 ),
                 onSubmitted: (_) => _sendMessage(),
               ),
@@ -734,7 +795,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           ),
           const Gap(6),
 
-          // 2. Action Icons (Compact sequential list)
           Consumer(builder: (context, ref, child) {
             final myUid = FirebaseAuth.instance.currentUser?.uid;
             final bool isHostOrAdmin = room.ownerUid == myUid || (room.admins.contains(myUid));
@@ -742,7 +802,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // 🛡️ PK CLEANUP / END BUTTON
                 Builder(builder: (context) {
                   final isExpired = room.pkEndTime != null && room.pkEndTime!.isBefore(DateTime.now());
                   if ((myUid == room.ownerUid && room.pkActive) || (isExpired && room.pkPhase == 'finished')) {
@@ -768,11 +827,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   return const SizedBox.shrink();
                 }),
 
-                // 📺 YouTube Button (Host Only, Always Available)
                 if (isHostOrAdmin)
                    _buildCompactBottomButton(Icons.live_tv_rounded, const Color(0xFFFF0000), _showYouTubePanel),
 
-                // 🔒 Lock most icons during PK Battle to focus on support/gifts
                 if (!room.pkActive) ...[
                   
                   _buildCompactBottomButton(
@@ -807,7 +864,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   const Gap(4),
                 ],
 
-                // 🎁 Gift Button (Always visible during PK)
                 GestureDetector(
                   onTap: _showGiftPanel,
                   child: Container(
@@ -839,12 +895,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
-  Widget _buildHostSeat(Participant host) {
+  Widget _buildHostSeat(Participant host, RoomModel room) {
     if (host.uid.isEmpty) {
-      return Container(
-        width: 80, height: 80,
-        decoration: BoxDecoration(color: Colors.black12, shape: BoxShape.circle, border: Border.all(color: Colors.white12)),
-        child: const Icon(Icons.person, color: Colors.white24, size: 40),
+      return GestureDetector(
+        onTap: () => _onSeatTap(0, [], room),
+        child: Container(
+          width: 80, height: 80,
+          decoration: BoxDecoration(color: Colors.black12, shape: BoxShape.circle, border: Border.all(color: Colors.white12)),
+          child: const Icon(Icons.person, color: Colors.white24, size: 40),
+        ),
       );
     }
 
@@ -853,30 +912,67 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     return GestureDetector(
       onTap: () => _showUserOptions(host),
       child: Column(
+        mainAxisSize: MainAxisSize.min, // 🚀 Center it up
         children: [
           userAsync.when(
             data: (user) {
               final u = user as UserModel;
+              final currentUid = ref.watch(authStateProvider).value?.uid;
+              final isMe = currentUid == u.uid;
+              final isRoomOwner = currentUid == room.ownerUid;
+              final showSecretFrame = isMe && isRoomOwner;
+
+              final displayFrame = u.profileFrame;
+              const double frameMult = 2.3;
+
               return Stack(
-                alignment: Alignment.center,
+                alignment: Alignment.bottomCenter,
+                clipBehavior: Clip.none,
                 children: [
-                  // Speaking Ripple Effect
-                  _buildHostRipple(),
-                  AppAvatar(
-                    imageUrl: u.profilePhotoUrl,
-                    frameUrl: u.profileFrame,
-                    vipTier: u.vipTier,
-                    radius: 40,
-                    showFrame: true,
-                    frameMultiplier: 1.5,
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      _buildHostRipple(),
+                      AppAvatar(
+                        imageUrl: u.profilePhotoUrl,
+                        frameUrl: displayFrame,
+                        vipTier: u.vipTier,
+                        radius: 32,
+                        showFrame: true,
+                        frameMultiplier: frameMult,
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    bottom: -4,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white10, width: 0.5),
+                      ),
+                      child: Text(
+                        u.displayName,
+                        style: const TextStyle(
+                          color: Colors.white, 
+                          fontSize: 10, 
+                          fontWeight: FontWeight.bold,
+                          shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
                   if (host.isMuted)
                      Positioned(
-                      bottom: 0, right: 0,
+                      top: 0, right: 0,
                       child: Container(
                         padding: const EdgeInsets.all(4),
                         decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                        child: const Icon(Icons.mic_off, color: Colors.white, size: 12),
+                        child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
                       ),
                     ),
                 ],
@@ -884,14 +980,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             },
             loading: () => const CircularProgressIndicator(),
             error: (e, __) => const Icon(Icons.error, color: Colors.red),
-          ),
-          const Gap(6),
-          userAsync.maybeWhen(
-            data: (user) => Text(
-              (user as UserModel).displayName,
-              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900, shadows: [Shadow(color: Colors.black, blurRadius: 4)]),
-            ),
-            orElse: () => const SizedBox.shrink(),
           ),
         ],
       ),
@@ -1119,7 +1207,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
-  void _onSeatTap(int index, List<Participant> participants) async {
+  void _onSeatTap(int index, List<Participant> participants, RoomModel room) async {
     final uid = ref.read(authStateProvider).value?.uid;
     if (uid == null) return;
 
@@ -1134,15 +1222,80 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
 
     if (participantOnSeat.uid.isEmpty) {
-      // Seat is empty - Join it or Switch to it
+      if (room.lockedSeats.contains(index)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("This seat is locked by host")),
+        );
+        return;
+      }
       await ref.read(roomServiceProvider).takeSeat(widget.roomId, index);
     } else if (participantOnSeat.uid == uid) {
-      // It's my seat - Leave it
       _showMySeatOptions(myParticipation);
     } else {
-      // Others' seat - Show user options
       _showUserOptions(participantOnSeat);
     }
+  }
+
+  void _onSeatLongPress(int index, RoomModel room) {
+    final myUid = ref.read(authStateProvider).value?.uid;
+    final isHostOrAdmin = room.ownerUid == myUid || room.admins.contains(myUid);
+    
+    if (!isHostOrAdmin) return;
+
+    final isLocked = room.lockedSeats.contains(index);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1E1E1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40, height: 4,
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+            ),
+            Text(
+              "Seat ${index + 1} Options",
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (isLocked ? Colors.greenAccent : Colors.redAccent).withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isLocked ? Icons.lock_open_rounded : Icons.lock_rounded, 
+                  color: isLocked ? Colors.greenAccent : Colors.redAccent,
+                ),
+              ),
+              title: Text(
+                isLocked ? "Unlock Seat" : "Lock Seat", 
+                style: const TextStyle(color: Colors.white),
+              ),
+              subtitle: Text(
+                isLocked ? "Allow users to take this seat" : "Prevent users from taking this seat",
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+              onTap: () async {
+                Navigator.pop(context);
+                await ref.read(roomServiceProvider).toggleSeatLock(room.roomId, index, !isLocked);
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
+        ),
+      ),
+    );
   }
 
   void _showMySeatOptions(Participant myPart) {
@@ -1166,10 +1319,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               onTap: () async {
                 Navigator.pop(context);
                 final newMuteStatus = !isCurrentlyMuted;
-                
-                // 1. Update Agora (actual audio)
                 await ref.read(voiceServiceProvider).muteLocalAudio(newMuteStatus);
-                // 2. Update Database (UI status for others)
                 await ref.read(roomServiceProvider).muteUser(widget.roomId, myPart.uid, newMuteStatus);
               },
             ),
@@ -1178,7 +1328,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               title: const Text("Leave Seat", style: TextStyle(color: Colors.redAccent)),
               onTap: () async {
                 Navigator.pop(context);
-                await ref.read(voiceServiceProvider).muteLocalAudio(true); // Auto-mute on leave
+                await ref.read(voiceServiceProvider).muteLocalAudio(true);
                 await ref.read(roomServiceProvider).leaveSeat(widget.roomId);
               },
             ),
@@ -1280,7 +1430,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildRoomEndedSummary() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        ref.read(voiceServiceProvider).leaveRoom(); // Safety leave
+        ref.read(voiceServiceProvider).leaveRoom();
         if (Navigator.canPop(context)) context.pop();
       }
     });

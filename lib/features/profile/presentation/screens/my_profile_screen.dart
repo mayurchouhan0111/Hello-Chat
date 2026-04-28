@@ -33,13 +33,13 @@ class MyProfileScreen extends ConsumerWidget {
             child: Column(
               children: [
                 _buildHeader(context, userData),
-                const Gap(24),
+                const Gap(12),
                 _buildStatsRow(userData),
-                const Gap(24),
+                const Gap(16),
                 _buildShortcutCards(context, userData),
-                const Gap(24),
+                const Gap(16),
                 _buildMenuList(context, userData),
-                const Gap(100), // Bottom nav spacer
+                const Gap(60), // Bottom nav spacer
               ],
             ),
           );
@@ -52,8 +52,8 @@ class MyProfileScreen extends ConsumerWidget {
     return Container(
       width: double.infinity,
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 10,
-        bottom: 30,
+        top: MediaQuery.of(context).padding.top + 6,
+        bottom: 12,
       ),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -77,11 +77,11 @@ class MyProfileScreen extends ConsumerWidget {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.settings_outlined, color: Colors.black87),
+                      icon: const Icon(Icons.settings_outlined, color: Colors.black87, size: 22),
                       onPressed: () => context.push(AppRoutes.settings),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.person_add_outlined, color: Colors.black87),
+                      icon: const Icon(Icons.person_add_outlined, color: Colors.black87, size: 22),
                       onPressed: () {},
                     ),
                   ],
@@ -89,17 +89,17 @@ class MyProfileScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const Gap(20),
+          const Gap(8),
           GestureDetector(
             onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
             child: Hero(
               tag: 'profile_avatar',
               child: AppAvatar(
                 imageUrl: userData.profilePhotoUrl,
-                radius: 54,
+                radius: 46,
                 vipTier: userData.vipTier,
                 frameUrl: userData.profileFrame,
-                frameMultiplier: 1.6,
+                frameMultiplier: 2.0,
               ),
             ),
           ),
@@ -107,7 +107,7 @@ class MyProfileScreen extends ConsumerWidget {
           Text(
             userData.displayName,
             style: const TextStyle(
-              fontSize: 22,
+              fontSize: 18,
               fontWeight: FontWeight.w900,
               color: Colors.black,
             ),
@@ -200,34 +200,33 @@ class MyProfileScreen extends ConsumerWidget {
         children: [
           _buildShortcutCard(
             label: "Lv.${userData.level}",
-            icon: Icons.diamond_rounded,
-            color: const Color(0xFFE0FBFF),
-            iconColor: const Color(0xFF00E5FF),
+            icon: Icons.auto_awesome_outlined,
+            color: const Color(0xFFF0FDFA),
+            iconColor: const Color(0xFF0D9488),
             onTap: () {},
           ),
           const Gap(10),
           _buildShortcutCard(
-            label: "Purchase VIP",
-            icon: Icons.vignette_rounded,
-            color: const Color(0xFFFFF3E0),
-            iconColor: const Color(0xFFFF9800),
+            label: "VIP Center",
+            icon: Icons.workspace_premium_outlined,
+            color: const Color(0xFFFFF7ED),
+            iconColor: const Color(0xFFEA580C),
             onTap: () => context.push(AppRoutes.vipShop),
           ),
           const Gap(10),
           _buildShortcutCard(
             label: "Family",
-            icon: Icons.groups_rounded,
-            color: const Color(0xFFFFF7E6),
-            iconColor: const Color(0xFFFFB300),
-            isFamily: true,
+            icon: Icons.groups_2_outlined,
+            color: const Color(0xFFF5F3FF),
+            iconColor: const Color(0xFF7C3AED),
             onTap: () => context.push(userData.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
           ),
           const Gap(10),
           _buildShortcutCard(
-            label: "Earn Money",
-            icon: Icons.card_membership_rounded,
-            color: const Color(0xFFE8F5FE),
-            iconColor: const Color(0xFF42A5F5),
+            label: "Earnings",
+            icon: Icons.monetization_on_outlined,
+            color: const Color(0xFFECFDF5),
+            iconColor: const Color(0xFF059669),
             onTap: () => context.push(AppRoutes.invite),
           ),
         ],
@@ -247,9 +246,9 @@ class MyProfileScreen extends ConsumerWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          height: 90,
+          height: 80,
           decoration: BoxDecoration(
-            color: color,
+            color: color.withOpacity(0.9),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Column(
@@ -285,43 +284,43 @@ class MyProfileScreen extends ConsumerWidget {
     return Column(
       children: [
         _buildMenuTile(
-          icon: Icons.analytics_outlined,
+          icon: Icons.insights_outlined,
           label: "Creator Center",
-          iconColor: const Color(0xFF26C6DA),
+          iconColor: const Color(0xFF0EA5E9),
           onTap: () {},
         ),
         _buildMenuTile(
-          icon: Icons.campaign_outlined,
+          icon: Icons.celebration_outlined,
           label: "Event Center",
-          iconColor: const Color(0xFF4DD0E1),
+          iconColor: const Color(0xFFF43F5E),
           trailing: _buildEventBanner(),
           onTap: () {},
         ),
         const Gap(12),
         _buildMenuTile(
-          icon: Icons.account_balance_wallet_outlined,
-          label: "Wallet",
-          iconColor: const Color(0xFFF06292),
+          icon: Icons.payments_outlined,
+          label: "My Wallet",
+          iconColor: const Color(0xFFF59E0B),
           onTap: () => context.push(AppRoutes.wallet),
         ),
         if (userData.isReseller)
           _buildMenuTile(
-            icon: Icons.store_rounded,
+            icon: Icons.storefront_outlined,
             label: "Reseller Center",
-            iconColor: const Color(0xFF10B981), // Emerald
+            iconColor: const Color(0xFF10B981),
             onTap: () => context.push(AppRoutes.resellerCenter),
           ),
         _buildMenuTile(
           icon: Icons.inventory_2_outlined,
           label: "Item Bag",
-          iconColor: const Color(0xFFFFB74D),
+          iconColor: const Color(0xFF8B5CF6),
           count: 1,
           onTap: () => context.push(AppRoutes.propWarehouse),
         ),
         _buildMenuTile(
-          icon: Icons.post_add_rounded,
-          label: "Post",
-          iconColor: const Color(0xFF4DB6AC),
+          icon: Icons.dynamic_feed_outlined,
+          label: "My Posts",
+          iconColor: const Color(0xFF64748B),
           onTap: () {},
         ),
       ],
@@ -372,7 +371,7 @@ class MyProfileScreen extends ConsumerWidget {
             const Icon(Icons.chevron_right, color: Color(0xFFBDBDBD)),
           ],
         ),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
       ),
     );
   }

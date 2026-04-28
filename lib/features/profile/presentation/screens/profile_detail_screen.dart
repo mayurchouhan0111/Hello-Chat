@@ -267,7 +267,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 radius: 50,
                 vipTier: userData.vipTier,
                 frameUrl: userData.profileFrame,
-                frameMultiplier: 1.8,
+                frameMultiplier: 2.0,
               ),
             ],
           ),
@@ -641,7 +641,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           // 2. Contribution Card (Top List)
           SizedBox(
             width: 160,
-            child: _buildContributionCard(),
+            child: _buildContributionCard(userData),
           ),
         ],
       ),
@@ -650,34 +650,74 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
 
   // ... (Other methods) ...
 
-  Widget _buildContributionCard() {
-    return GestureDetector(
-      onTap: () => context.push(AppRoutes.leaderboard),
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black.withOpacity(0.04)),
-        ),
-        child: Row(
-          children: [
-            Row(
-              children: List.generate(3, (index) => Transform.translate(
-                offset: Offset(index * -8.0, 0),
-                child: Container(
-                  decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)),
-                  child: CircleAvatar(radius: 12, backgroundImage: NetworkImage("https://picsum.photos/seed/${index+20}/50")),
+  Widget _buildContributionCard(UserModel userData) {
+    debugPrint("Building contribution card for: ${userData.uid}");
+    final contributorsAsync = ref.watch(topContributorsProvider(userData.uid));
+    
+    return contributorsAsync.when(
+      data: (contributors) {
+        return GestureDetector(
+          onTap: () => context.push(AppRoutes.leaderboard),
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.black.withOpacity(0.05)),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+              ],
+            ),
+            child: Row(
+              children: [
+                if (contributors.isEmpty)
+                   Container(
+                     padding: const EdgeInsets.all(4),
+                     decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), shape: BoxShape.circle),
+                     child: const Icon(Icons.stars_rounded, color: Colors.amber, size: 20),
+                   )
+                else
+                  SizedBox(
+                    height: 24,
+                    width: 40,
+                    child: Stack(
+                      children: List.generate(contributors.length.clamp(0, 3), (index) {
+                        final c = contributors[index];
+                        final avatar = c['photoUrl'] ?? c['avatarUrl'] ?? "";
+                        return Positioned(
+                          left: index * 10.0,
+                          child: Container(
+                            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)),
+                            child: CircleAvatar(
+                              radius: 11, 
+                              backgroundColor: Colors.grey[100],
+                              backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
+                              child: avatar.isEmpty ? const Icon(Icons.person, size: 10, color: Colors.grey) : null,
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text("Top List", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Colors.black87), overflow: TextOverflow.ellipsis),
                 ),
-              )),
+                const Icon(Icons.chevron_right_rounded, color: Colors.black26, size: 14),
+              ],
             ),
-            const SizedBox(width: 4),
-            const Expanded(
-              child: Text("Top List", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 10, color: Colors.black87), overflow: TextOverflow.ellipsis),
-            ),
-          ],
-        ),
+          ),
+        );
+      },
+      loading: () => Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.black.withOpacity(0.05))),
+        child: const Row(children: [SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), Text("Loading...", style: TextStyle(fontSize: 10))]),
       ),
+      error: (e, s) {
+        debugPrint("Error loading contributors: $e");
+        return const SizedBox.shrink();
+      },
     );
   }
 
@@ -765,24 +805,38 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildTabs(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+    return Container(
+      height: 50,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey[50],
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: TabBar(
         controller: _tabController,
         isScrollable: false,
         labelColor: Colors.black,
-        unselectedLabelColor: Colors.black38,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
-        indicatorSize: TabBarIndicatorSize.tab,
+        unselectedLabelColor: Colors.black26,
+        labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+        indicatorSize: TabBarIndicatorSize.label,
         indicatorColor: AppColors.primary,
         indicatorWeight: 3,
         dividerColor: Colors.transparent,
         labelPadding: EdgeInsets.zero,
         tabs: const [
-          Tab(text: "Profile"), 
-          Tab(text: "Moments"),
-          Tab(text: "Dino")
+          Tab(
+            icon: Icon(Icons.account_circle_outlined, size: 22),
+            text: "Profile",
+          ), 
+          Tab(
+            icon: Icon(Icons.auto_awesome_mosaic_outlined, size: 22),
+            text: "Moments",
+          ),
+          Tab(
+            icon: Icon(Icons.pets_outlined, size: 20),
+            text: "Dino",
+          )
         ],
       ),
     );
@@ -797,8 +851,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       return _buildDinoTab(context, userData);
     }
 
-    return SingleChildScrollView(
-      physics: const NeverScrollableScrollPhysics(),
+    return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

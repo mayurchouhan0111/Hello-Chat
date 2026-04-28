@@ -42,6 +42,7 @@ class RoomModel {
   final Map<String, dynamic>? pkChallenge;
   final Map<String, dynamic>? pkContributions;
   final Map<String, dynamic>? pkWinnerData;
+  final List<int> lockedSeats;
 
   RoomModel({
     required this.roomId,
@@ -85,6 +86,7 @@ class RoomModel {
     this.pkChallenge,
     this.pkContributions,
     this.pkWinnerData,
+    this.lockedSeats = const [],
   });
 
   Map<String, dynamic> toMap() {
@@ -130,6 +132,7 @@ class RoomModel {
       'pkChallenge': pkChallenge,
       'pkContributions': pkContributions,
       'pkWinnerData': pkWinnerData,
+      'lockedSeats': lockedSeats,
     };
   }
 
@@ -176,6 +179,7 @@ class RoomModel {
       pkChallenge: map['pkChallenge'] != null ? Map<String, dynamic>.from(map['pkChallenge']) : null,
       pkContributions: map['pkContributions'] != null ? Map<String, dynamic>.from(map['pkContributions']) : null,
       pkWinnerData: map['pkWinnerData'] != null ? Map<String, dynamic>.from(map['pkWinnerData']) : null,
+      lockedSeats: (map['lockedSeats'] as Iterable?)?.whereType<int>().toList() ?? [],
     );
   }
 

@@ -175,7 +175,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           itemBuilder: (context, index) {
             final room = rooms[index];
             return ListTile(
-              onTap: () => context.push(AppRoutes.liveRoom, extra: room.roomId),
+            onTap: () => context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': room.roomId}),
               leading: Container(
                 width: 48, height: 48,
                 decoration: BoxDecoration(

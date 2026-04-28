@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/services/broadcast_service.dart';
 
 
 class ChatWidget extends ConsumerWidget {
@@ -27,13 +28,19 @@ class ChatWidget extends ConsumerWidget {
         final visibleMessages = messages.where((m) => !blocked.contains(m.uid)).toList();
 
 
+        final broadcasts = ref.watch(activeBroadcastsProvider).value ?? [];
+        final hasBroadcast = broadcasts.isNotEmpty;
+
         return ListView.builder(
           reverse: true,
           shrinkWrap: true,
           physics: const BouncingScrollPhysics(),
-          itemCount: visibleMessages.length,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: visibleMessages.length + (hasBroadcast ? 1 : 0),
+          padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
           itemBuilder: (context, index) {
+            if (hasBroadcast && index == visibleMessages.length) {
+              return _buildBroadcastTile(broadcasts.first.message);
+            }
             final msg = visibleMessages[index];
             return _buildMessageTile(ref, msg);
           },
@@ -45,13 +52,19 @@ class ChatWidget extends ConsumerWidget {
   }
 
   Widget _buildBasicList(WidgetRef ref, List<RoomMessage> msgs) {
+    final broadcasts = ref.watch(activeBroadcastsProvider).value ?? [];
+    final hasBroadcast = broadcasts.isNotEmpty;
+
     return ListView.builder(
       reverse: true,
       shrinkWrap: true,
       physics: const BouncingScrollPhysics(),
-      itemCount: msgs.length,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: msgs.length + (hasBroadcast ? 1 : 0),
+      padding: const EdgeInsets.fromLTRB(16, 40, 16, 12),
       itemBuilder: (context, index) {
+        if (hasBroadcast && index == msgs.length) {
+          return _buildBroadcastTile(broadcasts.first.message);
+        }
         final msg = msgs[index];
         return _buildMessageTile(ref, msg);
       },
@@ -86,7 +99,7 @@ class ChatWidget extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withOpacity(0.5),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: Colors.white.withOpacity(0.1), width: 0.5),
               ),
@@ -127,6 +140,27 @@ class ChatWidget extends ConsumerWidget {
         },
         loading: () => const SizedBox(),
         error: (_, __) => const SizedBox(),
+      ),
+    );
+  }
+
+  Widget _buildBroadcastTile(String text) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF673AB7).withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12, width: 0.5),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: Color(0xFF00E5FF),
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          height: 1.4,
+        ),
       ),
     );
   }

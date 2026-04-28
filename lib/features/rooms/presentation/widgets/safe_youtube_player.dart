@@ -125,6 +125,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'StateChange',
                   callback: (args) {
+                    if (!mounted) return;
                     final state = _safeInt(args.first);
                     switch (state) {
                       case -1:
@@ -152,6 +153,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'PlaybackQualityChange',
                   callback: (args) {
+                    if (!mounted) return;
                     widget.controller.updateValue(
                       widget.controller.value.copyWith(playbackQuality: args.first.toString()),
                     );
@@ -160,6 +162,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'PlaybackRateChange',
                   callback: (args) {
+                    if (!mounted) return;
                     widget.controller.updateValue(
                       widget.controller.value.copyWith(playbackRate: _safeDouble(args.first)),
                     );
@@ -168,6 +171,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'Errors',
                   callback: (args) {
+                    if (!mounted) return;
                     final errorCode = _safeInt(args.first);
                     widget.controller.updateValue(widget.controller.value.copyWith(errorCode: errorCode));
                   },
@@ -175,6 +179,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'VideoData',
                   callback: (args) {
+                    if (!mounted) return;
                     try {
                       final data = args.first;
                       widget.controller.updateValue(
@@ -189,6 +194,7 @@ class _SafeYoutubePlayerState extends State<SafeYoutubePlayer> with WidgetsBindi
                 ..addJavaScriptHandler(
                   handlerName: 'VideoTime',
                   callback: (args) {
+                    if (!mounted) return;
                     final position = _safeDouble(args.first) * 1000;
                     final buffered = _safeDouble(args.last);
                     widget.controller.updateValue(

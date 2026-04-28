@@ -22,7 +22,7 @@ class AppAvatar extends ConsumerWidget {
     this.vipTier,
     this.radius = 20.0,
     this.showFrame = true,
-    this.frameMultiplier = 1.6,
+    this.frameMultiplier = 1.75,
   });
 
   @override
@@ -53,31 +53,17 @@ class AppAvatar extends ConsumerWidget {
       alignment: Alignment.center,
       clipBehavior: Clip.none,
       children: [
-        // 1. The VIP Frame Layer (Background)
-        if (showFrame && finalFrameUrl.isNotEmpty)
-          Positioned(
-            child: SizedBox(
-              width: frameSize,
-              height: frameSize,
-              child: (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
-                ? Image.network(
-                    finalFrameUrl,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  )
-                : const SizedBox.shrink(),
-            ).animate(onPlay: (c) => c.repeat(reverse: true))
-             .scale(begin: const Offset(1, 1), end: const Offset(1.05, 1.05), duration: 3.seconds),
-          ),
-
-        // 2. The Base Avatar (Foreground)
+        // 1. The Base Avatar (Background Layer)
         Container(
           width: avatarSize,
           height: avatarSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: AppColors.surfaceLight,
-            border: Border.all(color: Colors.white, width: 1.0),
+            border: Border.all(color: Colors.white, width: 0.5),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, spreadRadius: 0),
+            ],
           ),
           child: ClipOval(
             child: imageUrl.isNotEmpty
@@ -90,6 +76,23 @@ class AppAvatar extends ConsumerWidget {
                 : Icon(Icons.person, color: AppColors.textTertiary, size: radius),
           ),
         ),
+
+        // 2. The VIP Frame Layer (Foreground Layer - Overlay)
+        if (showFrame && finalFrameUrl.isNotEmpty)
+          IgnorePointer(
+            child: SizedBox(
+              width: frameSize,
+              height: frameSize,
+              child: (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
+                ? Image.network(
+                    finalFrameUrl,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  )
+                : const SizedBox.shrink(),
+            ).animate(onPlay: (c) => c.repeat(reverse: true))
+             .scale(begin: const Offset(1, 1), end: const Offset(1.03, 1.03), duration: 2.seconds),
+          ),
       ],
     );
   }

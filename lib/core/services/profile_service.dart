@@ -10,9 +10,9 @@ class ProfileService extends BaseFirebaseService {
   final CloudinaryService _cloudinary = CloudinaryService();
 
   // Stream of user profile
-  Stream<UserModel> getProfileStream(String uid) {
+  Stream<UserModel?> getProfileStream(String uid) {
     return _db.collection('users').doc(uid).snapshots().map((snapshot) {
-      if (!snapshot.exists) throw Exception("User Not Found");
+      if (!snapshot.exists) return null;
       final data = snapshot.data();
       return UserModel.fromMap(Map<String, dynamic>.from(data as Map));
     });

@@ -33,16 +33,26 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         verificationId: widget.verificationId,
         smsCode: pin,
       );
-      await ref.read(authServiceProvider).signInWithCredential(credential);
-      ref.invalidate(currentUserStreamProvider);
+      // 🚀 Step 1: Perform the sign-in with a 15-second timeout safety
+      await ref.read(authServiceProvider).signInWithCredential(credential)
+          .timeout(const Duration(seconds: 15));
       
-      // Auth state listener in router or main will handle navigation
-      if (mounted) context.go(AppRoutes.profileSetup);
+      // 🚀 Step 2: Clear loading immediately on success
+      if (mounted) setState(() => _isLoading = false);
+      
+      // 🚀 Step 3: Background clean up
+      Future.microtask(() => ref.invalidate(currentUserStreamProvider));
+      
+      // 🚀 Step 4: Safety Jump (If router is slow, we move manually)
+      if (mounted) {
+        debugPrint('--- [OTP SUCCESS: Moving to Home] ---');
+        context.go(AppRoutes.home);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
+          SnackBar(content: Text("Verification Failed: ${e.toString()}")),
         );
       }
     }

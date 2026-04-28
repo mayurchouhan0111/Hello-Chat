@@ -16,6 +16,8 @@ import 'core/services/config_service.dart';
 import 'core/providers/profile_provider.dart';
 import 'core/widgets/location_listener.dart';
 import 'core/widgets/global_presence_observer.dart';
+import 'core/widgets/floating_room_overlay.dart';
+import 'core/widgets/global_notification_overlay.dart';
 
 
 
@@ -111,20 +113,30 @@ class HelloChatApp extends ConsumerWidget {
           theme: appTheme,
           routerConfig: router,
           builder: (context, child) {
-            return Stack(
-              children: [
-                if (child != null) child,
-                
-                // 🛡️ Maintenance Overlay
-                configAsync.maybeWhen(
-                  data: (config) {
-                    final isAdmin = profileAsync.value?.isAdmin ?? false;
-                    if (config.isMaintenance && !isAdmin) {
-                       return _buildMaintenanceScreen();
-                    }
-                    return const SizedBox.shrink();
-                  },
-                  orElse: () => const SizedBox.shrink(),
+            return Overlay(
+              initialEntries: [
+                OverlayEntry(
+                  builder: (context) => Stack(
+                    children: [
+                      if (child != null) 
+                        GlobalNotificationOverlay(child: child),
+                      
+                      // 🛡️ Maintenance Overlay
+                      configAsync.maybeWhen(
+                        data: (config) {
+                          final isAdmin = profileAsync.value?.isAdmin ?? false;
+                          if (config.isMaintenance && !isAdmin) {
+                             return _buildMaintenanceScreen();
+                          }
+                          return const SizedBox.shrink();
+                        },
+                        orElse: () => const SizedBox.shrink(),
+                      ),
+
+                      // 💺 Room PIP Overlay
+                      const FloatingRoomOverlay(),
+                    ],
+                  ),
                 ),
               ],
             );

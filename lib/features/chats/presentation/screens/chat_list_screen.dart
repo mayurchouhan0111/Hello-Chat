@@ -177,10 +177,10 @@ class _ChatListItem extends ConsumerWidget {
             // 1. Avatar
             profileAsync.when(
               data: (user) => AppAvatar(
-                imageUrl: (user as UserModel).profilePhotoUrl,
+                imageUrl: user?.profilePhotoUrl ?? '',
                 radius: 24,
-                vipTier: (user as UserModel).vipTier,
-                frameUrl: (user as UserModel).profileFrame,
+                vipTier: user?.vipTier,
+                frameUrl: user?.profileFrame,
               ),
               loading: () => CircleAvatar(radius: 24, backgroundColor: Colors.grey[100]),
               error: (_, __) => const CircleAvatar(radius: 24, child: Icon(Icons.person)),
@@ -194,7 +194,7 @@ class _ChatListItem extends ConsumerWidget {
                 children: [
                   profileAsync.when(
                     data: (user) => Text(
-                      (user as UserModel).displayName,
+                      user?.displayName ?? "Hello Chat User",
                       style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,

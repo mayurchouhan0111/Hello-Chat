@@ -132,11 +132,76 @@ exports.onUserWrite = functions.firestore.document("users/{uid}").onWrite(async 
     const after = change.after.data();
     if (!after) return null; // Deleted
 
-    if (!after.helloId) {
-        console.log(`[ID_FIX] Assigning helloId to user ${context.params.uid}`);
-        const helloId = Math.floor(1000000000 + Math.random() * 9000000000);
-        return change.after.ref.update({ helloId: helloId });
+    const existingId = after.helloId;
+    
+    // 🛡️ Robust ID Fix: Assign if missing OR convert if string
+    if (!existingId || typeof existingId === "string") {
+        let newId;
+        if (typeof existingId === "string" && !isNaN(parseInt(existingId))) {
+            newId = parseInt(existingId);
+            console.log(`[ID_FIX] Converting string helloId to number for user ${context.params.uid}`);
+        } else {
+            console.log(`[ID_FIX] Assigning new helloId to user ${context.params.uid}`);
+            newId = Math.floor(1000000000 + Math.random() * 9000000000);
+        }
+        return change.after.ref.update({ helloId: newId });
     }
+    return null;
+});
+
+/**
+ * --- SVIP SYSTEM (SPENDING BASED) ---
+ */
+const SVIP_THRESHOLDS = [
+    { level: 1, points: 10000000 },
+    { level: 2, points: 30000000 },
+    { level: 3, points: 50000000 },
+    { level: 4, points: 100000000 },
+    { level: 5, points: 200000000 },
+    { level: 6, points: 300000000 },
+    { level: 7, points: 500000000 },
+];
+
+function calculateSVIPLevel(points) {
+    let level = 0;
+    for (const threshold of SVIP_THRESHOLDS) {
+        if (points >= threshold.points) {
+            level = threshold.level;
+        } else {
+            break;
+        }
+    }
+    return level;
+}
+
+exports.onUserBalanceUpdate = functions.firestore.document("users/{uid}").onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    const oldDiamonds = before.diamondBalance || 0;
+    const newDiamonds = after.diamondBalance || 0;
+
+    // Track SPENDING only (when diamonds decrease)
+    if (newDiamonds < oldDiamonds) {
+        const spentAmount = oldDiamonds - newDiamonds;
+        const currentPoints = after.svipPoints || 0;
+        const newPoints = currentPoints + spentAmount;
+        
+        const currentLevel = after.svipLevel || 0;
+        const nextLevel = calculateSVIPLevel(newPoints);
+
+        const updates = {
+            svipPoints: newPoints
+        };
+
+        if (nextLevel > currentLevel) {
+            updates.svipLevel = nextLevel;
+            updates.svipLastPromotionAt = admin.firestore.FieldValue.serverTimestamp();
+        }
+
+        return change.after.ref.update(updates);
+    }
+
     return null;
 });
 
@@ -221,11 +286,17 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
         const userDoc = await transaction.get(userRef);
 
 
-        // Safety: If helloId is missing (e.g. initial trigger failed), assign it now
+        // Safety: If helloId is missing or wrong type (e.g. initial trigger failed), assign it now
         const existingData = userDoc.data() || {};
+        const existingId = existingData.helloId;
         const helloIdUpdates = {};
-        if (!existingData.helloId) {
-            helloIdUpdates.helloId = Math.floor(1000000000 + Math.random() * 9000000000);
+        
+        if (!existingId || typeof existingId === "string") {
+            if (typeof existingId === "string" && !isNaN(parseInt(existingId))) {
+                helloIdUpdates.helloId = parseInt(existingId);
+            } else {
+                helloIdUpdates.helloId = Math.floor(1000000000 + Math.random() * 9000000000);
+            }
         }
 
         // If username is changing, verify it's available
@@ -1085,8 +1156,54 @@ exports.invitePKChallenge = onCall({
             pkPhase: "none"
         });
 
+        // 🔔 Also send a Global Notification so they can join from anywhere
+        const notificationRef = db.collection("users").doc(targetUid).collection("notifications").doc();
+        transaction.set(notificationRef, {
+            type: "pk_invitation",
+            senderUid: senderUid,
+            senderName: senderDoc.data()?.displayName || "Host",
+            roomId: roomId,
+            roomName: roomData.name || "Live Room",
+            status: "pending",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            expiresAt: admin.firestore.Timestamp.fromMillis(expiresAt)
+        });
+
         return { success: true };
     });
+});
+
+/**
+ * 13c. Send Room Invitation
+ */
+exports.sendRoomInvitation = onCall({
+    enforceAppCheck: false,
+    region: "us-central1"
+}, async (request) => {
+    const { roomId, targetUid, senderUid: manualUid } = request.data;
+    const { auth } = request;
+
+    let senderUid = auth ? auth.uid : manualUid;
+    if (!senderUid) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const senderDoc = await db.collection("users").doc(senderUid).get();
+    const roomDoc = await db.collection("rooms").doc(roomId).get();
+
+    if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+
+    const notificationRef = db.collection("users").doc(targetUid).collection("notifications").doc();
+    await notificationRef.set({
+        type: "room_invitation",
+        senderUid: senderUid,
+        senderName: senderDoc.data()?.displayName || "A friend",
+        roomId: roomId,
+        roomName: roomDoc.data()?.name || "Live Room",
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 60 * 60 * 1000) // 1 hour
+    });
+
+    return { success: true };
 });
 
 /**
@@ -2581,12 +2698,12 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
     for (const roomDoc of activeRooms.docs) {
         const participants = await roomDoc.ref.collection("participants").get();
         if (participants.empty) {
-            console.log(`[PRESENCE] Ending empty room: ${roomDoc.id}`);
-            await roomDoc.ref.update({ 
-                status: "ended", 
-                endedAt: admin.firestore.FieldValue.serverTimestamp(),
-                currentUsersCount: 0 
-            });
+            console.log(`[PRESENCE] Inactive empty room detected: ${roomDoc.id} (Keeping active)`);
+            // await roomDoc.ref.update({ 
+            //     status: "ended", 
+            //     endedAt: admin.firestore.FieldValue.serverTimestamp(),
+            //     currentUsersCount: 0 
+            // });
             continue;
         }
 
@@ -2618,7 +2735,8 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
                 console.log(`[PRESENCE] Promoting new host for room: ${roomDoc.id}`);
                 await remaining.docs[0].ref.update({ role: 'host' });
             } else {
-                await roomDoc.ref.update({ status: "ended", endedAt: admin.firestore.FieldValue.serverTimestamp() });
+                console.log(`[PRESENCE] Host left empty room ${roomDoc.id}. Keeping room open.`);
+                // await roomDoc.ref.update({ status: "ended", endedAt: admin.firestore.FieldValue.serverTimestamp() });
             }
         }
     }
@@ -2687,14 +2805,14 @@ exports.onParticipantRemoved = functions.firestore.document("rooms/{roomId}/part
         const roomSnap = await transaction.get(roomRef);
 
         if (participantsSnap.empty) {
-            console.log(`[LIFECYCLE] Room ${roomId} empty. Ending.`);
-            transaction.update(roomRef, { 
-                status: "ended", 
-                endedAt: admin.firestore.FieldValue.serverTimestamp(),
-                currentUsersCount: 0,
-                pkActive: false,
-                pkChallenge: null
-            });
+            console.log(`[LIFECYCLE] Room ${roomId} empty. (Keeping room active)`);
+            // transaction.update(roomRef, { 
+            //     status: "ended", 
+            //     endedAt: admin.firestore.FieldValue.serverTimestamp(),
+            //     currentUsersCount: 0,
+            //     pkActive: false,
+            //     pkChallenge: null
+            // });
         } else {
             const roomData = roomSnap.data();
             const leaverUid = context.params.uid;
@@ -3016,8 +3134,20 @@ exports.updateDiamondPackage = functions.https.onCall(async (data, context) => {
 });
 
 exports.getDiamondPackages = functions.https.onCall(async (data, context) => {
-    const snap = await db.collection("diamond_packages").where("isDeleted", "==", false).orderBy("price", "asc").get();
-    return { packages: snap.docs.map(doc => ({ id: doc.id, ...doc.data() })) };
+    try {
+        const snap = await db.collection("diamond_packages")
+            .where("isDeleted", "==", false)
+            .get();
+        
+        // Sort manually to avoid index requirement for simple listing
+        const packages = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        packages.sort((a, b) => (a.price || 0) - (b.price || 0));
+        
+        return { packages };
+    } catch (err) {
+        console.error("GET_PACKAGES_ERROR:", err);
+        throw new functions.https.HttpsError("internal", err.message);
+    }
 });
 
 exports.getResellerHistory = functions.https.onCall(async (data, context) => {
@@ -3028,18 +3158,22 @@ exports.getResellerHistory = functions.https.onCall(async (data, context) => {
         const callerDoc = await db.collection("users").doc(uid).get();
         const tags = (callerDoc.data() || {}).tags || [];
         const isPrivileged = tags.includes("Admin") || tags.includes("SuperAdmin");
+        
         let query = db.collection("transactions");
         if (targetUid) query = query.where("senderId", "==", targetUid);
         else if (!isPrivileged) query = query.where("senderId", "==", uid);
         
-        const snap = await query.orderBy("timestamp", "desc").limit(parseInt(limitCount)).get();
+        // Remove orderBy to avoid index requirement for now if not set
+        const snap = await query.limit(parseInt(limitCount)).get();
         const transactions = snap.docs.map(doc => ({ 
             id: doc.id, 
             ...doc.data(), 
-            timestamp: doc.data().timestamp ? doc.data().timestamp.toDate().toISOString() : null 
+            timestamp: doc.data().timestamp ? (doc.data().timestamp.toDate ? doc.data().timestamp.toDate().toISOString() : doc.data().timestamp) : null 
         }));
 
-        // Diagnostic Stub: Always return at least one entry to verify connection
+        // Sort manually
+        transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
         if (transactions.length === 0) {
             transactions.push({
                 id: "DIAGNOSTIC_STUB",
@@ -3053,6 +3187,7 @@ exports.getResellerHistory = functions.https.onCall(async (data, context) => {
 
         return { transactions };
     } catch (err) {
+        console.error("GET_HISTORY_ERROR:", err);
         throw new functions.https.HttpsError("internal", err.message);
     }
 });

@@ -71,9 +71,13 @@ class RoomService with BaseFirebaseService {
     final batch = _db.batch();
     batch.set(roomRef, roomData);
     
+    final userDoc = await _db.collection('users').doc(uid).get();
+    final userDataProfile = userDoc.data() as Map<String, dynamic>?;
+
     final participantData = {
       'uid': uid,
-      'displayName': 'Host',
+      'displayName': userDataProfile?['displayName'] ?? 'Host',
+      'profilePhotoUrl': userDataProfile?['profilePhotoUrl'] ?? '',
       'role': 'owner',
       'joinedAt': FieldValue.serverTimestamp(),
       'lastActive': FieldValue.serverTimestamp(),
@@ -94,10 +98,16 @@ class RoomService with BaseFirebaseService {
     final userRef = _db.collection('users').doc(uid);
 
     await _db.runTransaction((transaction) async {
+      final userSnapshot = await transaction.get(userRef);
+      final userData = userSnapshot.data() as Map<String, dynamic>?;
+      final displayName = userData?['displayName'] ?? 'Guest';
+      final photoUrl = userData?['profilePhotoUrl'] ?? '';
+
       // 1. Add participant
       transaction.set(roomRef.collection('participants').doc(uid), {
         'uid': uid,
-        'displayName': 'Guest',
+        'displayName': displayName,
+        'profilePhotoUrl': photoUrl,
         'role': 'audience',
         'joinedAt': FieldValue.serverTimestamp(),
         'lastActive': FieldValue.serverTimestamp(),
@@ -239,6 +249,17 @@ class RoomService with BaseFirebaseService {
     });
   }
 
+  Future<void> sendRoomInvitation({
+    required String roomId,
+    required String targetUid,
+  }) async {
+    await callFunction('sendRoomInvitation', {
+      'roomId': roomId,
+      'targetUid': targetUid,
+      'senderUid': FirebaseAuth.instance.currentUser?.uid,
+    });
+  }
+
   Future<void> respondToPKChallenge({
     required String roomId,
     required bool accepted,
@@ -376,5 +397,17 @@ class RoomService with BaseFirebaseService {
       'youtubeVideoId': FieldValue.delete(),
       'youtubeStatus': 'stopped',
     });
+  }
+  Future<void> toggleSeatLock(String roomId, int index, bool lock) async {
+    final roomRef = _db.collection('rooms').doc(roomId);
+    if (lock) {
+      await roomRef.update({
+        'lockedSeats': FieldValue.arrayUnion([index])
+      });
+    } else {
+      await roomRef.update({
+        'lockedSeats': FieldValue.arrayRemove([index])
+      });
+    }
   }
 }

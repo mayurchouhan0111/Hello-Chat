@@ -17,6 +17,8 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/models/user_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:math';
+import '../widgets/gift_animation_overlay.dart';
+import '../widgets/room_invite_sheet.dart';
 
 class PKBattleArenaScreen extends ConsumerWidget {
   final RoomModel room;
@@ -36,64 +38,78 @@ class PKBattleArenaScreen extends ConsumerWidget {
       textDirection: TextDirection.ltr,
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Stack(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    const Color(0xFF0F172A),
-                    Colors.black,
-                    const Color(0xFF1E1B4B),
-                  ],
+        body: GiftAnimationOverlay(
+          roomId: room.roomId,
+          child: Stack(
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF0F172A),
+                      Colors.black,
+                      const Color(0xFF1E1B4B),
+                    ],
+                  ),
+                ),
+                child: SafeArea(
+                  child: Column(
+                    children: [
+                      // 1. Top Header (Minimalist)
+                      _buildHeader(context, ref, myUid),
+  
+                      // 2. The Battle Scoreboard (Timer + Progress)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: PKBattleWidget(room: room),
+                      ),
+  
+                      // 3. The Arena (Split Grid)
+                      Expanded(
+                        child: ActivePKBattleGrid(
+                          room: room,
+                          participants: participants,
+                        ),
+                      ),
+  
+                      // 4. Chat Feed (Compact)
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 180),
+                        child: ShaderMask(
+                          shaderCallback: (Rect bounds) {
+                            return const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.white],
+                              stops: [0.0, 0.2],
+                            ).createShader(bounds);
+                          },
+                          blendMode: BlendMode.dstIn,
+                          child: ref.watch(roomMessagesProvider(room.roomId)).when(
+                            data: (msgs) => ChatWidget(messages: msgs),
+                            loading: () => const SizedBox.shrink(),
+                            error: (_, __) => const SizedBox.shrink(),
+                          ),
+                        ),
+                      ),
+  
+                      // 5. Action Bar (Locked to essentials)
+                      _buildPKBottomBar(context, ref),
+                    ],
+                  ),
                 ),
               ),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    // 1. Top Header (Minimalist)
-                    _buildHeader(context, ref, myUid),
-
-                    // 2. The Battle Scoreboard (Timer + Progress)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: PKBattleWidget(room: room),
-                    ),
-
-                    // 3. The Arena (Split Grid)
-                    Expanded(
-                      child: ActivePKBattleGrid(
-                        room: room,
-                        participants: participants,
-                      ),
-                    ),
-
-                    // 4. Chat Feed (Compact)
-                    SizedBox(
-                      height: 150,
-                      child: ref.watch(roomMessagesProvider(room.roomId)).when(
-                        data: (msgs) => ChatWidget(messages: msgs),
-                        loading: () => const SizedBox.shrink(),
-                        error: (_, __) => const SizedBox.shrink(),
-                      ),
-                    ),
-
-                    // 5. Action Bar (Locked to essentials)
-                    _buildPKBottomBar(context, ref),
-                  ],
-                ),
-              ),
-            ),
-            
-            // 🎭 MATCH START OVERLAY ... (Existing)
-            _buildMatchStartOverlay(),
-
-            // 🏆 WINNER RESULT OVERLAY
-            if (room.pkPhase == 'finished' || (room.pkActive == false && room.pkWinnerUid != null))
-              _PKResultOverlay(room: room),
-          ],
+              
+              // 🎭 MATCH START OVERLAY ... (Existing)
+              _buildMatchStartOverlay(),
+  
+              // 🏆 WINNER RESULT OVERLAY
+              if (room.pkPhase == 'finished' || (room.pkActive == false && room.pkWinnerUid != null))
+                _PKResultOverlay(room: room),
+            ],
+          ),
         ),
       ),
     );
@@ -163,6 +179,19 @@ class PKBattleArenaScreen extends ConsumerWidget {
                         room.name, 
                         style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
                         overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const Gap(8),
+                    GestureDetector(
+                      onTap: () => showModalBottomSheet(
+                        context: context,
+                        backgroundColor: Colors.transparent,
+                        builder: (context) => RoomInviteSheet(roomId: room.roomId),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(color: Colors.pinkAccent, shape: BoxShape.circle),
+                        child: const Icon(Icons.add, color: Colors.white, size: 10),
                       ),
                     ),
                   ],

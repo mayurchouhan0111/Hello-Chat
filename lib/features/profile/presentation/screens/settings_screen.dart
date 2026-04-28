@@ -86,18 +86,51 @@ class SettingsScreen extends ConsumerWidget {
 
   Widget _buildLogoutButton(WidgetRef ref, BuildContext context) {
     return ElevatedButton(
-      onPressed: () => ref.read(authServiceProvider).logout(),
+      onPressed: () => _showLogoutConfirmation(context, ref),
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.redAccent,
+        backgroundColor: const Color(0xFFFFF1F1),
+        foregroundColor: Colors.red,
         elevation: 0,
         minimumSize: const Size(double.infinity, 54),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.redAccent.withOpacity(0.2)),
+          side: const BorderSide(color: Colors.red, width: 1),
         ),
       ),
-      child: const Text("Logout", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.logout_rounded, size: 20),
+          Gap(10),
+          Text("LOG OUT OF ACCOUNT", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
+        ],
+      ),
+    );
+  }
+
+  void _showLogoutConfirmation(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Log Out?", style: TextStyle(fontWeight: FontWeight.w900)),
+        content: const Text("Are you sure you want to leave? You'll need to verify your phone number again next time.", style: TextStyle(fontSize: 13, color: Colors.black54)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context); // Close dialog
+              ref.read(authServiceProvider).logout();
+              // The global router will handle the redirect to Login
+            },
+            child: const Text("LOG OUT", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 }

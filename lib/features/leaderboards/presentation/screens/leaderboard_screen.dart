@@ -3,6 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hello_chat/core/router/app_router.dart';
+import 'contribution_ranking_screen.dart';
 
 class LeaderboardScreen extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -19,53 +22,71 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialIndex);
+    _tabController.addListener(() => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
-        leading: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white), onPressed: () => Navigator.pop(context)),
-        title: const Text("GLOBAL RANKINGS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 1.5)),
+        scrolledUnderElevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20), 
+          onPressed: () => Navigator.pop(context)
+        ),
+        title: const Text("RANKINGS", style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 17)),
         centerTitle: true,
-      ),
-      body: Column(
-        children: [
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.05), borderRadius: BorderRadius.circular(16)),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(48),
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: Colors.grey[100]!, width: 1)),
+            ),
             child: TabBar(
               controller: _tabController,
               isScrollable: true,
-              indicator: BoxDecoration(borderRadius: BorderRadius.circular(12), color: const Color(0xFF2DD4BF).withOpacity(0.2), border: Border.all(color: const Color(0xFF2DD4BF).withOpacity(0.5))),
-              labelColor: const Color(0xFF2DD4BF),
-              unselectedLabelColor: Colors.white38,
-              tabs: const [Tab(text: "CONTRIBUTION"), Tab(text: "CHARM"), Tab(text: "ROOMS"), Tab(text: "OVERALL")],
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: const [
-                ContributionRankingScreen(),
-                CharmRankingScreen(),
-                RoomRankingScreen(),
-                OverallRankingScreen(),
+              dividerColor: Colors.transparent,
+              indicatorColor: const Color(0xFF8E54E9), // Premium Purple
+              indicatorWeight: 3,
+              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: Colors.black,
+              unselectedLabelColor: Colors.grey[400],
+              labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              tabs: const [
+                Tab(text: "CONTRIBUTION"),
+                Tab(text: "CHARM"),
+                Tab(text: "ROOMS"),
+                Tab(text: "OVERALL"),
               ],
             ),
           ),
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: const [
+          ContributionRankingScreen(), // Using the NEW premium screen
+          CharmTab(),
+          RoomTab(),
+          OverallTab(),
         ],
       ),
     );
   }
 }
 
-class ContributionRankingScreen extends StatelessWidget {
-  const ContributionRankingScreen({super.key});
+class ContributionTab extends StatelessWidget {
+  const ContributionTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -78,8 +99,8 @@ class ContributionRankingScreen extends StatelessWidget {
   }
 }
 
-class CharmRankingScreen extends StatelessWidget {
-  const CharmRankingScreen({super.key});
+class CharmTab extends StatelessWidget {
+  const CharmTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -88,12 +109,13 @@ class CharmRankingScreen extends StatelessWidget {
       field: "princeXP",
       subtitle: "TOP RECEIVERS",
       accentColor: const Color(0xFF8BC6EC),
+      showFlag: false,
     );
   }
 }
 
-class RoomRankingScreen extends StatelessWidget {
-  const RoomRankingScreen({super.key});
+class RoomTab extends StatelessWidget {
+  const RoomTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -108,8 +130,8 @@ class RoomRankingScreen extends StatelessWidget {
   }
 }
 
-class OverallRankingScreen extends StatelessWidget {
-  const OverallRankingScreen({super.key});
+class OverallTab extends StatelessWidget {
+  const OverallTab({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -129,6 +151,7 @@ class _BaseRankingScreen extends StatelessWidget {
   final Color accentColor;
   final bool isRoom;
   final String collection;
+  final bool showFlag;
 
   const _BaseRankingScreen({
     required this.title,
@@ -137,27 +160,13 @@ class _BaseRankingScreen extends StatelessWidget {
     required this.accentColor,
     this.isRoom = false,
     this.collection = "users",
+    this.showFlag = true,
   });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A),
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          children: [
-            Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 1.5)),
-            Text(subtitle, style: TextStyle(color: accentColor.withOpacity(0.6), fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 1)),
-          ],
-        ),
-        centerTitle: true,
-      ),
+      backgroundColor: Colors.white,
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection(collection)
@@ -174,14 +183,16 @@ class _BaseRankingScreen extends StatelessWidget {
             itemBuilder: (context, index) {
               final data = items[index].data() as Map<String, dynamic>;
               return _RankingItem(
+                uid: items[index].id,
                 rank: index + 1,
                 name: isRoom ? (data['name'] ?? 'Room') : (data['displayName'] ?? "User"),
                 subText: isRoom ? "Room ID: ${items[index].id.substring(0, 6)}" : "@${data['username'] ?? 'user'}",
                 photoUrl: isRoom ? (data['coverUrl'] ?? "") : (data['profilePhotoUrl'] ?? ""),
                 score: (data[field] ?? 0).toString(),
                 accentColor: accentColor,
-                countryCode: isRoom ? null : (data['countryCode'] ?? "US"),
+                countryCode: (isRoom || !showFlag) ? null : (data['countryCode'] ?? "US"),
                 scoreLabel: isRoom ? "AUDIENCE" : (field == "benchXP" ? "SENT" : (field == "princeXP" ? "RCVD" : "XP")),
+                isRoom: isRoom,
               ).animate().fadeIn(delay: Duration(milliseconds: (index * 40).clamp(0, 1000))).slideX(begin: 0.1);
             },
           );
@@ -192,6 +203,7 @@ class _BaseRankingScreen extends StatelessWidget {
 }
 
 class _RankingItem extends StatelessWidget {
+  final String uid;
   final int rank;
   final String name;
   final String subText;
@@ -200,8 +212,10 @@ class _RankingItem extends StatelessWidget {
   final Color accentColor;
   final String? countryCode;
   final String scoreLabel;
+  final bool isRoom;
 
   const _RankingItem({
+    required this.uid,
     required this.rank,
     required this.name,
     required this.subText,
@@ -210,6 +224,7 @@ class _RankingItem extends StatelessWidget {
     required this.accentColor,
     this.countryCode,
     required this.scoreLabel,
+    this.isRoom = false,
   });
 
   @override
@@ -221,26 +236,33 @@ class _RankingItem extends StatelessWidget {
       return Colors.white10;
     }
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(20),
-        border: rank <= 3 ? Border.all(color: getRankColor().withOpacity(0.3), width: 1.5) : null,
-      ),
-      child: Row(
-        children: [
+    return InkWell(
+      onTap: () {
+        if (isRoom) {
+          context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': uid});
+        } else {
+          context.push(AppRoutes.userProfile, extra: uid);
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 1),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(bottom: BorderSide(color: Colors.grey[100]!, width: 1)),
+        ),
+        child: Row(
+          children: [
           SizedBox(
             width: 32,
-            child: Text("$rank", style: TextStyle(color: rank <= 3 ? getRankColor() : Colors.white24, fontWeight: FontWeight.w900, fontSize: 16)),
+            child: Text("$rank", style: TextStyle(color: rank <= 3 ? getRankColor() : Colors.black26, fontWeight: FontWeight.w900, fontSize: 16)),
           ),
           const SizedBox(width: 8),
           Stack(
             children: [
               CircleAvatar(
                 radius: 26,
-                backgroundColor: const Color(0xFF334155),
+                backgroundColor: const Color(0xFFF1F5F9),
                 backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
               ),
               if (countryCode != null) Positioned(
@@ -258,8 +280,8 @@ class _RankingItem extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
-                Text(subText, style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
+                Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w900, fontSize: 16)),
+                Text(subText, style: const TextStyle(color: Colors.black38, fontSize: 11, fontWeight: FontWeight.bold)),
               ],
             ),
           ),
@@ -267,11 +289,11 @@ class _RankingItem extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(score, style: TextStyle(color: accentColor, fontWeight: FontWeight.w900, fontSize: 16)),
-              Text(scoreLabel, style: const TextStyle(color: Colors.white24, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+              Text(scoreLabel, style: const TextStyle(color: Colors.black26, fontSize: 8, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
             ],
           ),
         ],
       ),
-    );
+    ));
   }
 }

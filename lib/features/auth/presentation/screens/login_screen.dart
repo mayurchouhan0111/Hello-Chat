@@ -44,7 +44,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         verificationCompleted: (PhoneAuthCredential credential) async {
           // Auto-resolution (limited support)
           await ref.read(authServiceProvider).signInWithCredential(credential);
-          ref.invalidate(currentUserStreamProvider);
+          Future.microtask(() => ref.invalidate(currentUserStreamProvider));
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() => _isLoading = false);
@@ -186,11 +186,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onPressed: () async {
                         try {
                           await ref.read(authServiceProvider).signInWithGoogle();
-                          ref.invalidate(currentUserStreamProvider);
+                          Future.microtask(() => ref.invalidate(currentUserStreamProvider));
+                          if (mounted) context.go(AppRoutes.home);
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text("Google Login Failed")),
+                              SnackBar(content: Text("Google Login Failed: $e")),
                             );
                           }
                         }
@@ -206,11 +207,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       onPressed: () async {
                         try {
                           await ref.read(authServiceProvider).signInWithFacebook();
-                          ref.invalidate(currentUserStreamProvider);
+                          Future.microtask(() => ref.invalidate(currentUserStreamProvider));
+                          if (mounted) context.go(AppRoutes.home);
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text("Facebook Login Failed")),
+                              SnackBar(content: Text("Facebook Login Failed: $e")),
                             );
                           }
                         }
