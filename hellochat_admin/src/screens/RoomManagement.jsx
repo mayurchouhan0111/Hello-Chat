@@ -58,8 +58,8 @@ export const RoomManagement = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
           <h1 className="text-4xl font-black text-white tracking-tighter flex items-center gap-4 uppercase">
-            <div className="p-3 bg-cyan-500/20 rounded-2xl border border-cyan-500/30">
-              <Activity className="text-cyan-400" size={28} />
+            <div className="p-3 bg-[#B4E0A2]/20 rounded-2xl border border-[#B4E0A2]/30">
+              <Activity className="text-[#B4E0A2]" size={28} />
             </div>
             Active Orchestration
           </h1>
@@ -69,7 +69,7 @@ export const RoomManagement = () => {
         <div className="flex items-center gap-4">
            <div className="relative group w-80">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                 <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+                 <Search className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
               </div>
               <input 
                 type="text" 
@@ -91,7 +91,7 @@ export const RoomManagement = () => {
                  setSelectedRooms(filteredRooms.map(r => r.id)); // Select all current
                }
              }}
-             className="flex items-center gap-2 p-3 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-xs font-black uppercase tracking-widest transition-all"
+             className="flex items-center gap-2 p-3 bg-[#B4E0A2]/10 border border-[#B4E0A2]/20 rounded-xl hover:bg-[#B4E0A2] text-[#B4E0A2] hover:text-black text-xs font-black uppercase tracking-widest transition-all"
            >
              <CheckSquare size={14} /> 
              {selectedRooms.length === filteredRooms.length && filteredRooms.length > 0 ? 'DESELECT ALL' : 'SELECT ALL'}
@@ -130,7 +130,7 @@ export const RoomManagement = () => {
       {/* Stats Quick Look */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
          {[
-           { label: 'Total Viewers', val: rooms.reduce((acc, r) => acc + (r.currentUsersCount || 0), 0), icon: Users, color: 'text-cyan-400' },
+           { label: 'Total Viewers', val: rooms.reduce((acc, r) => acc + (r.currentUsersCount || 0), 0), icon: Users, color: 'text-[#B4E0A2]' },
            { label: 'Active PK Battles', val: rooms.filter(r => r.pkActive).length.toLocaleString(), icon: Flame, color: 'text-orange-400' },
            { label: 'Economic Load', val: 'Syncing...', icon: Diamond, color: 'text-amber-400' },
            { label: 'Avg Pulse', val: '98%', icon: Activity, color: 'text-emerald-400' },
@@ -151,7 +151,7 @@ export const RoomManagement = () => {
       {loading ? (
         <div className="h-64 flex items-center justify-center">
             <div className="flex flex-col items-center gap-4">
-               <div className="w-10 h-10 border-4 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+               <div className="w-10 h-10 border-4 border-[#B4E0A2] border-t-transparent rounded-full animate-spin"></div>
                <span className="text-xs font-black uppercase text-slate-600 tracking-widest">Scanning Frequencies...</span>
             </div>
         </div>
@@ -164,7 +164,7 @@ export const RoomManagement = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="card-glass p-0 border-white/5 bg-slate-800/20 overflow-hidden group hover:border-cyan-500/30 transition-all shadow-2xl relative"
+                className="card-glass p-0 border-white/5 bg-[#18181B]/40 overflow-hidden group hover:border-[#B4E0A2]/30 transition-all shadow-2xl relative"
               >
                 {/* Selection Checkbox */}
                 <div className="absolute top-2 left-2 z-20">
@@ -177,7 +177,7 @@ export const RoomManagement = () => {
                         checked ? [...prev, room.id] : prev.filter((id) => id !== room.id)
                       );
                     }}
-                    className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500"
+                    className="w-4 h-4 text-[#B4E0A2] bg-gray-100 border-gray-300 rounded focus:ring-[#B4E0A2]"
                   />
                 </div>
 
@@ -195,7 +195,7 @@ export const RoomManagement = () => {
                     src={room.coverUrl || `https://picsum.photos/seed/${room.id}/500/300`} 
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 opacity-60 group-hover:opacity-80" 
                    />
-                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
+                   <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent"></div>
                    
                    <div className="absolute bottom-4 left-6 right-6">
                       {room.pkActive && (
@@ -207,7 +207,7 @@ export const RoomManagement = () => {
                       <h3 className="text-xl font-black text-white tracking-tight truncate">{room.title || 'Untitled Room'}</h3>
                       <div className="flex items-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
-                           <Users size={14} className="text-cyan-400" />
+                           <Users size={14} className="text-[#B4E0A2]" />
                            <span className="text-xs font-bold text-slate-300">{room.currentUsersCount || 0} listening</span>
                         </div>
                         <div className="flex items-center gap-2">
@@ -238,13 +238,13 @@ export const RoomManagement = () => {
                          <div className="flex items-center justify-between">
                             {/* Participant A */}
                             <div className="flex flex-col items-center gap-1">
-                               <div className="w-8 h-8 rounded-full border-2 border-cyan-400 overflow-hidden bg-slate-800">
+                               <div className="w-8 h-8 rounded-full border-2 border-[#B4E0A2] overflow-hidden bg-[#18181B]">
                                   <img 
                                     src={`https://api.dicebear.com/7.x/avataaars/png?seed=${Object.keys(room.pkTeams || {})[0] || 'A'}`} 
                                     onError={(e) => e.target.src = 'https://api.dicebear.com/7.x/avataaars/png?seed=error'}
                                   />
                                </div>
-                               <span className="text-[9px] font-black text-cyan-400">
+                               <span className="text-[9px] font-black text-[#B4E0A2]">
                                   {room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0} 💎
                                </span>
                                <button 
@@ -257,7 +257,7 @@ export const RoomManagement = () => {
                                      });
                                    }
                                  }}
-                                 className="mt-1 px-2 py-0.5 bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 rounded hover:bg-cyan-500/40 text-[8px] font-bold transition-colors"
+                                 className="mt-1 px-2 py-0.5 bg-[#B4E0A2]/20 text-[#B4E0A2] border border-[#B4E0A2]/30 rounded hover:bg-[#B4E0A2]/40 text-[8px] font-bold transition-colors"
                                >
                                  +100 PTS
                                </button>
@@ -267,7 +267,7 @@ export const RoomManagement = () => {
 
                             {/* Participant B */}
                             <div className="flex flex-col items-center gap-1">
-                               <div className="w-8 h-8 rounded-full border-2 border-pink-400 overflow-hidden bg-slate-800">
+                               <div className="w-8 h-8 rounded-full border-2 border-pink-400 overflow-hidden bg-[#18181B]">
                                   <img 
                                     src={`https://api.dicebear.com/7.x/avataaars/png?seed=${Object.keys(room.pkTeams || {})[1] || 'B'}`} 
                                     onError={(e) => e.target.src = 'https://api.dicebear.com/7.x/avataaars/png?seed=error'}
@@ -294,7 +294,7 @@ export const RoomManagement = () => {
                          </div>
 
                          {/* Progress Bar with Safety Fallbacks */}
-                         <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden flex">
+                         <div className="w-full h-1.5 bg-black rounded-full overflow-hidden flex">
                             <div 
                               style={{ 
                                 width: `${
@@ -302,7 +302,7 @@ export const RoomManagement = () => {
                                   ((room.pkScores?.[Object.keys(room.pkTeams || {})[0]] || 0) + (room.pkScores?.[Object.keys(room.pkTeams || {})[1]] || 0) + 2) * 100
                                 }%` 
                               }} 
-                              className="bg-cyan-500 h-full shadow-[0_0_10px_#06b6d4] transition-all duration-700"
+                              className="bg-[#B4E0A2] h-full shadow-[0_0_10px_rgba(180,224,162,0.6)] transition-all duration-700"
                             ></div>
                             <div className="flex-1 bg-pink-500 h-full shadow-[0_0_10px_#ec4899] transition-all duration-700"></div>
                          </div>
@@ -315,7 +315,7 @@ export const RoomManagement = () => {
                           e.stopPropagation();
                           updateDoc(doc(db, "rooms", room.id), { weeklyEarnings: increment(10000) });
                         }}
-                        className="w-full flex items-center justify-center gap-2 p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-wider transition-all"
+                        className="w-full flex items-center justify-center gap-2 p-2 bg-[#B4E0A2]/10 border border-[#B4E0A2]/20 rounded-xl hover:bg-[#B4E0A2] text-[#B4E0A2] hover:text-black text-[10px] font-black uppercase tracking-wider transition-all"
                       >
                         <Zap size={12} /> +10K Diamonds (Star Mission Test)
                       </button>

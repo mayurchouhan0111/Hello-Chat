@@ -648,7 +648,7 @@ export const UserManagement = () => {
     );
 
   return (
-    <div className="p-8 space-y-8 min-h-screen bg-[#020617] text-slate-200">
+    <div className="p-8 space-y-8 min-h-screen bg-black text-slate-200">
       {selectedUser && (
         <BalanceAdjustmentModal 
           user={selectedUser} 
@@ -693,7 +693,7 @@ export const UserManagement = () => {
         
         <div className="relative group w-80">
           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-             <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+             <Search className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
           </div>
           <input 
             type="text" 
