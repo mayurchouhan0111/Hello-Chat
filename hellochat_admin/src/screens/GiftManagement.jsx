@@ -28,6 +28,7 @@ import {
   X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Player } from '@lottiefiles/react-lottie-player';
 import { useAdmin } from '../context/AdminContext';
 import { logAdminAction } from './AuditLogs';
 
@@ -155,12 +156,34 @@ export const GiftManagement = () => {
                          <td className="px-8 py-6">
                             <div className="flex items-center gap-4">
                                <div className="w-14 h-14 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center relative shadow-lg">
-                                  {gift.imageUrl ? <img src={gift.imageUrl} className="w-10 h-10 object-contain" /> : <Sparkles className="text-slate-800" size={24} />}
-                                  {gift.lottieAssetPath && <div className="absolute -top-1 -right-1 w-3 h-3 bg-cyan-400 rounded-full border-2 border-slate-900"></div>}
+                                  {gift.lottieAssetPath ? (
+                                     <div className="w-10 h-10">
+                                        <Player 
+                                          src={gift.lottieAssetPath} 
+                                          loop 
+                                          autoplay 
+                                          style={{ height: '40px', width: '40px' }}
+                                        />
+                                     </div>
+                                  ) : gift.imageUrl ? (
+                                     <img 
+                                       src={gift.imageUrl} 
+                                       className="w-10 h-10 object-contain" 
+                                       onError={(e) => {
+                                         e.target.onerror = null;
+                                         e.target.src = "https://cdn-icons-png.flaticon.com/512/833/833544.png";
+                                       }}
+                                     />
+                                  ) : (
+                                     <Sparkles className="text-slate-800" size={24} />
+                                  )}
                                </div>
                                <div>
                                   <p className="text-sm font-black text-white">{gift.name}</p>
-                                  <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">ID: {gift.id.slice(0,8)}</p>
+                                  <p className="text-[10px] font-bold text-slate-600 uppercase mt-1 flex items-center gap-2">
+                                   ID: {gift.id.slice(0,8)}
+                                   {gift.lottieAssetPath && <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.5)]"></span>}
+                                </p>
                                </div>
                             </div>
                          </td>
@@ -214,7 +237,45 @@ export const GiftManagement = () => {
                     {editingGift ? <Edit3 size={20} className="text-[#00E5FF]" /> : <Plus size={20} className="text-[#00E5FF]" />}
                     {editingGift ? 'Edit Gift' : 'Add New Gift'}
                  </h3>
-                 {editingGift && <button onClick={() => setEditingGift(null)} className="text-slate-500 hover:text-white"><X size={20} /></button>}
+                 {editingGift && <button onClick={() => setEditingGift(null)} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button>}
+              </div>
+
+              {/* Asset Preview Section */}
+              <div className="mb-10 flex justify-center">
+                 <div className="relative group">
+                    <div className="w-32 h-32 bg-white/[0.02] border border-white/5 rounded-3xl flex items-center justify-center relative overflow-hidden shadow-2xl">
+                       {/* Priority 1: Lottie Animation */}
+                       {(editingGift?.lottieAssetPath || newGift.lottieAssetPath) ? (
+                          <div className="w-28 h-28 z-10">
+                            <Player 
+                              key={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
+                              src={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath} 
+                              loop 
+                              autoplay
+                              style={{ height: '112px', width: '112px' }}
+                            />
+                          </div>
+                       ) : (editingGift?.imageUrl || newGift.imageUrl) ? (
+                          <img 
+                            src={editingGift ? editingGift.imageUrl : newGift.imageUrl} 
+                            className="w-24 h-24 object-contain z-10" 
+                            alt="Preview"
+                          />
+                       ) : (
+                          <Sparkles className="text-slate-800" size={48} />
+                       )}
+                       
+                       {/* Static Icon Overlay (if both exist) */}
+                       {(editingGift?.lottieAssetPath || newGift.lottieAssetPath) && (editingGift?.imageUrl || newGift.imageUrl) && (
+                          <div className="absolute bottom-2 right-2 w-8 h-8 bg-slate-900/80 rounded-lg border border-white/10 p-1 z-20">
+                             <img src={editingGift ? editingGift.imageUrl : newGift.imageUrl} className="w-full h-full object-contain" />
+                          </div>
+                       )}
+                    </div>
+                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-4 py-1 bg-slate-900 border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-cyan-400">
+                       Live Asset Preview
+                    </div>
+                 </div>
               </div>
 
               <form onSubmit={handleSave} className="space-y-6">
@@ -222,6 +283,7 @@ export const GiftManagement = () => {
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Name of Gift</label>
                     <input 
                       required
+                      placeholder="e.g. Diamond Heart"
                       className="glass-input w-full"
                       value={editingGift ? editingGift.name : newGift.name}
                       onChange={(e) => editingGift ? setEditingGift({...editingGift, name: e.target.value}) : setNewGift({...newGift, name: e.target.value})}
@@ -230,36 +292,40 @@ export const GiftManagement = () => {
 
                  <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
-                      <input 
-                        required type="number"
-                        className="glass-input w-full"
-                        value={editingGift ? editingGift.priceInDiamonds : newGift.priceInDiamonds}
-                        onChange={(e) => editingGift ? setEditingGift({...editingGift, priceInDiamonds: parseInt(e.target.value)}) : setNewGift({...newGift, priceInDiamonds: parseInt(e.target.value)})}
-                      />
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
+                       <div className="relative">
+                          <Coins className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-400" size={16} />
+                          <input 
+                            required type="number"
+                            className="glass-input w-full pl-12"
+                            value={editingGift ? editingGift.priceInDiamonds : newGift.priceInDiamonds}
+                            onChange={(e) => editingGift ? setEditingGift({...editingGift, priceInDiamonds: parseInt(e.target.value)}) : setNewGift({...newGift, priceInDiamonds: parseInt(e.target.value)})}
+                          />
+                       </div>
                     </div>
                     <div className="space-y-3">
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
-                      <select 
-                        className="glass-input w-full outline-none"
-                        value={editingGift ? editingGift.category : newGift.category}
-                        onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
-                      >
-                         <option value="Normal">Normal</option>
-                         <option value="Vip">Vip</option>
-                         <option value="Luxury">Luxury</option>
-                         <option value="Animated">Animated</option>
-                      </select>
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
+                       <select 
+                         className="glass-input w-full outline-none appearance-none"
+                         value={editingGift ? editingGift.category : newGift.category}
+                         onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
+                       >
+                          <option value="Normal">Normal</option>
+                          <option value="Vip">Vip</option>
+                          <option value="Luxury">Luxury</option>
+                          <option value="Animated">Animated</option>
+                       </select>
                     </div>
                  </div>
 
                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (PNG)</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (Static PNG)</label>
                     <div className="relative group">
                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                           <LinkIcon className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
                        </div>
                        <input 
+                         placeholder="https://..."
                          className="glass-input w-full pl-12"
                          value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
@@ -268,14 +334,14 @@ export const GiftManagement = () => {
                  </div>
 
                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Animation URL (Lottie/MP4)</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Special Effect URL (Lottie JSON)</label>
                     <div className="relative group">
                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                           <Sparkles className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
                        </div>
                        <input 
                          className="glass-input w-full pl-12 placeholder:italic"
-                         placeholder="Optional premium effect..."
+                         placeholder="Optional .json animation url..."
                          value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
                        />
@@ -293,10 +359,10 @@ export const GiftManagement = () => {
 
            <div className="card-glass p-8 bg-emerald-500/5 border-emerald-500/10">
               <h5 className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-4 flex items-center gap-2">
-                 <Sparkles size={14} /> Strategy Tip
+                 <Sparkles size={14} /> Performance Notice
               </h5>
               <p className="text-xs text-slate-400 font-bold leading-relaxed">
-                 High-quality **Animated Gifts** drive 70% of revenue in live rooms. Ensure your animations are under 2MB for optimal performance on mobile devices.
+                 Use **JSON (Lottie)** for animations instead of GIFs. Lottie files are vectors and stay sharp on all screen sizes while being 10x smaller in size.
               </p>
            </div>
         </div>
