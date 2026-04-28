@@ -5,20 +5,22 @@
 @tailwind utilities;
 
 :root {
-  --primary: #B4E0A2; /* Sage Green from reference */
+  --primary: #B4E0A2; /* Sage Green */
   --primary-dark: #8DBB7E;
-  --secondary: #F9D949; /* Gold Accent */
-  --bg-obsidian: #0C0C0C;
-  --bg-deep: #080808;
-  --bg-sidebar: #0C0C0C;
-  --card-glass: rgba(24, 24, 27, 0.8);
+  --secondary: #F9D949;
+  --bg-obsidian: #050505; /* Pure Deep Obsidian */
+  --bg-deep: #030303;
+  --bg-sidebar: #070707;
+  --card-glass: rgba(22, 22, 26, 0.7);
   --accent-gradient: linear-gradient(135deg, #B4E0A2 0%, #8DBB7E 100%);
-  --surface-gradient: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%);
+  --surface-gradient: linear-gradient(180deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0) 100%);
 }
 
 @layer base {
   body {
-    @apply bg-[#0C0C0C] text-slate-100 overflow-x-hidden;
+    @apply text-slate-100 overflow-x-hidden;
+    background: radial-gradient(circle at 50% -20%, #151515, #050505);
+    min-height: 100vh;
     font-family: 'Lexend', sans-serif;
   }
 }
