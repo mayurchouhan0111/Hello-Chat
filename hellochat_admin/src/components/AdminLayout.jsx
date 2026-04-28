@@ -62,22 +62,23 @@ const Sidebar = () => {
     : fullMenu;
 
   return (
-    <div className="w-72 bg-[#0D0D0E] h-screen text-gray-400 flex flex-col border-r border-white/[0.03] shadow-2xl z-50">
+    <div className="w-72 bg-[#080809] h-screen text-gray-400 flex flex-col border-r border-white/[0.05] shadow-[10px_0_30px_rgba(0,0,0,0.5)] z-50">
       <div className="p-8">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 flex items-center justify-center relative">
-            <div className="absolute inset-0 bg-[#00E5FF]/20 blur-xl rounded-full"></div>
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 flex items-center justify-center relative bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[20px] shadow-2xl overflow-hidden group">
+            <div className="absolute inset-0 bg-gradient-to-br from-[#00E5FF]/20 to-[#6366F1]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+            <div className="absolute -inset-1 bg-gradient-to-r from-[#00E5FF] to-[#6366F1] opacity-20 blur-lg"></div>
             <img 
               src={logo} 
-              className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_10px_rgba(0,229,255,0.3)] hover:scale-110 transition-transform duration-300" 
+              className="w-10 h-10 object-contain relative z-10 drop-shadow-[0_0_12px_rgba(0,229,255,0.6)] group-hover:scale-110 transition-transform duration-500" 
               alt="Logo"
             />
           </div>
           <div>
-            <h1 className="text-lg font-black text-white leading-none tracking-tighter">
-              {isAdmin ? 'HELLO CHAT' : 'AGENCY'}
+            <h1 className="text-xl font-black text-white leading-none tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+              {isAdmin ? 'HELLO' : 'AGENCY'}
             </h1>
-            <p className="text-[10px] font-bold text-[#00E5FF]/80 tracking-widest mt-1 uppercase">Control Center</p>
+            <p className="text-[9px] font-black text-[#00E5FF] tracking-[0.3em] mt-1.5 uppercase opacity-80">System Admin</p>
           </div>
         </div>
       </div>

@@ -65,44 +65,50 @@ export const LoginScreen = () => {
       <div id="recaptcha-container"></div>
       
       {/* 🌌 Atmospheric Background */}
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#00E5FF]/5 via-transparent to-transparent"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[#050505]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,_rgba(0,229,255,0.08)_0%,_transparent_50%)]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_70%_70%,_rgba(99,102,241,0.08)_0%,_transparent_50%)]"></div>
+      
       <motion.div 
-        animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
-        transition={{ duration: 8, repeat: Infinity }}
-        className="absolute -top-40 -right-40 w-[600px] h-[600px] bg-[#00E5FF]/10 blur-[120px] rounded-full"
+        animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+        transition={{ duration: 10, repeat: Infinity }}
+        className="absolute -top-60 -right-60 w-[800px] h-[800px] bg-indigo-500/10 blur-[150px] rounded-full"
       />
 
       <motion.div 
         initial={{ opacity: 0, y: 40 }}
         animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-[480px] relative z-10"
+        className="w-full max-w-[500px] relative z-10"
       >
-        <div className="bg-white/[0.02] backdrop-blur-3xl border border-white/[0.05] p-12 rounded-[48px] shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#00E5FF] to-transparent opacity-50"></div>
+        <div className="bg-[#0A0A0B]/60 backdrop-blur-[60px] border border-white/[0.08] p-14 rounded-[56px] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.8)] relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-30 group-hover:opacity-100 transition-opacity duration-1000"></div>
           
-          <div className="text-center mb-12">
+          <div className="text-center mb-14">
             <motion.div 
-              animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.02, 1] }}
+              animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
               transition={{ duration: 10, repeat: Infinity }}
-              className="w-24 h-24 mx-auto flex items-center justify-center relative mb-8"
+              className="w-32 h-32 mx-auto flex items-center justify-center relative mb-10"
             >
-              <div className="absolute inset-0 bg-[#00E5FF]/20 blur-[30px] rounded-full animate-pulse"></div>
-              <img 
-                src={logo} 
-                className="w-20 h-20 object-contain relative z-10 drop-shadow-[0_0_20px_rgba(0,229,255,0.4)]" 
-                alt="Logo"
-              />
+              <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 blur-[50px] rounded-full"></div>
+              <div className="w-28 h-28 bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[36px] flex items-center justify-center shadow-2xl relative z-10">
+                <img 
+                  src={logo} 
+                  className="w-20 h-20 object-contain drop-shadow-[0_0_20px_rgba(0,229,255,0.6)]" 
+                  alt="Logo"
+                />
+              </div>
             </motion.div>
-            <h1 className="text-3xl font-black text-white tracking-tighter uppercase mb-2">Hello Chat Access</h1>
-            <p className="text-[10px] font-black text-gray-600 tracking-[0.4em] uppercase">Administration Terminal v5</p>
+            <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-3 bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400">Control Access</h1>
+            <p className="text-[9px] font-black text-slate-500 tracking-[0.6em] uppercase">Secured Authentication Terminal</p>
           </div>
 
           {error && (
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-2xl text-[10px] font-black tracking-widest uppercase mb-8 text-center"
+              className="bg-red-500/5 border border-red-500/20 text-red-500 p-5 rounded-2xl text-[9px] font-black tracking-widest uppercase mb-10 text-center flex items-center justify-center gap-3"
             >
+              <ShieldAlert size={16} />
               {error}
             </motion.div>
           )}
