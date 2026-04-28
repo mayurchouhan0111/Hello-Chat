@@ -66,10 +66,10 @@ const BalanceAdjustmentModal = ({ user, onClose, onUpdate }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="bg-[#09090B] border border-white/10 w-full max-w-md rounded-3xl p-8 shadow-2xl">
+      <div className="bg-[#18181B] border border-white/10 w-full max-w-md rounded-[32px] p-8 shadow-2xl">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-xl">
+            <div className="p-3 bg-[#B4E0A2]/20 text-[#B4E0A2] rounded-xl">
               <Coins size={24} />
             </div>
             <div>
@@ -88,7 +88,7 @@ const BalanceAdjustmentModal = ({ user, onClose, onUpdate }) => {
           <div className="grid grid-cols-2 gap-4">
             <button 
               onClick={() => setCurrency('Diamonds')}
-              className={`p-4 rounded-2xl border transition-all ${currency === 'Diamonds' ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-400' : 'bg-white/5 border-white/5 text-slate-500'}`}
+              className={`p-4 rounded-2xl border transition-all ${currency === 'Diamonds' ? 'bg-[#B4E0A2]/20 border-[#B4E0A2]/50 text-[#B4E0A2]' : 'bg-white/5 border-white/5 text-slate-500'}`}
             >
               <div className="flex flex-col items-center gap-2">
                 <Diamond size={24} />
@@ -112,7 +112,7 @@ const BalanceAdjustmentModal = ({ user, onClose, onUpdate }) => {
             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Delta Value</label>
             <input 
               type="number" 
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black text-2xl text-center focus:border-indigo-500 outline-none"
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black text-2xl text-center focus:border-[#B4E0A2] outline-none"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
@@ -122,14 +122,14 @@ const BalanceAdjustmentModal = ({ user, onClose, onUpdate }) => {
             <button 
               disabled={isProcessing}
               onClick={() => handleAdjust(false)}
-              className="flex items-center justify-center gap-2 p-5 bg-red-500/10 text-red-500 font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
+              className="flex items-center justify-center gap-2 p-5 bg-red-500/10 text-red-500 font-black text-xs uppercase tracking-widest rounded-[32px] hover:bg-red-500 hover:text-white transition-all disabled:opacity-50"
             >
               <Minus size={16} /> Subtract
             </button>
             <button 
               disabled={isProcessing}
               onClick={() => handleAdjust(true)}
-              className="flex items-center justify-center gap-2 p-5 bg-indigo-600 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition-all disabled:opacity-50"
+              className="flex items-center justify-center gap-2 p-5 bg-[#B4E0A2] text-black font-black text-xs uppercase tracking-widest rounded-[32px] hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50"
             >
               <Plus size={16} /> Reward
             </button>

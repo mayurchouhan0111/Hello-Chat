@@ -126,6 +126,8 @@ export const DashboardHome = () => {
     { label: 'Global Live Rooms', value: stats.activeRooms.toLocaleString(), icon: Volume2, color: 'border-purple-500/20', glow: 'shadow-purple-500/5', growth: '+5.2%' },
   ];
 
+  const [timeRange, setTimeRange] = useState('7D');
+
   return (
     <div className="space-y-12 animate-in fade-in duration-1000">
       {/* 🚀 Hero Section */}
@@ -143,7 +145,11 @@ export const DashboardHome = () => {
 
         <div className="flex items-center gap-4 bg-white/[0.02] p-2 rounded-3xl border border-white/[0.05]">
           {['24H', '7D', '30D', 'ALL'].map((t) => (
-            <button key={t} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black transition-all ${t === '7D' ? 'bg-[#B4E0A2] text-black shadow-lg shadow-[#B4E0A2]/20' : 'text-gray-500 hover:text-white'}`}>
+            <button 
+              key={t} 
+              onClick={() => setTimeRange(t)}
+              className={`px-6 py-2.5 rounded-2xl text-[10px] font-black transition-all ${t === timeRange ? 'bg-[#B4E0A2] text-black shadow-lg shadow-[#B4E0A2]/20' : 'text-gray-500 hover:text-white'}`}
+            >
               {t}
             </button>
           ))}
