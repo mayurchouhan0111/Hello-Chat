@@ -65,14 +65,14 @@ export const LoginScreen = () => {
       <div id="recaptcha-container"></div>
       
       {/* 🌌 Atmospheric Background */}
-      <div className="absolute top-0 left-0 w-full h-full bg-[#050505]"></div>
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,_rgba(0,229,255,0.08)_0%,_transparent_50%)]"></div>
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_70%_70%,_rgba(99,102,241,0.08)_0%,_transparent_50%)]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[#0C0C0C]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,_rgba(180,224,162,0.05)_0%,_transparent_50%)]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_70%_70%,_rgba(249,217,73,0.03)_0%,_transparent_50%)]"></div>
       
       <motion.div 
-        animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+        animate={{ scale: [1, 1.2, 1], opacity: [0.1, 0.2, 0.1] }}
         transition={{ duration: 10, repeat: Infinity }}
-        className="absolute -top-60 -right-60 w-[800px] h-[800px] bg-indigo-500/10 blur-[150px] rounded-full"
+        className="absolute -top-60 -right-60 w-[800px] h-[800px] bg-[#B4E0A2]/5 blur-[150px] rounded-full"
       />
 
       <motion.div 
@@ -80,35 +80,34 @@ export const LoginScreen = () => {
         animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-[500px] relative z-10"
       >
-        <div className="bg-[#0A0A0B]/60 backdrop-blur-[60px] border border-white/[0.08] p-14 rounded-[56px] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.8)] relative overflow-hidden group">
-          <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-30 group-hover:opacity-100 transition-opacity duration-1000"></div>
+        <div className="bg-[#18181B]/60 backdrop-blur-[60px] border border-white/[0.05] p-16 rounded-[64px] shadow-[0_50px_100px_-20px_rgba(0,0,0,1)] relative overflow-hidden group">
+          <div className="absolute top-0 left-0 w-full h-[3px] bg-gradient-to-r from-transparent via-[#B4E0A2] to-transparent opacity-20"></div>
           
-          <div className="text-center mb-14">
+          <div className="text-center mb-16">
             <motion.div 
               animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
               transition={{ duration: 10, repeat: Infinity }}
-              className="w-32 h-32 mx-auto flex items-center justify-center relative mb-10"
+              className="w-32 h-32 mx-auto flex items-center justify-center relative mb-12"
             >
-              <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/20 to-indigo-500/20 blur-[50px] rounded-full"></div>
-              <div className="w-28 h-28 bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[36px] flex items-center justify-center shadow-2xl relative z-10 overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-[#B4E0A2]/20 to-transparent blur-[50px] rounded-full"></div>
+              <div className="w-28 h-28 bg-[#18181B] border border-white/[0.08] rounded-[40px] flex items-center justify-center shadow-2xl relative z-10 overflow-hidden">
                 <img 
                   src={logo} 
-                  className="w-20 h-20 object-contain rounded-[28px] drop-shadow-[0_0_20px_rgba(0,229,255,0.6)]" 
+                  className="w-20 h-20 object-contain rounded-[28px]" 
                   alt="Logo"
                 />
               </div>
             </motion.div>
-            <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-3 bg-clip-text text-transparent bg-gradient-to-b from-white to-gray-400">Control Access</h1>
-            <p className="text-[9px] font-black text-slate-500 tracking-[0.6em] uppercase">Secured Authentication Terminal</p>
+            <h1 className="text-4xl font-black text-white tracking-tighter uppercase mb-4">Hello Chat</h1>
+            <p className="text-[10px] font-black text-slate-600 tracking-[0.5em] uppercase">Control Management System</p>
           </div>
 
           {error && (
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-red-500/5 border border-red-500/20 text-red-500 p-5 rounded-2xl text-[9px] font-black tracking-widest uppercase mb-10 text-center flex items-center justify-center gap-3"
+              className="bg-red-500/5 border border-red-500/10 text-red-500/80 p-5 rounded-3xl text-[10px] font-black tracking-widest uppercase mb-10 text-center"
             >
-              <ShieldAlert size={16} />
               {error}
             </motion.div>
           )}
@@ -117,11 +116,11 @@ export const LoginScreen = () => {
             {!confirmationResult ? (
               <form onSubmit={handleSendOtp} className="space-y-8">
                 <div className="space-y-4">
-                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Secure Identity (Phone)</label>
+                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest ml-2">Phone Identifier</label>
                   <input
                     type="tel"
                     placeholder="+91 0000 0000 00"
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-5 text-xl font-bold tracking-tight text-white focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-800"
+                    className="w-full bg-black/40 border border-white/[0.05] rounded-3xl px-8 py-6 text-xl font-bold tracking-tight text-white focus:ring-2 focus:ring-[#B4E0A2] focus:border-transparent outline-none transition-all placeholder:text-zinc-800"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     required
@@ -129,23 +128,23 @@ export const LoginScreen = () => {
                 </div>
                 <button
                   disabled={loading}
-                  className="w-full py-5 bg-[#00E5FF] hover:bg-[#00B8D4] text-black rounded-2xl font-black tracking-widest text-xs uppercase shadow-xl shadow-[#00E5FF]/10 transition-all transform active:scale-95 disabled:opacity-50"
+                  className="w-full py-6 bg-[#B4E0A2] hover:bg-[#8DBB7E] text-[#0C0C0C] rounded-3xl font-black tracking-widest text-xs uppercase shadow-2xl shadow-[#B4E0A2]/10 transition-all transform active:scale-95 disabled:opacity-50"
                 >
-                  {loading ? "Authenticating..." : "Establish Connection"}
+                  {loading ? "Verifying..." : "Enter Platform"}
                 </button>
               </form>
             ) : (
               <form onSubmit={handleVerifyOtp} className="space-y-8">
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center px-1">
-                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Entry Key (OTP)</label>
-                    <button type="button" onClick={() => setConfirmationResult(null)} className="text-[9px] font-black text-[#00E5FF] uppercase tracking-widest border-b border-[#00E5FF]/20">Back</button>
+                  <div className="flex justify-between items-center px-2">
+                    <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Entry Key</label>
+                    <button type="button" onClick={() => setConfirmationResult(null)} className="text-[10px] font-black text-[#B4E0A2] uppercase tracking-widest">Reset</button>
                   </div>
                   <input
                     type="text"
                     maxLength="6"
                     placeholder="......"
-                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-5 text-4xl font-black tracking-[0.4em] text-white text-center focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-800"
+                    className="w-full bg-black/40 border border-white/[0.05] rounded-3xl px-8 py-6 text-4xl font-black tracking-[0.4em] text-white text-center focus:ring-2 focus:ring-[#B4E0A2] focus:border-transparent outline-none transition-all placeholder:text-zinc-800"
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
                     required
@@ -154,9 +153,9 @@ export const LoginScreen = () => {
                 </div>
                 <button
                   disabled={loading}
-                  className="w-full py-5 bg-[#00E5FF] hover:bg-[#00B8D4] text-black rounded-2xl font-black tracking-widest text-xs uppercase shadow-xl shadow-[#00E5FF]/10 transition-all transform active:scale-95 disabled:opacity-50"
+                  className="w-full py-6 bg-[#B4E0A2] hover:bg-[#8DBB7E] text-[#0C0C0C] rounded-3xl font-black tracking-widest text-xs uppercase shadow-2xl shadow-[#B4E0A2]/10 transition-all transform active:scale-95 disabled:opacity-50"
                 >
-                  {loading ? "Verifying..." : "Validate Identity"}
+                  {loading ? "Authenticating..." : "Establish Link"}
                 </button>
               </form>
             )}

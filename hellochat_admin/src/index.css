@@ -1,51 +1,51 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --primary: #00E5FF; /* Electric Cyan */
-  --primary-dark: #00B8D4;
-  --secondary: #6366F1; /* Indigo Accent */
-  --bg-obsidian: #050505;
-  --bg-deep: #0A0A0B;
-  --bg-sidebar: #080809;
-  --card-glass: rgba(255, 255, 255, 0.02);
-  --accent-gradient: linear-gradient(135deg, #00E5FF 0%, #6366F1 100%);
-  --surface-gradient: linear-gradient(180deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0) 100%);
+  --primary: #B4E0A2; /* Sage Green from reference */
+  --primary-dark: #8DBB7E;
+  --secondary: #F9D949; /* Gold Accent */
+  --bg-obsidian: #0C0C0C;
+  --bg-deep: #080808;
+  --bg-sidebar: #0C0C0C;
+  --card-glass: rgba(24, 24, 27, 0.8);
+  --accent-gradient: linear-gradient(135deg, #B4E0A2 0%, #8DBB7E 100%);
+  --surface-gradient: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%);
 }
 
 @layer base {
   body {
-    @apply bg-[#0A0A0B] text-slate-100 overflow-x-hidden;
-    font-family: 'Outfit', sans-serif;
+    @apply bg-[#0C0C0C] text-slate-100 overflow-x-hidden;
+    font-family: 'Lexend', sans-serif;
   }
 }
 
 @layer components {
   .btn-primary-neon {
-    @apply bg-[#00E5FF] hover:bg-[#00B8D4] text-black px-6 py-3 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-[#00E5FF]/20;
+    @apply bg-[#B4E0A2] hover:bg-[#8DBB7E] text-[#0C0C0C] px-6 py-3 rounded-2xl font-black transition-all transform active:scale-95 shadow-lg shadow-[#B4E0A2]/10;
   }
 
   .card-premium {
-    @apply bg-white/[0.01] backdrop-blur-3xl border border-white/[0.05] rounded-3xl p-8 transition-all hover:bg-white/[0.02] hover:border-white/[0.1] shadow-2xl;
+    @apply bg-[#18181B]/40 backdrop-blur-3xl border border-white/[0.05] rounded-[32px] p-10 transition-all hover:bg-[#18181B]/60 hover:border-white/[0.1] shadow-2xl;
   }
 
   .glass-input {
-    @apply bg-white/[0.02] border border-white/10 rounded-2xl px-5 py-4 focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-700 text-sm;
+    @apply bg-black/20 border border-white/[0.08] rounded-2xl px-6 py-5 focus:ring-2 focus:ring-[#B4E0A2] focus:border-transparent outline-none transition-all placeholder:text-gray-700 text-sm font-medium;
   }
 
   .glass-input-sm {
-    @apply bg-white/[0.02] border border-white/10 rounded-xl px-3 py-2 focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all text-xs;
+    @apply bg-black/20 border border-white/[0.08] rounded-xl px-4 py-3 focus:ring-2 focus:ring-[#B4E0A2] focus:border-transparent outline-none transition-all text-xs font-medium;
   }
 
   .sidebar-link {
-    @apply flex items-center gap-4 px-5 py-3.5 rounded-2xl transition-all duration-300 relative overflow-hidden;
+    @apply flex items-center gap-4 px-6 py-4 rounded-[20px] transition-all duration-300 relative overflow-hidden;
   }
 
   .sidebar-link-active {
-    @apply bg-[#00E5FF] text-black shadow-xl shadow-[#00E5FF]/20;
+    @apply bg-[#B4E0A2] text-[#0C0C0C] shadow-2xl shadow-[#B4E0A2]/20;
   }
 }
 

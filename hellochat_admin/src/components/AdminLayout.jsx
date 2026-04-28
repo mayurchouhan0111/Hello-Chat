@@ -62,23 +62,22 @@ const Sidebar = () => {
     : fullMenu;
 
   return (
-    <div className="w-72 bg-[#080809] h-screen text-gray-400 flex flex-col border-r border-white/[0.05] shadow-[10px_0_30px_rgba(0,0,0,0.5)] z-50">
+    <div className="w-72 bg-[#0C0C0C] h-screen text-gray-500 flex flex-col border-r border-white/[0.03] shadow-2xl z-50">
       <div className="p-8">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 flex items-center justify-center relative bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[20px] shadow-2xl overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#00E5FF]/20 to-[#6366F1]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-            <div className="absolute -inset-1 bg-gradient-to-r from-[#00E5FF] to-[#6366F1] opacity-20 blur-lg"></div>
+          <div className="w-14 h-14 flex items-center justify-center relative bg-[#18181B] border border-white/[0.05] rounded-[22px] shadow-2xl overflow-hidden group">
+            <div className="absolute inset-0 bg-gradient-to-br from-[#B4E0A2]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
             <img 
               src={logo} 
-              className="w-10 h-10 object-contain rounded-xl relative z-10 drop-shadow-[0_0_12px_rgba(0,229,255,0.6)] group-hover:scale-110 transition-transform duration-500" 
+              className="w-10 h-10 object-contain relative z-10 rounded-xl" 
               alt="Logo"
             />
           </div>
           <div>
-            <h1 className="text-xl font-black text-white leading-none tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+            <h1 className="text-xl font-black text-white leading-none tracking-tighter">
               {isAdmin ? 'HELLO' : 'AGENCY'}
             </h1>
-            <p className="text-[9px] font-black text-[#00E5FF] tracking-[0.3em] mt-1.5 uppercase opacity-80">System Admin</p>
+            <p className="text-[9px] font-black text-[#B4E0A2] tracking-[0.3em] mt-2 uppercase">Platform</p>
           </div>
         </div>
       </div>
@@ -128,9 +127,9 @@ const TopBar = () => {
         <p className="text-[11px] font-medium text-gray-500">Welcome back, Super Admin</p>
       </div>
 
-      <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.05] pl-2 pr-4 py-1.5 rounded-full">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#00E5FF] to-blue-600 flex items-center justify-center font-black text-black text-xs">
+        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 bg-[#18181B] border border-white/[0.05] pl-2 pr-5 py-2 rounded-full">
+          <div className="w-9 h-9 rounded-full bg-[#B4E0A2] flex items-center justify-center font-black text-[#0C0C0C] text-xs">
             {user?.email?.substring(0, 1).toUpperCase()}
           </div>
           <div>
