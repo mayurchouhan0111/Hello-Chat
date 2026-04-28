@@ -110,8 +110,8 @@ export const GiftManagement = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
         <div>
            <h1 className="text-4xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-              <div className="p-3 bg-purple-500/20 rounded-2xl border border-purple-500/30">
-                 <Gift className="text-purple-400" size={28} />
+              <div className="p-3 bg-[#B4E0A2]/20 rounded-2xl border border-[#B4E0A2]/30">
+                 <Gift className="text-[#B4E0A2]" size={28} />
               </div>
               Gift Catalog
            </h1>
@@ -121,7 +121,7 @@ export const GiftManagement = () => {
         <div className="flex items-center gap-4">
            <div className="relative group w-64">
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                 <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+                 <Search className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
               </div>
               <input 
                 type="text" 
@@ -138,7 +138,7 @@ export const GiftManagement = () => {
         
         {/* Gift List Table */}
         <div className="lg:col-span-2 space-y-6">
-           <div className="card-glass p-0 bg-slate-900/40 border-white/5 overflow-hidden shadow-2xl">
+           <div className="card-glass p-0 bg-[#18181B]/40 border-white/5 overflow-hidden shadow-2xl">
               <table className="w-full text-left">
                  <thead className="bg-white/5 border-b border-white/5 text-[10px] uppercase font-black tracking-widest text-slate-500">
                     <tr>
@@ -182,7 +182,7 @@ export const GiftManagement = () => {
                                   <p className="text-sm font-black text-white">{gift.name}</p>
                                   <p className="text-[10px] font-bold text-slate-600 uppercase mt-1 flex items-center gap-2">
                                    ID: {gift.id.slice(0,8)}
-                                   {gift.lottieAssetPath && <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse shadow-[0_0_5px_rgba(34,211,238,0.5)]"></span>}
+                                   {gift.lottieAssetPath && <span className="w-1.5 h-1.5 bg-[#B4E0A2] rounded-full animate-pulse shadow-[0_0_5px_rgba(180,224,162,0.5)]"></span>}
                                 </p>
                                </div>
                             </div>
@@ -208,7 +208,7 @@ export const GiftManagement = () => {
                                </button>
                                <button 
                                 onClick={() => setEditingGift(gift)}
-                                className="p-2 text-[#00E5FF] hover:bg-[#00E5FF]/10 rounded-xl transition-all"
+                                className="p-2 text-[#B4E0A2] hover:bg-[#B4E0A2]/10 rounded-xl transition-all"
                                >
                                   <Edit3 size={18} />
                                </button>
@@ -229,12 +229,12 @@ export const GiftManagement = () => {
 
         {/* Editor Form */}
         <div className="space-y-8">
-           <div className="card-glass p-10 bg-slate-900/60 border-white/5 shadow-[#00E5FF]/5 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-10 bg-[#00E5FF]/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+           <div className="card-glass p-10 bg-[#18181B]/60 border-white/5 shadow-[#B4E0A2]/5 shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-10 bg-[#B4E0A2]/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
               
               <div className="flex items-center justify-between mb-8">
                  <h3 className="text-xl font-black text-white tracking-tight uppercase flex items-center gap-3">
-                    {editingGift ? <Edit3 size={20} className="text-[#00E5FF]" /> : <Plus size={20} className="text-[#00E5FF]" />}
+                    {editingGift ? <Edit3 size={20} className="text-[#B4E0A2]" /> : <Plus size={20} className="text-[#B4E0A2]" />}
                     {editingGift ? 'Edit Gift' : 'Add New Gift'}
                  </h3>
                  {editingGift && <button onClick={() => setEditingGift(null)} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button>}
@@ -272,7 +272,7 @@ export const GiftManagement = () => {
                           </div>
                        )}
                     </div>
-                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-4 py-1 bg-slate-900 border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-cyan-400">
+                    <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-4 py-1 bg-[#18181B] border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-[#B4E0A2]">
                        Live Asset Preview
                     </div>
                  </div>
@@ -319,41 +319,41 @@ export const GiftManagement = () => {
                  </div>
 
                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (Static PNG)</label>
-                    <div className="relative group">
-                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                          <LinkIcon className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
-                       </div>
-                       <input 
-                         placeholder="https://..."
-                         className="glass-input w-full pl-12"
-                         value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
-                         onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
-                       />
-                    </div>
-                 </div>
+                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (Static PNG)</label>
+                     <div className="relative group">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                           <LinkIcon className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                        </div>
+                        <input 
+                          placeholder="https://..."
+                          className="glass-input w-full pl-12"
+                          value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
+                          onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
+                        />
+                     </div>
+                  </div>
 
-                 <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Special Effect URL (Lottie JSON)</label>
-                    <div className="relative group">
-                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                          <Sparkles className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
-                       </div>
-                       <input 
-                         className="glass-input w-full pl-12 placeholder:italic"
-                         placeholder="Optional .json animation url..."
-                         value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
-                         onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
-                       />
-                    </div>
-                 </div>
+                  <div className="space-y-3">
+                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Special Effect URL (Lottie JSON)</label>
+                     <div className="relative group">
+                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                           <Sparkles className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                        </div>
+                        <input 
+                          className="glass-input w-full pl-12 placeholder:italic"
+                          placeholder="Optional .json animation url..."
+                          value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
+                          onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
+                        />
+                     </div>
+                  </div>
 
-                 <button 
-                  type="submit"
-                  className="w-full flex items-center justify-center gap-3 py-5 bg-[#00E5FF] hover:bg-cyan-400 text-black rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg shadow-cyan-500/20 transition-all transform active:scale-[0.98] mt-4"
-                 >
-                    <Save size={18} /> {editingGift ? 'Update Inventory' : 'Add to Catalog'}
-                 </button>
+                  <button 
+                   type="submit"
+                   className="w-full flex items-center justify-center gap-3 py-5 bg-[#B4E0A2] hover:bg-[#8DBB7E] text-black rounded-[32px] font-black uppercase text-xs tracking-[0.2em] shadow-lg shadow-[#B4E0A2]/20 transition-all transform active:scale-[0.98] mt-4"
+                  >
+                     <Save size={18} /> {editingGift ? 'Update Inventory' : 'Add to Catalog'}
+                  </button>
               </form>
            </div>
 

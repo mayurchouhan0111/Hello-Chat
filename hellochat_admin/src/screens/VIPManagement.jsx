@@ -420,8 +420,8 @@ export const VIPManagement = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
         <div>
            <h1 className="text-4xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-              <div className="p-3 bg-amber-500/20 rounded-2xl border border-amber-500/30">
-                 <Crown className="text-amber-400" size={28} />
+              <div className="p-3 bg-[#B4E0A2]/20 rounded-2xl border border-[#B4E0A2]/30">
+                 <Crown className="text-[#B4E0A2]" size={28} />
               </div>
               Prestige Store
            </h1>
@@ -436,7 +436,7 @@ export const VIPManagement = () => {
           </button>
           <button 
             onClick={createTier}
-            className="px-6 py-3 bg-white/5 hover:bg-amber-500 hover:text-slate-950 text-amber-500 border border-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+            className="px-6 py-3 bg-white/5 hover:bg-[#B4E0A2] hover:text-black text-[#B4E0A2] border border-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
           >
             <Plus size={14} className="inline mr-2" /> New Tier
           </button>
@@ -446,15 +446,15 @@ export const VIPManagement = () => {
       <div className="flex gap-4 border-b border-white/5 pb-6">
         <button 
           onClick={() => setCategory("vip_tiers")}
-          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'vip_tiers' ? 'bg-amber-500 text-slate-950' : 'bg-white/5 text-slate-500'}`}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'vip_tiers' ? 'bg-[#B4E0A2] text-black' : 'bg-white/5 text-slate-500'}`}
         >
           VIP Memberships
         </button>
         <button 
           onClick={() => setCategory("noble_tiers")}
-          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'noble_tiers' ? 'bg-purple-500 text-white' : 'bg-white/5 text-slate-500'}`}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'noble_tiers' ? 'bg-[#B4E0A2] text-black' : 'bg-white/5 text-slate-500'}`}
         >
-          Noble Hall (Aristocracy)
+          Noble Hall
         </button>
         <button 
           onClick={() => setCategory("svip_levels")} // Current SVIP collection
@@ -488,7 +488,7 @@ export const VIPManagement = () => {
                   key={tier.id}
                   whileHover={{ scale: 1.02, y: -5 }}
                   onClick={() => setEditingTier(tier)}
-                  className={`card-glass p-8 cursor-pointer transition-all border shadow-2xl relative overflow-hidden group ${editingTier?.id === tier.id ? 'border-amber-400/50 bg-amber-500/10' : 'bg-slate-900/60 border-white/5'}`}
+                  className={`card-glass p-8 cursor-pointer transition-all border shadow-2xl relative overflow-hidden group ${editingTier?.id === tier.id ? 'border-[#B4E0A2]/50 bg-[#B4E0A2]/10' : 'bg-[#18181B]/60 border-white/5'}`}
                 >
                    <div className="absolute top-0 right-0 p-10 bg-white/5 rounded-full blur-2xl group-hover:scale-125 transition-transform"></div>
                    <div className="flex items-center justify-between mb-8 relative">
@@ -529,7 +529,7 @@ export const VIPManagement = () => {
                  initial={{ opacity: 0, x: 20 }}
                  animate={{ opacity: 1, x: 0 }}
                  exit={{ opacity: 0, x: 20 }}
-                 className="card-glass p-10 bg-slate-900/80 border-amber-500/30 shadow-amber-500/10 shadow-2xl"
+                 className="card-glass p-10 bg-[#18181B]/80 border-[#B4E0A2]/30 shadow-[#B4E0A2]/10 shadow-2xl"
                >
                   <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
                       <h3 className="text-xl font-black text-white tracking-tight uppercase flex items-center gap-4">
@@ -687,7 +687,7 @@ export const VIPManagement = () => {
 
                      <button 
                       type="submit"
-                      className="w-full flex items-center justify-center gap-3 py-5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-2xl transition-all transform active:scale-[0.98] mt-6 shadow-amber-500/20"
+                      className="w-full flex items-center justify-center gap-3 py-5 bg-[#B4E0A2] hover:bg-[#8DBB7E] text-black rounded-[32px] font-black uppercase text-xs tracking-[0.2em] shadow-2xl transition-all transform active:scale-[0.98] mt-6 shadow-[#B4E0A2]/20"
                      >
                         <Save size={18} /> SYNC PRESTIGE DATA
                      </button>

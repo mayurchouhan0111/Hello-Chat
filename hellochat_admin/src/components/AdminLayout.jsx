@@ -92,7 +92,7 @@ const Sidebar = () => {
               to={item.path}
               className={`sidebar-link group ${isActive ? 'sidebar-link-active' : 'hover:bg-white/[0.03] hover:text-white'}`}
             >
-              <item.icon size={18} className={isActive ? 'text-black' : 'text-gray-500 group-hover:text-[#00E5FF] transition-colors'} />
+              <item.icon size={18} className={isActive ? 'text-black' : 'text-gray-500 group-hover:text-[#B4E0A2] transition-colors'} />
               <span className="font-bold text-[13px] tracking-tight">{item.name}</span>
               {isActive && (
                 <div className="absolute right-0 w-1.5 h-6 bg-black rounded-l-full" />
