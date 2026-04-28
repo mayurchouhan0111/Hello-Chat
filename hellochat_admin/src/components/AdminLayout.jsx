@@ -162,9 +162,15 @@ export const AdminLayout = ({ children }) => {
   );
 
   return (
-    <div className="flex bg-[#0A0A0B] min-h-screen text-white selection:bg-yellow-400 selection:text-black">
+    <div className="flex bg-black min-h-screen text-white selection:bg-[#B4E0A2] selection:text-black relative overflow-hidden">
+      {/* 🌌 Atmospheric Glows */}
+      <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#B4E0A2]/5 blur-[120px] rounded-full"></div>
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#B4E0A2]/5 blur-[120px] rounded-full"></div>
+      </div>
+
       <Sidebar />
-      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden relative z-10">
         <TopBar />
         <main className="flex-1 overflow-y-auto p-10 custom-scrollbar scroll-smooth">
           <div className="max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">

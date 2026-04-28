@@ -65,12 +65,11 @@ export const LoginScreen = () => {
       <div id="recaptcha-container"></div>
       
       {/* 🌌 Atmospheric Background */}
-      <div className="absolute top-0 left-0 w-full h-full bg-[#0C0C0C]"></div>
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,_rgba(180,224,162,0.05)_0%,_transparent_50%)]"></div>
-      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_70%_70%,_rgba(249,217,73,0.03)_0%,_transparent_50%)]"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-black"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_30%_30%,_rgba(180,224,162,0.03)_0%,_transparent_50%)]"></div>
       
       <motion.div 
-        animate={{ scale: [1, 1.2, 1], opacity: [0.1, 0.2, 0.1] }}
+        animate={{ scale: [1, 1.2, 1], opacity: [0.05, 0.1, 0.05] }}
         transition={{ duration: 10, repeat: Infinity }}
         className="absolute -top-60 -right-60 w-[800px] h-[800px] bg-[#B4E0A2]/5 blur-[150px] rounded-full"
       />
