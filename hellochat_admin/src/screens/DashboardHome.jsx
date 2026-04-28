@@ -18,7 +18,8 @@ import {
   Activity,
   Flame,
   ArrowUpRight,
-  ArrowDownRight
+  ArrowDownRight,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
@@ -31,166 +32,244 @@ export const DashboardHome = () => {
     totalUsers: 0,
     activeRooms: 0,
     totalDiamonds: 0,
-    recentReports: []
+    activePKs: 0,
+    totalRevenue: 0,
+    recentReports: [],
+    velocityData: [0, 0, 0, 0, 0, 0, 0]
   });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!authLoading && isAgencyOwner && !isAdmin) {
       navigate('/agencies');
     }
   }, [isAgencyOwner, isAdmin, authLoading, navigate]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Snapshot for Users Count (Simulated for speed, in production use Cloud Function aggregates)
+    // Real-time telemetry snapshots
     const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
       setStats(prev => ({ ...prev, totalUsers: snap.size }));
     });
 
-    // 2. Snapshot for Active Rooms
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
       setStats(prev => ({ ...prev, activeRooms: snap.size }));
     });
 
-    // 3. Snapshot for Recent Reports
-    const qReports = query(collection(db, "reports"), orderBy("createdAt", "desc"), limit(4));
+    const unsubPKs = onSnapshot(query(collection(db, "rooms"), where("pkActive", "==", true)), (snap) => {
+      setStats(prev => ({ ...prev, activePKs: snap.size }));
+    });
+
+    const unsubRevenue = onSnapshot(query(collection(db, "recharges"), where("status", "==", "approved")), (snap) => {
+      let rev = 0;
+      snap.docs.forEach(d => {
+        const data = d.data();
+        rev += data.price || (data.amount / 100);
+      });
+      setStats(prev => ({ ...prev, totalRevenue: rev }));
+    });
+
+    const qReports = query(collection(db, "reports"), limit(10)); // Fetch more for manual sorting
     const unsubReports = onSnapshot(qReports, (snap) => {
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      list.sort((a, b) => {
+        const timeA = a.createdAt?.toDate?.() || a.timestamp?.toDate?.() || 0;
+        const timeB = b.createdAt?.toDate?.() || b.timestamp?.toDate?.() || 0;
+        return timeB - timeA;
+      });
       setStats(prev => ({ 
         ...prev, 
-        recentReports: snap.docs.map(d => ({ id: d.id, ...d.data() })) 
+        recentReports: list.slice(0, 4) 
       }));
+    });
+
+    // Velocity Data (Last 7 Days Registrations)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const qVelocity = query(
+      collection(db, "users"), 
+      where("createdAt", ">=", sevenDaysAgo)
+    );
+
+    const unsubVelocity = onSnapshot(qVelocity, (snap) => {
+      const counts = [0, 0, 0, 0, 0, 0, 0];
+      const now = new Date();
+      
+      snap.docs.forEach(doc => {
+        const date = doc.data().createdAt?.toDate();
+        if (date) {
+          const diff = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+          if (diff >= 0 && diff < 7) {
+            counts[6 - diff]++;
+          }
+        }
+      });
+      
+      setStats(prev => ({ ...prev, velocityData: counts }));
       setLoading(false);
     });
 
     return () => {
       unsubUsers();
       unsubRooms();
+      unsubPKs();
+      unsubRevenue();
       unsubReports();
+      unsubVelocity();
     };
   }, []);
 
-  const cards = [
-    { label: 'Total Users', value: stats.totalUsers.toLocaleString(), icon: Users, color: 'from-blue-600 to-indigo-600', growth: '+12%' },
-    { label: 'Live PKs', value: stats.activePKs?.toLocaleString() || '0', icon: Flame, color: 'from-orange-500 to-red-500', growth: 'Hot' },
-    { label: 'Live Rooms', value: stats.activeRooms.toLocaleString(), icon: Volume2, color: 'from-cyan-500 to-blue-500', growth: '+5%' },
+  const metricCards = [
+    { label: 'Platform Revenue', value: `$${stats.totalRevenue.toLocaleString()}`, icon: TrendingUp, color: 'border-emerald-500/20', glow: 'shadow-emerald-500/5', growth: 'LIVE' },
+    { label: 'Ecosystem Users', value: stats.totalUsers.toLocaleString(), icon: Users, color: 'border-blue-500/20', glow: 'shadow-blue-500/5', growth: '+12.4%' },
+    { label: 'Active PK Battles', value: stats.activePKs.toLocaleString(), icon: Flame, color: 'border-yellow-500/20', glow: 'shadow-yellow-500/5', growth: 'HIGH' },
+    { label: 'Global Live Rooms', value: stats.activeRooms.toLocaleString(), icon: Volume2, color: 'border-purple-500/20', glow: 'shadow-purple-500/5', growth: '+5.2%' },
   ];
 
-  useEffect(() => {
-    const unsubPKs = onSnapshot(query(collection(db, "rooms"), where("pkActive", "==", true)), (snap) => {
-      setStats(prev => ({ ...prev, activePKs: snap.size }));
-    });
-    return () => unsubPKs();
-  }, []);
-
   return (
-    <div className="space-y-10 animate-fade-in text-white pb-20">
-      {/* Welcome Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
+    <div className="space-y-12 animate-in fade-in duration-1000">
+      {/* 🚀 Hero Section */}
+      <section className="flex flex-col md:flex-row md:items-end justify-between gap-8">
         <div>
-           <h1 className="text-4xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
-              Hello, Admin 👋
-           </h1>
-           <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">Platform Orchestration Hub • Real-Time Telemetry</p>
-        </div>
-
-        <div className="flex items-center gap-4">
-           <div className="bg-emerald-500/10 px-6 py-3 rounded-2xl border border-emerald-500/20 backdrop-blur-md shadow-2xl flex items-center gap-3">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]"></div>
-              <span className="text-emerald-400 font-black tracking-widest text-[10px] uppercase">Ecosystem Healthy</span>
+           <div className="flex items-center gap-3 mb-4">
+              <span className="w-2 h-2 bg-[#00E5FF] rounded-full animate-ping"></span>
+              <span className="text-[10px] font-black tracking-[0.4em] text-[#00E5FF] uppercase">System Operational</span>
            </div>
+           <h1 className="text-5xl font-black text-white tracking-tighter leading-none">
+              DASHBOARD <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00E5FF] to-blue-500">COMMAND</span>
+           </h1>
+           <p className="text-gray-500 font-bold text-xs uppercase tracking-widest mt-4">Real-time platform telemetry & user engagement metrics</p>
         </div>
-      </div>
 
-      {/* Main Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {cards.map((stat, i) => (
+        <div className="flex items-center gap-4 bg-white/[0.02] p-2 rounded-3xl border border-white/[0.05]">
+          {['24H', '7D', '30D', 'ALL'].map((t) => (
+            <button key={t} className={`px-6 py-2.5 rounded-2xl text-[10px] font-black transition-all ${t === '7D' ? 'bg-[#00E5FF] text-black shadow-lg shadow-[#00E5FF]/20' : 'text-gray-500 hover:text-white'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* 📊 High-Level Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
+        {metricCards.map((card, i) => (
           <motion.div 
-            key={stat.label}
+            key={card.label}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.1 }}
-            className={`bg-gradient-to-br ${stat.color} p-10 rounded-[40px] shadow-2xl border border-white/10 relative overflow-hidden group hover:scale-[1.02] transition-all duration-500`}
+            className={`card-premium border-l-4 ${card.color} ${card.glow} relative group cursor-default`}
           >
-            <div className="absolute top-0 right-0 p-10 bg-white/10 rounded-full blur-[40px] translate-x-1/2 -translate-y-1/2 group-hover:scale-125 transition-transform duration-700"></div>
+            <div className="flex justify-between items-start mb-6">
+              <div className="p-4 bg-white/[0.03] rounded-2xl group-hover:scale-110 transition-transform">
+                <card.icon className="text-white/40" size={24} />
+              </div>
+              <span className="text-[10px] font-black text-emerald-400 bg-emerald-400/10 px-3 py-1.5 rounded-full tracking-wider">{card.growth}</span>
+            </div>
             
-            <stat.icon className="text-white/20 absolute right-8 bottom-8" size={80} />
+            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1">{card.label}</p>
+            <h3 className="text-4xl font-black text-white tracking-tighter">{card.value}</h3>
             
-            <p className="text-white/70 font-black uppercase tracking-[0.2em] text-[10px] mb-4">{stat.label}</p>
-            <h3 className="text-5xl font-black text-white mb-6 tracking-tighter">{stat.value}</h3>
-            
-            <div className="flex items-center gap-2">
-               <span className="bg-white/20 px-4 py-2 rounded-2xl text-[10px] font-black tracking-widest uppercase flex items-center gap-2">
-                 {stat.growth.startsWith('+') ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                 {stat.growth} this week
-               </span>
+            <div className="mt-8 h-1 bg-white/[0.03] rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-[#00E5FF] to-blue-600 w-2/3"></div>
             </div>
           </motion.div>
         ))}
       </div>
 
-      {/* Secondary HUD */}
+      {/* 🛡️ Risk & Activity HUD */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
         
-        {/* Moderated Feed */}
-        <div className="card-glass border-white/5 bg-slate-900/60 p-10 shadow-2xl">
-           <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
-              <h4 className="text-xl font-black text-white tracking-tight flex items-center gap-4">
-                 <ShieldAlert className="text-red-500 animate-pulse" size={24} />
-                 Live Risk Stream
-              </h4>
-              <button className="text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors">View All Reports</button>
+        {/* Live Security Stream */}
+        <div className="card-premium relative overflow-hidden group">
+           <div className="absolute top-0 right-0 p-20 bg-red-500/5 blur-[100px] pointer-events-none"></div>
+           
+           <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20">
+                    <ShieldAlert className="text-red-500" size={24} />
+                 </div>
+                 <div>
+                    <h4 className="text-lg font-black text-white tracking-tight">Security Alerts</h4>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">Pending Investigations</p>
+                 </div>
+              </div>
+              <button onClick={() => navigate('/reports')} className="btn-primary-neon !px-4 !py-2 !text-[9px] uppercase tracking-widest">Global Audit</button>
            </div>
            
-           <div className="space-y-6">
-              {stats.recentReports.length > 0 ? stats.recentReports.map(report => (
-                <div key={report.id} className="flex items-center justify-between p-6 bg-white/5 rounded-3xl border border-white/5 hover:bg-white/10 transition-all group cursor-pointer shadow-xl">
+           <div className="space-y-4">
+              {stats.recentReports.length > 0 ? stats.recentReports.map((report, i) => (
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.4 + (i * 0.1) }}
+                  key={report.id} 
+                  className="flex items-center justify-between p-5 bg-white/[0.01] rounded-2xl border border-white/[0.03] hover:bg-white/[0.03] transition-all group cursor-pointer"
+                >
                    <div className="flex items-center gap-5">
-                      <div className="w-14 h-14 bg-red-500/10 rounded-2xl flex items-center justify-center border border-red-500/20 group-hover:rotate-12 transition-transform shadow-lg">
-                         <Flame className={report.status === 'pending' ? 'text-red-500' : 'text-slate-600'} size={24} />
-                      </div>
+                      <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_#ef4444]"></div>
                       <div>
-                         <p className="text-sm font-black text-white capitalize">{report.reason || 'User Report'}</p>
-                         <p className="text-[10px] uppercase font-black tracking-widest text-slate-500 pt-1 flex items-center gap-2">
-                            <Activity size={10} /> Room: {report.roomId?.slice(0,12)} • Just Now
+                         <p className="text-sm font-bold text-white leading-none">{report.reason || 'Anomalous Behavior'}</p>
+                         <p className="text-[10px] font-bold text-gray-600 mt-2 tracking-wider flex items-center gap-2 uppercase">
+                            <Activity size={10} /> Room ID: {report.roomId?.slice(0,8)}...
                          </p>
                       </div>
                    </div>
-                   <button className="text-[9px] font-black text-primary-light bg-primary/10 px-5 py-2.5 rounded-xl border border-primary/20 hover:bg-primary hover:text-white transition-all shadow-lg">INVESTIGATE</button>
-                </div>
+                   <ArrowRightLeft size={16} className="text-gray-700 group-hover:text-[#00E5FF] group-hover:translate-x-1 transition-all" />
+                </motion.div>
               )) : (
-                <div className="p-20 text-center border-2 border-dashed border-white/5 rounded-[40px] flex flex-col items-center gap-4">
-                   <ShieldAlert className="text-slate-800" size={48} />
-                   <p className="text-slate-700 font-black uppercase tracking-widest text-[10px]">Zero Critical Alerts Reported</p>
+                <div className="py-20 text-center border-2 border-dashed border-white/[0.02] rounded-[40px]">
+                   <ShieldAlert className="mx-auto text-gray-800 mb-4" size={40} />
+                   <p className="text-gray-700 font-black uppercase tracking-[0.3em] text-[10px]">Perimeter Secured • No Threats</p>
                 </div>
               )}
            </div>
         </div>
 
-        {/* Activity Telemetry */}
-        <div className="card-glass border-white/5 bg-slate-900/60 p-10 shadow-2xl">
-           <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
-              <h4 className="text-xl font-black text-white tracking-tight flex items-center gap-4">
-                 <TrendingUp className="text-emerald-400" size={24} />
-                 Platform Velocity
-              </h4>
-              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">7-Day Engagement Cycle</p>
+        {/* 📈 Engagement Analytics */}
+        <div className="card-premium relative overflow-hidden group">
+           <div className="absolute top-0 right-0 p-20 bg-blue-500/5 blur-[100px] pointer-events-none"></div>
+           
+           <div className="flex items-center justify-between mb-10">
+              <div className="flex items-center gap-4">
+                 <div className="w-12 h-12 bg-blue-500/10 rounded-2xl flex items-center justify-center border border-blue-500/20">
+                    <TrendingUp className="text-blue-400" size={24} />
+                 </div>
+                 <div>
+                    <h4 className="text-lg font-black text-white tracking-tight">Ecosystem Growth</h4>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mt-1">Platform Velocity Index</p>
+                 </div>
+              </div>
            </div>
            
-           <div className="h-64 flex items-end justify-between px-6 pb-6 bg-slate-950/50 rounded-[40px] border border-white/5 shadow-inner relative overflow-hidden group">
-              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-blue-500/5 via-transparent to-transparent"></div>
-              {[40, 70, 45, 90, 65, 80, 55].map((h, i) => (
-                <div key={i} style={{ height: `${h}%` }} className="w-10 bg-gradient-to-t from-primary to-cyan-400 rounded-2xl opacity-80 hover:opacity-100 transition-all cursor-pointer relative group-hover:shadow-[0_0_20px_rgba(34,211,238,0.2)]">
-                   <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-white text-slate-900 text-[9px] font-black px-3 py-1.5 rounded-xl opacity-0 hover:opacity-100 transition-all shadow-2xl z-20 pointer-events-none">
-                     {h * 150} REQ/s
-                   </div>
-                </div>
-              ))}
+           <div className="h-64 flex items-end justify-between px-6 pb-6 bg-black/40 rounded-[32px] border border-white/[0.03] shadow-inner relative overflow-hidden group/chart">
+              <div className="absolute inset-0 bg-gradient-to-t from-blue-500/5 to-transparent"></div>
+              {stats.velocityData.map((val, i) => {
+                const max = Math.max(...stats.velocityData, 1);
+                const h = (val / max) * 80 + 10; // min 10% height
+                return (
+                  <div 
+                    key={i} 
+                    style={{ height: `${h}%` }} 
+                    className="w-12 bg-gradient-to-t from-[#00E5FF] to-blue-600 rounded-t-2xl opacity-60 hover:opacity-100 transition-all cursor-pointer relative group-hover/chart:shadow-[0_0_30px_rgba(0,229,255,0.1)]"
+                  >
+                     <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-white text-black text-[9px] font-black px-3 py-1.5 rounded-xl opacity-0 hover:opacity-100 transition-all shadow-2xl z-20 pointer-events-none">
+                       {val} NEW USERS
+                     </div>
+                  </div>
+                );
+              })}
            </div>
            
-           <div className="flex justify-between mt-6 px-4">
-              {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((d) => (
-                <span key={d} className="text-[10px] font-black uppercase text-slate-600 tracking-[0.2em]">{d}</span>
-              ))}
+           <div className="flex justify-between mt-8 px-6">
+              {Array.from({ length: 7 }).map((_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - (6 - i));
+                const label = d.toLocaleDateString('en-US', { weekday: 'short' });
+                return (
+                  <span key={i} className="text-[10px] font-black uppercase text-gray-600 tracking-widest">{label}</span>
+                );
+              })}
            </div>
         </div>
 

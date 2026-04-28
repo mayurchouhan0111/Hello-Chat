@@ -67,12 +67,14 @@ export const RoomManagement = () => {
         </div>
 
         <div className="flex items-center gap-4">
-           <div className="relative group">
-              <Search className="absolute left-4 top-4 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={20} />
+           <div className="relative group w-80">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                 <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+              </div>
               <input 
                 type="text" 
                 placeholder="Locate room by title or owner ID..."
-                className="input-field w-80 pl-12 bg-slate-950/50 border-white/5 focus:ring-cyan-500/50"
+                className="glass-input w-full pl-12 !py-3.5"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />

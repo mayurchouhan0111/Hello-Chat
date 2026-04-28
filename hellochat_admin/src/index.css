@@ -4,38 +4,69 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --primary: #00E5FF; /* Electric Cyan */
+  --primary-dark: #00B8D4;
+  --bg-obsidian: #0A0A0B;
+  --bg-sidebar: #0D0D0E;
+  --card-glass: rgba(255, 255, 255, 0.02);
+}
+
 @layer base {
   body {
-    @apply bg-slate-900 text-slate-200 overflow-x-hidden;
+    @apply bg-[#0A0A0B] text-slate-100 overflow-x-hidden;
     font-family: 'Outfit', sans-serif;
   }
 }
 
 @layer components {
-  .btn-primary {
-    @apply bg-primary hover:bg-primary-dark text-white px-6 py-3 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-primary/20;
+  .btn-primary-neon {
+    @apply bg-[#00E5FF] hover:bg-[#00B8D4] text-black px-6 py-3 rounded-xl font-bold transition-all transform active:scale-95 shadow-lg shadow-[#00E5FF]/20;
   }
 
-  .card-glass {
-    @apply bg-white/[0.03] backdrop-blur-xl border border-white/[0.08] rounded-3xl p-6 shadow-2xl;
+  .card-premium {
+    @apply bg-white/[0.01] backdrop-blur-3xl border border-white/[0.05] rounded-3xl p-8 transition-all hover:bg-white/[0.02] hover:border-white/[0.1] shadow-2xl;
   }
 
-  .input-field {
-    @apply bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:text-gray-500;
+  .glass-input {
+    @apply bg-white/[0.02] border border-white/10 rounded-2xl px-5 py-4 focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-700 text-sm;
+  }
+
+  .glass-input-sm {
+    @apply bg-white/[0.02] border border-white/10 rounded-xl px-3 py-2 focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all text-xs;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-4 px-5 py-3.5 rounded-2xl transition-all duration-300 relative overflow-hidden;
+  }
+
+  .sidebar-link-active {
+    @apply bg-[#00E5FF] text-black shadow-xl shadow-[#00E5FF]/20;
   }
 }
 
-/* Custom Scrollbar */
+/* Premium Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0F172A;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1E293B;
+  background: #27272A;
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: #3F3F46;
+}
+
+/* Animations */
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
 }

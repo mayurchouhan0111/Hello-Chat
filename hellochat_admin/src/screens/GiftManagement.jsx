@@ -118,12 +118,14 @@ export const GiftManagement = () => {
         </div>
 
         <div className="flex items-center gap-4">
-           <div className="relative group">
-              <Search className="absolute left-4 top-4 text-slate-500" size={20} />
+           <div className="relative group w-64">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                 <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+              </div>
               <input 
                 type="text" 
                 placeholder="Search gifts..." 
-                className="input-field w-64 pl-12 bg-slate-950/50 border-white/5"
+                className="glass-input w-full pl-12 !py-3.5"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -183,7 +185,7 @@ export const GiftManagement = () => {
                                </button>
                                <button 
                                 onClick={() => setEditingGift(gift)}
-                                className="p-2 text-primary-light hover:bg-primary/10 rounded-xl transition-all"
+                                className="p-2 text-[#00E5FF] hover:bg-[#00E5FF]/10 rounded-xl transition-all"
                                >
                                   <Edit3 size={18} />
                                </button>
@@ -204,12 +206,12 @@ export const GiftManagement = () => {
 
         {/* Editor Form */}
         <div className="space-y-8">
-           <div className="card-glass p-10 bg-slate-900/60 border-primary/20 shadow-primary/10 shadow-2xl relative overflow-hidden group">
-              <div className="absolute top-0 right-0 p-10 bg-primary/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+           <div className="card-glass p-10 bg-slate-900/60 border-white/5 shadow-[#00E5FF]/5 shadow-2xl relative overflow-hidden group">
+              <div className="absolute top-0 right-0 p-10 bg-[#00E5FF]/10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
               
               <div className="flex items-center justify-between mb-8">
                  <h3 className="text-xl font-black text-white tracking-tight uppercase flex items-center gap-3">
-                    {editingGift ? <Edit3 size={20} className="text-primary-light" /> : <Plus size={20} className="text-primary-light" />}
+                    {editingGift ? <Edit3 size={20} className="text-[#00E5FF]" /> : <Plus size={20} className="text-[#00E5FF]" />}
                     {editingGift ? 'Edit Gift' : 'Add New Gift'}
                  </h3>
                  {editingGift && <button onClick={() => setEditingGift(null)} className="text-slate-500 hover:text-white"><X size={20} /></button>}
@@ -220,7 +222,7 @@ export const GiftManagement = () => {
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Name of Gift</label>
                     <input 
                       required
-                      className="input-field w-full h-14 bg-slate-950/50"
+                      className="glass-input w-full"
                       value={editingGift ? editingGift.name : newGift.name}
                       onChange={(e) => editingGift ? setEditingGift({...editingGift, name: e.target.value}) : setNewGift({...newGift, name: e.target.value})}
                     />
@@ -231,7 +233,7 @@ export const GiftManagement = () => {
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
                       <input 
                         required type="number"
-                        className="input-field w-full h-14 bg-slate-950/50"
+                        className="glass-input w-full"
                         value={editingGift ? editingGift.priceInDiamonds : newGift.priceInDiamonds}
                         onChange={(e) => editingGift ? setEditingGift({...editingGift, priceInDiamonds: parseInt(e.target.value)}) : setNewGift({...newGift, priceInDiamonds: parseInt(e.target.value)})}
                       />
@@ -239,24 +241,26 @@ export const GiftManagement = () => {
                     <div className="space-y-3">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
                       <select 
-                        className="input-field w-full h-14 bg-slate-950/50"
+                        className="glass-input w-full outline-none"
                         value={editingGift ? editingGift.category : newGift.category}
                         onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
                       >
-                         <option>Normal</option>
-                         <option>Vip</option>
-                         <option>Luxury</option>
-                         <option>Animated</option>
+                         <option value="Normal">Normal</option>
+                         <option value="Vip">Vip</option>
+                         <option value="Luxury">Luxury</option>
+                         <option value="Animated">Animated</option>
                       </select>
                     </div>
                  </div>
 
                  <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (PNG)</label>
-                    <div className="relative">
-                       <LinkIcon className="absolute left-4 top-4 text-slate-800" size={18} />
+                    <div className="relative group">
+                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                          <LinkIcon className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+                       </div>
                        <input 
-                         className="input-field w-full pl-12 bg-slate-950/50 h-14"
+                         className="glass-input w-full pl-12"
                          value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
                        />
@@ -265,10 +269,12 @@ export const GiftManagement = () => {
 
                  <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Animation URL (Lottie/MP4)</label>
-                    <div className="relative">
-                       <Sparkles className="absolute left-4 top-4 text-slate-800" size={18} />
+                    <div className="relative group">
+                       <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                          <Sparkles className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+                       </div>
                        <input 
-                         className="input-field w-full pl-12 bg-slate-950/50 h-14 placeholder:italic"
+                         className="glass-input w-full pl-12 placeholder:italic"
                          placeholder="Optional premium effect..."
                          value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
@@ -278,7 +284,7 @@ export const GiftManagement = () => {
 
                  <button 
                   type="submit"
-                  className="w-full flex items-center justify-center gap-3 py-5 bg-primary hover:bg-primary-dark text-white rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-2xl transition-all transform active:scale-[0.98] mt-4"
+                  className="w-full flex items-center justify-center gap-3 py-5 bg-[#00E5FF] hover:bg-cyan-400 text-black rounded-2xl font-black uppercase text-xs tracking-[0.2em] shadow-lg shadow-cyan-500/20 transition-all transform active:scale-[0.98] mt-4"
                  >
                     <Save size={18} /> {editingGift ? 'Update Inventory' : 'Add to Catalog'}
                  </button>

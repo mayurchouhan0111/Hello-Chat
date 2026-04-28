@@ -9,8 +9,8 @@ export default {
       colors: {
         primary: {
           light: '#00E5FF',
-          DEFAULT: '#534AB7', // Mobile app primary
-          dark: '#1E1B4B',
+          DEFAULT: '#00E5FF',
+          dark: '#00B8D4',
         },
         sidebar: '#111827',
         card: '#1F2937',

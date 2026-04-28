@@ -20,7 +20,8 @@ import {
   Database,
   ArrowRightLeft,
   ShoppingBag,
-  Store
+  Store,
+  Image
 } from 'lucide-react';
 
 
@@ -46,6 +47,7 @@ const Sidebar = () => {
     { name: 'Families', icon: UsersRound, path: '/families' },
     { name: 'Financials', icon: Coins, path: '/financials' },
     { name: 'Reports', icon: ShieldAlert, path: '/reports' },
+    { name: 'Moments', icon: Image, path: '/moments' },
     { name: 'Moderation', icon: Flag, path: '/moderation' },
     { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
     { name: 'Settings', icon: Settings, path: '/settings' },
@@ -59,43 +61,78 @@ const Sidebar = () => {
     : fullMenu;
 
   return (
-    <div className="w-64 bg-sidebar h-screen text-gray-300 flex flex-col border-r border-white/5 shadow-2xl">
-      <div className="p-6">
-        <h1 className="text-xl font-black text-primary-light flex items-center gap-2">
-          <div className="bg-primary p-2 rounded-xl shadow-lg border border-white/10">
-            <ShieldAlert className="text-white" size={24} />
+    <div className="w-72 bg-[#0D0D0E] h-screen text-gray-400 flex flex-col border-r border-white/[0.03] shadow-2xl z-50">
+      <div className="p-8">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-[#00E5FF] rounded-2xl flex items-center justify-center shadow-lg shadow-[#00E5FF]/20 rotate-3 transition-transform hover:rotate-0">
+            <ShieldAlert className="text-black" size={24} />
           </div>
-          {isAdmin ? 'HELLO ADMIN' : 'AGENCY PORTAL'}
-        </h1>
+          <div>
+            <h1 className="text-lg font-black text-white leading-none tracking-tighter">
+              {isAdmin ? 'HELLO CHAT' : 'AGENCY'}
+            </h1>
+            <p className="text-[10px] font-bold text-[#00E5FF]/80 tracking-widest mt-1 uppercase">Control Center</p>
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 mt-6 px-4 space-y-1">
-        {menu.map((item) => (
-          <Link
-            key={item.name}
-            to={item.path}
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 group ${
-              location.pathname === item.path 
-              ? 'bg-primary text-white shadow-lg' 
-              : 'hover:bg-white/5 hover:text-white'
-            }`}
-          >
-            <item.icon size={20} className={location.pathname === item.path ? 'text-white' : 'text-gray-500 group-hover:text-primary-light'} />
-            <span className="font-semibold text-sm">{item.name}</span>
-          </Link>
-        ))}
+      <nav className="flex-1 mt-4 px-4 space-y-1 overflow-y-auto no-scrollbar pb-10">
+        <p className="px-4 text-[10px] font-black text-gray-700 tracking-[0.2em] mb-4 uppercase">Main Management</p>
+        {menu.map((item) => {
+          const isActive = location.pathname === item.path;
+          return (
+            <Link
+              key={item.name}
+              to={item.path}
+              className={`sidebar-link group ${isActive ? 'sidebar-link-active' : 'hover:bg-white/[0.03] hover:text-white'}`}
+            >
+              <item.icon size={18} className={isActive ? 'text-black' : 'text-gray-500 group-hover:text-[#00E5FF] transition-colors'} />
+              <span className="font-bold text-[13px] tracking-tight">{item.name}</span>
+              {isActive && (
+                <div className="absolute right-0 w-1.5 h-6 bg-black rounded-l-full" />
+              )}
+            </Link>
+          );
+        })}
       </nav>
 
-      <div className="p-4 border-t border-white/5">
+      <div className="p-6 border-t border-white/[0.03] bg-white/[0.01]">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-red-400 hover:bg-red-400/10 transition-colors"
+          className="flex items-center gap-4 px-5 py-4 w-full rounded-2xl text-red-400 hover:bg-red-400/10 transition-all group"
         >
-          <LogOut size={20} />
-          <span className="font-bold text-sm">Sign Out</span>
+          <LogOut size={18} className="group-hover:rotate-12 transition-transform" />
+          <span className="font-bold text-[13px]">Sign Out</span>
         </button>
       </div>
     </div>
+  );
+};
+
+const TopBar = () => {
+  const { user } = useAdmin();
+  const location = useLocation();
+  const pageTitle = location.pathname === '/' ? 'Overview' : location.pathname.substring(1).replace('-', ' ');
+
+  return (
+    <header className="h-20 border-b border-white/[0.03] bg-[#0A0A0B]/80 backdrop-blur-xl flex items-center justify-between px-10 sticky top-0 z-40">
+      <div>
+        <h2 className="text-xl font-black text-white capitalize tracking-tight">{pageTitle}</h2>
+        <p className="text-[11px] font-medium text-gray-500">Welcome back, Super Admin</p>
+      </div>
+
+      <div className="flex items-center gap-6">
+        <div className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.05] pl-2 pr-4 py-1.5 rounded-full">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#00E5FF] to-blue-600 flex items-center justify-center font-black text-black text-xs">
+            {user?.email?.substring(0, 1).toUpperCase()}
+          </div>
+          <div>
+            <p className="text-xs font-black text-white leading-none">{user?.email?.split('@')[0]}</p>
+            <p className="text-[10px] text-gray-500 font-bold mt-1">Administrator</p>
+          </div>
+        </div>
+      </div>
+    </header>
   );
 };
 
@@ -110,17 +147,25 @@ export const AdminLayout = ({ children }) => {
   }, [user, isAdmin, isAgencyOwner, loading, navigate]);
 
   if (loading) return (
-    <div className="h-screen bg-sidebar flex items-center justify-center">
-      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+    <div className="h-screen bg-[#0A0A0B] flex items-center justify-center">
+      <div className="relative">
+        <div className="w-16 h-16 border-4 border-yellow-400/10 rounded-full"></div>
+        <div className="w-16 h-16 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin absolute top-0 left-0 shadow-lg shadow-yellow-400/20"></div>
+      </div>
     </div>
   );
 
   return (
-    <div className="flex bg-slate-900 min-h-screen">
+    <div className="flex bg-[#0A0A0B] min-h-screen text-white selection:bg-yellow-400 selection:text-black">
       <Sidebar />
-      <main className="flex-1 overflow-auto p-10 bg-[radial-gradient(circle_at_top_right,_var(--tw-gradient-stops))] from-blue-900/10 via-slate-900 to-slate-900">
-        {children}
-      </main>
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
+        <TopBar />
+        <main className="flex-1 overflow-y-auto p-10 custom-scrollbar scroll-smooth">
+          <div className="max-w-[1600px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {children}
+          </div>
+        </main>
+      </div>
     </div>
   );
 };

@@ -23,6 +23,10 @@ export const FinancialManagement = () => {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [financeStats, setFinanceStats] = useState({
+    totalRevenue: 0,
+    activeCirculation: 0
+  });
 
   useEffect(() => {
     if (isAdmin) {
@@ -43,6 +47,26 @@ export const FinancialManagement = () => {
       const tq = query(collection(db, "admin_logs"), where("action", "==", "ADJUST_BALANCE"), orderBy("timestamp", "desc"), limit(20));
       const tSnap = await getDocs(tq);
       setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      // 3. Calculate Stats
+      const allApprovedSnap = await getDocs(query(collection(db, "recharges"), where("status", "==", "approved")));
+      let rev = 0;
+      allApprovedSnap.docs.forEach(d => {
+        // Assume 100 diamonds = $1 for now if currency is not specified, or use the 'price' field if it exists
+        const data = d.data();
+        rev += data.price || (data.amount / 100); 
+      });
+
+      const usersSnap = await getDocs(collection(db, "users"));
+      let circulation = 0;
+      usersSnap.docs.forEach(d => {
+        circulation += (d.data().diamondBalance || 0);
+      });
+
+      setFinanceStats({
+        totalRevenue: rev,
+        activeCirculation: circulation
+      });
     } catch (err) {
       console.error(err);
       setError(err.message.includes('permissions') 
@@ -97,11 +121,11 @@ export const FinancialManagement = () => {
 
       {/* Revenue Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-         {[
-           { label: 'Platform Revenue', val: '$14,205.00', icon: Coins, color: 'from-emerald-600 to-teal-500' },
-           { label: 'Pending Approvals', val: recharges.length, icon: Clock, color: 'from-amber-600 to-orange-500' },
-           { label: 'Active Circulation', val: '4,208,400', icon: Zap, color: 'from-primary to-indigo-600' }
-         ].map(stat => (
+          {[
+            { label: 'Platform Revenue', val: `$${financeStats.totalRevenue.toLocaleString()}`, icon: Coins, color: 'from-emerald-600 to-teal-500' },
+            { label: 'Pending Approvals', val: recharges.length, icon: Clock, color: 'from-amber-600 to-orange-500' },
+            { label: 'Active Circulation', val: financeStats.activeCirculation.toLocaleString(), icon: Zap, color: 'from-[#00E5FF] to-blue-600' }
+          ].map(stat => (
            <div key={stat.label} className={`bg-gradient-to-br ${stat.color} p-8 rounded-[40px] shadow-2xl relative overflow-hidden group`}>
               <div className="absolute top-0 right-0 p-10 bg-white/10 rounded-full blur-3xl group-hover:scale-125 transition-transform"></div>
               <p className="text-white/70 font-black uppercase tracking-[0.2em] text-[10px] mb-4">{stat.label}</p>

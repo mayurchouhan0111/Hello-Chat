@@ -12,17 +12,12 @@ export const LoginScreen = () => {
   const [confirmationResult, setConfirmationResult] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [timer, setTimer] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Setup Recaptcha
     if (!window.recaptchaVerifier) {
       window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        'size': 'invisible',
-        'callback': (response) => {
-          // reCAPTCHA solved, allow signInWithPhoneNumber.
-        }
+        'size': 'invisible'
       });
     }
   }, []);
@@ -31,17 +26,13 @@ export const LoginScreen = () => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
-      // Ensure phone includes country code
       const formattedPhone = phoneNumber.startsWith('+') ? phoneNumber : `+91${phoneNumber}`;
       const confirmation = await signInWithPhoneNumber(auth, formattedPhone, window.recaptchaVerifier);
       setConfirmationResult(confirmation);
-      setTimer(60);
     } catch (err) {
-      setError("FAILED TO SEND OTP: " + err.message);
-      // Reset reCAPTCHA on error
-      if (window.recaptchaVerifier) window.recaptchaVerifier.render().then(widgetId => grecaptcha.reset(widgetId));
+      setError("AUTHENTICATION FAILED: " + err.message);
+      if (window.recaptchaVerifier) window.recaptchaVerifier.render().then(id => grecaptcha.reset(id));
     } finally {
       setLoading(false);
     }
@@ -51,159 +42,116 @@ export const LoginScreen = () => {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
       const result = await confirmationResult.confirm(otp);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
       const tags = userDoc.data()?.tags || [];
-      
       if (tags.includes("Admin") || tags.includes("SuperAdmin")) {
         navigate('/');
       } else {
         await auth.signOut();
-        setError("ACCESS REVOKED: Admin level credentials required for this partition.");
+        setError("ACCESS DENIED: Insufficient permissions for this node.");
       }
     } catch (err) {
-      setError("OTP VERIFICATION FAILED: " + err.message);
+      setError("VERIFICATION FAILED: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0A0A0B] flex items-center justify-center p-6 relative overflow-hidden">
       <div id="recaptcha-container"></div>
       
-      {/* Animated Background Orbs */}
+      {/* 🌌 Atmospheric Background */}
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#00E5FF]/5 via-transparent to-transparent"></div>
       <motion.div 
-        animate={{ scale: [1, 1.2, 1], x: [0, 50, 0] }}
-        transition={{ duration: 10, repeat: Infinity }}
-        className="absolute -top-40 -right-40 w-[600px] h-[600px] bg-primary/20 blur-[140px] rounded-full opacity-60"
-      ></motion.div>
-      <motion.div 
-        animate={{ scale: [1, 1.3, 1], x: [0, -50, 0] }}
-        transition={{ duration: 12, repeat: Infinity, delay: 2 }}
-        className="absolute -bottom-40 -left-24 w-[500px] h-[500px] bg-cyan-500/10 blur-[120px] rounded-full opacity-40"
-      ></motion.div>
+        animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
+        transition={{ duration: 8, repeat: Infinity }}
+        className="absolute -top-40 -right-40 w-[600px] h-[600px] bg-[#00E5FF]/10 blur-[120px] rounded-full"
+      />
 
       <motion.div 
-        initial={{ opacity: 0, y: 30, scale: 0.95 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        className="w-full max-w-[500px] relative z-10"
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="w-full max-w-[480px] relative z-10"
       >
-        <div className="card-glass p-12 border-white/5 bg-slate-900/60 backdrop-blur-3xl shadow-[0_0_100px_rgba(0,0,0,0.5)]">
+        <div className="bg-white/[0.02] backdrop-blur-3xl border border-white/[0.05] p-12 rounded-[48px] shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#00E5FF] to-transparent opacity-50"></div>
           
-          <div className="flex justify-between items-center mb-12">
-             <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-gradient-to-br from-primary to-indigo-600 rounded-2xl flex items-center justify-center shadow-2xl shadow-primary/40 border border-white/20">
-                   <ShieldAlert className="text-white" size={28} />
-                </div>
-                <div>
-                   <h2 className="text-2xl font-black text-white tracking-tighter uppercase">ADMIN ACCESS</h2>
-                   <p className="text-[10px] font-black text-slate-500 tracking-[0.3em] uppercase">MFA PROTECTED • Orbit Platform</p>
-                </div>
-             </div>
-             <div className="bg-cyan-500/10 px-3 py-1.5 rounded-full border border-cyan-500/20 flex items-center gap-2">
-                <div className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></div>
-                <span className="text-[9px] font-black text-cyan-500 uppercase tracking-widest leading-none text-nowrap">PH-SECURE</span>
-             </div>
+          <div className="text-center mb-12">
+            <motion.div 
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ duration: 10, repeat: Infinity }}
+              className="w-20 h-20 bg-[#00E5FF] rounded-3xl mx-auto flex items-center justify-center shadow-2xl shadow-[#00E5FF]/20 mb-8 rotate-3"
+            >
+              <ShieldAlert className="text-black" size={32} />
+            </motion.div>
+            <h1 className="text-3xl font-black text-white tracking-tighter uppercase mb-2">Hello Chat Access</h1>
+            <p className="text-[10px] font-black text-gray-600 tracking-[0.4em] uppercase">Administration Terminal v5</p>
           </div>
 
           {error && (
             <motion.div 
-              initial={{ scale: 0.9 }}
-              animate={{ scale: 1 }}
-              className="bg-red-500/10 border border-red-500/20 text-red-500 px-5 py-4 rounded-2xl text-[10px] font-black tracking-widest uppercase mb-8 flex items-center gap-3 animate-shake"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-2xl text-[10px] font-black tracking-widest uppercase mb-8 text-center"
             >
-              <ShieldAlert size={16} /> {error}
+              {error}
             </motion.div>
           )}
 
           <AnimatePresence mode="wait">
             {!confirmationResult ? (
-              <motion.form 
-                key="phone-form"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                onSubmit={handleSendOtp} 
-                className="space-y-8"
-              >
-                <div className="space-y-3">
-                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">MOBILE AUTHORIZATION</label>
-                  <div className="relative group">
-                    <Smartphone className="absolute left-5 top-4.5 text-slate-500 group-focus-within:text-primary transition-colors" size={20} />
-                    <input
-                      type="tel"
-                      placeholder="+91 0000 0000 00"
-                      className="input-field w-full pl-14 h-16 bg-slate-950/50 border-white/5 font-bold tracking-tight text-lg"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      required
-                    />
-                  </div>
+              <form onSubmit={handleSendOtp} className="space-y-8">
+                <div className="space-y-4">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Secure Identity (Phone)</label>
+                  <input
+                    type="tel"
+                    placeholder="+91 0000 0000 00"
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-5 text-xl font-bold tracking-tight text-white focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-800"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    required
+                  />
                 </div>
-
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
+                <button
                   disabled={loading}
-                  className="w-full h-16 bg-primary hover:bg-primary-dark text-white rounded-2xl flex items-center justify-center gap-3 font-black tracking-[0.1em] text-sm uppercase shadow-2xl transition-all border border-white/10"
+                  className="w-full py-5 bg-[#00E5FF] hover:bg-[#00B8D4] text-black rounded-2xl font-black tracking-widest text-xs uppercase shadow-xl shadow-[#00E5FF]/10 transition-all transform active:scale-95 disabled:opacity-50"
                 >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white/60 border-t-white rounded-full animate-spin"></div>
-                  ) : (
-                    <>SEND SECURITY CODE <ChevronRight size={18} /></>
-                  )}
-                </motion.button>
-              </motion.form>
+                  {loading ? "Authenticating..." : "Establish Connection"}
+                </button>
+              </form>
             ) : (
-              <motion.form 
-                key="otp-form"
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                onSubmit={handleVerifyOtp} 
-                className="space-y-8"
-              >
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] ml-1">ONE-TIME PASSWORD</label>
-                    <button onClick={() => setConfirmationResult(null)} className="text-[9px] font-black text-primary-light uppercase tracking-widest border-b border-primary/20">CHANGE NUMBER</button>
+              <form onSubmit={handleVerifyOtp} className="space-y-8">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center px-1">
+                    <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Entry Key (OTP)</label>
+                    <button type="button" onClick={() => setConfirmationResult(null)} className="text-[9px] font-black text-[#00E5FF] uppercase tracking-widest border-b border-[#00E5FF]/20">Back</button>
                   </div>
-                  <div className="relative group">
-                    <Key className="absolute left-5 top-4.5 text-slate-500 group-focus-within:text-cyan-400 transition-colors" size={20} />
-                    <input
-                      type="text"
-                      maxLength="6"
-                      placeholder="000 000"
-                      className="input-field w-full pl-14 h-16 bg-slate-950/50 border-white/5 font-black tracking-[0.8em] text-2xl text-center pr-14"
-                      value={otp}
-                      onChange={(e) => setOtp(e.target.value)}
-                      required
-                      autoFocus
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    maxLength="6"
+                    placeholder="......"
+                    className="w-full bg-white/[0.03] border border-white/10 rounded-2xl px-6 py-5 text-4xl font-black tracking-[0.4em] text-white text-center focus:ring-2 focus:ring-[#00E5FF] focus:border-transparent outline-none transition-all placeholder:text-gray-800"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    required
+                    autoFocus
+                  />
                 </div>
-
-                <motion.button
-                  whileHover={{ scale: 1.02, boxShadow: '0 0 40px rgba(6,182,212,0.3)' }}
-                  whileTap={{ scale: 0.98 }}
+                <button
                   disabled={loading}
-                  className="w-full h-16 bg-cyan-500 hover:bg-cyan-600 text-slate-950 rounded-2xl flex items-center justify-center gap-3 font-black tracking-[0.1em] text-sm uppercase shadow-2xl transition-all border border-white/10"
+                  className="w-full py-5 bg-[#00E5FF] hover:bg-[#00B8D4] text-black rounded-2xl font-black tracking-widest text-xs uppercase shadow-xl shadow-[#00E5FF]/10 transition-all transform active:scale-95 disabled:opacity-50"
                 >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <>VERIFY IDENTITY <CheckCircle2 size={18} /></>
-                  )}
-                </motion.button>
-              </motion.form>
+                  {loading ? "Verifying..." : "Validate Identity"}
+                </button>
+              </form>
             )}
           </AnimatePresence>
-          
-          <div className="mt-12 text-center border-t border-white/5 pt-8">
-            <p className="text-[9px] text-slate-700 font-bold tracking-[0.4em] uppercase">Orbit Platform Administration Terminal v5.2.0 • 2026</p>
+
+          <div className="mt-12 text-center pt-8 border-t border-white/[0.03]">
+             <p className="text-[8px] text-gray-700 font-black tracking-[0.5em] uppercase">Encrypted • End-to-End • 2026</p>
           </div>
         </div>
       </motion.div>

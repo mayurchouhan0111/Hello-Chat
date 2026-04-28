@@ -62,13 +62,51 @@ export const VIPManagement = () => {
         ...editingTier,
         updatedAt: serverTimestamp()
       };
-      await setDoc(doc(db, category, editingTier.id || editingTier.tierId), data, { merge: true });
-      await logAdminAction(user, `${category.toUpperCase()}_UPDATE`, editingTier.id || editingTier.tierId, { name: data.name, price: data.monthlyPriceInDiamonds });
+      
+      const docId = creating ? (data.tierId || `${category}_${Date.now()}`) : editingTier.id;
+      await setDoc(doc(db, category, docId), data, { merge: true });
+      await logAdminAction(user, `${category.toUpperCase()}_${creating ? 'CREATE' : 'UPDATE'}`, docId, { name: data.name });
+      
       setEditingTier(null);
       setCreating(false);
+      alert(`${category.replace('_', ' ')} updated successfully.`);
     } catch (err) {
       alert("Error: " + err.message);
     }
+  };
+
+  const handleDelete = async (tierId) => {
+    if(!window.confirm("ARE YOU SURE? This will permanently delete this tier.")) return;
+    try {
+      await deleteDoc(doc(db, category, tierId));
+      await logAdminAction(user, `${category.toUpperCase()}_DELETE`, tierId);
+      if(editingTier?.id === tierId) setEditingTier(null);
+      alert("Tier removed from ecosystem.");
+    } catch (err) {
+      alert("Delete Error: " + err.message);
+    }
+  };
+
+  const startCreating = () => {
+    setCreating(true);
+    setEditingTier({
+      tierId: '',
+      name: '',
+      level: tiers.length + 1,
+      monthlyPriceInDiamonds: 0,
+      monthlyPriceInUSD: 0,
+      benefits: [],
+      profileFrame: '',
+      entryAnimation: '',
+      badgeIcon: '',
+      backgroundImage: '',
+      themeColor: '#FFFFFF',
+      entryRequirement: 'Monthly Fee',
+      priorityMicAccess: false,
+      sortOrder: tiers.length + 1,
+      isActive: true,
+      discount: 0
+    });
   };
 
   const handleFileUpload = async (e, field) => {
@@ -218,7 +256,7 @@ export const VIPManagement = () => {
         },
         {
           tierId: 'vip7',
-          name: 'SVIP',
+          name: 'VIP 7',
           level: 7,
           monthlyPriceInDiamonds: 200000000,
           monthlyPriceInUSD: 2000.0,
@@ -233,8 +271,6 @@ export const VIPManagement = () => {
           isActive: true,
           sortOrder: 7
         },
-
-
       ];
 
       const nobleTiers = [
@@ -426,6 +462,12 @@ export const VIPManagement = () => {
         >
           SVIP (High-Stake)
         </button>
+        <button 
+           onClick={startCreating}
+           className="ml-auto flex items-center gap-2 px-6 py-3 bg-emerald-500 text-slate-950 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+        >
+          <Plus size={16} /> Add New {category === 'vip_tiers' ? 'VIP' : (category === 'noble_tiers' ? 'Noble' : 'SVIP')}
+        </button>
       </div>
 
 
@@ -450,15 +492,23 @@ export const VIPManagement = () => {
                 >
                    <div className="absolute top-0 right-0 p-10 bg-white/5 rounded-full blur-2xl group-hover:scale-125 transition-transform"></div>
                    <div className="flex items-center justify-between mb-8 relative">
-                      <div className="w-12 h-12 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center shadow-lg group-hover:border-amber-400/30 transition-all">
-                         <Crown className={tier.id.includes('v') ? 'text-slate-400' : 'text-amber-400'} size={24} />
-                      </div>
-                      <div className="text-right">
+                       <div className="w-12 h-12 bg-white/5 rounded-2xl border border-white/10 flex items-center justify-center shadow-lg group-hover:border-amber-400/30 transition-all">
+                          <Crown className={tier.id?.includes('v') ? 'text-slate-400' : 'text-amber-400'} size={24} />
+                       </div>
+                       <div className="flex items-center gap-2">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleDelete(tier.id); }}
+                            className="p-2 bg-red-500/10 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white"
+                          >
+                             <Trash2 size={14} />
+                          </button>
+                          <div className="text-right">
                          <p className="text-xs font-black text-emerald-400 tracking-tighter uppercase flex items-center gap-2">
                             <Diamond size={12} /> {tier.monthlyPriceInDiamonds?.toLocaleString() || '---'}
                          </p>
                          <p className="text-[10px] font-bold text-slate-600 uppercase mt-1">MONTHLY BASE</p>
                       </div>
+                   </div>
                    </div>
                    <h3 className="text-2xl font-black text-white relative">{tier.name || 'Undefined Tier'}</h3>
                    <div className="flex gap-2 mt-4 relative">
@@ -482,14 +532,36 @@ export const VIPManagement = () => {
                  className="card-glass p-10 bg-slate-900/80 border-amber-500/30 shadow-amber-500/10 shadow-2xl"
                >
                   <div className="flex items-center justify-between mb-10 border-b border-white/5 pb-6">
-                     <h3 className="text-xl font-black text-white tracking-tight uppercase flex items-center gap-4">
-                        <Zap className="text-amber-400" size={24} /> 
-                        Modify {editingTier.name}
+                      <h3 className="text-xl font-black text-white tracking-tight uppercase flex items-center gap-4">
+                        <Zap className={creating ? "text-emerald-400" : "text-amber-400"} size={24} /> 
+                        {creating ? "New Prestige Tier" : `Modify ${editingTier.name}`}
                      </h3>
-                     <button onClick={() => setEditingTier(null)} className="px-3 py-1 bg-white/5 text-slate-500 rounded hover:text-white uppercase font-black text-[10px] transition-colors">Discard</button>
+                     <button onClick={() => { setEditingTier(null); setCreating(false); }} className="px-3 py-1 bg-white/5 text-slate-500 rounded hover:text-white uppercase font-black text-[10px] transition-colors">Discard</button>
                   </div>
 
-                  <form onSubmit={handleSave} className="space-y-8">
+                   <form onSubmit={handleSave} className="space-y-8">
+                     <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Tier Identity (Unique ID)</label>
+                        <input 
+                          required 
+                          disabled={!creating}
+                          placeholder="e.g. vip8 or noble_king"
+                          className="input-field w-full h-14 bg-slate-950/50 text-white disabled:opacity-50"
+                          value={editingTier.tierId || editingTier.id || ''}
+                          onChange={(e) => setEditingTier({...editingTier, tierId: e.target.value})}
+                        />
+                     </div>
+
+                     <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Display Name</label>
+                        <input 
+                          required 
+                          className="input-field w-full h-14 bg-slate-950/50 text-white font-black text-xl"
+                          value={editingTier.name || ''}
+                          onChange={(e) => setEditingTier({...editingTier, name: e.target.value})}
+                        />
+                     </div>
+
                      <div className="grid grid-cols-2 gap-8">
                         <div className="space-y-3">
                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Price (Diamonds)</label>

@@ -40,12 +40,21 @@ export const ModerationReports = () => {
   useEffect(() => {
     const q = query(
       collection(db, "reports"), 
-      where("status", "==", filter),
-      orderBy("timestamp", "desc")
+      where("status", "==", filter)
     );
     
     const unsub = onSnapshot(q, (snap) => {
-      setReports(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Manual sort to avoid index requirement
+      list.sort((a, b) => {
+        const timeA = a.createdAt?.toDate?.() || a.timestamp?.toDate?.() || 0;
+        const timeB = b.createdAt?.toDate?.() || b.timestamp?.toDate?.() || 0;
+        return timeB - timeA;
+      });
+      setReports(list);
+      setLoading(false);
+    }, (err) => {
+      console.error("REPORTS_ERROR:", err);
       setLoading(false);
     });
     return unsub;
@@ -58,9 +67,8 @@ export const ModerationReports = () => {
       if (actionType === 'BAN') {
         const banUser = httpsCallable(functions, 'adminBanUser');
         await banUser({ 
-          uid: report.targetId, 
-          reason: `Violated terms: ${report.reason}`,
-          idToken: await auth.currentUser.getIdToken()
+          targetUid: report.targetId, // Fixed field name to match backend expectation
+          isBanned: true
         });
       }
       
@@ -78,7 +86,8 @@ export const ModerationReports = () => {
 
   const filteredReports = reports.filter(r => 
     r.targetId?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    r.reporterId?.toLowerCase().includes(searchTerm.toLowerCase())
+    r.reporterId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    r.reason?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -95,16 +104,30 @@ export const ModerationReports = () => {
            <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">{reports.length} security flags in current view</p>
         </div>
 
-        <div className="flex gap-4">
-           {['pending', 'resolved'].map(f => (
-             <button 
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${filter === f ? 'bg-primary border-primary text-white' : 'bg-white/5 border-white/10 text-slate-500 hover:bg-white/10'}`}
-             >
-                {f}
-             </button>
-           ))}
+        <div className="flex items-center gap-4">
+           <div className="relative group w-64">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                 <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+              </div>
+              <input 
+                type="text" 
+                placeholder="Search reports..." 
+                className="glass-input w-full pl-12 !py-3"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+           </div>
+           <div className="flex gap-2">
+              {['pending', 'resolved'].map(f => (
+                <button 
+                   key={f}
+                   onClick={() => setFilter(f)}
+                   className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${filter === f ? 'bg-red-500 border-red-500 text-white' : 'bg-white/5 border-white/10 text-slate-500 hover:bg-white/10'}`}
+                >
+                   {f}
+                </button>
+              ))}
+           </div>
         </div>
       </div>
 

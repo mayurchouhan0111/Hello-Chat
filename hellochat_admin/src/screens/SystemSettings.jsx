@@ -199,40 +199,39 @@ export const SystemSettings = () => {
           
           {/* Economy Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
-                <h4 className="text-xs font-black text-emerald-400 tracking-[0.2em] uppercase flex items-center gap-2">
-                   <Coins size={14} /> Currency Scalers
-                </h4>
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Diamond ⮕ Bean</span>
-                      <input type="number" step="0.1" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.currency?.diamondToBean} onChange={e => setConfig({...config, currency: {...config.currency, diamondToBean: parseFloat(e.target.value)}})} />
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Bean ⮕ USD ($)</span>
-                      <input type="number" step="0.001" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.currency?.beanToDollar} onChange={e => setConfig({...config, currency: {...config.currency, beanToDollar: parseFloat(e.target.value)}})} />
-                   </div>
-                </div>
-             </div>
+              <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
+                 <h4 className="text-xs font-black text-emerald-400 tracking-[0.2em] uppercase flex items-center gap-2">
+                    <Coins size={14} /> Currency Scalers
+                 </h4>
+                 <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase">Diamond ⮕ Bean</span>
+                       <input type="number" step="0.1" className="glass-input-sm w-24 text-right" value={config.currency?.diamondToBean} onChange={e => setConfig({...config, currency: {...config.currency, diamondToBean: parseFloat(e.target.value)}})} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase">Bean ⮕ USD ($)</span>
+                       <input type="number" step="0.001" className="glass-input-sm w-24 text-right" value={config.currency?.beanToDollar} onChange={e => setConfig({...config, currency: {...config.currency, beanToDollar: parseFloat(e.target.value)}})} />
+                    </div>
+                 </div>
+              </div>
 
-             <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
-                <h4 className="text-xs font-black text-cyan-400 tracking-[0.2em] uppercase flex items-center gap-2">
-                   <BarChart3 size={14} /> Leveling Growth
-                </h4>
-                <div className="space-y-4">
-                   <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">User XP Multi</span>
-                      <input type="number" step="0.1" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.leveling?.userXpRate} onChange={e => setConfig({...config, leveling: {...config.leveling, userXpRate: parseFloat(e.target.value)}})} />
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-slate-500 uppercase">Wealth XP Multi</span>
-                      <input type="number" step="0.1" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.leveling?.wealthXpRate} onChange={e => setConfig({...config, leveling: {...config.leveling, wealthXpRate: parseFloat(e.target.value)}})} />
-                   </div>
-                </div>
-             </div>
-          </div>
+              <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
+                 <h4 className="text-xs font-black text-[#00E5FF] tracking-[0.2em] uppercase flex items-center gap-2">
+                    <BarChart3 size={14} /> Leveling Growth
+                 </h4>
+                 <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase">User XP Multi</span>
+                       <input type="number" step="0.1" className="glass-input-sm w-24 text-right" value={config.leveling?.userXpRate} onChange={e => setConfig({...config, leveling: {...config.leveling, userXpRate: parseFloat(e.target.value)}})} />
+                    </div>
+                    <div className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase">Wealth XP Multi</span>
+                       <input type="number" step="0.1" className="glass-input-sm w-24 text-right" value={config.leveling?.wealthXpRate} onChange={e => setConfig({...config, leveling: {...config.leveling, wealthXpRate: parseFloat(e.target.value)}})} />
+                    </div>
+                 </div>
+              </div>
+           </div>
 
-          {/* Salary Config */}
           <div className="card-glass bg-slate-900/40 p-10 border-white/5 space-y-8">
              <h4 className="text-xl font-black text-white tracking-tight flex items-center gap-4 border-b border-white/5 pb-6">
                 <Radio className="text-orange-400" size={24} /> Salary Formulation
@@ -241,7 +240,7 @@ export const SystemSettings = () => {
                 <div className="space-y-4">
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base Payout Threshold (Beans)</label>
                    <input 
-                    type="number" className="input-field w-full h-14 bg-slate-950/50"
+                    type="number" className="glass-input w-full h-14"
                     value={config.salary?.threshold || 0}
                     onChange={e => setConfig({...config, salary: {...config.salary, threshold: parseInt(e.target.value)}})}
                    />
@@ -249,7 +248,7 @@ export const SystemSettings = () => {
                 <div className="space-y-4">
                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Global Agency Multiplier</label>
                    <input 
-                    type="number" step="0.01" className="input-field w-full h-14 bg-slate-950/50"
+                    type="number" step="0.01" className="glass-input w-full h-14"
                     value={config.salary?.multiplier || 0}
                     onChange={e => setConfig({...config, salary: {...config.salary, multiplier: parseFloat(e.target.value)}})}
                    />
@@ -257,9 +256,7 @@ export const SystemSettings = () => {
              </div>
           </div>
 
-          {/* Maintenance & Rewards (Month 7 Finalization) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             {/* Maintenance Logic */}
              <div className={`card-glass p-8 border-white/5 space-y-6 transition-all ${config.isMaintenance ? 'bg-orange-500/10 border-orange-500/30 ring-4 ring-orange-500/10' : 'bg-slate-900/40'}`}>
                 <div className="flex items-center justify-between">
                    <h4 className="text-xs font-black text-orange-400 tracking-[0.2em] uppercase flex items-center gap-2">
@@ -278,33 +275,28 @@ export const SystemSettings = () => {
                 </div>
              </div>
 
-             {/* System Rewards */}
-             <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
+             <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6 overflow-hidden">
                 <h4 className="text-xs font-black text-rose-400 tracking-[0.2em] uppercase flex items-center gap-2">
                    <Gift size={14} /> Global Rewards
                 </h4>
-                <p className="text-[10px] font-bold text-slate-500 uppercase">Mass distribute diamonds to all registered users (100+). Use for compensation or events.</p>
-                <div className="flex gap-4">
+                <p className="text-[10px] font-bold text-slate-500 uppercase leading-relaxed">Mass distribute diamonds to all registered users (100+). Use for compensation or events.</p>
+                <div className="flex flex-col sm:flex-row gap-3">
                    <input 
-                    type="number" className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 flex-1 outline-none font-bold" placeholder="Amount..." 
+                    type="number" className="glass-input flex-1 !h-12 !px-4 !py-0" placeholder="Amount..." 
                     value={rewardAmount}
                     onChange={(e) => setRewardAmount(e.target.value)}
                    />
                    <button 
                     onClick={handleGlobalReward}
                     disabled={loading || !rewardAmount}
-                    className="px-6 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-black text-[10px] uppercase transition-all disabled:opacity-50"
+                    className="h-12 px-8 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl font-black text-[10px] uppercase transition-all disabled:opacity-50 shadow-xl shadow-rose-900/20 flex-shrink-0"
                    >
                       {loading ? 'Distributing...' : 'Distribute'}
                    </button>
                 </div>
-
              </div>
           </div>
 
-
-
-          {/* Broadcast Tool */}
           <div className="card-glass bg-slate-950/40 p-10 border-white/5 shadow-2xl relative overflow-hidden group">
              <div className="absolute top-0 right-0 p-10 bg-red-500/5 rounded-full blur-3xl group-hover:scale-125 transition-transform"></div>
              <h4 className="text-xl font-black text-white tracking-tight flex items-center gap-4 border-b border-white/5 pb-6">
@@ -316,7 +308,7 @@ export const SystemSettings = () => {
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Message Title</label>
                       <input 
                         placeholder="e.g. 🎁 Holiday Event"
-                        className="input-field w-full h-14 bg-slate-950/50"
+                        className="glass-input w-full h-14"
                         value={broadcastTitle}
                         onChange={e => setBroadcastTitle(e.target.value)}
                       />
@@ -325,7 +317,7 @@ export const SystemSettings = () => {
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Optional Image URL</label>
                       <input 
                         placeholder="e.g. https://domain.com/banner.jpg"
-                        className="input-field w-full h-14 bg-slate-950/50"
+                        className="glass-input w-full h-14"
                         value={broadcastImage}
                         onChange={e => setBroadcastImage(e.target.value)}
                       />
@@ -334,7 +326,7 @@ export const SystemSettings = () => {
                       <label className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover:bg-white/10 transition-colors cursor-pointer h-14">
                          <input 
                            type="checkbox" 
-                           className="w-5 h-5 rounded-lg border-white/10 bg-transparent text-red-500 focus:ring-red-500 focus:ring-offset-0"
+                           className="w-5 h-5 rounded-lg border-white/10 bg-transparent text-[#00E5FF] focus:ring-[#00E5FF] focus:ring-offset-0"
                            checked={isPush}
                            onChange={(e) => setIsPush(e.target.checked)}
                          />
@@ -345,14 +337,14 @@ export const SystemSettings = () => {
 
                 <textarea 
                   placeholder="Transmit message to ALL active rooms and home screen popup..."
-                  className="input-field w-full h-32 bg-slate-950/50 py-4 resize-none"
+                  className="glass-input w-full h-32 py-4 resize-none"
                   value={broadcastMsg}
                   onChange={e => setBroadcastMsg(e.target.value)}
                 />
-                <button 
+                 <button 
                   onClick={sendBroadcast}
                   disabled={broadcasting || !broadcastMsg}
-                  className="w-full h-16 bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-4 transition-all shadow-red-500/20 shadow-2xl"
+                  className="w-full h-16 bg-[#00E5FF] hover:bg-cyan-400 disabled:opacity-50 text-black rounded-2xl font-black uppercase tracking-widest flex items-center justify-center gap-4 transition-all shadow-cyan-500/20 shadow-2xl"
                 >
                    {broadcasting ? <RefreshCcw className="animate-spin" /> : <Send size={20} />}
                    EXECUTE GLOBAL ANNOUNCEMENT
@@ -366,45 +358,57 @@ export const SystemSettings = () => {
         <div className="space-y-10">
            
            {/* Banner List */}
-           <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6 max-h-[700px] overflow-y-auto custom-scrollbar">
-              <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                 <h4 className="text-sm font-black text-white uppercase tracking-widest">App Banners</h4>
-                 <button onClick={addBanner} className="p-2 bg-white/5 hover:bg-primary text-white rounded-lg transition-all"><Plus size={16} /></button>
-              </div>
-              {banners.map((banner, i) => (
-                <div key={banner.id} className="p-4 bg-slate-950/50 rounded-2xl border border-white/5 space-y-4 group">
-                   <div className="flex justify-between items-center">
-                      <span className="text-[8px] font-black text-slate-700 uppercase">Slide #{i+1}</span>
-                      <button onClick={() => removeBanner(banner.id)} className="text-slate-800 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
-                   </div>
-                   <input 
-                    placeholder="IMAGE URL" className="bg-transparent border-b border-white/5 w-full text-[10px] py-1 text-slate-400 focus:text-white transition-colors outline-none" 
-                    value={banner.imageUrl} onChange={e => updateBanner(banner.id, 'imageUrl', e.target.value)}
-                   />
-                   <input 
-                    placeholder="ACTION ID" className="bg-transparent border-b border-white/5 w-full text-[10px] py-1 text-slate-400 focus:text-white transition-colors outline-none" 
-                    value={banner.actionValue} onChange={e => updateBanner(banner.id, 'actionValue', e.target.value)}
-                   />
-                </div>
-              ))}
-           </div>
+            <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6 max-h-[800px] overflow-y-auto custom-scrollbar">
+               <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                  <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                     <ImageIcon size={18} className="text-[#00E5FF]" /> App Banners
+                  </h4>
+                  <button onClick={addBanner} className="p-2 bg-[#00E5FF]/10 hover:bg-[#00E5FF] text-[#00E5FF] hover:text-black rounded-lg transition-all border border-[#00E5FF]/20"><Plus size={16} /></button>
+               </div>
+               <div className="grid grid-cols-1 gap-4">
+                  {banners.map((banner, i) => (
+                    <div key={banner.id} className="p-6 bg-white/[0.02] rounded-2xl border border-white/5 space-y-4 group hover:bg-white/[0.04] transition-all">
+                       <div className="flex justify-between items-center mb-2">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Banner Slide #{i+1}</span>
+                          <button onClick={() => removeBanner(banner.id)} className="p-2 text-slate-600 hover:text-rose-500 transition-colors bg-white/5 rounded-lg"><Trash2 size={14} /></button>
+                       </div>
+                       <div className="space-y-3">
+                          <div className="relative">
+                             <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" size={14} />
+                             <input 
+                               placeholder="IMAGE URL" className="glass-input-sm w-full pl-10" 
+                               value={banner.imageUrl} onChange={e => updateBanner(banner.id, 'imageUrl', e.target.value)}
+                             />
+                          </div>
+                          <div className="relative">
+                             <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" size={14} />
+                             <input 
+                               placeholder="ACTION TARGET (URL/ID)" className="glass-input-sm w-full pl-10" 
+                               value={banner.actionValue} onChange={e => updateBanner(banner.id, 'actionValue', e.target.value)}
+                             />
+                          </div>
+                       </div>
+                    </div>
+                  ))}
+               </div>
+            </div>
 
-           {/* Game Config Card */}
-           <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
-              <h4 className="text-xs font-black text-cyan-400 tracking-[0.2em] uppercase flex items-center gap-2">
-                 <Gamepad2 size={14} /> Jackpot Logic
-              </h4>
-              <div className="space-y-4">
-                 <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Spin Luck %</span>
-                    <input type="number" step="0.01" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.gameOdds?.spinWheel} onChange={e => setConfig({...config, gameOdds: {...config.gameOdds, spinWheel: parseFloat(e.target.value)}})} />
-                 </div>
-                 <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase">Draw Luck %</span>
-                    <input type="number" step="0.01" className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 w-20 text-right outline-none" value={config.gameOdds?.luckyDraw} onChange={e => setConfig({...config, gameOdds: {...config.gameOdds, luckyDraw: parseFloat(e.target.value)}})} />
-                 </div>
-              </div>
-           </div>
+            {/* Game Config Card */}
+            <div className="card-glass bg-slate-900/40 p-8 border-white/5 space-y-6">
+               <h4 className="text-xs font-black text-[#00E5FF] tracking-[0.2em] uppercase flex items-center gap-2">
+                  <Gamepad2 size={14} /> Jackpot Logic
+               </h4>
+               <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase">Spin Luck %</span>
+                     <input type="number" step="0.01" className="glass-input-sm w-24 text-right" value={config.gameOdds?.spinWheel} onChange={e => setConfig({...config, gameOdds: {...config.gameOdds, spinWheel: parseFloat(e.target.value)}})} />
+                  </div>
+                  <div className="flex items-center justify-between">
+                     <span className="text-[10px] font-bold text-slate-500 uppercase">Draw Luck %</span>
+                     <input type="number" step="0.01" className="glass-input-sm w-24 text-right" value={config.gameOdds?.luckyDraw} onChange={e => setConfig({...config, gameOdds: {...config.gameOdds, luckyDraw: parseFloat(e.target.value)}})} />
+                  </div>
+               </div>
+            </div>
 
         </div>
 

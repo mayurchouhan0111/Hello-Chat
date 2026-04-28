@@ -273,12 +273,14 @@ export const FamilyManagement = () => {
           <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">Manage clan structures and hierarchies</p>
         </div>
         
-        <div className="relative group min-w-[320px]">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-400" size={18} />
+        <div className="relative group w-80">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+             <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+          </div>
           <input 
             type="text" 
             placeholder="Search Clans..."
-            className="w-full bg-slate-900 border border-white/10 rounded-2xl py-4 pl-12 pr-4 outline-none focus:border-indigo-500"
+            className="glass-input w-full pl-12 !py-3.5"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />

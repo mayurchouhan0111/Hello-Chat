@@ -29,7 +29,8 @@ import {
   ShieldCheck,
   RefreshCw,
   Building2,
-  Store
+  Store,
+  Star
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -139,11 +140,245 @@ const BalanceAdjustmentModal = ({ user, onClose, onUpdate }) => {
   );
 };
 
+const SVIPManagementModal = ({ user, onClose, onUpdate }) => {
+  const [level, setLevel] = useState(user.svipLevel || 0);
+  const [points, setPoints] = useState(user.svipPoints || 0);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleUpdate = async () => {
+    setIsProcessing(true);
+    try {
+      const userRef = doc(db, "users", user.id || user.uid);
+      await updateDoc(userRef, {
+        svipLevel: parseInt(level),
+        svipPoints: parseInt(points),
+        svipUpdatedAt: serverTimestamp()
+      });
+      
+      alert(`Successfully updated SVIP status for ${user.displayName}`);
+      onUpdate();
+      onClose();
+    } catch (err) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div className="bg-[#09090B] border border-white/10 w-full max-w-md rounded-3xl p-8 shadow-2xl">
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-rose-500/20 text-rose-400 rounded-xl">
+              <Star size={24} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white uppercase tracking-widest">SVIP Privilege</h2>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mt-1">
+                Identity: {(user.id || user.uid).slice(0, 15)}...
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/5 rounded-full transition-colors">
+            <X size={20} className="text-slate-500" />
+          </button>
+        </div>
+
+        <div className="space-y-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Tier Level (0-7)</label>
+            <select 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none focus:border-rose-500"
+              value={level}
+              onChange={(e) => setLevel(e.target.value)}
+            >
+              <option value={0}>None (Civilian)</option>
+              {[1, 2, 3, 4, 5, 6, 7].map(l => (
+                <option key={l} value={l}>SVIP {l}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Cumulative Points</label>
+            <input 
+              type="number" 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black text-xl focus:border-rose-500 outline-none"
+              value={points}
+              onChange={(e) => setPoints(e.target.value)}
+              placeholder="Total Spend/Recharge points"
+            />
+          </div>
+
+          <button 
+            disabled={isProcessing}
+            onClick={handleUpdate}
+            className="w-full flex items-center justify-center gap-2 p-5 bg-rose-600 text-white font-black text-xs uppercase tracking-widest rounded-2xl hover:bg-rose-700 transition-all disabled:opacity-50 mt-4"
+          >
+            {isProcessing ? 'Synchronizing...' : 'Grant SVIP Status'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+const UserEditModal = ({ user, onClose, onUpdate }) => {
+  const [formData, setFormData] = useState({
+    displayName: user.displayName || '',
+    username: user.username || '',
+    diamondBalance: user.diamondBalance || 0,
+    beansBalance: user.beansBalance || 0,
+    level: user.level || 1,
+    vipTier: user.vipTier || 'none',
+    nobleTier: user.nobleTier || 'none',
+    isBanned: user.isBanned || false,
+    tags: user.tags || []
+  });
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    setIsProcessing(true);
+    try {
+      const userRef = doc(db, "users", user.id || user.uid);
+      await updateDoc(userRef, {
+        ...formData,
+        updatedAt: serverTimestamp()
+      });
+      
+      alert(`Successfully updated profile for ${formData.displayName}`);
+      onUpdate();
+      onClose();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+      <div className="bg-[#09090B] border border-white/10 w-full max-w-2xl rounded-[40px] p-10 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-10">
+          <div className="flex items-center gap-4">
+            <div className="p-4 bg-indigo-500/20 text-indigo-400 rounded-2xl">
+              <RefreshCw size={28} />
+            </div>
+            <div>
+              <h2 className="text-2xl font-black text-white uppercase tracking-widest">Master Profile Edit</h2>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mt-1">
+                Identity: {(user.id || user.uid)}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-3 hover:bg-white/5 rounded-full transition-colors">
+            <X size={24} className="text-slate-500" />
+          </button>
+        </div>
+
+        <form onSubmit={handleUpdate} className="grid grid-cols-2 gap-8">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Display Name</label>
+            <input 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+              value={formData.displayName}
+              onChange={(e) => setFormData({...formData, displayName: e.target.value})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Username (@)</label>
+            <input 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+              value={formData.username}
+              onChange={(e) => setFormData({...formData, username: e.target.value})}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Diamond Ledger</label>
+            <input 
+              type="number"
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
+              value={formData.diamondBalance}
+              onChange={(e) => setFormData({...formData, diamondBalance: parseInt(e.target.value)})}
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Beans Balance</label>
+            <input 
+              type="number"
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-amber-500 font-black"
+              value={formData.beansBalance}
+              onChange={(e) => setFormData({...formData, beansBalance: parseInt(e.target.value)})}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">VIP Membership</label>
+            <select 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+              value={formData.vipTier}
+              onChange={(e) => setFormData({...formData, vipTier: e.target.value})}
+            >
+              <option value="none">NONE</option>
+              {['VIP 1', 'VIP 2', 'VIP 3', 'VIP 4', 'VIP 5', 'VIP 6', 'VIP 7'].map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Noble Title</label>
+            <select 
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+              value={formData.nobleTier}
+              onChange={(e) => setFormData({...formData, nobleTier: e.target.value})}
+            >
+              <option value="none">NONE</option>
+              {['Knight', 'Viscount', 'Earl', 'Marquis', 'Duke', 'King', 'Emperor'].map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Prestige Level</label>
+            <input 
+              type="number"
+              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-indigo-400 font-black"
+              value={formData.level}
+              onChange={(e) => setFormData({...formData, level: parseInt(e.target.value)})}
+            />
+          </div>
+          
+          <div className="flex items-center gap-4 px-6 bg-red-500/5 rounded-2xl border border-red-500/10">
+             <input 
+                type="checkbox"
+                className="w-5 h-5 rounded bg-black border-white/10 text-red-500"
+                checked={formData.isBanned}
+                onChange={(e) => setFormData({...formData, isBanned: e.target.checked})}
+             />
+             <label className="text-xs font-black text-red-500 uppercase">Restrict Account (Ban)</label>
+          </div>
+
+          <button 
+            disabled={isProcessing}
+            className="col-span-full flex items-center justify-center gap-2 p-6 bg-indigo-600 text-white font-black text-sm uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition-all disabled:opacity-50 mt-4"
+          >
+            {isProcessing ? 'Synchronizing Universe...' : 'Apply Master Updates'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+
+
 export const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [svipUser, setSvipUser] = useState(null);
+  const [editUser, setEditUser] = useState(null);
   const [isSeeding, setIsSeeding] = useState(false);
 
   useEffect(() => {
@@ -422,6 +657,22 @@ export const UserManagement = () => {
         />
       )}
 
+      {svipUser && (
+        <SVIPManagementModal 
+          user={svipUser} 
+          onClose={() => setSvipUser(null)} 
+          onUpdate={fetchUsers} 
+        />
+      )}
+
+      {editUser && (
+        <UserEditModal 
+          user={editUser} 
+          onClose={() => setEditUser(null)} 
+          onUpdate={fetchUsers} 
+        />
+      )}
+
       {isSeeding && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-xl">
            <div className="flex flex-col items-center gap-6">
@@ -440,12 +691,14 @@ export const UserManagement = () => {
           <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">Manage synthetic identities & accounts</p>
         </div>
         
-        <div className="relative group min-w-[320px]">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 group-focus-within:text-indigo-400" size={18} />
+        <div className="relative group w-80">
+          <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+             <Search className="text-slate-600 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+          </div>
           <input 
             type="text" 
             placeholder="Identity Search..."
-            className="w-full bg-slate-900 border border-white/10 rounded-2xl py-4 pl-12 pr-4 outline-none focus:border-indigo-500"
+            className="glass-input w-full pl-12 !py-3.5"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -542,12 +795,26 @@ export const UserManagement = () => {
                         <Store size={16} />
                       </button>
                    </div>
-                   <button 
-                      onClick={() => setSelectedUser(user)}
-                      className="flex items-center justify-center gap-2 p-2 bg-white/5 text-slate-400 border border-white/5 rounded-xl hover:bg-white/10 hover:text-white transition-all text-[10px] font-black uppercase"
-                   >
-                     <Coins size={12} /> Adjust
-                   </button>
+                   <div className="flex gap-2">
+                      <button 
+                          onClick={() => setSelectedUser(user)}
+                          className="flex-1 flex items-center justify-center gap-2 p-2 bg-white/5 text-slate-400 border border-white/5 rounded-xl hover:bg-white/10 hover:text-white transition-all text-[10px] font-black uppercase"
+                      >
+                        <Coins size={12} /> Adjust
+                      </button>
+                      <button 
+                          onClick={() => setSvipUser(user)}
+                          className={`flex-1 flex items-center justify-center gap-2 p-2 border rounded-xl transition-all text-[10px] font-black uppercase ${user.svipLevel > 0 ? 'bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/10'}`}
+                      >
+                        <Star size={12} /> SVIP
+                      </button>
+                      <button 
+                          onClick={() => setEditUser(user)}
+                          className="flex-1 flex items-center justify-center gap-2 p-2 bg-white/5 text-slate-400 border border-white/5 rounded-xl hover:bg-white/10 hover:text-white transition-all text-[10px] font-black uppercase"
+                      >
+                        <RefreshCw size={12} /> Edit
+                      </button>
+                    </div>
                 </div>
               </div>
             </motion.div>

@@ -175,13 +175,13 @@ export const MiniGamesManagement = () => {
                      <div className="space-y-4">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Min/Max Wager Range</label>
                         <div className="flex items-center gap-4">
-                          <input type="number" className="input-field w-full h-12 bg-slate-950/50" value={spinSettings.minWager} onChange={(e) => setSpinSettings({...spinSettings, minWager: parseInt(e.target.value)})} placeholder="Min" />
-                          <ChevronRight size={20} className="text-slate-800" /><input type="number" className="input-field w-full h-12 bg-slate-950/50" value={spinSettings.maxWager} onChange={(e) => setSpinSettings({...spinSettings, maxWager: parseInt(e.target.value)})} placeholder="Max" />
+                           <input type="number" className="glass-input w-full h-12" value={spinSettings.minWager} onChange={(e) => setSpinSettings({...spinSettings, minWager: parseInt(e.target.value)})} placeholder="Min" />
+                           <ChevronRight size={20} className="text-slate-800" /><input type="number" className="glass-input w-full h-12" value={spinSettings.maxWager} onChange={(e) => setSpinSettings({...spinSettings, maxWager: parseInt(e.target.value)})} placeholder="Max" />
                         </div>
                      </div>
                      <div className="space-y-4">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Max Win Cap (Per Spin)</label>
-                        <input type="number" className="input-field w-full h-12 bg-slate-950/50" value={spinSettings.maxWinCap} onChange={(e) => setSpinSettings({...spinSettings, maxWinCap: parseInt(e.target.value)})} />
+                        <input type="number" className="glass-input w-full h-12" value={spinSettings.maxWinCap} onChange={(e) => setSpinSettings({...spinSettings, maxWinCap: parseInt(e.target.value)})} />
                      </div>
                      <button onClick={handleSaveSpin} className="w-full py-4 bg-primary hover:bg-primary-dark transition-all rounded-xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 mt-6"><Save size={16} /> Deploy Config</button>
                   </div>
@@ -226,10 +226,17 @@ export const MiniGamesManagement = () => {
                 <div className="flex items-center justify-between"><h3 className="text-xl font-black uppercase tracking-tighter flex items-center gap-3"><Trophy size={24} className="text-amber-400" />Prize Pool Engine</h3><button onClick={() => setDrawSettings({...drawSettings, isActive: !drawSettings.isActive})} className={drawSettings.isActive ? 'text-emerald-400' : 'text-red-500'}>{drawSettings.isActive ? <ToggleRight size={44} /> : <ToggleLeft size={44} />}</button></div>
                 <div className="space-y-8">
                    <div className="grid grid-cols-2 gap-8">
-                      <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base Prize Pool</label><div className="relative"><Coins className="absolute left-4 top-4 text-amber-400" size={18} /><input type="number" className="input-field w-full pl-12 h-14 bg-slate-950/50 text-xl font-black" value={drawSettings.currentPrizePool} onChange={(e) => setDrawSettings({...drawSettings, currentPrizePool: parseInt(e.target.value)})} /></div></div>
-                      <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Growth Rate (%)</label><input type="number" className="input-field w-full h-14 bg-slate-950/50 text-xl font-black text-emerald-400" value={drawSettings.prizeIncreaseRate} onChange={(e) => setDrawSettings({...drawSettings, prizeIncreaseRate: parseInt(e.target.value)})} /></div>
-                   </div>
-                   <div className="grid grid-cols-2 gap-8"><div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Draw Frequency</label><select className="input-field w-full h-14 bg-slate-950/50" value={drawSettings.frequencyMinutes} onChange={(e) => setDrawSettings({...drawSettings, frequencyMinutes: parseInt(e.target.value)})}><option value={5}>Every 5 Mins</option><option value={30}>Every 30 Mins</option><option value={60}>Hourly</option></select></div><div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Max Tickets</label><input type="number" className="input-field w-full h-14 bg-slate-950/50 text-xl font-black" value={drawSettings.maxTicketsPerUser} onChange={(e) => setDrawSettings({...drawSettings, maxTicketsPerUser: parseInt(e.target.value)})}/></div></div>
+                       <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Base Prize Pool</label>
+                         <div className="relative group">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                               <Coins className="text-amber-400 group-focus-within:text-[#00E5FF] transition-colors" size={18} />
+                            </div>
+                            <input type="number" className="glass-input w-full pl-12 !h-14 text-xl font-black" value={drawSettings.currentPrizePool} onChange={(e) => setDrawSettings({...drawSettings, currentPrizePool: parseInt(e.target.value)})} />
+                         </div>
+                       </div>
+                       <div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Growth Rate (%)</label><input type="number" className="glass-input w-full h-14 text-xl font-black text-emerald-400" value={drawSettings.prizeIncreaseRate} onChange={(e) => setDrawSettings({...drawSettings, prizeIncreaseRate: parseInt(e.target.value)})} /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-8"><div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Draw Frequency</label><select className="glass-input w-full h-14 outline-none" value={drawSettings.frequencyMinutes} onChange={(e) => setDrawSettings({...drawSettings, frequencyMinutes: parseInt(e.target.value)})}><option value={5}>Every 5 Mins</option><option value={30}>Every 30 Mins</option><option value={60}>Hourly</option></select></div><div className="space-y-4"><label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Max Tickets</label><input type="number" className="glass-input w-full h-14 text-xl font-black" value={drawSettings.maxTicketsPerUser} onChange={(e) => setDrawSettings({...drawSettings, maxTicketsPerUser: parseInt(e.target.value)})}/></div></div>
                    <button onClick={handleSaveDraw} className="w-full py-5 bg-gradient-to-r from-emerald-600 to-emerald-800 rounded-2xl font-black text-sm uppercase tracking-[0.2em] shadow-2xl flex items-center justify-center gap-3"><Save size={18} /> Update Lottery System</button>
                 </div>
              </div>

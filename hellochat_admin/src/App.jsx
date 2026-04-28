@@ -19,6 +19,7 @@ import { WithdrawalManagement } from './screens/WithdrawalManagement';
 import { EliteBoutiqueManagement } from './screens/EliteBoutiqueManagement';
 import { FamilyManagement } from './screens/FamilyManagement';
 import { ResellerManagement } from './screens/ResellerManagement';
+import { MomentsManagement } from './screens/MomentsManagement';
 
 
 function App() {
@@ -111,6 +112,11 @@ function App() {
           <Route path="/resellers" element={
             <AdminLayout>
               <ResellerManagement />
+            </AdminLayout>
+          } />
+          <Route path="/moments" element={
+            <AdminLayout>
+              <MomentsManagement />
             </AdminLayout>
           } />
         </Routes>
