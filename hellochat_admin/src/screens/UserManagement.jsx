@@ -825,6 +825,10 @@ export const UserManagement = () => {
                           <Diamond size={10} className="text-indigo-400" />
                           <span className="text-[10px] font-black text-slate-300">{user.diamondBalance || 0}</span>
                        </div>
+                       <div className="flex items-center gap-1.5 pt-1" title="Total Diamonds Spent (SVIP Points)">
+                          <Zap size={10} className="text-emerald-400" />
+                          <span className="text-[10px] font-black text-emerald-400">{user.svipPoints || 0}</span>
+                       </div>
                        {user.agencyId && (
                          <div className="flex items-center gap-1.5 pt-1">
                             <Building2 size={10} className="text-amber-500" />

@@ -3642,6 +3642,43 @@ exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')
         await resetUsersField(["weeklyXP", "weeklyPrinceXP"]);
     });
 
+/**
+ * --- TESTING: SIMULATE SALARY MILESTONE ---
+ * Only accessible by Admins.
+ * Allows triggering a milestone without actually sending gifts.
+ */
+exports.simulateSalaryMilestone = functions.https.onCall(async (data, context) => {
+    if (!(await isUserAdmin(context.auth?.uid))) {
+        throw new functions.https.HttpsError("permission-denied", "Only admins can simulate milestones.");
+    }
+
+    const { targetUid, level } = data;
+    if (!targetUid || !level) {
+        throw new functions.https.HttpsError("invalid-argument", "targetUid and level are required.");
+    }
+
+    const milestone = SALARY_LEVELS.find(l => l.level === level);
+    if (!milestone) {
+        throw new functions.https.HttpsError("not-found", "Invalid salary level.");
+    }
+
+    try {
+        await db.runTransaction(async (transaction) => {
+            // We simulate a receipt of exactly the target amount
+            // processSalaryMilestones handles the logic of checking if it was already reached
+            await processSalaryMilestones(transaction, targetUid, milestone.target);
+        });
+
+        return { 
+            success: true, 
+            message: `Successfully simulated achievement of ${milestone.label} for ${targetUid}` 
+        };
+    } catch (error) {
+        console.error("Simulation Error:", error);
+        throw new functions.https.HttpsError("internal", error.message);
+    }
+});
+
 exports.scheduledMonthlyReset = functions.pubsub.schedule('0 0 1 * *')
     .timeZone('UTC')
     .onRun(async (context) => {

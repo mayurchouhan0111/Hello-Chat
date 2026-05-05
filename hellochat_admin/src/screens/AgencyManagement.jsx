@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db, auth } from '../firebase';
+import { db, auth, functions } from '../firebase';
 import { 
   collection, 
   query, 
@@ -12,6 +12,7 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { 
   Search, 
   UserPlus, 
@@ -25,7 +26,8 @@ import {
   Building2,
   Trash2,
   X,
-  ChevronLeft
+  ChevronLeft,
+  Zap
 } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -98,6 +100,45 @@ export const AgencyManagement = () => {
       fetchAgencyHosts(selectedAgency.uid);
     } catch (err) {
       alert("Remove Error: " + err.message);
+    }
+  };
+
+  const handleDeleteAgency = async (agency) => {
+    const agencyId = agency.uid || agency.id;
+    if (!window.confirm(`Are you sure you want to REMOVE Agency status for "${agency.displayName}"? All ${hosts.length} hosts will be released.`)) return;
+
+    try {
+      setLoading(true);
+      const batch = writeBatch(db);
+
+      // 1. Revoke Agency Owner Status
+      const agencyRef = doc(db, "users", agencyId);
+      batch.update(agencyRef, {
+        isAgencyOwner: false,
+        agencyName: null,
+        agencyStatus: 'inactive'
+      });
+
+      // 2. Release all hosts belonging to this agency
+      const hostsQuery = query(collection(db, "users"), where("agencyId", "==", agencyId));
+      const hostsSnap = await getDocs(hostsQuery);
+      
+      hostsSnap.docs.forEach(hostDoc => {
+        batch.update(hostDoc.ref, {
+          agencyId: null,
+          agencyName: null,
+          role: 'user'
+        });
+      });
+
+      await batch.commit();
+      alert(`Agency "${agency.displayName}" has been deleted and ${hostsSnap.size} hosts have been released.`);
+      fetchAllAgencies();
+    } catch (err) {
+      console.error("Delete Agency Error:", err);
+      alert("Failed to delete agency: " + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -222,6 +263,19 @@ export const AgencyManagement = () => {
               className="bg-[#09090B] border border-white/5 p-8 rounded-[40px] hover:border-amber-500/30 transition-all cursor-pointer group relative overflow-hidden"
             >
                <div className="absolute top-0 right-0 p-8 bg-amber-500/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+               
+               {/* Delete Button */}
+               <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteAgency(agency);
+                  }}
+                  className="absolute top-6 right-6 p-3 bg-red-500/10 text-red-500 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
+                  title="Delete Agency"
+               >
+                  <Trash2 size={18} />
+               </button>
+
                <div className="flex items-center gap-6 relative">
                   <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center border border-amber-500/20 group-hover:scale-110 transition-transform">
                      <Building2 size={32} className="text-amber-500" />
@@ -335,8 +389,8 @@ export const AgencyManagement = () => {
                             <p className="text-sm font-black text-white">{host.xp || 0}</p>
                          </div>
                          <div className="bg-black/40 p-4 rounded-2xl">
-                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Diamonds Gen</p>
-                            <p className="text-sm font-black text-white">{host.diamondBalance || 0}</p>
+                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Spent</p>
+                            <p className="text-sm font-black text-emerald-400">{host.svipPoints || 0} 💎</p>
                          </div>
                       </div>
 
@@ -349,7 +403,7 @@ export const AgencyManagement = () => {
                    </div>
                 ))}
              </div>
-         )}
+          )}
       </div>
       {/* Host Analytics Modal */}
       <AnimatePresence>
@@ -393,20 +447,23 @@ export const AgencyManagement = () => {
                    </div>
 
                    {/* Stats Grid */}
-                   <div className="grid grid-cols-2 gap-4">
+                   <div className="grid grid-cols-3 gap-4">
                       <div className="bg-white/[0.03] border border-white/5 p-6 rounded-[32px] space-y-2">
                          <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Global Ranking XP</p>
                          <p className="text-2xl font-black text-white">{selectedHost.xp || 0}</p>
-                         <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 w-[65%]" />
-                         </div>
                       </div>
                       <div className="bg-white/[0.03] border border-white/5 p-6 rounded-[32px] space-y-2">
-                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Total Earnings (Beans)</p>
-                         <p className="text-2xl font-black text-amber-500">{selectedHost.beanBalance || 0}</p>
-                         <p className="text-[10px] font-bold text-slate-700">≈ ${( (selectedHost.beanBalance || 0) / 100).toFixed(2)} USD</p>
+                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Host Earnings (Beans)</p>
+                         <p className="text-2xl font-black text-amber-500">{selectedHost.beansBalance || 0}</p>
+                         <p className="text-[9px] font-bold text-slate-700">≈ ${( (selectedHost.beansBalance || 0) / 100).toFixed(2)} USD</p>
+                      </div>
+                      <div className="bg-emerald-500/5 border border-emerald-500/10 p-6 rounded-[32px] space-y-2">
+                         <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Total Spent (Diamonds)</p>
+                         <p className="text-2xl font-black text-white">{selectedHost.svipPoints || 0}</p>
+                         <p className="text-[9px] font-bold text-emerald-900/50">Cumulative Gifting</p>
                       </div>
                    </div>
+>
 
                    {/* Recent Performance HUD */}
                    <div className="bg-indigo-600/5 border border-indigo-500/10 p-8 rounded-[40px] space-y-4">
@@ -433,6 +490,27 @@ export const AgencyManagement = () => {
                       <button className="flex-1 py-4 bg-white text-black font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:scale-[1.02] transition-all">
                          Export PDF Report
                       </button>
+                      
+                      {/* Simulation Button for Testing */}
+                      <button 
+                        onClick={async () => {
+                           if (!window.confirm("Simulate Level 1 Achievement? This will generate test payouts.")) return;
+                           try {
+                              const simulate = httpsCallable(functions, 'simulateSalaryMilestone');
+                              await simulate({ targetUid: selectedHost.id, level: 1 });
+                              alert("Simulation Complete! Level 1 reached.");
+                              fetchAgencyHosts(selectedAgency.uid);
+                              setSelectedHost(null);
+                           } catch (err) {
+                              alert("Simulation Failed: " + err.message);
+                           }
+                        }}
+                        className="p-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-2xl hover:bg-indigo-500 hover:text-white transition-all"
+                        title="Simulate Lv.1 Milestone"
+                      >
+                         <Zap size={24} />
+                      </button>
+
                       <button 
                         onClick={() => handleRemoveHost(selectedHost.id)}
                         className="p-4 bg-red-500/10 text-red-500 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all"
