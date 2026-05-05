@@ -3,6 +3,7 @@ const { onValueUpdated } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineString, defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const crypto = require("crypto");
 
 admin.initializeApp({
     databaseURL: "https://hellochat-e8965-default-rtdb.firebaseio.com"
@@ -174,36 +175,203 @@ function calculateSVIPLevel(points) {
     return level;
 }
 
-exports.onUserBalanceUpdate = functions.firestore.document("users/{uid}").onUpdate(async (change, context) => {
+/**
+ * --- ID LEVEL SYSTEM (XP BASED) ---
+ * Level 1-50: Easy (Linear growth)
+ * Level 51-100: Hard (Exponential growth)
+ */
+function getXPRequiredForNextLevel(currentLevel) {
+    if (currentLevel <= 0) return 100;
+    if (currentLevel < 50) {
+        return currentLevel * 200;
+    } else {
+        return 10000 + (currentLevel - 50) * 2000;
+    }
+}
+
+function calculateIDLevel(totalXP) {
+    let level = 1;
+    let xpRemaining = totalXP;
+    while (level < 100) {
+        let needed = getXPRequiredForNextLevel(level);
+        if (xpRemaining >= needed) {
+            xpRemaining -= needed;
+            level++;
+        } else {
+            break;
+        }
+    }
+    return level;
+}
+
+/**
+ * --- TARGET-BASED REWARD SYSTEM (SALARY) ---
+ * Automated 60/30/10 Split on Milestones
+ */
+const SALARY_LEVELS = [
+    { level: 1, target: 10000, label: "Lv.1 Beginner" },
+    { level: 2, target: 50000, label: "Lv.2 Rising Star" },
+    { level: 3, target: 150000, label: "Lv.3 Influencer" },
+    { level: 4, target: 500000, label: "Lv.4 Professional" },
+    { level: 5, target: 1500000, label: "Lv.5 Elite" },
+    { level: 6, target: 5000000, label: "Lv.6 Master" },
+    { level: 7, target: 15000000, label: "Lv.7 Legend" },
+    { level: 8, target: 50000000, label: "Lv.8 Mythic" },
+    { level: 9, target: 150000000, label: "Lv.9 Immortal" },
+    { level: 10, target: 500000000, label: "Lv.10 Ultimate" },
+];
+
+function getNextBiWeeklyDate() {
+    const now = new Date();
+    const result = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (now.getDate() < 15) {
+        result.setDate(15);
+    } else {
+        // Last day of current month
+        return new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    }
+    return result;
+}
+
+/**
+ * Internal helper to check for salary milestones.
+ * To be called within a transaction.
+ */
+async function processSalaryMilestones(transaction, hostUid, beansReceived) {
+    const statusRef = db.collection("salaryStatus").doc(hostUid);
+    const userRef = db.collection("users").doc(hostUid);
+
+    const statusDoc = await transaction.get(statusRef);
+    const userDoc = await transaction.get(userRef);
+
+    if (!userDoc.exists) return;
+    const userData = userDoc.data();
+
+    let status = statusDoc.exists ? statusDoc.data() : {
+        uid: hostUid,
+        totalBeansEarned: 0,
+        completedLevels: [],
+        currentLevel: 0,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    const newTotalBeans = (status.totalBeansEarned || 0) + beansReceived;
+    const newlyReachedLevels = [];
+
+    for (const lv of SALARY_LEVELS) {
+        if (newTotalBeans >= lv.target && !(status.completedLevels || []).includes(lv.level)) {
+            newlyReachedLevels.push(lv);
+        }
+    }
+
+    if (newlyReachedLevels.length === 0) {
+        transaction.set(statusRef, { 
+            totalBeansEarned: newTotalBeans,
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp() 
+        }, { merge: true });
+        return;
+    }
+
+    // Update Status
+    const completedLevels = [...(status.completedLevels || []), ...newlyReachedLevels.map(l => l.level)];
+    transaction.set(statusRef, {
+        totalBeansEarned: newTotalBeans,
+        completedLevels: completedLevels,
+        currentLevel: newlyReachedLevels[newlyReachedLevels.length - 1].level,
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+
+    // Create Payouts for each milestone
+    const now = new Date();
+    const hostPayoutDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const biWeeklyPayoutDate = getNextBiWeeklyDate();
+
+    for (const lv of newlyReachedLevels) {
+        // 1. Host Payout (60%)
+        const hostPayoutRef = db.collection("salaryPayouts").doc();
+        transaction.set(hostPayoutRef, {
+            id: hostPayoutRef.id,
+            uid: hostUid,
+            amount: lv.target * 0.6,
+            type: "host",
+            level: lv.level,
+            scheduledDate: admin.firestore.Timestamp.fromDate(hostPayoutDate),
+            status: "pending",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. Agency Payout (30%)
+        if (userData.agencyId) {
+            const agencyPayoutRef = db.collection("salaryPayouts").doc();
+            transaction.set(agencyPayoutRef, {
+                id: agencyPayoutRef.id,
+                uid: hostUid,
+                agencyId: userData.agencyId,
+                amount: lv.target * 0.3,
+                type: "agency",
+                level: lv.level,
+                scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
+                status: "pending",
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        // 3. Admin Payout (10%)
+        const adminPayoutRef = db.collection("salaryPayouts").doc();
+        transaction.set(adminPayoutRef, {
+            id: adminPayoutRef.id,
+            uid: "SYSTEM_ADMIN",
+            amount: lv.target * 0.1,
+            type: "admin",
+            level: lv.level,
+            scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
+            status: "pending",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+}
+
+exports.onUserUpdate = functions.firestore.document("users/{uid}").onUpdate(async (change, context) => {
     const before = change.before.data();
     const after = change.after.data();
 
+    const updates = {};
+
+    // 1. SVIP Points (Spending based)
     const oldDiamonds = before.diamondBalance || 0;
     const newDiamonds = after.diamondBalance || 0;
-
-    // Track SPENDING only (when diamonds decrease)
     if (newDiamonds < oldDiamonds) {
         const spentAmount = oldDiamonds - newDiamonds;
         const currentPoints = after.svipPoints || 0;
         const newPoints = currentPoints + spentAmount;
         
-        const currentLevel = after.svipLevel || 0;
-        const nextLevel = calculateSVIPLevel(newPoints);
+        const currentSVIP = after.svipLevel || 0;
+        const nextSVIP = calculateSVIPLevel(newPoints);
 
-        const updates = {
-            svipPoints: newPoints
-        };
-
-        if (nextLevel > currentLevel) {
-            updates.svipLevel = nextLevel;
+        updates.svipPoints = newPoints;
+        if (nextSVIP > currentSVIP) {
+            updates.svipLevel = nextSVIP;
             updates.svipLastPromotionAt = admin.firestore.FieldValue.serverTimestamp();
         }
+    }
 
+    // 2. ID Level (XP based)
+    const oldXP = before.xp || 0;
+    const newXP = after.xp || 0;
+    if (newXP !== oldXP) {
+        const nextLevel = calculateIDLevel(newXP);
+        if (nextLevel !== (after.level || 1)) {
+            updates.level = nextLevel;
+        }
+    }
+
+    if (Object.keys(updates).length > 0) {
         return change.after.ref.update(updates);
     }
 
     return null;
 });
+
 
 exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
     const { uid, phoneNumber, email, displayName, photoURL } = user;
@@ -231,8 +399,14 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         diamondBalance: 0,
         beansBalance: 0,
         xp: 0,
+        dailyXP: 0,
+        weeklyXP: 0,
+        monthlyXP: 0,
         benchXP: 0,
         princeXP: 0,
+        dailyPrinceXP: 0,
+        weeklyPrinceXP: 0,
+        monthlyPrinceXP: 0,
         level: 1,
         followerCount: 0,
         followingCount: 0,
@@ -658,9 +832,14 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
     return db.runTransaction(async (transaction) => {
         const roomRef = db.collection("rooms").doc(roomId);
         const participantRef = roomRef.collection("participants").doc(uid);
-        const participantsRef = roomRef.collection("participants");
+        const userRef = db.collection("users").doc(uid);
 
-        const roomDoc = await transaction.get(roomRef);
+        const [roomDoc, userDoc, participantDoc] = await Promise.all([
+            transaction.get(roomRef),
+            transaction.get(userRef),
+            transaction.get(participantRef)
+        ]);
+
         if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
 
         const roomData = roomDoc.data();
@@ -668,8 +847,9 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
         if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
 
         // Check if already in
-        const participantDoc = await transaction.get(participantRef);
         if (participantDoc.exists) return { success: true, message: "Already in room" };
+
+        const userData = userDoc.exists ? userDoc.data() : {};
 
         // Find available seat if joining as host or needs seat
         let seatIndex = null;
@@ -688,6 +868,10 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
             seatIndex: seatIndex,
             isMuted: false,
             role: role,
+            displayName: userData.displayName || "User",
+            profilePhotoUrl: userData.profilePhotoUrl || "",
+            vipTier: userData.vipTier || "none",
+            tags: userData.tags || [],
         });
 
         return { success: true };
@@ -860,9 +1044,14 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
     return db.runTransaction(async (transaction) => {
         const roomRef = db.collection("rooms").doc(roomId);
         const participantRef = roomRef.collection("participants").doc(uid);
-        const participantsRef = roomRef.collection("participants");
+        const userRef = db.collection("users").doc(uid);
 
-        const roomDoc = await transaction.get(roomRef);
+        const [roomDoc, userDoc, participantDoc] = await Promise.all([
+            transaction.get(roomRef),
+            transaction.get(userRef),
+            transaction.get(participantRef)
+        ]);
+
         if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
 
         const roomData = roomDoc.data();
@@ -870,8 +1059,9 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
         if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
 
         // Check if already in
-        const participantDoc = await transaction.get(participantRef);
         if (participantDoc.exists) return { success: true, message: "Already in room" };
+
+        const userData = userDoc.exists ? userDoc.data() : {};
 
         // Find available seat if joining as host or needs seat
         let seatIndex = null;
@@ -890,6 +1080,10 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
             seatIndex: seatIndex,
             isMuted: false,
             role: role,
+            displayName: userData.displayName || "User",
+            profilePhotoUrl: userData.profilePhotoUrl || "",
+            vipTier: userData.vipTier || "none",
+            tags: userData.tags || [],
         });
 
         return { success: true };
@@ -997,11 +1191,15 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond balance.");
             }
 
-            // 💎 4. Deduct & Add XP
+            // 💎 4. Deduct & Add XP (500 diamonds = 1 XP)
+            const senderXP = Math.floor(totalCost / 500);
             transaction.update(senderRef, {
                 diamondBalance: admin.firestore.FieldValue.increment(-totalCost),
-                xp: admin.firestore.FieldValue.increment(totalCost),
-                benchXP: admin.firestore.FieldValue.increment(totalCost)
+                xp: admin.firestore.FieldValue.increment(senderXP),
+                benchXP: admin.firestore.FieldValue.increment(senderXP),
+                dailyXP: admin.firestore.FieldValue.increment(senderXP),
+                weeklyXP: admin.firestore.FieldValue.increment(senderXP),
+                monthlyXP: admin.firestore.FieldValue.increment(senderXP),
             });
 
             // 💹 5. Record Receiver Beans & XP
@@ -1027,10 +1225,18 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 }
 
                 const beansEarned = Math.floor(totalCost * hostSharePercent);
+                // Receiver XP: 1000 diamonds = 1 XP
+                const receiverXP = Math.floor(totalCost / 1000);
                 transaction.update(receiverRef, {
                     beansBalance: admin.firestore.FieldValue.increment(beansEarned),
-                    princeXP: admin.firestore.FieldValue.increment(totalCost)
+                    princeXP: admin.firestore.FieldValue.increment(receiverXP),
+                    dailyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
+                    weeklyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
+                    monthlyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                 });
+
+                // 💹 NEW: Process Salary Milestones
+                await processSalaryMilestones(transaction, targetUid, beansEarned);
             }
 
             // 📸 6. Social Counters
@@ -1740,80 +1946,217 @@ exports.sendGlobalPush = functions.firestore.document("global_announcements/{id}
  * 21. Secure Games: Spin Wheel (Provably Fair)
  * Prevents client-side manipulation of prize outcomes and odds.
  */
-const crypto = require("crypto");
 
 /**
  * Enhanced Secure Game Logic (Provably Fair)
- * Uses crypto.randomInt for better distribution.
  */
-
 function getRandomInt(max) {
-    return crypto.randomInt(0, max);
+    return crypto.randomInt(0, Math.max(1, max));
 }
 
 exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data, context) => {
-    // 1. Mandatory Auth Check
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "User must be authenticated to play game.");
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    
+    // Supports both old single 'betAmount' and new 'bets' Map
+    const bets = data.bets || (data.betAmount ? { [data.label || "any"]: data.betAmount } : {});
+    const totalBet = Object.values(bets).reduce((acc, b) => acc + (Number(b) || 0), 0);
+
+    if (totalBet !== 0 && totalBet < 10) {
+        throw new functions.https.HttpsError("invalid-argument", "Min total bet 10 Diamonds.");
     }
-    const { betAmount } = data;
-    if (!betAmount || betAmount < 10) throw new functions.https.HttpsError("invalid-argument", "Minimum bet 10 Diamonds.");
 
     const uid = context.auth.uid;
     const userRef = db.collection("users").doc(uid);
+    const settingsRef = db.collection("game_settings").doc("lucky_spin");
+    const statsRef = db.collection("games_meta").doc("lucky_spin");
+
+    const now = Date.now();
+    const roundId = Math.floor(now / 30000).toString();
 
     return db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
+        const settingsDoc = await transaction.get(settingsRef);
+        const statsDoc = await transaction.get(statsRef);
+
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+        
+        const settings = settingsDoc.exists ? settingsDoc.data() : { segments: [] };
+        const segments = settings.segments || [];
+        const currentStats = statsDoc.exists ? statsDoc.data() : {};
 
-        const balance = Number(userDoc.data().diamondBalance || 0);
-        if (balance < betAmount) throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds.");
+        let balance = Number(userDoc.data().diamondBalance || 0);
+        let beansBalance = Number(userDoc.data().beansBalance || 0);
 
-        // Odds & Results Table (Server Side Only)
-        // Adjust these to change the "House Edge"
-        const outcomes = [
-            { multiplier: 0, label: "0x", weight: 30 },
-            { multiplier: 1.1, label: "1.1x", weight: 25 },
-            { multiplier: 1.5, label: "1.5x", weight: 15 },
-            { multiplier: 2, label: "2x", weight: 10 },
-            { multiplier: 0.5, label: "0.5x", weight: 10 },
-            { multiplier: 5, label: "5x", weight: 5 },
-            { multiplier: 0.1, label: "0.1x", weight: 4 },
-            { multiplier: 20, label: "20x", weight: 1 }
-        ];
-
-        // Weighted random Selection
-        const totalWeight = outcomes.reduce((acc, obj) => acc + obj.weight, 0);
-        let random = getRandomInt(totalWeight);
-        let winner = outcomes[0];
-        for (let i = 0; i < outcomes.length; i++) {
-            if (random < outcomes[i].weight) {
-                winner = outcomes[i];
-                break;
+        // --- AUTOMATIC EXCHANGE LOGIC ---
+        if (balance < totalBet) {
+            const needed = totalBet - balance;
+            const starsRequired = Math.ceil((needed * 7) / 2);
+            if (beansBalance >= starsRequired) {
+                beansBalance -= starsRequired;
+                balance = totalBet;
+                transaction.update(userRef, { beansBalance, diamondBalance: balance });
+            } else {
+                throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds & Stars.");
             }
-            random -= outcomes[i].weight;
         }
 
-        const prize = Math.floor(betAmount * winner.multiplier);
-        const netChange = prize - betAmount;
+        // --- GLOBAL OUTCOME DETERMINATION ---
+        let roundResult = currentStats.lastGlobalRound === roundId ? currentStats.lastGlobalOutcome : null;
+        
+        if (!roundResult) {
+            const todayStr = new Date().toISOString().split('T')[0];
+            let saladHits = currentStats.todaySaladHits || 0;
+            let pizzaHits = currentStats.todayPizzaHits || 0;
 
-        transaction.update(userRef, {
+            // Daily Reset
+            if (currentStats.lastResetDate !== todayStr) {
+                saladHits = 0;
+                pizzaHits = 0;
+            }
+            
+            // Random chance for special rounds (e.g., 2% for Salad, 1% for Pizza)
+            const roll = getRandomInt(100);
+            let resultType = "standard";
+            
+            if (roll < 1 && pizzaHits < 1) {
+                resultType = "pizza";
+                pizzaHits++;
+            } else if (roll < 5 && saladHits < 4) {
+                resultType = "salad";
+                saladHits++;
+            }
+
+            let winnerSegment = null;
+            if (resultType === "standard") {
+                const totalWeight = segments.reduce((acc, s) => acc + (Number(s.weight) || 0), 0);
+                let random = getRandomInt(totalWeight || 100);
+                winnerSegment = segments[0] || { multiplier: 0, emoji: "❌", name: "Empty" };
+
+                for (const s of segments) {
+                    const w = Number(s.weight) || 0;
+                    if (random < w) {
+                        winnerSegment = s;
+                        break;
+                    }
+                    random -= w;
+                }
+            } else {
+                // For Salad/Pizza, we just pick one segment from that category as the "visual anchor"
+                const categorySegments = segments.filter(s => s.category === resultType);
+                winnerSegment = categorySegments.length > 0 
+                    ? categorySegments[getRandomInt(categorySegments.length)] 
+                    : segments[0];
+            }
+
+            roundResult = {
+                type: resultType,
+                multiplier: Number(winnerSegment.multiplier) || 0,
+                emoji: winnerSegment.emoji || "🎰",
+                label: resultType === "standard" ? `${winnerSegment.multiplier}x` : resultType.toUpperCase(),
+                name: winnerSegment.name
+            };
+
+            // Update Global Stats
+            const statsUpdate = {
+                lastGlobalRound: roundId,
+                lastGlobalOutcome: roundResult,
+                currentRound: admin.firestore.FieldValue.increment(1),
+                todaySaladHits: saladHits,
+                todayPizzaHits: pizzaHits,
+                lastResetDate: todayStr
+            };
+            
+            transaction.update(statsRef, statsUpdate);
+        }
+
+        // --- WIN CALCULATION ---
+        let totalPrize = 0;
+        
+        if (roundResult.type === "standard") {
+            const betOnWinner = Number(bets[roundResult.name] || bets[roundResult.label]) || 0;
+            totalPrize = Math.floor(betOnWinner * roundResult.multiplier);
+        } else {
+            // Category Win: Pay out all bets in that category
+            for (const s of segments) {
+                if (s.category === roundResult.type) {
+                    const betOnItem = Number(bets[s.name] || bets[`${s.multiplier}x`]) || 0;
+                    totalPrize += Math.floor(betOnItem * (Number(s.multiplier) || 1));
+                }
+            }
+        }
+        
+        const netChange = totalPrize - totalBet;
+
+        const userUpdates = {
             diamondBalance: balance + netChange
-        });
+        };
 
+        // Award Jackpot King badge for Pizza wins
+        if (roundResult.type === 'pizza') {
+            userUpdates.badges = admin.firestore.FieldValue.arrayUnion('jackpot_winner');
+        }
+
+        transaction.update(userRef, userUpdates);
+
+        if (totalPrize > 0) {
+            let todayWinners = currentStats.todayWinners || [];
+            const userName = userDoc.data().displayName || userDoc.data().username || "User";
+            const userAvatar = userDoc.data().photoURL || "";
+
+            todayWinners.push({
+                uid, name: userName, avatar: userAvatar, amount: totalPrize, 
+                multiplier: roundResult.multiplier, type: roundResult.type, timestamp: now
+            });
+
+            const uniqueWinners = {};
+            todayWinners.forEach(w => {
+                if (!uniqueWinners[w.uid] || w.amount > uniqueWinners[w.uid].amount) {
+                    uniqueWinners[w.uid] = w;
+                }
+            });
+
+            todayWinners = Object.values(uniqueWinners).sort((a, b) => b.amount - a.amount).slice(0, 10);
+            
+            transaction.update(statsRef, {
+                todayWinners,
+                lastWinnerName: userName,
+                lastWinnerAmount: totalPrize,
+                lastWinnerLabel: roundResult.label
+            });
+        }
+
+        // Log History
         const logRef = userRef.collection("game_history").doc();
         transaction.set(logRef, {
             game: "spin_wheel",
-            bet: betAmount,
-            prize: prize,
-            label: winner.label,
-            multiplier: winner.multiplier,
+            roundId: roundId,
+            bets: bets,
+            totalBet: totalBet,
+            prize: totalPrize,
+            resultType: roundResult.type,
+            label: roundResult.label,
+            multiplier: roundResult.multiplier,
+            emoji: roundResult.emoji,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        console.log(`[SPIN] User:${uid} Bet:${betAmount} Result:${winner.label} Prize:${prize}`);
-        return { prize: prize, label: winner.label };
+        return { prize: totalPrize, label: roundResult.label, type: roundResult.type };
     });
+});
+
+exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async (context) => {
+    const statsRef = db.collection("games_meta").doc("lucky_spin");
+    await statsRef.set({
+        todayWinners: [],
+        currentRound: 0,
+        todaySaladHits: 0,
+        todayPizzaHits: 0,
+        topWinnerName: "None",
+        topWinnerAmount: 0,
+        lastReset: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    console.log("[CRON] Lucky Spin stats reset successfully.");
+    return null;
 });
 
 exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
@@ -2030,8 +2373,8 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
     const uid = context.auth.uid;
     const { amount } = data; // Amount of BEANS to convert
 
-    if (!amount || amount < 10) {
-        throw new functions.https.HttpsError("invalid-argument", "Minimum conversion: 10 Beans.");
+    if (!amount || amount < 7) {
+        throw new functions.https.HttpsError("invalid-argument", "Minimum conversion: 7 Stars.");
     }
 
     return db.runTransaction(async (transaction) => {
@@ -2044,10 +2387,11 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
         const currentDiamonds = userDoc.data().diamondBalance || 0;
 
         if (currentBeans < amount) {
-            throw new functions.https.HttpsError("failed-precondition", "Insufficient beans.");
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient Stars.");
         }
 
-        const diamondsToReceive = Math.floor(amount / 2);
+        // Conversion Rate: 7 Stars = 2 Diamonds
+        const diamondsToReceive = Math.floor((amount / 7) * 2);
 
         transaction.update(userRef, {
             beansBalance: admin.firestore.FieldValue.increment(-amount),
@@ -2601,21 +2945,69 @@ exports.equipItem = functions.https.onCall(async (data, context) => {
 
     return db.runTransaction(async (transaction) => {
         const userRef = db.collection("users").doc(uid);
+        const userSnap = await transaction.get(userRef);
+        if (!userSnap.exists) throw new functions.https.HttpsError("not-found", "User not found");
+        
+        // --- UN-EQUIP / DEFAULT CASE ---
+        if (itemId === 'none' || itemId === 'vip_reward_frame') {
+            const field = category === 'bubble' ? 'chatBubble' : (category === 'mount' ? 'entryAnimation' : 'profileFrame');
+            transaction.update(userRef, { [field]: "" });
+            
+            // Also un-equip items in vault for this category
+            const others = await userRef.collection("vault").where("category", "==", category).get();
+            others.forEach(doc => transaction.update(doc.ref, { isEquipped: false }));
+            
+            return { success: true };
+        }
+        
+        const userData = userSnap.data();
+
+        // --- SPECIAL CASE: Official Admin Frames ---
+        if (itemId.startsWith('official_') && itemId.endsWith('_frame')) {
+            const tagMap = {
+                'official_superadmin_frame': 'SuperAdmin',
+                'official_admin_frame': 'Admin',
+                'official_reseller_frame': 'Reseller'
+            };
+            const requiredTag = tagMap[itemId];
+            if (!userData.tags || !userData.tags.includes(requiredTag)) {
+                throw new functions.https.HttpsError("permission-denied", "You are not authorized for this frame.");
+            }
+            
+            // Resolve URL from Firestore config
+            const configSnap = await transaction.get(db.collection("system_configs").doc("admin_frames"));
+            const config = configSnap.data();
+            const frameKey = itemId.replace('official_', '').replace('_frame', '').replace('superadmin', 'super-admin');
+            const assetUrl = config && config.frames ? config.frames[frameKey] : null;
+            
+            if (!assetUrl) throw new functions.https.HttpsError("internal", "Frame URL not found in config.");
+            
+            // Un-equip others in vault
+            const itemCategory = category || "frame";
+            const others = await userRef.collection("vault").where("category", "==", itemCategory).where("isEquipped", "==", true).get();
+            others.forEach(doc => transaction.update(doc.ref, { isEquipped: false }));
+            
+            // Update User Doc
+            transaction.update(userRef, { profileFrame: assetUrl });
+            return { success: true };
+        }
+
         const vaultRef = userRef.collection("vault").doc(itemId);
         const vaultSnap = await transaction.get(vaultRef);
 
         if (!vaultSnap.exists) throw new functions.https.HttpsError("not-found", "Item Not Owned");
         const item = vaultSnap.data();
 
-        // 1. Un-equip others in same category
-        const others = await userRef.collection("vault").where("category", "==", category).where("isEquipped", "==", true).get();
+        // 1. Un-equip others in same category (Use the item's own category)
+        const itemCategory = item.category || category;
+        const others = await userRef.collection("vault").where("category", "==", itemCategory).where("isEquipped", "==", true).get();
         others.forEach(doc => transaction.update(doc.ref, { isEquipped: false }));
 
         // 2. Equip this one
         transaction.update(vaultRef, { isEquipped: true });
 
         // 3. Update main User Doc
-        const profileField = category === "frame" ? "profileFrame" : (category === "bubble" ? "chatBubble" : (category === "mount" ? "entryAnimation" : null));
+        const profileField = itemCategory === "frame" ? "profileFrame" : (itemCategory === "bubble" ? "chatBubble" : (itemCategory === "mount" ? "entryAnimation" : null));
         if (profileField) {
             transaction.update(userRef, { [profileField]: item.imageUrl });
         }
@@ -3034,7 +3426,7 @@ exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context)
     const resellerRef = db.collection("users").doc(targetUid);
     await db.runTransaction(async (transaction) => {
         const resellerDoc = await transaction.get(resellerRef);
-        if (!resellerDoc.exists) throw new Error("User not found.");
+        if (!resellerDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
         const currentBalance = resellerDoc.data().walletBalance || 0;
         transaction.update(resellerRef, { walletBalance: currentBalance + amountDelta });
         const txRef = db.collection("transactions").doc();
@@ -3059,11 +3451,17 @@ exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
     const pkgRef = db.collection("diamond_packages").doc(packageId);
     return db.runTransaction(async (transaction) => {
         const [resellerDoc, pkgDoc] = await Promise.all([transaction.get(resellerRef), transaction.get(pkgRef)]);
-        if (!resellerDoc.exists || !resellerDoc.data().isReseller) throw new Error("Not a registered reseller.");
+        if (!resellerDoc.exists || !resellerDoc.data().isReseller) {
+            throw new functions.https.HttpsError("permission-denied", "Not a registered reseller.");
+        }
         const pkgData = pkgDoc.data();
-        if (!pkgDoc.exists || pkgData.isDeleted) throw new Error("Package not found.");
+        if (!pkgDoc.exists || pkgData.isDeleted) {
+            throw new functions.https.HttpsError("not-found", "Package not found.");
+        }
         const currentWallet = resellerDoc.data().walletBalance || 0;
-        if (currentWallet < pkgData.price) throw new Error("Insufficient wallet balance.");
+        if (currentWallet < pkgData.price) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient wallet balance.");
+        }
         transaction.update(resellerRef, {
             walletBalance: currentWallet - pkgData.price,
             diamondBalance: admin.firestore.FieldValue.increment(pkgData.diamonds)
@@ -3088,28 +3486,43 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     const resellerUid = context.auth.uid;
     const { targetHelloId, amount } = data;
     const resellerRef = db.collection("users").doc(resellerUid);
-    const targetSnap = await db.collection("users").where("helloId", "==", targetHelloId).get();
-    if (targetSnap.empty) throw new Error("Target user not found.");
-    const targetUid = targetSnap.docs[0].id;
+    
+    // Ensure helloId is treated as a number
+    const numericId = parseInt(targetHelloId);
+    if (isNaN(numericId)) throw new functions.https.HttpsError("invalid-argument", "Invalid Hello ID format.");
+
+    const targetSnap = await db.collection("users").where("helloId", "==", numericId).get();
+    if (targetSnap.empty) throw new functions.https.HttpsError("not-found", "Target user not found.");
+    
+    const targetDoc = targetSnap.docs[0];
+    const targetUid = targetDoc.id;
+    const targetName = targetDoc.data().displayName || "User";
+
     return db.runTransaction(async (transaction) => {
         const targetRef = db.collection("users").doc(targetUid);
         const resellerDoc = await transaction.get(resellerRef);
         const currentStock = resellerDoc.data().diamondBalance || 0;
-        if (currentStock < amount) throw new Error("Insufficient diamond stock.");
+        
+        if (currentStock < amount) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond stock.");
+        }
+
         transaction.update(resellerRef, { diamondBalance: currentStock - amount });
         transaction.update(targetRef, { diamondBalance: admin.firestore.FieldValue.increment(amount) });
+        
         const txRef = db.collection("transactions").doc();
         transaction.set(txRef, {
             senderId: resellerUid,
             receiverId: targetUid,
-            targetHelloId: targetHelloId,
+            targetHelloId: numericId,
             type: "RESELLER_TO_USER",
             amount: amount,
             currency: "DIAMONDS",
             status: "completed",
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
-        return { success: true };
+        
+        return { success: true, targetName: targetName };
     });
 });
 
@@ -3191,4 +3604,140 @@ exports.getResellerHistory = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("internal", err.message);
     }
 });
+
+/**
+ * --- PERIODIC LEADERBOARD RESETS ---
+ */
+
+async function resetUsersField(fields) {
+    const usersSnap = await db.collection("users").get();
+    let batch = db.batch();
+    let count = 0;
+
+    const resetData = {};
+    fields.forEach(f => resetData[f] = 0);
+
+    for (const doc of usersSnap.docs) {
+        batch.update(doc.ref, resetData);
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) await batch.commit();
+    console.log(`[RESET] Finished resetting ${fields.join(", ")} for ${usersSnap.size} users.`);
+}
+
+exports.scheduledDailyReset = functions.pubsub.schedule('0 0 * * *')
+    .timeZone('UTC')
+    .onRun(async (context) => {
+        await resetUsersField(["dailyXP", "dailyPrinceXP"]);
+    });
+
+exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')
+    .timeZone('UTC')
+    .onRun(async (context) => {
+        await resetUsersField(["weeklyXP", "weeklyPrinceXP"]);
+    });
+
+exports.scheduledMonthlyReset = functions.pubsub.schedule('0 0 1 * *')
+    .timeZone('UTC')
+    .onRun(async (context) => {
+        await resetUsersField(["monthlyXP", "monthlyPrinceXP"]);
+    });
+
+/**
+ * --- AUTOMATED SALARY PAYOUT CRON JOB ---
+ * Runs daily to process pending host, agency, and admin payouts.
+ */
+exports.processSalaryPayouts = functions.pubsub.schedule('0 0 * * *')
+    .timeZone('UTC')
+    .onRun(async (context) => {
+        const now = admin.firestore.Timestamp.now();
+        const pendingPayouts = await db.collection("salaryPayouts")
+            .where("status", "==", "pending")
+            .where("scheduledDate", "<=", now)
+            .limit(100)
+            .get();
+
+        if (pendingPayouts.empty) return null;
+
+        for (const doc of pendingPayouts.docs) {
+            const payout = doc.data();
+            const payoutId = doc.id;
+
+            try {
+                await db.runTransaction(async (transaction) => {
+                    const freshDoc = await transaction.get(doc.ref);
+                    if (freshDoc.data().status !== "pending") return;
+
+                    // 1. Mark as Paid
+                    transaction.update(doc.ref, { 
+                        status: "paid", 
+                        paidAt: admin.firestore.FieldValue.serverTimestamp() 
+                    });
+
+                    // 2. Distribute Funds
+                    if (payout.type === "host") {
+                        const userRef = db.collection("users").doc(payout.uid);
+                        transaction.update(userRef, { 
+                            walletBalance: admin.firestore.FieldValue.increment(payout.amount) 
+                        });
+                        
+                        // Transaction Log
+                        const txRef = userRef.collection("transactions").doc();
+                        transaction.set(txRef, {
+                            id: txRef.id,
+                            amount: payout.amount,
+                            type: "salary_reward",
+                            category: "wallet",
+                            description: `Level ${payout.level} Host Reward`,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                            status: "completed"
+                        });
+                    } else if (payout.type === "agency" && payout.agencyId) {
+                        const agencyRef = db.collection("users").doc(payout.agencyId);
+                        transaction.update(agencyRef, {
+                            beansBalance: admin.firestore.FieldValue.increment(Math.floor(payout.amount))
+                        });
+
+                        // Global Audit
+                        const auditRef = db.collection("transactions").doc();
+                        transaction.set(auditRef, {
+                            id: auditRef.id,
+                            uid: payout.uid,
+                            agencyId: payout.agencyId,
+                            amount: payout.amount,
+                            type: "salary_reward",
+                            category: "bean",
+                            description: `Level ${payout.level} Agency Share`,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    } else if (payout.type === "admin") {
+                        const statsRef = db.collection("platformStats").doc("revenue");
+                        transaction.set(statsRef, {
+                            totalAdminEarnings: admin.firestore.FieldValue.increment(payout.amount),
+                            lastUpdate: admin.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+
+                        // Global Audit
+                        const auditRef = db.collection("transactions").doc();
+                        transaction.set(auditRef, {
+                            id: auditRef.id,
+                            type: "admin_commission",
+                            amount: payout.amount,
+                            description: `Level ${payout.level} Admin Share (Host: ${payout.uid})`,
+                            timestamp: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+                });
+            } catch (err) {
+                console.error(`[PAYOUT_ERROR] Failed to process ${payoutId}:`, err);
+            }
+        }
+        console.log(`[PAYOUT] Finished processing up to 100 pending payouts.`);
+        return null;
+    });
 

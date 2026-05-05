@@ -170,6 +170,7 @@ class SeatGrid extends ConsumerWidget {
                       imageUrl: u.profilePhotoUrl,
                       frameUrl: displayFrame,
                       vipTier: u.vipTier,
+                      tags: u.tags,
                       radius: radius,
                       showFrame: true,
                       frameMultiplier: 2.3,

@@ -5,6 +5,7 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/services/broadcast_service.dart';
+import '../../../../utils/level_utils.dart';
 
 
 class ChatWidget extends ConsumerWidget {
@@ -111,7 +112,7 @@ class ChatWidget extends ConsumerWidget {
                      margin: const EdgeInsets.only(top: 1),
                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
                      decoration: BoxDecoration(
-                       gradient: const LinearGradient(colors: [Color(0xFFFFF176), Color(0xFFFFD700)]),
+                       color: LevelUtils.getLevelColor(u.level),
                        borderRadius: BorderRadius.circular(6),
                      ),
                      child: Text("Lv.${u.level}", style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold, fontStyle: FontStyle.italic)),

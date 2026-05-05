@@ -12,7 +12,9 @@ import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/router/app_router.dart';
 import 'package:hello_chat/core/services/profile_service.dart';
+import 'package:hello_chat/utils/level_utils.dart';
 import '../widgets/gift_panel.dart';
+import 'dart:ui';
 
 class RoomUserOptionsSheet extends ConsumerStatefulWidget {
   final Participant participant;
@@ -155,7 +157,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _buildImageBadge("https://i.ibb.co/vzV6Ynx/lvl.png", "Lv.${u.level}"),
+                        _buildLevelTag(u.level),
                         if (u.vipTier != 'none') ...[
                           const Gap(8),
                           _buildImageBadge("https://i.ibb.co/r7v9tZ0/vip.png", u.vipTier.toUpperCase()),
@@ -320,20 +322,13 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                   color: Colors.white,
                   shape: BoxShape.circle,
                 ),
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(colors: [Colors.orange, Colors.pink]),
-                    shape: BoxShape.circle,
-                  ),
-                  child: AppAvatar(
-                    radius: 54,
-                    imageUrl: u.profilePhotoUrl,
-                    frameUrl: u.profileFrame,
-                    vipTier: u.vipTier,
-                    showFrame: true,
-                    frameMultiplier: 1.5,
-                  ),
+                child: AppAvatar(
+                  radius: 54,
+                  imageUrl: u.profilePhotoUrl,
+                  frameUrl: u.profileFrame,
+                  vipTier: u.vipTier,
+                  showFrame: true,
+                  frameMultiplier: 1.5,
                 ),
               ),
             ),
@@ -356,20 +351,91 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     );
   }
 
-  Widget _buildImageBadge(String url, String label) {
+  Widget _buildLevelTag(int level) {
+    final color = LevelUtils.getLevelColor(level);
+    
+    // Determine the icon based on level tiers from "Ethereal Elite"
+    IconData tierIcon = Icons.stars_rounded;
+    if (level > 50) {
+      tierIcon = Icons.shield_rounded; // Mythic
+    } else if (level > 20) {
+      tierIcon = Icons.diamond_rounded; // Elite
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color,
+            color.withOpacity(0.7),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.4),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+          // Inner Glow effect
+          BoxShadow(
+            color: Colors.white.withOpacity(0.2),
+            blurRadius: 2,
+            spreadRadius: -1,
+            offset: const Offset(0, 1),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 0.5,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(tierIcon, color: Colors.white, size: 14),
+              const Gap(4),
+              Text(
+                "Lv.$level",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                  shadows: [
+                    Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageBadge(String url, String label, {Color? color}) {
+    final themeColor = color ?? Colors.pink;
     return Container(
       padding: const EdgeInsets.fromLTRB(4, 4, 10, 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFFDF2F8),
+        color: themeColor.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.pink.withOpacity(0.1)),
+        border: Border.all(color: themeColor.withOpacity(0.2)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CachedNetworkImage(imageUrl: url, height: 16, width: 16, errorWidget: (_, __, ___) => const Icon(Icons.workspace_premium, size: 14, color: Colors.pink)),
+          CachedNetworkImage(imageUrl: url, height: 16, width: 16, errorWidget: (_, __, ___) => Icon(Icons.workspace_premium, size: 14, color: themeColor)),
           const Gap(4),
-          Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.pink)),
+          Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: themeColor)),
         ],
       ),
     );

@@ -9,6 +9,9 @@ import 'package:hello_chat/core/router/app_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/utils/badge_utils.dart';
+import '../../../../core/widgets/user_badge.dart';
+import '../../../../utils/number_formatter.dart';
 
 class ContributionRankingScreen extends ConsumerStatefulWidget {
   const ContributionRankingScreen({super.key});
@@ -85,7 +88,9 @@ class _RankingList extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // We'll use benchXP for contribution as per existing logic, or a specific field if available
-    final field = filter == 'overall' ? 'benchXP' : 'weeklyXP'; // Simplified mapping
+    final field = filter == 'daily' ? 'dailyXP' : 
+                  filter == 'weekly' ? 'weeklyXP' : 
+                  filter == 'monthly' ? 'monthlyXP' : 'benchXP';
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -181,33 +186,24 @@ class _RankingTile extends StatelessWidget {
                   ],
                 ),
                 const Gap(4),
-                // Badge Row 1: Gold Coin + Diamond Level
-                Row(
-                  children: [
-                    _buildStatBadge(
-                      icon: Icons.monetization_on_rounded,
-                      color: Colors.amber[600]!,
-                      value: score.toString(),
-                    ),
-                    const Gap(8),
-                    _buildStatBadge(
-                      icon: Icons.diamond_rounded,
-                      color: Colors.blue[300]!,
-                      value: "${user.level}",
-                      isDiamond: true,
-                    ),
-                  ],
-                ),
-                const Gap(4),
-                // Badge Row 2: Family/Tag (If exists)
-                if (user.familyId != null || user.vipTier != 'none')
-                  _buildTagBadge(
-                    user.vipTier != 'none' 
-                      ? "${user.vipTier} Player" 
-                      : "Family Member",
-                    color: user.vipTier != 'none' ? Colors.deepPurple[100]! : Colors.blue[50]!,
-                    textColor: user.vipTier != 'none' ? Colors.deepPurple : Colors.blue,
+                // Badge Row: User Badges from Utility
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildStatBadge(
+                        icon: Icons.monetization_on_rounded,
+                        color: Colors.amber[600]!,
+                        value: formatCount(score is num ? score.toInt() : 0),
+                      ),
+                      const Gap(4),
+                      ...getBadgesForUser(user).map((b) => Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Transform.scale(scale: 0.7, child: b),
+                      )),
+                    ],
                   ),
+                ),
               ],
             ),
           ),

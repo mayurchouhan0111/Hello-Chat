@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/services/reseller_service.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
 
 class TransferDiamondsScreen extends ConsumerStatefulWidget {
   const TransferDiamondsScreen({super.key});
@@ -139,7 +140,7 @@ class _TransferDiamondsScreenState extends ConsumerState<TransferDiamondsScreen>
               controller: _amountController,
               label: "AMOUNT TO SEND",
               hint: "0",
-              icon: Icons.diamond_rounded,
+              icon: const PremiumDiamond(size: 20),
               keyboardType: TextInputType.number,
             ),
             const SizedBox(height: 32),
@@ -177,7 +178,7 @@ class _TransferDiamondsScreenState extends ConsumerState<TransferDiamondsScreen>
     required TextEditingController controller,
     required String label,
     required String hint,
-    required IconData icon,
+    required dynamic icon,
     TextInputType keyboardType = TextInputType.text,
   }) {
     return Column(
@@ -195,7 +196,10 @@ class _TransferDiamondsScreenState extends ConsumerState<TransferDiamondsScreen>
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: const TextStyle(color: Colors.black12, fontWeight: FontWeight.bold),
-            prefixIcon: Icon(icon, color: Colors.indigo, size: 20),
+            prefixIcon: Padding(
+              padding: const EdgeInsets.all(12.0),
+              child: icon is Widget ? icon : Icon(icon as IconData, color: Colors.indigo, size: 20),
+            ),
             filled: true,
             fillColor: const Color(0xFFF1F5F9),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),

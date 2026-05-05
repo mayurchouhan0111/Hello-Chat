@@ -16,6 +16,7 @@ import '../../features/profile/presentation/screens/profile_setup_screen.dart';
 import '../../features/profile/presentation/screens/reset_password_screen.dart';
 import '../../features/profile/presentation/screens/edit_profile_screen.dart';
 import '../../features/profile/presentation/screens/profile_detail_screen.dart';
+import '../../features/profile/presentation/screens/level_detail_screen.dart';
 import '../../features/profile/presentation/screens/follow_list_screen.dart';
 import '../../features/diamonds/presentation/screens/wallet_screen.dart';
 import '../../features/vip/presentation/screens/vip_shop_screen.dart';
@@ -96,6 +97,7 @@ class AppRoutes {
   static const chatDetail       = '/chat-detail';
   static const pkBattle         = '/pk-battle';
   static const resellerCenter   = '/reseller-center';
+  static const levelDetail      = '/level-detail';
 }
 
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -353,6 +355,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.resellerCenter,
         builder: (context, state) => const ResellerDashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.levelDetail,
+        builder: (context, state) => const LevelDetailScreen(),
       ),
     ],
   );

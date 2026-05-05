@@ -118,7 +118,12 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
               height: 400,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFFFFD700).withOpacity(0.03),
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFFFFD700).withOpacity(0.08),
+                    Colors.transparent,
+                  ],
+                ),
               ),
             ).animate(onPlay: (c) => c.repeat(reverse: true)).fadeOut(duration: 3.seconds).fadeIn(duration: 3.seconds),
           ),
@@ -305,8 +310,9 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
     return Container(
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.02),
+        color: Colors.white.withOpacity(0.015),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.03), width: 1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,18 +320,42 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(label, style: const TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  label, 
+                  style: const TextStyle(color: Colors.white54, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.2)
+                ),
+              ),
               GestureDetector(
                 onTap: onMax,
-                child: Text("USE MAX", style: TextStyle(color: const Color(0xFFFFD700).withOpacity(0.8), fontSize: 10, fontWeight: FontWeight.w900)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text("USE MAX", style: TextStyle(color: Color(0xFFFFD700), fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 0.5)),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Row(
             children: [
-              icon,
-              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFD700).withOpacity(0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: icon,
+              ),
+              const SizedBox(width: 16),
               Expanded(
                 child: TextField(
                   controller: controller,
@@ -334,15 +364,17 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
                   cursorColor: const Color(0xFFFFD700),
                   style: const TextStyle(
                     color: Color(0xFFFFD700), 
-                    fontSize: 34, 
+                    fontSize: 28, 
                     fontWeight: FontWeight.w900, 
                     letterSpacing: -1,
+                    fontFamily: 'monospace'
                   ),
-                  decoration: const InputDecoration(
-                    hintText: "0",
-                    hintStyle: TextStyle(color: Colors.white24),
+                  decoration: InputDecoration(
+                    hintText: "0000",
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.05)),
                     border: InputBorder.none,
-                    contentPadding: EdgeInsets.symmetric(vertical: 12),
+                    contentPadding: EdgeInsets.zero,
+                    isDense: true,
                   ),
                 ),
               ),
@@ -369,19 +401,37 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white30, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
-          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              label, 
+              style: const TextStyle(color: Colors.white30, fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.2)
+            ),
+          ),
+          const SizedBox(height: 20),
           Row(
             children: [
-              icon,
-              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: icon,
+              ),
+              const SizedBox(width: 16),
               Text(
                 amount.toString(),
                 style: TextStyle(
-                  color: amount > 0 ? Colors.white : Colors.white12,
+                  color: amount > 0 ? Colors.white : Colors.white.withOpacity(0.05),
                   fontSize: 28,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: -0.5,
+                  letterSpacing: -1,
+                  fontFamily: 'monospace'
                 ),
               ),
             ],

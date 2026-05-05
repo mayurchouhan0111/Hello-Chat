@@ -108,6 +108,8 @@ dependencies:
   youtube_player_flutter: ^9.0.4
   youtube_player_iframe: ^5.1.2
   youtube_explode_dart: ^2.2.2
+  flutter_inappwebview: ^6.0.0
+  pod_player: ^0.2.2
 
 dev_dependencies:
   flutter_test:
@@ -140,6 +142,9 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/super/
+    - assets/images/extracted_badges/
+    - assets/images/levels/
     - assets/icons/
     - assets/animations/lottie/
     - assets/animations/rive/

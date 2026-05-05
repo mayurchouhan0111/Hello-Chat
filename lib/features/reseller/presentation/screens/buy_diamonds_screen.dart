@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/services/reseller_service.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
 
 class BuyDiamondsScreen extends ConsumerStatefulWidget {
   const BuyDiamondsScreen({super.key});
@@ -121,7 +122,7 @@ class _BuyDiamondsScreenState extends ConsumerState<BuyDiamondsScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             child: Column(
               children: [
-                const Text("💎", style: TextStyle(fontSize: 32)),
+                const PremiumDiamond(size: 32),
                 const SizedBox(height: 12),
                 Text(
                   "${pkg['diamonds']}",

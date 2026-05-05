@@ -39,6 +39,8 @@ class RoomModel {
   final bool effectSwitch;
   final String? youtubeVideoId;
   final bool isYoutubeActive;
+  final String youtubeStatus; // "playing" | "paused" | "stopped"
+  final int youtubeSeekTime;
   final Map<String, dynamic>? pkChallenge;
   final Map<String, dynamic>? pkContributions;
   final Map<String, dynamic>? pkWinnerData;
@@ -83,6 +85,8 @@ class RoomModel {
     this.effectSwitch = true,
     this.youtubeVideoId,
     this.isYoutubeActive = false,
+    this.youtubeStatus = 'stopped',
+    this.youtubeSeekTime = 0,
     this.pkChallenge,
     this.pkContributions,
     this.pkWinnerData,
@@ -129,6 +133,8 @@ class RoomModel {
       'effectSwitch': effectSwitch,
       'youtubeVideoId': youtubeVideoId,
       'isYoutubeActive': isYoutubeActive,
+      'youtubeStatus': youtubeStatus,
+      'youtubeSeekTime': youtubeSeekTime,
       'pkChallenge': pkChallenge,
       'pkContributions': pkContributions,
       'pkWinnerData': pkWinnerData,
@@ -176,6 +182,8 @@ class RoomModel {
       effectSwitch: map['effectSwitch'] ?? true,
       youtubeVideoId: map['youtubeVideoId'],
       isYoutubeActive: map['isYoutubeActive'] ?? false,
+      youtubeStatus: map['youtubeStatus'] ?? 'stopped',
+      youtubeSeekTime: (map['youtubeSeekTime'] ?? 0) as int,
       pkChallenge: map['pkChallenge'] != null ? Map<String, dynamic>.from(map['pkChallenge']) : null,
       pkContributions: map['pkContributions'] != null ? Map<String, dynamic>.from(map['pkContributions']) : null,
       pkWinnerData: map['pkWinnerData'] != null ? Map<String, dynamic>.from(map['pkWinnerData']) : null,

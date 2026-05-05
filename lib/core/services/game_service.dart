@@ -9,10 +9,12 @@ class GameService extends BaseFirebaseService {
   /// Result is calculated server-side via Cloud Functions to prevent cheating.
   Future<Map<String, dynamic>> playSpinWheel({
     required int betAmount,
+    Map<String, int>? bets,
     String? roomId,
   }) async {
     final result = await callFunction('playSpinWheel', {
       'betAmount': betAmount,
+      'bets': bets,
       'roomId': roomId,
     });
     return Map<String, dynamic>.from(result);

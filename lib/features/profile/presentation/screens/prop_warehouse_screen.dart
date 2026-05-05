@@ -20,11 +20,12 @@ class PropWarehouseScreen extends ConsumerStatefulWidget {
 
 class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  String? _loadingItemId;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -54,7 +55,8 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
           unselectedLabelColor: Colors.white24,
           labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 1.5),
           tabs: const [
-            Tab(text: "MY PROPS"),
+            Tab(text: "FRAMES"),
+            Tab(text: "BUBBLES"),
             Tab(text: "MOUNTS"),
           ],
         ),
@@ -62,7 +64,8 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
       body: TabBarView(
         controller: _tabController,
         children: [
-          _buildPersonalWarehouse('prop', "Avatar Frames & Bubbles"),
+          _buildPersonalWarehouse('frame', "Avatar Frames"),
+          _buildPersonalWarehouse('bubble', "Chat Bubbles"),
           _buildPersonalWarehouse('mount', "Cars & Steeds"),
         ],
       ),
@@ -121,7 +124,9 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
              width: 80, height: 80,
              decoration: BoxDecoration(color: Colors.white.withOpacity(0.03), borderRadius: BorderRadius.circular(16)),
              child: Center(
-               child: CachedNetworkImage(imageUrl: url, width: 60, fit: BoxFit.contain, errorWidget: (c, e, s) => const Icon(Icons.inventory_2_rounded, color: Colors.white10)),
+               child: url.startsWith('assets/') 
+                  ? Image.asset(url, width: 60, fit: BoxFit.contain)
+                  : CachedNetworkImage(imageUrl: url, width: 60, fit: BoxFit.contain, errorWidget: (c, e, s) => const Icon(Icons.inventory_2_rounded, color: Colors.white10)),
              ),
            ),
            const Gap(20),
@@ -143,26 +148,37 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
   }
 
   Widget _buildEquipBtn(bool equipped, String id, String cat) {
+    final isLoading = _loadingItemId == id;
+    
     return GestureDetector(
-      onTap: () async {
-         HapticFeedback.heavyImpact();
-         await ref.read(profileServiceProvider).equipItem(id, cat);
+      onTap: (equipped || isLoading) ? null : () async {
+         setState(() => _loadingItemId = id);
+         try {
+           HapticFeedback.heavyImpact();
+           await ref.read(profileServiceProvider).equipItem(id, cat);
+         } finally {
+           if (mounted) setState(() => _loadingItemId = null);
+         }
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        constraints: const BoxConstraints(minWidth: 80),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: equipped ? Colors.tealAccent.withOpacity(0.1) : Colors.white.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: equipped ? Colors.tealAccent : Colors.transparent),
         ),
-        child: Text(
-          equipped ? "EQUIPPED" : "EQUIP",
-          style: TextStyle(
-            color: equipped ? Colors.tealAccent : Colors.white, 
-            fontWeight: FontWeight.w900, 
-            fontSize: 9
-          ),
-        ),
+        child: isLoading 
+          ? const SizedBox(width: 12, height: 12, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+          : Text(
+              equipped ? "EQUIPPED" : "EQUIP",
+              style: TextStyle(
+                color: equipped ? Colors.tealAccent : Colors.white, 
+                fontWeight: FontWeight.w900, 
+                fontSize: 9
+              ),
+            ),
       ),
     );
   }

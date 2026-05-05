@@ -7,6 +7,7 @@ import {
   where, 
   doc, 
   limit, 
+  orderBy,
   writeBatch, 
   serverTimestamp, 
   deleteDoc,
@@ -388,12 +389,22 @@ export const UserManagement = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, "users"), limit(20));
+      // Fetch more users and order by newest first
+      const q = query(
+        collection(db, "users"), 
+        orderBy("createdAt", "desc"), 
+        limit(200)
+      );
       const snap = await getDocs(q);
       const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setUsers(list);
     } catch (err) {
-      console.error(err);
+      console.error("Fetching with order failed, falling back:", err);
+      // Fallback query in case the index is still building
+      const q = query(collection(db, "users"), limit(200));
+      const snap = await getDocs(q);
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setUsers(list);
     } finally {
       setLoading(false);
     }
@@ -641,11 +652,68 @@ export const UserManagement = () => {
         }
     };
 
-    const filteredUsers = users.filter(u => 
-        u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.uid || u.id) === searchTerm
-    );
+  const handleSearch = async () => {
+    const term = searchTerm.trim();
+    if (!term) {
+      fetchUsers();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. Try exact UID match
+      const userRef = doc(db, "users", term);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        setUsers([{ id: userSnap.id, ...userSnap.data() }]);
+      } else {
+        // 2. Try numeric Hello ID match
+        const numericId = parseInt(term);
+        if (!isNaN(numericId)) {
+          const qId = query(collection(db, "users"), where("helloId", "==", numericId), limit(1));
+          const snapId = await getDocs(qId);
+          if (!snapId.empty) {
+            setUsers(snapId.docs.map(d => ({ id: d.id, ...d.data() })));
+            return;
+          }
+        }
+
+        // 3. Try username match (Exact or Lowercase)
+        const qUsername = query(
+          collection(db, "users"), 
+          where("username_lowercase", "==", term.toLowerCase()),
+          limit(1)
+        );
+        const snapUsername = await getDocs(qUsername);
+        
+        if (!snapUsername.empty) {
+          setUsers(snapUsername.docs.map(d => ({ id: d.id, ...d.data() })));
+        } else {
+          // 4. Try displayName match (StartWith pattern)
+          const qName = query(
+            collection(db, "users"),
+            orderBy("displayName"),
+            where("displayName", ">=", term),
+            where("displayName", "<=", term + '\uf8ff'),
+            limit(20)
+          );
+          const snapName = await getDocs(qName);
+          setUsers(snapName.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      }
+    } catch (err) {
+      console.error("Search failed:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredUsers = users.filter(u => 
+    u.displayName?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (u.uid || u.id)?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="p-8 space-y-8 min-h-screen bg-black text-slate-200">
@@ -686,9 +754,18 @@ export const UserManagement = () => {
       )}
 
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 pb-8 border-b border-white/5">
-        <div>
-          <h1 className="text-4xl font-black text-white tracking-widest uppercase">Seed Control</h1>
-          <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">Manage synthetic identities & accounts</p>
+        <div className="flex items-center gap-6">
+          <div>
+            <h1 className="text-4xl font-black text-white tracking-widest uppercase">Seed Control</h1>
+            <p className="text-slate-500 font-bold text-xs uppercase tracking-widest mt-2">Manage synthetic identities & accounts</p>
+          </div>
+          <button 
+            onClick={fetchUsers}
+            className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/5 text-slate-400 hover:text-[#B4E0A2] transition-all group"
+            title="Refresh User List"
+          >
+            <RefreshCw size={20} className={loading ? 'animate-spin' : 'group-active:rotate-180 transition-transform duration-500'} />
+          </button>
         </div>
         
         <div className="relative group w-80">
@@ -697,10 +774,11 @@ export const UserManagement = () => {
           </div>
           <input 
             type="text" 
-            placeholder="Identity Search..."
-            className="glass-input w-full pl-12 !py-3.5"
+            placeholder="Search UID or Username (Enter to query)..."
+            className="glass-input w-full pl-12 !py-3.5 focus:ring-1 ring-[#B4E0A2]"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           />
         </div>
       </div>
@@ -724,20 +802,24 @@ export const UserManagement = () => {
                     <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 border-4 border-[#09090B] rounded-full"></div>
                   </div>
                   <div>
-                    <h3 className="font-black text-white tracking-tight flex items-center gap-2">
-                       {user.displayName}
-                       {user.tags?.includes('Admin') && <ShieldCheck size={14} className="text-indigo-400" />}
-                    </h3>
                     <div className="flex items-center gap-2">
                        <h3 className="font-black text-white tracking-tight flex items-center gap-2">
                           {user.displayName}
                           {user.tags?.includes('Admin') && <ShieldCheck size={14} className="text-indigo-400" />}
+                          {user.tags?.includes('SuperAdmin') && <ShieldCheck size={14} className="text-rose-400" />}
                        </h3>
                        {user.isAgencyOwner && (
                          <span className="bg-amber-500/20 text-amber-500 text-[8px] font-black uppercase px-2 py-0.5 rounded-md border border-amber-500/20">Agency</span>
                        )}
+                       {user.isReseller && (
+                         <span className="bg-emerald-500/20 text-emerald-500 text-[8px] font-black uppercase px-2 py-0.5 rounded-md border border-emerald-500/20">Reseller</span>
+                       )}
                     </div>
-                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">@{user.username || 'Synthetic Identity'}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">@{user.username || 'Synthetic Identity'}</p>
+                      <span className="text-[10px] text-slate-700 font-bold">•</span>
+                      <span className="text-[10px] text-indigo-400 font-black tracking-tighter">ID: {user.helloId || 'N/A'}</span>
+                    </div>
                     <div className="flex gap-4 mt-2">
                        <div className="flex items-center gap-1.5 pt-1">
                           <Diamond size={10} className="text-indigo-400" />

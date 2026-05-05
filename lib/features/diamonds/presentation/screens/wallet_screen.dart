@@ -208,7 +208,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     iconColor: Colors.cyan[300],
                     title: "Reseller Recharge",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.020",
-                    onTap: () => _handleRecharge("100", "2.00", method: "Reseller"),
+                    onTap: () {}, // Simulation Disabled
                   ),
                 ]),
 
@@ -220,7 +220,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     title: "Touch 'n Go",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.076 MYR",
                     bonus: "+1",
-                    onTap: () => _handleRecharge("17", "1.50", method: "Touch 'n Go"),
+                    onTap: () {}, // Simulation Disabled
                   ),
                   const Divider(height: 1, thickness: 0.3, indent: 76),
                   _buildExpandableRefinedTile(
@@ -237,7 +237,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     title: "Google Wallet",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.12 MYR",
                     bonus: "+1",
-                    onTap: () => _handleRecharge("17", "2.00", method: "Google Wallet"),
+                    onTap: () {}, // Simulation Disabled
                   ),
                 ]),
 
@@ -427,7 +427,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
   Widget _buildPackageItem(String amount, String price, {String? bonus, bool isBigDeal = false, String method = "Default", VoidCallback? onTap}) {
     return GestureDetector(
-      onTap: onTap ?? () => _handleRecharge(amount, price, method: method),
+      onTap: onTap ?? () {}, // Simulation Disabled
       behavior: HitTestBehavior.opaque,
       child: Container(
         decoration: BoxDecoration(
@@ -473,61 +473,8 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   }
 
   void _handleRecharge(String amount, String price, {String method = "Default"}) async {
-    debugPrint("--- [WALLET] _handleRecharge called: $amount diamonds, $price USD, method: $method ---");
-    final diamondCount = int.parse(amount.replaceAll(',', ''));
-
-    // 1. If Stripe, show fake card entry first
-    if (method == "Stripe") {
-      final cardCompleted = await _showFakeCardEntry();
-      if (!cardCompleted) return;
-    }
-
-    // 2. Show Simulated Processing Dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(color: Colors.orangeAccent),
-            const SizedBox(height: 24),
-            const Text(
-              "Processing Payment...",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Connecting to Secure Gateway ($price USD)",
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-
-    // 3. Wait 2 seconds to mimic real payment processing
-    await Future.delayed(const Duration(seconds: 2));
-
-    try {
-      // 4. Perform the actual balance update
-      await ref.read(walletActionProvider.notifier).simulateRecharge(diamondCount);
-      
-      if (mounted) {
-        // 5. Close the processing dialog
-        Navigator.pop(context);
-
-        // 6. Show Success Feedback
-        _showSuccessDialog(diamondCount);
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Recharge error: $e")));
-    }
+    // Simulation Disabled
+    return;
   }
 
   Future<bool> _showFakeCardEntry() async {

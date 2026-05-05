@@ -338,6 +338,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
       builder: (context) => ViewersListSheet(
         roomId: room.roomId,
         participants: participants,
+        ownerUid: room.ownerUid,
         onUserSelected: (p) async {
           try {
             await ref.read(roomServiceProvider).inviteToPKTeam(

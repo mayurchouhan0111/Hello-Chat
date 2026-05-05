@@ -72,6 +72,12 @@ service cloud.firestore {
       match /contributors/{contributorId} {
         allow read: if true;
       }
+
+      // Notifications
+      match /notifications/{notifId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false; // Only server functions can write
+      }
     }
 
     // Global Collections
@@ -135,6 +141,7 @@ service cloud.firestore {
     match /global_announcements/{annId} { allow read: if true; allow write: if isAdmin(); }
     match /admin_logs/{logId} { allow read, create: if isAdmin(); }
     match /prestige_items/{itemId} { allow read: if true; allow write: if isAdmin(); }
+    match /system_configs/{configId} { allow read: if request.auth != null; allow write: if isAdmin(); }
 
     // Agencies
     match /agencies/{agencyId} {

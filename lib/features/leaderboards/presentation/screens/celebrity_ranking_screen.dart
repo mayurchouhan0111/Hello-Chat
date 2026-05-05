@@ -4,6 +4,10 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:math' as math;
+import '../../../../core/utils/badge_utils.dart';
+import '../../../../utils/number_formatter.dart';
+import '../../../../core/models/user_model.dart';
+import '../../../../core/widgets/user_badge.dart';
 
 class CelebrityRankingScreen extends ConsumerStatefulWidget {
   const CelebrityRankingScreen({super.key});
@@ -151,7 +155,16 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
     );
   }
 
-  Widget _buildRankingContent(String field, {bool isRoom = false}) {
+  Widget _buildRankingContent(String baseField, {bool isRoom = false}) {
+    String field = baseField;
+    if (!isRoom) {
+      if (baseField == "benchXP") {
+        field = _timeFilter == "DAILY" ? "dailyXP" : _timeFilter == "WEEKLY" ? "weeklyXP" : _timeFilter == "MONTHLY" ? "monthlyXP" : "benchXP";
+      } else if (baseField == "princeXP") {
+        field = _timeFilter == "DAILY" ? "dailyPrinceXP" : _timeFilter == "WEEKLY" ? "weeklyPrinceXP" : _timeFilter == "MONTHLY" ? "monthlyPrinceXP" : "princeXP";
+      }
+    }
+
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
           .collection(isRoom ? 'rooms' : 'users')
@@ -220,7 +233,8 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
     final data = doc.data() as Map<String, dynamic>;
     final photoUrl = isRoom ? (data['coverUrl'] ?? "") : (data['profilePhotoUrl'] ?? "");
     final name = isRoom ? (data['name'] ?? "Room") : (data['displayName'] ?? "User");
-    final score = (data[field] ?? 0).toString();
+    final scoreNum = (data[field] ?? 0);
+    final score = formatCount(scoreNum is num ? scoreNum.toInt() : 0);
     final is1 = rank == 1;
 
     Color rankColor = is1 ? const Color(0xFFFFD700) : (rank == 2 ? const Color(0xFFE2E8F0) : const Color(0xFFF9A8D4));
@@ -301,6 +315,19 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
         const SizedBox(height: 35),
         Text(name, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: is1 ? 18 : 14, shadows: [Shadow(color: Colors.black, blurRadius: 5)])),
         const SizedBox(height: 4),
+        if (!isRoom) ...[
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: getBadgesForUser(UserModel.fromMap({...data, 'uid': doc.id})).map((b) => Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: Transform.scale(scale: 0.6, child: b),
+              )).toList(),
+            ),
+          ),
+          const SizedBox(height: 4),
+        ],
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(color: Colors.white.withOpacity(0.08), borderRadius: BorderRadius.circular(15), border: Border.all(color: rankColor.withOpacity(0.2))),
@@ -321,7 +348,8 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
     final data = doc.data() as Map<String, dynamic>;
     final photoUrl = isRoom ? (data['coverUrl'] ?? "") : (data['profilePhotoUrl'] ?? "");
     final name = isRoom ? (data['name'] ?? "Room") : (data['displayName'] ?? "User");
-    final score = (data[field] ?? 0).toString();
+    final scoreNum = (data[field] ?? 0);
+    final score = formatCount(scoreNum is num ? scoreNum.toInt() : 0);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -344,6 +372,18 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+                if (!isRoom) ...[
+                  const SizedBox(height: 4),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: getBadgesForUser(UserModel.fromMap({...data, 'uid': doc.id})).map((b) => Padding(
+                        padding: const EdgeInsets.only(right: 2),
+                        child: Transform.scale(scale: 0.5, child: b),
+                      )).toList(),
+                    ),
+                  ),
+                ],
                 Text("@${data['username'] ?? 'user'}", style: const TextStyle(color: Colors.white24, fontSize: 11)),
               ],
             ),

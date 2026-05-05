@@ -15,6 +15,7 @@ class Participant {
   final String profileFrame;
   final bool priorityMicAccess;
   final bool isAdmin;
+  final List<String> tags;
 
   Participant({
     required this.uid,
@@ -31,6 +32,7 @@ class Participant {
     this.profileFrame = "",
     this.priorityMicAccess = false,
     this.isAdmin = false,
+    this.tags = const [],
   });
 
   Map<String, dynamic> toMap() {
@@ -49,6 +51,7 @@ class Participant {
       'profileFrame': profileFrame,
       'priorityMicAccess': priorityMicAccess,
       'isAdmin': isAdmin,
+      'tags': tags,
     };
   }
 
@@ -68,6 +71,7 @@ class Participant {
       profileFrame: map['profileFrame'] ?? '',
       priorityMicAccess: map['priorityMicAccess'] ?? false,
       isAdmin: map['isAdmin'] ?? false,
+      tags: (map['tags'] as Iterable?)?.whereType<String>().toList() ?? [],
     );
   }
 }

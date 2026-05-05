@@ -9,6 +9,8 @@ import '../../../../core/models/user_model.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../utils/number_formatter.dart';
 import '../../../chats/presentation/screens/private_chat_screen.dart';
+import '../../../../core/widgets/user_badge.dart';
+import '../../../../core/utils/badge_utils.dart';
 
 class UserProfileScreen extends ConsumerWidget {
   final String uid;
@@ -39,6 +41,9 @@ class UserProfileScreen extends ConsumerWidget {
                       Text(userData.displayName, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                       const Gap(4),
                       Text("@${userData.username}", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                      const Gap(16),
+                      
+                      _buildUserBadges(userData),
                       const Gap(24),
                       
                       // Stats
@@ -152,4 +157,38 @@ class UserProfileScreen extends ConsumerWidget {
       ],
     );
   }
+
+  Widget _buildUserBadges(UserModel userData) {
+    final rawBadges = getBadgesForUser(userData);
+    if (rawBadges.isEmpty) return const SizedBox.shrink();
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Calculate width for 4 items: (Width - Padding(24*2) - Spacings(4*3)) / 4
+    final itemWidth = (screenWidth - 48 - 12) / 4;
+
+    final badges = rawBadges.map((b) {
+       return SizedBox(
+         width: itemWidth,
+         child: b is UserBadge ? UserBadge(
+           label: b.label,
+           type: b.type,
+           prefix: b.prefix,
+           icon: b.icon,
+           imageAsset: b.imageAsset,
+           margin: EdgeInsets.zero,
+         ) : b,
+       );
+    }).toList();
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 4,
+        runSpacing: 8,
+        children: badges,
+      ),
+    );
+  }
+
 }

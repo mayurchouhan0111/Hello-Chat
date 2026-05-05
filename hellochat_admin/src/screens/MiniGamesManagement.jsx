@@ -53,10 +53,18 @@ export const MiniGamesManagement = () => {
   });
 
   useEffect(() => {
-    // 1. Fetch Top Scorers (Highest Balances for demo)
-    const q = query(collection(db, "users"), orderBy("diamondBalance", "desc"), limit(5));
-    const unsubTop = onSnapshot(q, (snap) => {
-      setTopScorers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    // 1. Listen to Real-time Game Stats & Daily Winners
+    const unsubStats = onSnapshot(doc(db, "games_meta", "lucky_spin"), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setStats(prev => ({
+          ...prev,
+          totalBetsToday: data.currentRound * 10, // Approximate if not tracked
+          totalPayoutToday: data.todayWinners?.reduce((acc, w) => acc + (w.amount || 0), 0) || 0,
+          currentRound: data.currentRound || 0
+        }));
+        setTopScorers(data.todayWinners || []);
+      }
     });
 
     // 2. Listen to Lucky Spin Settings
@@ -66,14 +74,14 @@ export const MiniGamesManagement = () => {
         const initialSpin = {
           isActive: true, minWager: 10, maxWager: 5000, maxWinCap: 50000, dailyProfitLimit: 100000,
           segments: [
-            { id: '1', name: 'Apple', multiplier: 2, weight: 550, emoji: '🍎' },
-            { id: '2', name: 'Orange', multiplier: 3, weight: 250, emoji: '🍊' },
-            { id: '3', name: 'Banana', multiplier: 5, weight: 100, emoji: '🍌' },
-            { id: '4', name: 'Watermelon', multiplier: 8, weight: 50, emoji: '🍉' },
-            { id: '5', name: 'Grape', multiplier: 10, weight: 30, emoji: '🍇' },
-            { id: '6', name: 'Peach', multiplier: 12, weight: 10, emoji: '🍑' },
-            { id: '7', name: 'Strawberry', multiplier: 15, weight: 9, emoji: '🍓' },
-            { id: '8', name: 'Pineapple', multiplier: 100, weight: 1, emoji: '🍍' },
+            { id: '1', name: 'hotdog', multiplier: 10, weight: 5, emoji: '🌭', category: 'standard' },
+            { id: '2', name: 'kebab', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
+            { id: '3', name: 'chicken', multiplier: 25, weight: 3, emoji: '🍗', category: 'hot' },
+            { id: '4', name: 'steak', multiplier: 45, weight: 1, emoji: '🥩', category: 'premium' },
+            { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'standard' },
+            { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'standard' },
+            { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'standard' },
+            { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'standard' },
           ]
         };
         setDoc(doc(db, "game_settings", "lucky_spin"), initialSpin);
@@ -90,7 +98,7 @@ export const MiniGamesManagement = () => {
       setLoading(false);
     });
 
-    return () => { unsubTop(); unsubSpin(); unsubDraw(); };
+    return () => { unsubStats(); unsubSpin(); unsubDraw(); };
   }, []);
 
   const handleSaveSpin = async () => {
@@ -124,7 +132,6 @@ export const MiniGamesManagement = () => {
            <button onClick={() => setActiveTab('lucky_spin')} className={`px-8 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'lucky_spin' ? 'bg-[#B4E0A2] text-black shadow-lg shadow-[#B4E0A2]/20' : 'text-slate-500 hover:text-white'}`}>Lucky Spin</button>
            <button onClick={() => setActiveTab('lucky_draw')} className={`px-8 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'lucky_draw' ? 'bg-[#B4E0A2] text-black shadow-lg shadow-[#B4E0A2]/20' : 'text-slate-500 hover:text-white'}`}>Lucky Draw</button>
         </div>
-      </div>
 
       <AnimatePresence mode="wait">
         {activeTab === 'lucky_spin' ? (
@@ -150,18 +157,18 @@ export const MiniGamesManagement = () => {
                      {topScorers.map((u, idx) => (
                        <div key={u.id} className="flex items-center justify-between p-3 bg-white/2 rounded-xl border border-white/5 hover:border-[#B4E0A2]/30 transition-all group">
                           <div className="flex items-center gap-3">
-                             <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-800 text-slate-500'}`}>{idx + 1}</div>
-                             <div>
-                                <p className="text-xs font-black text-white">{u.username || 'Anonymous'}</p>
-                                <p className="text-[9px] text-slate-600 uppercase font-bold">UID: {u.id.slice(0,6)}</p>
-                             </div>
-                          </div>
-                          <div className="text-right">
-                             <p className="text-xs font-black text-emerald-400">{u.diamondBalance?.toLocaleString()}</p>
-                             <div className="flex items-center gap-1 justify-end text-[8px] text-slate-500 uppercase font-bold">Total Gain <ArrowUpRight size={8} /></div>
-                          </div>
-                       </div>
-                     ))}
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${idx === 0 ? 'bg-amber-500/20 text-amber-500' : 'bg-slate-800 text-slate-500'}`}>{idx + 1}</div>
+                              <div>
+                                 <p className="text-xs font-black text-white">{u.name || 'Anonymous'}</p>
+                                 <p className="text-[9px] text-slate-600 uppercase font-bold">UID: {u.uid?.slice(0,6)}</p>
+                              </div>
+                           </div>
+                           <div className="text-right">
+                              <p className="text-xs font-black text-emerald-400">{u.amount?.toLocaleString()}</p>
+                              <div className="flex items-center gap-1 justify-end text-[8px] text-slate-500 uppercase font-bold">{u.multiplier}x <ArrowUpRight size={8} /></div>
+                           </div>
+                        </div>
+                      ))}
                   </div>
                </div>
 
@@ -191,11 +198,31 @@ export const MiniGamesManagement = () => {
                <div className="card-glass p-0 bg-[#18181B]/40 border-white/5 overflow-hidden shadow-2xl">
                   <div className="p-8 border-b border-white/5 flex items-center justify-between">
                      <h3 className="font-black uppercase text-sm tracking-widest flex items-center gap-3"><PieChart size={18} className="text-[#B4E0A2]" />Probability Wheel Matrix</h3>
-                     <span className="text-[10px] font-bold text-slate-500 uppercase">Weight Total: {spinSettings.segments.reduce((a, b) => a + b.weight, 0)}</span>
+                     <div className="flex items-center gap-4">
+                        <button 
+                           onClick={() => {
+                              const template = [
+                                 { id: '1', name: 'hotdog', multiplier: 10, weight: 5, emoji: '🌭', category: 'standard' },
+                                 { id: '2', name: 'kebab', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
+                                 { id: '3', name: 'chicken', multiplier: 25, weight: 3, emoji: '🍗', category: 'hot' },
+                                 { id: '4', name: 'steak', multiplier: 45, weight: 1, emoji: '🥩', category: 'premium' },
+                                 { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'standard' },
+                                 { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'standard' },
+                                 { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'standard' },
+                                 { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'standard' },
+                              ];
+                              setSpinSettings({...spinSettings, segments: template});
+                           }}
+                           className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"
+                        >
+                           <Sparkles size={14} className="text-amber-400" /> Load Food Template
+                        </button>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase">Weight Total: {spinSettings.segments.reduce((a, b) => a + b.weight, 0)}</span>
+                     </div>
                   </div>
                   <table className="w-full text-left font-bold">
                      <thead className="bg-white/2 border-b border-white/5 text-[9px] uppercase font-black tracking-[0.2em] text-slate-600">
-                        <tr><th className="px-8 py-4">Position / Icon</th><th className="px-8 py-4">Multiplier</th><th className="px-8 py-4">Weight (Prob)</th><th className="px-8 py-4">Est. Hit %</th></tr>
+                        <tr><th className="px-8 py-4">Position / Icon</th><th className="px-8 py-4">Category</th><th className="px-8 py-4">Multiplier</th><th className="px-8 py-4">Weight (Prob)</th><th className="px-8 py-4">Est. Hit %</th></tr>
                      </thead>
                      <tbody className="divide-y divide-white/[0.03]">
                         {spinSettings.segments.map((seg, idx) => {
@@ -203,7 +230,37 @@ export const MiniGamesManagement = () => {
                            const hitProb = ((seg.weight / totalW) * 100).toFixed(2);
                            return (
                              <tr key={seg.id} className="group hover:bg-white/5 transition-all">
-                                <td className="px-8 py-5"><div className="flex items-center gap-4"><div className="w-10 h-10 bg-slate-950 rounded-lg flex items-center justify-center text-xl shadow-inner border border-white/5">{seg.emoji}</div><span className="text-sm font-black text-white">{seg.name}</span></div></td>
+                                <td className="px-8 py-5">
+                                    <div className="flex items-center gap-4">
+                                       <input 
+                                          type="text" 
+                                          className="w-12 h-12 bg-slate-950 rounded-lg flex items-center justify-center text-xl shadow-inner border border-white/5 text-center focus:ring-1 ring-[#B4E0A2] outline-none" 
+                                          value={seg.emoji} 
+                                          onChange={(e) => { 
+                                             const newSegs = [...spinSettings.segments]; 
+                                             newSegs[idx].emoji = e.target.value; 
+                                             setSpinSettings({...spinSettings, segments: newSegs}); 
+                                          }} 
+                                       />
+                                       <input 
+                                          type="text" 
+                                          className="bg-transparent border-none text-sm font-black text-white focus:ring-0 p-0 w-24" 
+                                          value={seg.name} 
+                                          onChange={(e) => { 
+                                             const newSegs = [...spinSettings.segments]; 
+                                             newSegs[idx].name = e.target.value; 
+                                             setSpinSettings({...spinSettings, segments: newSegs}); 
+                                          }} 
+                                       />
+                                    </div>
+                                 </td>
+                                <td className="px-8 py-5">
+                                   <select className="bg-[#18181B] border border-white/10 rounded px-2 py-1 text-[10px] font-black uppercase text-slate-400 outline-none focus:ring-1 ring-[#B4E0A2]" value={seg.category || 'standard'} onChange={(e) => { const newSegs = [...spinSettings.segments]; newSegs[idx].category = e.target.value; setSpinSettings({...spinSettings, segments: newSegs}); }}>
+                                      <option value="standard">Standard</option>
+                                      <option value="salad">🥗 Salad</option>
+                                      <option value="pizza">🍕 Pizza</option>
+                                   </select>
+                                </td>
                                 <td className="px-8 py-5"><input type="number" className="bg-transparent border-none text-emerald-400 font-black w-14 focus:ring-0 p-0" value={seg.multiplier} onChange={(e) => { const newSegs = [...spinSettings.segments]; newSegs[idx].multiplier = parseInt(e.target.value); setSpinSettings({...spinSettings, segments: newSegs}); }} /><span className="text-xs text-slate-800 ml-1">x</span></td>
                                 <td className="px-8 py-5"><input type="number" className="bg-white/5 border border-white/10 rounded px-2 py-1 text-white font-bold w-16 focus:ring-1 ring-[#B4E0A2]" value={seg.weight} onChange={(e) => { const newSegs = [...spinSettings.segments]; newSegs[idx].weight = parseInt(e.target.value); setSpinSettings({...spinSettings, segments: newSegs}); }} /></td>
                                 <td className="px-8 py-5"><div className="flex items-center gap-2"><div className="w-12 h-1 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-[#B4E0A2]" style={{ width: `${hitProb}%` }}></div></div><span className="text-xs font-black text-slate-500">{hitProb}%</span></div></td>

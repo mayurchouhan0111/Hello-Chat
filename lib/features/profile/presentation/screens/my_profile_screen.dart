@@ -6,8 +6,10 @@ import 'package:hello_chat/core/constants/app_colors.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/utils/number_formatter.dart';
+import 'package:hello_chat/utils/level_utils.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
+import 'dart:ui';
 
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
@@ -194,16 +196,26 @@ class MyProfileScreen extends ConsumerWidget {
   }
 
   Widget _buildShortcutCards(BuildContext context, UserModel userData) {
+    int level = userData.level;
+    int index = 0;
+    if (level >= 80) index = 5;
+    else if (level >= 50) index = 4;
+    else if (level >= 30) index = 3;
+    else if (level >= 20) index = 2;
+    else if (level >= 10) index = 1;
+    else index = 0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
           _buildShortcutCard(
-            label: "Lv.${userData.level}",
-            icon: Icons.auto_awesome_outlined,
-            color: const Color(0xFFF0FDFA),
-            iconColor: const Color(0xFF0D9488),
-            onTap: () {},
+            label: "Lv.$level",
+            imageAsset: "assets/images/levels/level_badge_$index.png",
+            color: LevelUtils.getLevelColor(level),
+            iconColor: Colors.white,
+            isLevel: true,
+            onTap: () => context.push(AppRoutes.levelDetail),
           ),
           const Gap(10),
           _buildShortcutCard(
@@ -236,10 +248,12 @@ class MyProfileScreen extends ConsumerWidget {
 
   Widget _buildShortcutCard({
     required String label,
-    required IconData icon,
+    IconData? icon,
+    String? imageAsset,
     required Color color,
     required Color iconColor,
     bool isFamily = false,
+    bool isLevel = false,
     required VoidCallback onTap,
   }) {
     return Expanded(
@@ -248,32 +262,65 @@ class MyProfileScreen extends ConsumerWidget {
         child: Container(
           height: 80,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.9),
+            color: isLevel ? null : color,
+            gradient: isLevel ? LinearGradient(
+              colors: [color, color.withOpacity(0.7)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ) : null,
             borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isFamily)
-                const Icon(Icons.groups_rounded, color: Color(0xFFFFB300), size: 30)
-              else
-                CircleAvatar(
-                  radius: 20,
-                  backgroundColor: Colors.white,
-                  child: Icon(icon, color: iconColor, size: 24),
-                ),
-              const Gap(8),
-              Text(
-                label,
-                style: TextStyle(
-                  color: iconColor.withOpacity(0.8),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
+            boxShadow: isLevel ? [
+              BoxShadow(color: color.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4)),
+              BoxShadow(
+                color: Colors.white.withOpacity(0.2),
+                blurRadius: 2,
+                spreadRadius: -1,
+                offset: const Offset(0, 1),
               ),
-            ],
+            ] : null,
+            border: isLevel ? Border.all(
+              color: Colors.white.withOpacity(0.2),
+              width: 0.5,
+            ) : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: BackdropFilter(
+              filter: isLevel ? ImageFilter.blur(sigmaX: 4, sigmaY: 4) : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (imageAsset != null)
+                    SizedBox(
+                      height: 40, 
+                      width: 40,
+                      child: Image.asset(imageAsset, fit: BoxFit.contain),
+                    )
+                  else if (isFamily)
+                    const Icon(Icons.groups_rounded, color: Color(0xFFFFB300), size: 30)
+                  else
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: isLevel ? Colors.white.withOpacity(0.2) : Colors.white,
+                      child: Icon(icon, color: isLevel ? Colors.white : iconColor, size: 20),
+                    ),
+                  const Gap(8),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isLevel ? Colors.white : iconColor.withOpacity(0.8),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      shadows: isLevel ? [
+                        const Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
+                      ] : null,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -284,43 +331,71 @@ class MyProfileScreen extends ConsumerWidget {
     return Column(
       children: [
         _buildMenuTile(
-          icon: Icons.insights_outlined,
-          label: "Creator Center",
-          iconColor: const Color(0xFF0EA5E9),
-          onTap: () {},
+          icon: Icons.card_giftcard_rounded,
+          label: "Invite get coins",
+          iconColor: const Color(0xFFFFB300),
+          onTap: () => context.push(AppRoutes.invite),
         ),
         _buildMenuTile(
-          icon: Icons.celebration_outlined,
-          label: "Event Center",
-          iconColor: const Color(0xFFF43F5E),
-          trailing: _buildEventBanner(),
-          onTap: () {},
+          icon: Icons.favorite_rounded,
+          label: "Love House",
+          iconColor: const Color(0xFFF06292),
+          onTap: () => context.push(AppRoutes.loveHouse),
         ),
-        const Gap(12),
         _buildMenuTile(
-          icon: Icons.payments_outlined,
-          label: "My Wallet",
-          iconColor: const Color(0xFFF59E0B),
-          onTap: () => context.push(AppRoutes.wallet),
+          icon: Icons.people_alt_rounded,
+          label: "CP Level",
+          iconColor: const Color(0xFF9575CD),
+          onTap: () => context.push(AppRoutes.cpLevel),
         ),
-        if (userData.isReseller)
-          _buildMenuTile(
-            icon: Icons.storefront_outlined,
-            label: "Reseller Center",
-            iconColor: const Color(0xFF10B981),
-            onTap: () => context.push(AppRoutes.resellerCenter),
-          ),
         _buildMenuTile(
-          icon: Icons.inventory_2_outlined,
-          label: "Item Bag",
-          iconColor: const Color(0xFF8B5CF6),
-          count: 1,
+          icon: Icons.inventory_2_rounded,
+          label: "Prop Warehouse",
+          iconColor: const Color(0xFFFFF176),
           onTap: () => context.push(AppRoutes.propWarehouse),
         ),
         _buildMenuTile(
-          icon: Icons.dynamic_feed_outlined,
-          label: "My Posts",
-          iconColor: const Color(0xFF64748B),
+          icon: Icons.account_balance_wallet_rounded,
+          label: "Wallet",
+          iconColor: const Color(0xFFF06292),
+          onTap: () => context.push(AppRoutes.wallet),
+        ),
+        _buildMenuTile(
+          icon: Icons.stars_rounded,
+          label: "Prestige Store",
+          iconColor: const Color(0xFFFFD54F),
+          onTap: () => context.push(AppRoutes.prestigeStore),
+        ),
+        _buildMenuTile(
+          icon: Icons.military_tech_rounded,
+          label: "Medal",
+          iconColor: const Color(0xFFFFB74D),
+          onTap: () {},
+        ),
+        _buildMenuTile(
+          icon: Icons.emoji_events_rounded,
+          label: "Noble Hall",
+          iconColor: const Color(0xFFFFF176),
+          trailing: _buildNotificationDot(color: Colors.amber),
+          onTap: () => context.push(AppRoutes.nobleHall),
+        ),
+        _buildMenuTile(
+          icon: Icons.account_balance_rounded,
+          label: "Prestige Vault",
+          iconColor: const Color(0xFF64B5F6),
+          onTap: () => context.push(AppRoutes.prestigeVault),
+        ),
+        _buildMenuTile(
+          icon: Icons.stars_rounded,
+          label: "SVIP Privileges",
+          iconColor: const Color(0xFFFFD54F),
+          onTap: () => context.push(AppRoutes.svipPrivileges),
+        ),
+        _buildMenuTile(
+          icon: Icons.block_rounded,
+          label: "Blocked List",
+          iconColor: const Color(0xFFEF5350),
+          count: 0,
           onTap: () {},
         ),
       ],
@@ -372,6 +447,52 @@ class MyProfileScreen extends ConsumerWidget {
           ],
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 0),
+      ),
+    );
+  }
+
+  Widget _buildLevelBadge(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFFBA68C8), Color(0xFFE91E63)]),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
+  Widget _buildVIPBadge(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(colors: [Color(0xFF4FC3F7), Color(0xFF00BCD4)]),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.star, color: Colors.yellow, size: 10),
+          const Gap(2),
+          Text(
+            text,
+            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNotificationDot({required Color color}) {
+    return Container(
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
       ),
     );
   }

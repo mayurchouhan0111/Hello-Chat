@@ -17,6 +17,7 @@ import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/models/family_model.dart';
 import 'package:hello_chat/core/providers/family_provider.dart';
 import 'package:hello_chat/utils/number_formatter.dart';
+import 'package:hello_chat/utils/level_utils.dart';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -27,6 +28,8 @@ import '../../../../core/services/report_service.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/vip_provider.dart';
 import '../../../../core/providers/chat_provider.dart';
+import '../../../../core/widgets/user_badge.dart';
+import '../../../../core/utils/badge_utils.dart';
 
 class ProfileDetailScreen extends ConsumerStatefulWidget {
   final String userId;
@@ -63,7 +66,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() {});
@@ -110,22 +113,38 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
 
                 const SizedBox(height: 12),
 
-                // 2. Identity Row
-                _buildIdentity(context, userData),
+                // 2. Identity & Badges Row (Optimized for right-side empty space)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Left Side: Identity & Stats
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildIdentity(context, userData),
+                            const SizedBox(height: 12),
+                            _buildStats(context, userData),
+                          ],
+                        ),
+                      ),
+                      
+                      // Right Side: Premium Badges & Level Shield
+                      _buildRightSideBadges(userData),
+                    ],
+                  ),
+                ),
 
                 const SizedBox(height: 12),
 
-                // 3. Stats Row
-                _buildStats(context, userData),
-
-                const SizedBox(height: 12),
-
-                // 4. Badge/Achievement Chips
+                // 3. Badge/Achievement Chips (Restored)
                 _buildBadgeChips(context, userData),
 
                 const SizedBox(height: 12),
 
-                // 5. Info Cards Horizontal Scroll (Family, Battle, Agency, Contribution)
+                // 4. Info Cards Horizontal Scroll (Family, Battle, Agency, Contribution)
                 _buildInfoCardsScrollable(context, userData),
 
                 const SizedBox(height: 12),
@@ -365,10 +384,8 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildIdentity(BuildContext context, UserModel userData) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -414,24 +431,6 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              if (userData.vipTier != 'none') ...[
-                _buildHeaderChip(
-                  userData.vipTier.toUpperCase(), 
-                  Icons.workspace_premium_rounded, 
-                  Colors.blueAccent, 
-                  onTap: () => context.push(AppRoutes.vipCenter),
-                ),
-                const SizedBox(width: 8),
-              ],
-              if (userData.svipLevel != null && userData.svipLevel! >= 0)
-                _buildHeaderChip("SVIP${userData.svipLevel}", Icons.stars_rounded, const Color(0xFFFFD700), onTap: () => context.push(AppRoutes.svipPrivileges)),
-              
-              if (userData.nobleTier != null && userData.nobleTier != "Civilian")
-                Padding(
-                  padding: const EdgeInsets.only(left: 4.0),
-                  child: _buildHeaderChip(userData.nobleTier!.toUpperCase(), Icons.shield_rounded, Colors.amber, onTap: () => context.push(AppRoutes.nobleHall)),
-                ),
             ],
           ),
 
@@ -443,8 +442,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             ],
           ),
         ],
-      ),
-    );
+      );
   }
 
   Widget _buildBadgeIcon(IconData icon, Color color) {
@@ -500,9 +498,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildStats(BuildContext context, UserModel userData) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: IntrinsicHeight(
+    return IntrinsicHeight(
         child: Row(
           children: [
             _buildStatClickableItem(
@@ -515,12 +511,11 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
               onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Following', 'targetUid': userData.uid})
             ),
             const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
-            _buildStatClickableItem(context, userData.beansBalance, "Beans"),
-            const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
-            _buildStatClickableItem(context, userData.diamondBalance, "Diamonds"),
+            // _buildStatClickableItem(context, userData.beansBalance, "Beans"),
+            // const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
+            // _buildStatClickableItem(context, userData.diamondBalance, "Diamonds"),
           ],
         ),
-      ),
     );
   }
 
@@ -539,88 +534,155 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildBadgeChips(BuildContext context, UserModel userData) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    final rawBadges = getBadgesForUser(userData);
+    if (rawBadges.isEmpty) return const SizedBox.shrink();
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Calculate width for 4 items: (Width - Padding - Spacings) / 4
+    final itemWidth = (screenWidth - 32 - 12) / 4; 
+
+    final badges = rawBadges.map((b) {
+       return SizedBox(
+         width: itemWidth,
+         child: b is UserBadge ? UserBadge(
+           label: b.label,
+           type: b.type,
+           prefix: b.prefix,
+           icon: b.icon,
+           imageAsset: b.imageAsset,
+           margin: EdgeInsets.zero,
+         ) : b,
+       );
+    }).toList();
+
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          // 1. VIP Rank Pill
-          if (userData.vipTier != 'none')
-            _buildHeaderChip(
-              userData.vipTier.toUpperCase(), 
-              Icons.workspace_premium_rounded, 
-              Colors.blueAccent,
-              onTap: () => context.push(AppRoutes.vipCenter),
-            ),
-          
-          if (userData.vipTier != 'none') const SizedBox(width: 8),
-
-          // 2. Frame Badge Pill (New - Resolved from profileFrame)
-          Consumer(
-            builder: (context, ref, child) {
-              final tiers = ref.watch(vipTiersProvider).value;
-              final nobleTiers = ref.watch(nobleTiersProvider).value;
-              
-              String? frameBadgeUrl;
-              if (userData.profileFrame.isNotEmpty) {
-                final vTier = tiers?.where((t) => t.profileFrame == userData.profileFrame).firstOrNull;
-                if (vTier != null) frameBadgeUrl = vTier.badgeIcon;
-                
-                if (frameBadgeUrl == null) {
-                  final nTier = nobleTiers?.where((t) => t.profileFrame == userData.profileFrame).firstOrNull;
-                  if (nTier != null) frameBadgeUrl = nTier.badgeIcon;
-                }
-              }
-
-              // Fallback to tier badge if frame badge not found
-              if (frameBadgeUrl == null && userData.vipTier != 'none') {
-                 final myTier = tiers?.where((t) => t.tierId == userData.vipTier || t.name == userData.vipTier).firstOrNull;
-                 if (myTier != null) frameBadgeUrl = myTier.badgeIcon;
-              }
-
-              if (frameBadgeUrl == null || frameBadgeUrl.isEmpty) return const SizedBox.shrink();
-
-              return Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildHeaderChip(
-                    "FRAME", 
-                    Icons.verified_rounded, 
-                    Colors.purpleAccent,
-                    iconUrl: frameBadgeUrl,
-                    onTap: () => context.push(AppRoutes.vipCenter),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-              );
-            },
-          ),
-
-          _buildChip("💎 ${userData.level}", const Color(0xFFFFF9C4), const Color(0xFFFFD700)),
-          const SizedBox(width: 8),
-          _buildChip("🏆 Achiever", const Color(0xFFFFF7ED), Colors.orange),
-          const SizedBox(width: 8),
-          _buildChip("Lv.1", const Color(0xFFF0FDF4), Colors.green),
-          const SizedBox(width: 8),
-          _buildChipIcon(Icons.shield_rounded, Colors.cyan),
-        ],
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 8,
+        children: badges,
       ),
     );
   }
 
-  Widget _buildChip(String label, Color bg, Color text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
-      child: Text(label, style: TextStyle(color: text, fontSize: 11, fontWeight: FontWeight.bold)),
+  Widget _buildRightSideBadges(UserModel user) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        // Large Level Shield only
+        _buildLevelShield(user),
+      ],
     );
   }
+
+  Widget _buildLevelShield(UserModel user) {
+    int level = user.level;
+    int index = LevelUtils.getLevelBadgeIndex(level);
+
+    return GestureDetector(
+      onTap: () => context.push(AppRoutes.levelDetail),
+      child: Container(
+        height: 70, // Prominent sizing
+        width: 70,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Image.asset(
+              "assets/images/levels/level_badge_$index.png", 
+              fit: BoxFit.contain,
+            ),
+            Positioned(
+              bottom: 16,
+              child: Text(
+                "Lv.$level",
+                style: const TextStyle(
+                  color: Colors.white, 
+                  fontSize: 10, 
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                  shadows: [
+                    Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 1)),
+                    Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, -1)),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   Widget _buildChipIcon(IconData icon, Color color) {
     return Container(
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
       child: Icon(icon, color: color, size: 14),
+    );
+  }
+
+  Widget _buildLevelTag(int level) {
+    final color = LevelUtils.getLevelColor(level);
+    int index = LevelUtils.getLevelBadgeIndex(level);
+    final assetPath = "assets/images/levels/level_badge_$index.png";
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            color,
+            color.withOpacity(0.7),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: color.withOpacity(0.4),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+          // Inner Glow effect
+          BoxShadow(
+            color: Colors.white.withOpacity(0.2),
+            blurRadius: 2,
+            spreadRadius: -1,
+            offset: const Offset(0, 1),
+          ),
+        ],
+        border: Border.all(
+          color: Colors.white.withOpacity(0.2),
+          width: 0.5,
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(assetPath, width: 16, height: 16, fit: BoxFit.contain),
+              const Gap(4),
+              Text(
+                "Lv.$level",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.5,
+                  shadows: [
+                    Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -836,6 +898,10 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           Tab(
             icon: Icon(Icons.pets_outlined, size: 20),
             text: "Dino",
+          ),
+          Tab(
+            icon: Icon(Icons.military_tech_outlined, size: 22),
+            text: "Level",
           )
         ],
       ),
@@ -849,6 +915,10 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     
     if (_tabController.index == 2) {
       return _buildDinoTab(context, userData);
+    }
+
+    if (_tabController.index == 3) {
+      return _buildLevelTab(context, userData);
     }
 
     return Padding(
@@ -906,6 +976,64 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             ],
           ),
           const SizedBox(height: 40),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLevelTab(BuildContext context, UserModel userData) {
+    final progress = LevelUtils.getLevelProgress(userData.xp);
+    final color = LevelUtils.getLevelColor(userData.level);
+
+    return Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        children: [
+          const Gap(20),
+          _buildLevelShield(userData),
+          const Gap(16),
+          Text(
+            "Level ${userData.level}",
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+          ),
+          const Gap(8),
+          Text(
+            LevelUtils.getXPProgressText(userData.xp),
+            style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500),
+          ),
+          const Gap(24),
+          Container(
+            height: 12,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: progress,
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [color, color.withOpacity(0.7)]),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          const Gap(40),
+          ElevatedButton(
+            onPressed: () => context.push(AppRoutes.levelDetail),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 54),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              elevation: 4,
+              shadowColor: color.withOpacity(0.4),
+            ),
+            child: const Text("View Level Rewards & Medals", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          const Gap(60),
         ],
       ),
     );
@@ -1496,6 +1624,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       )
     ) ?? false;
   }
+
 }
 
 

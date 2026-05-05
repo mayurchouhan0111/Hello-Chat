@@ -4,6 +4,7 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'buy_diamonds_screen.dart';
 import 'transfer_diamonds_screen.dart';
 import 'reseller_transaction_history.dart';
+import 'package:hello_chat/core/widgets/premium_diamond.dart';
 import '../providers/reseller_providers.dart';
 
 class ResellerDashboardScreen extends ConsumerWidget {
@@ -116,7 +117,7 @@ class ResellerDashboardScreen extends ConsumerWidget {
                     children: [
                       _buildBalanceItem("Wallet Balance", "\$${wallet.toStringAsFixed(2)}", Icons.account_balance_wallet_rounded, Colors.indigo),
                       Container(width: 1, height: 60, color: Colors.black.withOpacity(0.05)),
-                      _buildBalanceItem("Diamond Stock", diamonds.toString(), Icons.diamond_rounded, Colors.blueAccent),
+                      _buildBalanceItem("Diamond Stock", diamonds.toString(), const PremiumDiamond(size: 20), Colors.blueAccent),
                     ],
                   ),
                 ],
@@ -128,11 +129,11 @@ class ResellerDashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildBalanceItem(String label, String value, IconData icon, Color color) {
+  Widget _buildBalanceItem(String label, String value, dynamic icon, Color color) {
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, color: color.withOpacity(0.4), size: 18),
+          icon is Widget ? icon : Icon(icon as IconData, color: color.withOpacity(0.4), size: 18),
           const SizedBox(height: 8),
           Text(
             label.toUpperCase(),

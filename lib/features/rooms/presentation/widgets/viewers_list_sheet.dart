@@ -7,18 +7,21 @@ import 'package:gap/gap.dart';
 class ViewersListSheet extends ConsumerWidget {
   final String roomId;
   final List<Participant> participants;
+  final String ownerUid;
   final Function(Participant) onUserSelected;
 
   const ViewersListSheet({
     super.key,
     required this.roomId,
     required this.participants,
+    required this.ownerUid,
     required this.onUserSelected,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final viewers = participants.where((p) => p.seatIndex == -1).toList();
+    // Include everyone who is NOT on a seat, OR the owner (even if they are on a seat)
+    final viewers = participants.where((p) => p.seatIndex == -1 || p.uid == ownerUid).toList();
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.6,

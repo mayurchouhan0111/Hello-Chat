@@ -9,6 +9,7 @@ class AppAvatar extends ConsumerWidget {
   final String imageUrl;
   final String? frameUrl;
   final String? badgeUrl;
+  final List<String>? tags;
   final String? vipTier;
   final double radius;
   final bool showFrame;
@@ -19,6 +20,7 @@ class AppAvatar extends ConsumerWidget {
     required this.imageUrl,
     this.frameUrl,
     this.badgeUrl,
+    this.tags,
     this.vipTier,
     this.radius = 20.0,
     this.showFrame = true,
@@ -27,14 +29,26 @@ class AppAvatar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 1. Calculate dimensions
-    final double avatarSize = radius * 2;
-    final double frameSize = avatarSize * frameMultiplier; 
-
     // 2. Resolve final Frame URL with fallback
     String finalFrameUrl = frameUrl ?? '';
+    double customFrameMultiplier = frameMultiplier;
 
-    if (vipTier != null && vipTier != 'none') {
+    // --- TAG BASED SPECIAL FRAMES ---
+    if (finalFrameUrl.isEmpty && tags != null) {
+       if (tags!.contains('SuperAdmin')) {
+         finalFrameUrl = 'assets/images/super/super-admin.png';
+       } else if (tags!.contains('Admin')) {
+         finalFrameUrl = 'assets/images/super/admin.png';
+       } else if (tags!.contains('Reseller')) {
+         finalFrameUrl = 'assets/images/super/reseller.png';
+       }
+    }
+
+    // 1. Calculate dimensions (after customFrameMultiplier is set)
+    final double avatarSize = radius * 2;
+    final double frameSize = avatarSize * customFrameMultiplier;
+
+    if (finalFrameUrl.isEmpty && vipTier != null && vipTier != 'none') {
       final tiers = ref.watch(vipTiersProvider).value;
       if (tiers != null) {
         final myTier = tiers.where((t) {
@@ -43,7 +57,7 @@ class AppAvatar extends ConsumerWidget {
           return (tid.isNotEmpty && tid == vipTier) || (tname.isNotEmpty && tname == vipTier);
         }).firstOrNull;
         
-        if (myTier != null && showFrame && finalFrameUrl.isEmpty) {
+        if (myTier != null && showFrame) {
           finalFrameUrl = myTier.profileFrame;
         }
       }
@@ -83,13 +97,18 @@ class AppAvatar extends ConsumerWidget {
             child: SizedBox(
               width: frameSize,
               height: frameSize,
-              child: (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
-                ? Image.network(
+              child: finalFrameUrl.startsWith('assets/')
+                ? Image.asset(
                     finalFrameUrl,
                     fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                   )
-                : const SizedBox.shrink(),
+                : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
+                  ? Image.network(
+                      finalFrameUrl,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    )
+                  : const SizedBox.shrink(),
             ).animate(onPlay: (c) => c.repeat(reverse: true))
              .scale(begin: const Offset(1, 1), end: const Offset(1.03, 1.03), duration: 2.seconds),
           ),

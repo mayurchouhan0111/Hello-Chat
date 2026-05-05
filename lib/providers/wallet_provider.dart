@@ -46,67 +46,13 @@ class WalletNotifier extends StateNotifier<AsyncValue<void>> {
   final Ref ref;
 
   Future<void> simulateRecharge(int amount) async {
-    state = const AsyncValue.loading();
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) throw Exception("User not logged in.");
-
-      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
-      
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final userDoc = await transaction.get(userRef);
-        if (!userDoc.exists) throw Exception("User not found.");
-
-        transaction.update(userRef, {
-          'diamondBalance': FieldValue.increment(amount),
-        });
-
-        // Add Transaction Log
-        final txRef = userRef.collection('transactions').doc();
-        transaction.set(txRef, {
-          'type': 'recharge',
-          'amount': amount,
-          'timestamp': FieldValue.serverTimestamp(),
-          'description': "Diamonds Recharge (Simulation)",
-          'status': 'completed',
-        });
-      });
-      state = const AsyncValue.data(null);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
+    // Simulation Disabled
+    return;
   }
 
   Future<void> simulateBeansRecharge(int amount) async {
-    state = const AsyncValue.loading();
-    try {
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid == null) throw Exception("User not logged in.");
-
-      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
-      
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final userDoc = await transaction.get(userRef);
-        if (!userDoc.exists) throw Exception("User not found.");
-
-        transaction.update(userRef, {
-          'beansBalance': FieldValue.increment(amount),
-        });
-
-        // Add Transaction Log
-        final txRef = userRef.collection('transactions').doc();
-        transaction.set(txRef, {
-          'type': 'beans_recharge',
-          'amount': amount,
-          'timestamp': FieldValue.serverTimestamp(),
-          'description': "Beans Recharge (Simulation)",
-          'status': 'completed',
-        });
-      });
-      state = const AsyncValue.data(null);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
+    // Simulation Disabled
+    return;
   }
 }
 

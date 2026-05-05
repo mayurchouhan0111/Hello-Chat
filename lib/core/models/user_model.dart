@@ -14,8 +14,14 @@ class UserModel {
   final int diamondBalance;
   final int beansBalance;
   final int xp;
+  final int dailyXP;
+  final int weeklyXP;
+  final int monthlyXP;
   final int benchXP;
   final int princeXP;
+  final int dailyPrinceXP;
+  final int weeklyPrinceXP;
+  final int monthlyPrinceXP;
   final int level;
   final int followerCount;
   final int followingCount;
@@ -23,6 +29,7 @@ class UserModel {
   final String status;
   final List<String> badges;
   final String profileFrame;
+  final String chatBubble;
   final String entryAnimation;
   final String badgeIcon;
   final List<String> tags;
@@ -78,8 +85,14 @@ class UserModel {
     required this.diamondBalance,
     required this.beansBalance,
     required this.xp,
+    required this.dailyXP,
+    required this.weeklyXP,
+    required this.monthlyXP,
     required this.benchXP,
     required this.princeXP,
+    required this.dailyPrinceXP,
+    required this.weeklyPrinceXP,
+    required this.monthlyPrinceXP,
     required this.level,
     required this.followerCount,
     required this.followingCount,
@@ -87,6 +100,7 @@ class UserModel {
     required this.status,
     required this.badges,
     required this.profileFrame,
+    required this.chatBubble,
     required this.entryAnimation,
     required this.badgeIcon,
     required this.tags,
@@ -146,8 +160,14 @@ class UserModel {
       diamondBalance: (data['diamondBalance'] as num? ?? 0).toInt(),
       beansBalance: (data['beansBalance'] as num? ?? 0).toInt(),
       xp: (data['xp'] as num? ?? 0).toInt(),
+      dailyXP: (data['dailyXP'] as num? ?? 0).toInt(),
+      weeklyXP: (data['weeklyXP'] as num? ?? 0).toInt(),
+      monthlyXP: (data['monthlyXP'] as num? ?? 0).toInt(),
       benchXP: (data['benchXP'] as num? ?? 0).toInt(),
       princeXP: (data['princeXP'] as num? ?? 0).toInt(),
+      dailyPrinceXP: (data['dailyPrinceXP'] as num? ?? 0).toInt(),
+      weeklyPrinceXP: (data['weeklyPrinceXP'] as num? ?? 0).toInt(),
+      monthlyPrinceXP: (data['monthlyPrinceXP'] as num? ?? 0).toInt(),
       level: (data['level'] as num? ?? 1).toInt(),
       followerCount: (data['followerCount'] as num? ?? 0).toInt(),
       followingCount: (data['followingCount'] as num? ?? 0).toInt(),
@@ -155,6 +175,7 @@ class UserModel {
       status: (data['status'] as String?) ?? 'offline',
       badges: (data['badges'] as Iterable?)?.whereType<String>().toList() ?? [],
       profileFrame: (data['profileFrame'] as String?) ?? '',
+      chatBubble: (data['chatBubble'] as String?) ?? '',
       entryAnimation: (data['entryAnimation'] as String?) ?? '',
       badgeIcon: (data['badgeIcon'] as String?) ?? '',
       tags: (data['tags'] as Iterable?)?.whereType<String>().toList() ?? [],
@@ -219,8 +240,14 @@ class UserModel {
       'diamondBalance': diamondBalance,
       'beansBalance': beansBalance,
       'xp': xp,
+      'dailyXP': dailyXP,
+      'weeklyXP': weeklyXP,
+      'monthlyXP': monthlyXP,
       'benchXP': benchXP,
       'princeXP': princeXP,
+      'dailyPrinceXP': dailyPrinceXP,
+      'weeklyPrinceXP': weeklyPrinceXP,
+      'monthlyPrinceXP': monthlyPrinceXP,
       'level': level,
       'followerCount': followerCount,
       'followingCount': followingCount,
@@ -228,6 +255,7 @@ class UserModel {
       'status': status,
       'badges': badges,
       'profileFrame': profileFrame,
+      'chatBubble': chatBubble,
       'entryAnimation': entryAnimation,
       'badgeIcon': badgeIcon,
       'tags': tags,
@@ -285,8 +313,14 @@ class UserModel {
     int? diamondBalance,
     int? beansBalance,
     int? xp,
+    int? dailyXP,
+    int? weeklyXP,
+    int? monthlyXP,
     int? benchXP,
     int? princeXP,
+    int? dailyPrinceXP,
+    int? weeklyPrinceXP,
+    int? monthlyPrinceXP,
     int? level,
     int? followerCount,
     int? followingCount,
@@ -294,6 +328,7 @@ class UserModel {
     String? status,
     List<String>? badges,
     String? profileFrame,
+    String? chatBubble,
     String? entryAnimation,
     String? badgeIcon,
     List<String>? tags,
@@ -349,8 +384,14 @@ class UserModel {
       diamondBalance: diamondBalance ?? this.diamondBalance,
       beansBalance: beansBalance ?? this.beansBalance,
       xp: xp ?? this.xp,
+      dailyXP: dailyXP ?? this.dailyXP,
+      weeklyXP: weeklyXP ?? this.weeklyXP,
+      monthlyXP: monthlyXP ?? this.monthlyXP,
       benchXP: benchXP ?? this.benchXP,
       princeXP: princeXP ?? this.princeXP,
+      dailyPrinceXP: dailyPrinceXP ?? this.dailyPrinceXP,
+      weeklyPrinceXP: weeklyPrinceXP ?? this.weeklyPrinceXP,
+      monthlyPrinceXP: monthlyPrinceXP ?? this.monthlyPrinceXP,
       level: level ?? this.level,
       followerCount: followerCount ?? this.followerCount,
       followingCount: followingCount ?? this.followingCount,
@@ -358,6 +399,7 @@ class UserModel {
       status: status ?? this.status,
       badges: badges ?? this.badges,
       profileFrame: profileFrame ?? this.profileFrame,
+      chatBubble: chatBubble ?? this.chatBubble,
       entryAnimation: entryAnimation ?? this.entryAnimation,
       badgeIcon: badgeIcon ?? this.badgeIcon,
       tags: tags ?? this.tags,

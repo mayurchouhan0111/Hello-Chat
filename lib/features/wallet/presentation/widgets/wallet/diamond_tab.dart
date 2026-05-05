@@ -40,7 +40,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
                   ],
                 ),
                 title: "Beans Exchange to Diamonds",
-                onTap: () => _handleSimulation(100, "Beans Exchange"),
+                onTap: () {}, // Simulation Disabled
               ),
               const Divider(height: 1, thickness: 0.5, color: Color(0xFFEEEEEE)),
               _buildResellerTile(),
@@ -123,7 +123,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
 
   Widget _buildResellerTile() {
     return ListTile(
-      onTap: () => _handleSimulation(100, "Reseller"),
+      onTap: () {}, // Simulation Disabled
       leading: Container(
         width: 32, height: 32,
         decoration: BoxDecoration(color: const Color(0xFFFFF9C4).withOpacity(0.3), borderRadius: BorderRadius.circular(6)),
@@ -142,7 +142,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
 
   Widget _buildSpeedyTile() {
     return ListTile(
-      onTap: () => _handleSimulation(50, "Speedy"),
+      onTap: () {}, // Simulation Disabled
       title: Row(
         children: const [
           Icon(Icons.bolt, color: Colors.orange, size: 16),
@@ -163,7 +163,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
   Widget _buildMoreResellerTile() {
     return ListTile(
       title: const Center(child: Text("More reseller", style: TextStyle(fontSize: 14, color: Colors.grey))),
-      onTap: () => _handleSimulation(500, "Global Reseller"),
+      onTap: () {}, // Simulation Disabled
       trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFFDDDDDD), size: 20),
     );
   }
@@ -307,7 +307,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
         width: double.infinity,
         height: 54,
         child: ElevatedButton(
-          onPressed: _selectedDiamondAmount == null ? null : () async {
+          onPressed: null, // Simulation Disabled
             final amount = _selectedDiamondAmount!;
             
             // 1. Show Simulated Processing Dialog

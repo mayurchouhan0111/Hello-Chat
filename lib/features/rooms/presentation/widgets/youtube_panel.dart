@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
-import 'package:hello_chat/services/room_service.dart';
 import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
@@ -48,7 +47,17 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   }
 
   Future<void> _fetchCategory(String category) async {
-    _searchVideos(category == "Popular" ? "trending" : "$category music");
+    String query;
+    if (category == "Popular") {
+      query = "trending";
+    } else if (category == "Favourite") {
+      query = "top music videos";
+    } else if (category == "Music") {
+      query = "new music videos";
+    } else {
+      query = category;
+    }
+    _searchVideos(query);
   }
 
   Future<void> _onSearch(String val) async {
@@ -57,7 +66,7 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
     // Check if it's a direct URL first
     if (val.contains("youtube.com") || val.contains("youtu.be")) {
        try {
-        final videoId = yt.VideoId.parseVideoId(val);
+        final videoId = YoutubePlayer.convertUrlToId(val);
         if (videoId != null) {
           _onVideoTap(videoId);
           return;
@@ -71,31 +80,69 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   Future<void> _searchVideos(String query) async {
     setState(() => _isLoading = true);
     try {
-      final response = await _dio.get(
-        "https://www.googleapis.com/youtube/v3/search",
-        queryParameters: {
-          'part': 'snippet',
-          'q': query,
-          'key': AppKeys.youtubeApiKey,
-          'maxResults': 15,
-          'type': 'video',
-        },
-      );
-
+      // Use youtube_explode instead of the official API to bypass 403/API key issues
+      final searchList = await _yt.search.getVideos(query);
+      
       setState(() {
-        _videos = response.data['items'] ?? [];
+        _videos = searchList.toList();
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint("YouTube API Error: $e");
+      debugPrint("YouTube Search Error: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  bool _isSelecting = false;
+
   void _onVideoTap(String videoId) async {
+    if (_isSelecting) return;
+    setState(() => _isSelecting = true);
+
+    debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Checking if embeddable...');
+    
+    // Check if video is embeddable before allowing selection
+    final bool isEmbeddable = await _isVideoEmbeddable(videoId);
+    if (!isEmbeddable) {
+      setState(() => _isSelecting = false);
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Video Not Available'),
+            content: const Text(
+                'This video cannot be played in the app due to restrictions set by the video owner. '
+                'Please select a different video.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    
     debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Updating room...');
     await ref.read(roomServiceProvider).setYoutubeVideo(widget.roomId, videoId);
-    if (mounted) Navigator.pop(context);
+    
+    if (mounted) {
+      Navigator.pop(context);
+    }
+    // Note: No need to reset _isSelecting because the panel is popped
+  }
+
+  Future<bool> _isVideoEmbeddable(String videoId) async {
+    try {
+      // Try to fetch video metadata to verify it exists and is accessible
+      final video = await _yt.videos.get(videoId);
+      return true; // If we can get metadata, we can usually play it
+    } catch (e) {
+      debugPrint("Error checking video: $e");
+      return false;
+    }
   }
 
   @override
@@ -121,8 +168,13 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                 ),
                 const Spacer(),
                 IconButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.of(context).pop();
+                    }
+                  },
                   icon: const Icon(Icons.close, color: Colors.black, size: 28),
+                  tooltip: 'Cancel',
                 ),
               ],
             ),
@@ -140,13 +192,23 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
               child: TextField(
                 controller: _searchController,
                 style: const TextStyle(color: Colors.black, fontSize: 16),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: "Search keywords or video link",
-                  hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
-                  prefixIcon: Icon(Icons.search, color: Color(0xFF64748B), size: 22),
+                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
+                  prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B), size: 22),
+                  suffixIcon: _searchController.text.isNotEmpty 
+                    ? IconButton(
+                        icon: const Icon(Icons.cancel, color: Color(0xFF94A3B8), size: 20),
+                        onPressed: () {
+                          _searchController.clear();
+                          _fetchCategory("Popular");
+                        },
+                      )
+                    : null,
                   border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 12),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 ),
+                onChanged: (val) => setState(() {}),
                 onSubmitted: _onSearch,
               ),
             ),
@@ -180,7 +242,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                   itemCount: _videos.length,
                   separatorBuilder: (_, __) => const Gap(20),
                   itemBuilder: (context, index) {
-                    return _buildVideoTile(_videos[index]);
+                    final yt.Video video = _videos[index];
+                    return _buildVideoTile(video);
                   },
                 ),
           ),
@@ -189,12 +252,11 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
     );
   }
 
-  Widget _buildVideoTile(dynamic item) {
-    final snippet = item['snippet'];
-    final videoId = item['id']['videoId'];
-    final title = snippet['title'] ?? "No Title";
-    final author = snippet['channelTitle'] ?? "Unknown";
-    final thumbnailUrl = snippet['thumbnails']['medium']['url'];
+  Widget _buildVideoTile(yt.Video video) {
+    final videoId = video.id.value;
+    final title = video.title;
+    final author = video.author;
+    final thumbnailUrl = video.thumbnails.mediumResUrl;
 
     return InkWell(
       onTap: () => _onVideoTap(videoId),

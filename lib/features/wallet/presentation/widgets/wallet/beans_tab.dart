@@ -123,20 +123,20 @@ class _BeansTabState extends ConsumerState<BeansTab> {
             ],
           ),
           title: "Beans Exchange",
-          onTap: () => _handleSimulation(100, "Internal Exchange"),
+          onTap: () {}, // Simulation Disabled
         ),
         _buildMethodItem(
           iconWidget: const Icon(Icons.face_retouching_natural_rounded, color: Colors.cyan, size: 24),
           title: "Reseller Recharge",
           subtitle: "1 Bean ≈ 0.020",
-          onTap: () => _handleSimulation(100, "Reseller"),
+          onTap: () {}, // Simulation Disabled
         ),
         _buildMethodItem(
           iconWidget: const Icon(Icons.account_balance_wallet_rounded, color: Colors.orange, size: 24),
           title: "Touch 'n Go",
           subtitle: "1 Bean ≈ 0.076 MYR",
           hasBonus: true,
-          onTap: () => _handleSimulation(50, "Touch 'n Go"),
+          onTap: () {}, // Simulation Disabled
         ),
         _buildMethodItem(
           iconWidget: VisaIcon(size: 24),
@@ -144,7 +144,7 @@ class _BeansTabState extends ConsumerState<BeansTab> {
           subtitle: "1 Bean ≈ 0.089 MYR",
           hasBonus: true,
           isExpanded: true,
-          onTap: () => _handleSimulation(100, "VISA/Master"),
+          onTap: () {}, // Simulation Disabled
         ),
       ],
     );
@@ -224,7 +224,7 @@ class _BeansTabState extends ConsumerState<BeansTab> {
 
   Widget _buildPackageItem({required int amount, int? bonus, required String price, bool isHot = false}) {
     return GestureDetector(
-      onTap: () => _handleSimulation(amount, "Package $amount"),
+      onTap: () {}, // Simulation Disabled
       behavior: HitTestBehavior.opaque,
       child: Stack(
         children: [

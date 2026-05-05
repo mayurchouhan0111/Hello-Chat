@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
+import 'dart:ui';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:hello_chat/core/models/room_model.dart';
 import 'package:hello_chat/core/widgets/premium_diamond.dart';
@@ -45,26 +46,60 @@ class RoomStarProgressWidget extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showLevelsOverlay(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.4), width: 1),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.star_rounded, color: color, size: 14),
-            const Gap(2),
-            Text(
-              "$level",
-              style: TextStyle(
-                color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.w900,
-              ),
+          gradient: LinearGradient(
+            colors: [
+              color,
+              color.withOpacity(0.7),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: color.withOpacity(0.4),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+            // Inner Glow effect
+            BoxShadow(
+              color: Colors.white.withOpacity(0.2),
+              blurRadius: 2,
+              spreadRadius: -1,
+              offset: const Offset(0, 1),
             ),
           ],
+          border: Border.all(
+            color: Colors.white.withOpacity(0.2),
+            width: 0.5,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.stars_rounded, color: Colors.white, size: 14),
+                const Gap(4),
+                Text(
+                  "$level Star",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                    shadows: [
+                      Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     ).animate(key: ValueKey(level)).scale(duration: 300.ms);
