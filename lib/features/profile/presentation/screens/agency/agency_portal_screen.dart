@@ -7,6 +7,7 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/providers/agency_provider.dart';
 import 'package:hello_chat/core/models/agency_model.dart';
 import 'package:hello_chat/core/models/user_model.dart';
+import 'package:hello_chat/features/wallet/presentation/screens/withdraw_beans_screen.dart';
 
 
 // ─────────────────────────────────────────────
@@ -262,7 +263,12 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           const Gap(40),
           _buildActionButton(
             label: 'Withdraw Agency Earnings',
-            onTap: () {}, // Month 6 Final gateway
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const WithdrawBeansScreen()),
+              );
+            },
             isPrimary: true,
           ),
           const Gap(16),

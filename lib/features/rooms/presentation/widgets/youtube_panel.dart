@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 import 'package:dio/dio.dart';
@@ -66,7 +66,7 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
     // Check if it's a direct URL first
     if (val.contains("youtube.com") || val.contains("youtu.be")) {
        try {
-        final videoId = YoutubePlayer.convertUrlToId(val);
+        final videoId = YoutubePlayerController.convertUrlToId(val);
         if (videoId != null) {
           _onVideoTap(videoId);
           return;
@@ -80,16 +80,39 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   Future<void> _searchVideos(String query) async {
     setState(() => _isLoading = true);
     try {
-      // Use youtube_explode instead of the official API to bypass 403/API key issues
       final searchList = await _yt.search.getVideos(query);
-      
       setState(() {
         _videos = searchList.toList();
         _isLoading = false;
       });
     } catch (e) {
       debugPrint("YouTube Search Error: $e");
-      if (mounted) setState(() => _isLoading = false);
+      // Retry once after delay if rate-limited
+      if (e.toString().contains('RequestLimitExceeded') ||
+          e.toString().contains('rate limit') ||
+          e.toString().contains('429')) {
+        debugPrint("Rate limited on search — retrying after 2s...");
+        await Future.delayed(const Duration(seconds: 2));
+        try {
+          final retryList = await _yt.search.getVideos(query);
+          if (mounted) {
+            setState(() {
+              _videos = retryList.toList();
+              _isLoading = false;
+            });
+          }
+          return;
+        } catch (_) {}
+      }
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('YouTube is rate-limiting requests. Please wait a moment and try again.'),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -99,50 +122,17 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
     if (_isSelecting) return;
     setState(() => _isSelecting = true);
 
-    debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Checking if embeddable...');
+    debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Skipping embed check to avoid rate limits...');
     
-    // Check if video is embeddable before allowing selection
-    final bool isEmbeddable = await _isVideoEmbeddable(videoId);
-    if (!isEmbeddable) {
-      setState(() => _isSelecting = false);
-      if (mounted) {
-        await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Video Not Available'),
-            content: const Text(
-                'This video cannot be played in the app due to restrictions set by the video owner. '
-                'Please select a different video.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      }
-      return;
-    }
-    
-    debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Updating room...');
     await ref.read(roomServiceProvider).setYoutubeVideo(widget.roomId, videoId);
     
     if (mounted) {
       Navigator.pop(context);
     }
-    // Note: No need to reset _isSelecting because the panel is popped
   }
 
   Future<bool> _isVideoEmbeddable(String videoId) async {
-    try {
-      // Try to fetch video metadata to verify it exists and is accessible
-      final video = await _yt.videos.get(videoId);
-      return true; // If we can get metadata, we can usually play it
-    } catch (e) {
-      debugPrint("Error checking video: $e");
-      return false;
-    }
+    return true;
   }
 
   @override

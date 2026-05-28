@@ -65,7 +65,15 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     } catch (e) {
       if (mounted) {
         setState(() => _isDrawing = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        
+        String errorMessage = "An error occurred. Please try again.";
+        final errorStr = e.toString();
+        if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
+          errorMessage = "Betting phase closed. Please wait for the next round.";
+        } else {
+          errorMessage = "Error: ${errorStr.split('\\n').first}";
+        }
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
       }
     }
   }

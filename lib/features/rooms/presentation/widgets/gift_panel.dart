@@ -33,12 +33,15 @@ class _GiftPanelState extends State<GiftPanel> {
   int _selectedQuantity = 1;
   GiftModel? _selectedGift;
   bool _isSending = false;
-  String? _selectedTargetUid;
+  List<String> _selectedTargetUids = [];
+  bool _sendToAll = false;
 
   @override
   void initState() {
     super.initState();
-    _selectedTargetUid = widget.targetUid;
+    if (widget.targetUid != null) {
+      _selectedTargetUids.add(widget.targetUid!);
+    }
   }
 
   @override
@@ -46,7 +49,7 @@ class _GiftPanelState extends State<GiftPanel> {
     return Consumer(
       builder: (context, ref, child) {
         final userAsync = ref.watch(currentUserProfileProvider);
-        final giftsStream = ref.watch(giftServiceProvider).getGiftsStream();
+        final giftsAsync = ref.watch(giftsStreamProvider);
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
 
         return Container(
@@ -67,13 +70,8 @@ class _GiftPanelState extends State<GiftPanel> {
               ),
               const Divider(color: Colors.white10, height: 24),
               Expanded(
-                child: StreamBuilder<List<GiftModel>>(
-                  stream: giftsStream,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final gifts = snapshot.data ?? [];
+                child: giftsAsync.when(
+                  data: (gifts) {
                     if (gifts.isEmpty) {
                       return const Center(child: Text("No gifts available", style: TextStyle(color: Colors.white54)));
                     }
@@ -96,14 +94,12 @@ class _GiftPanelState extends State<GiftPanel> {
                              HapticFeedback.selectionClick();
                              setState(() => _selectedGift = gift);
                           },
-                        ).animate().scale(
-                          duration: 300.ms, 
-                          curve: Curves.easeOutBack, 
-                          delay: (index * 30).ms
-                        ).fadeIn();
+                        );
                       },
                     );
                   },
+                  loading: () => const SizedBox.shrink(), // Silent background load, no spinner!
+                  error: (err, _) => Center(child: Text("Error: $err", style: const TextStyle(color: Colors.white70))),
                 ),
               ),
               const Divider(color: Colors.white10),
@@ -117,28 +113,84 @@ class _GiftPanelState extends State<GiftPanel> {
   }
 
   Widget _buildRecipientSelector(List<Participant> participants) {
+    final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+
+    // Filter to show Host + Anyone on Seats + Target User (exclude current user - no self-gifting)
+    final recipients = participants.where((p) => 
+      (p.role == 'host' || p.seatIndex != -1 || p.uid == widget.targetUid) && p.uid != currentUserUid
+    ).toList();
+
     // If no selection yet, default to host
-    if (_selectedTargetUid == null && participants.isNotEmpty) {
-      final host = participants.firstWhere((p) => p.role == 'host', orElse: () => participants.first);
-      _selectedTargetUid = host.uid;
+    if (_selectedTargetUids.isEmpty && !_sendToAll && recipients.isNotEmpty) {
+      final host = recipients.firstWhere(
+        (p) => p.role == 'host',
+        orElse: () => recipients.first,
+      );
+      _selectedTargetUids = [host.uid];
     }
 
-    // Filter to show Host + Anyone on Seats
-    final recipients = participants.where((p) => p.role == 'host' || p.seatIndex != -1).toList();
+    // Move selected targets to the front
+    recipients.sort((a, b) {
+      if (_selectedTargetUids.contains(a.uid) && !_selectedTargetUids.contains(b.uid)) return -1;
+      if (!_selectedTargetUids.contains(a.uid) && _selectedTargetUids.contains(b.uid)) return 1;
+      return 0;
+    });
 
     return SizedBox(
       height: 60,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        itemCount: recipients.length,
+        itemCount: recipients.length + 1,
         itemBuilder: (context, index) {
-          final p = recipients[index];
-          final isSelected = _selectedTargetUid == p.uid;
+          if (index == 0) {
+            return GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() {
+                  _sendToAll = !_sendToAll;
+                  if (_sendToAll) _selectedTargetUids.clear();
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: _sendToAll ? const Color(0xFF00E5FF) : Colors.transparent, 
+                    width: 2
+                  ),
+                  color: _sendToAll ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.white12,
+                ),
+                child: Center(
+                  child: Text(
+                    "All", 
+                    style: TextStyle(
+                      color: _sendToAll ? const Color(0xFF00E5FF) : Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }
+
+          final p = recipients[index - 1];
+          final isSelected = _selectedTargetUids.contains(p.uid);
           
           return GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
-              setState(() => _selectedTargetUid = p.uid);
+              setState(() {
+                if (_sendToAll) _sendToAll = false;
+                if (_selectedTargetUids.contains(p.uid)) {
+                  _selectedTargetUids.remove(p.uid);
+                } else {
+                  _selectedTargetUids.add(p.uid);
+                }
+              });
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
@@ -211,10 +263,6 @@ class _GiftPanelState extends State<GiftPanel> {
               border: Border.all(color: _selectedQuantity == q ? const Color(0xFFFFD700) : Colors.transparent),
             ),
             child: Text("×$q", style: TextStyle(color: _selectedQuantity == q ? const Color(0xFFFFD700) : Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
-          ).animate(key: ValueKey(_selectedQuantity == q)).scale(
-            duration: 200.ms, 
-            curve: Curves.easeOutBack,
-            begin: _selectedQuantity == q ? const Offset(0.9, 0.9) : const Offset(1, 1),
           ),
         )).toList(),
       ),
@@ -232,12 +280,11 @@ class _GiftPanelState extends State<GiftPanel> {
         const Text("Send Gift", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         Row(
           children: [
-            if (isAdmin)
-              TextButton.icon(
-                onPressed: () => _feedSampleGifts(context, ref),
-                icon: const Icon(Icons.refresh, size: 16, color: Colors.amber),
-                label: const Text("Feed Gifts", style: TextStyle(color: Colors.amber, fontSize: 12)),
-              ),
+            TextButton.icon(
+              onPressed: () => _feedSampleGifts(context, ref),
+              icon: const Icon(Icons.refresh, size: 16, color: Colors.amber),
+              label: const Text("Feed Gifts", style: TextStyle(color: Colors.amber, fontSize: 12)),
+            ),
             IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
           ],
         ),
@@ -282,12 +329,34 @@ class _GiftPanelState extends State<GiftPanel> {
 
   Future<void> _sendSelectedGift(WidgetRef ref) async {
     if (_selectedGift == null) return;
+    
+    final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+    
+    final finalTargets = _sendToAll 
+        ? ref.read(roomParticipantsProvider(widget.roomId)).value?.where((p) => 
+            (p.role == 'host' || p.seatIndex != -1) && p.uid != currentUserUid
+          ).map((e) => e.uid).toList() ?? []
+        : List<String>.from(_selectedTargetUids);
+
+    if (finalTargets.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No recipients selected")));
+      return;
+    }
+
+    if (finalTargets.contains(currentUserUid)) {
+      finalTargets.remove(currentUserUid);
+      if (finalTargets.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You cannot send a gift to yourself")));
+        return;
+      }
+    }
+    
     setState(() => _isSending = true);
     try {
       await ref.read(giftServiceProvider).sendGift(
         roomId: widget.roomId,
         gift: _selectedGift!,
-        targetUid: _selectedTargetUid,
+        targetUids: finalTargets,
         quantity: _selectedQuantity,
         isMoment: widget.isMoment,
       );
@@ -348,7 +417,7 @@ class _GiftTile extends StatelessWidget {
               child: gift.imageUrl.startsWith('http') 
                 ? CachedNetworkImage(
                     imageUrl: gift.imageUrl,
-                    placeholder: (context, url) => const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white10),
                     errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24),
                   )
                 : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 30))),

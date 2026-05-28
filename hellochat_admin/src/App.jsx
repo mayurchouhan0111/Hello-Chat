@@ -20,7 +20,7 @@ import { EliteBoutiqueManagement } from './screens/EliteBoutiqueManagement';
 import { FamilyManagement } from './screens/FamilyManagement';
 import { ResellerManagement } from './screens/ResellerManagement';
 import { MomentsManagement } from './screens/MomentsManagement';
-
+import { KYCManagement } from './screens/KYCManagement';
 
 function App() {
   return (
@@ -96,6 +96,11 @@ function App() {
           <Route path="/withdrawals" element={
             <AdminLayout>
               <WithdrawalManagement />
+            </AdminLayout>
+          } />
+          <Route path="/kyc" element={
+            <AdminLayout>
+              <KYCManagement />
             </AdminLayout>
           } />
           <Route path="/dev" element={

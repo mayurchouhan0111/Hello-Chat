@@ -25,7 +25,7 @@ import {
 import { useAdmin } from '../context/AdminContext';
 import { logAdminAction } from './AuditLogs';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { Sparkles, Search, Swords, ShieldCheck, XCircle, Trophy } from 'lucide-react';
+import { Sparkles, Search, Swords, ShieldCheck, XCircle, Trophy, Zap } from 'lucide-react';
 
 export const DevTools = () => {
 
@@ -374,6 +374,53 @@ export const DevTools = () => {
            </div>
         </div>
 
+        {/* Rocket Fuel Injector */}
+        <div className="card-glass bg-indigo-500/5 border-indigo-500/20 p-10 col-span-full space-y-6">
+           <div className="flex items-center justify-between">
+              <h3 className="text-xl font-black text-indigo-400 uppercase tracking-tight flex items-center gap-3">
+                 <Zap size={24} /> Rocket Fuel Injector
+              </h3>
+              <span className="px-3 py-1 bg-indigo-500/20 text-indigo-400 rounded-full text-[10px] font-black uppercase tracking-tighter">Testing Tool</span>
+           </div>
+           <p className="text-slate-500 text-sm">
+             Inject diamonds directly into a room's rocket fuel to test level progression and global launch animations.
+             This bypasses the gifting flow and triggers the <code>adminFuelRocket</code> Cloud Function.
+           </p>
+           <div className="flex gap-4">
+              <input 
+                id="rocket_room_id" placeholder="Room ID" 
+                className="flex-1 h-14 bg-slate-950/50 border border-white/5 rounded-xl px-6 text-sm text-white"
+              />
+              <input 
+                id="rocket_amount" type="number" placeholder="Fuel Points (Diamonds)" 
+                className="w-48 h-14 bg-slate-950/50 border border-white/5 rounded-xl px-6 text-sm text-white"
+              />
+              <button 
+                onClick={async () => {
+                  const roomId = document.getElementById('rocket_room_id').value;
+                  const amt = parseInt(document.getElementById('rocket_amount').value);
+                  if(!roomId || !amt) return alert("Missing Room ID or Amount");
+                  
+                  setLoading(true);
+                  setStatus('INJECTING FUEL...');
+                  try {
+                    const funcs = getFunctions(app, 'us-central1');
+                    const injectFuel = httpsCallable(funcs, 'adminFuelRocket');
+                    const res = await injectFuel({ roomId, amount: amt });
+                    
+                    setStatus(`FUEL INJECTED! 🚀 | New Fuel: ${res.data.newFuel}`);
+                    setTimeout(() => setStatus(null), 4000);
+                  } catch (e) {
+                    alert(e.message);
+                    setStatus('ERROR');
+                  } finally { setLoading(false); }
+                }}
+                className="px-10 h-14 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-black uppercase text-xs tracking-widest"
+              >
+                Ignite
+              </button>
+           </div>
+        </div>
 
         {/* PK Diagnostic Center */}
         <div className="card-glass bg-rose-500/5 border-rose-500/20 p-10 col-span-full space-y-8 text-white">

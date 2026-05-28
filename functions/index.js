@@ -125,6 +125,92 @@ exports.secureAgoraToken = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * --- ROCKET KING SYSTEM ---
+ */
+const ROCKET_SYSTEM = {
+    targets: [1000000, 2000000, 3000000, 5000000, 10000000],
+    rewards: [
+        { king: 30000, t2: 15000, t3: 7500, xp: 2000, frame: "rocket_frame_1" },
+        { king: 60000, t2: 40000, t3: 30000, xp: 3000, frame: "rocket_frame_2" },
+        { king: 200000, t2: 150000, t3: 100000, xp: 5000, frame: "rocket_frame_3" },
+        { king: 500000, t2: 300000, t3: 250000, xp: 10000, frame: "rocket_frame_4" },
+        { king: 800000, t2: 500000, t3: 350000, xp: 15000, frame: "rocket_frame_5" },
+    ]
+};
+
+async function processRocketLaunch(transaction, roomId, level, roomData, senderUid, totalCost) {
+    const contributions = roomData.rocketContributions || {};
+    // Add current contribution to the map for accurate ranking
+    const currentContrib = (contributions[senderUid] || 0) + totalCost;
+    const finalContributions = { ...contributions, [senderUid]: currentContrib };
+
+    const sortedContributors = Object.entries(finalContributions)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 3);
+
+    const rewards = ROCKET_SYSTEM.rewards[level];
+    if (!rewards) return;
+
+    // 1. Distribute rewards to Top 3
+    const rewardWinners = [
+        { uid: sortedContributors[0]?.[0], rebate: rewards.king },
+        { uid: sortedContributors[1]?.[0], rebate: rewards.t2 },
+        { uid: sortedContributors[2]?.[0], rebate: rewards.t3 },
+    ];
+
+    for (const winner of rewardWinners) {
+        if (winner.uid && winner.uid !== "SYSTEM_ADMIN") {
+            const userRef = db.collection("users").doc(winner.uid);
+            transaction.update(userRef, {
+                diamondBalance: admin.firestore.FieldValue.increment(winner.rebate),
+                xp: admin.firestore.FieldValue.increment(rewards.xp),
+                profileFrame: rewards.frame
+            });
+            
+            // Log reward
+            const logRef = db.collection("reward_logs").doc();
+            transaction.set(logRef, {
+                uid: winner.uid,
+                type: "rocket_king_reward",
+                level: level + 1,
+                rebate: winner.rebate,
+                xp: rewards.xp,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+    }
+
+    // 2. Global Announcement Message
+    const globalMsgRef = db.collection("global_messages").doc();
+    transaction.set(globalMsgRef, {
+        type: "rocket_launch",
+        roomId: roomId,
+        roomName: roomData.name || "Live Room",
+        level: level + 1,
+        kingUid: sortedContributors[0]?.[0] || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // 3. Update Room State
+    const roomUpdate = {
+        rocketLevel: admin.firestore.FieldValue.increment(1),
+        rocketFuel: 0,
+        rocketContributions: {} // Reset for next rocket
+    };
+
+    // 🚀 If we just finished Level 5 (level was 4), set 5-minute cooldown
+    if (level === 4) {
+        const cooldownMinutes = 5;
+        const cooldownUntil = admin.firestore.Timestamp.fromMillis(Date.now() + cooldownMinutes * 60 * 1000);
+        roomUpdate.rocketCooldownUntil = cooldownUntil;
+        roomUpdate.rocketStatus = "cooldown";
+        console.log(`[ROCKET] Level 5 complete. Cooldown until ${cooldownUntil.toDate()}`);
+    }
+
+    transaction.update(db.collection("rooms").doc(roomId), roomUpdate);
+}
+
+/**
  * 1. onCreate Auth User Trigger
  * Creates a basic skeletal user document when they sign up.
  */
@@ -148,6 +234,105 @@ exports.onUserWrite = functions.firestore.document("users/{uid}").onWrite(async 
         return change.after.ref.update({ helloId: newId });
     }
     return null;
+});
+
+/**
+ * --- ADMIN: ROCKET FUEL INJECTOR ---
+ */
+exports.adminFuelRocket = onCall({
+    region: "us-central1"
+}, async (request) => {
+    console.log("[ADMIN_FUEL] Triggered with data:", request.data);
+    const { auth } = request;
+    if (!auth) {
+        console.error("[ADMIN_FUEL] Unauthenticated access attempt");
+        throw new HttpsError("unauthenticated", "Auth required.");
+    }
+    
+    // Admin check
+    try {
+        const adminStatus = await isUserAdmin(auth.uid);
+        if (!adminStatus) {
+            console.error(`[ADMIN_FUEL] User ${auth.uid} is not an admin`);
+            throw new HttpsError("permission-denied", "Admin only.");
+        }
+    } catch (e) {
+        console.error("[ADMIN_FUEL] Error checking admin status:", e);
+        throw new HttpsError("internal", "Failed to verify admin status.");
+    }
+
+    const { roomId, amount } = request.data;
+    const amt = parseInt(amount);
+    if (!roomId || isNaN(amt)) {
+        console.error(`[ADMIN_FUEL] Invalid arguments: roomId=${roomId}, amount=${amount}`);
+        throw new HttpsError("invalid-argument", "Missing roomId or valid amount.");
+    }
+
+    console.log(`[ADMIN_FUEL] Injecting ${amt} fuel to room ${roomId}`);
+
+    try {
+        return await db.runTransaction(async (transaction) => {
+            const roomRef = db.collection("rooms").doc(roomId);
+            const roomDoc = await transaction.get(roomRef);
+            if (!roomDoc.exists) {
+                console.error(`[ADMIN_FUEL] Room ${roomId} not found`);
+                throw new HttpsError("not-found", "Room not found.");
+            }
+
+            const roomData = roomDoc.data();
+            let currentFuel = roomData.rocketFuel || 0;
+            let currentLevel = roomData.rocketLevel || 0;
+            const status = roomData.rocketStatus || "active";
+            const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
+            const now = Date.now();
+
+            // 🕰️ Handle Cooldown & Reset
+            if (status === "cooldown") {
+                if (now < cooldownUntil) {
+                    const remaining = Math.ceil((cooldownUntil - now) / 1000);
+                    throw new HttpsError("failed-precondition", `Rocket is in cooldown. Please wait ${remaining}s.`);
+                } else {
+                    // Cooldown expired! Reset to Level 0
+                    console.log(`[ADMIN_FUEL] Cooldown expired. Resetting rocket for room ${roomId}`);
+                    currentLevel = 0;
+                    currentFuel = 0;
+                    // We'll update the room state in the increment block or launch block
+                    transaction.update(roomRef, {
+                        rocketLevel: 0,
+                        rocketFuel: 0,
+                        rocketStatus: "active",
+                        rocketContributions: {}
+                    });
+                }
+            } else if (currentLevel >= 5) {
+                // If it somehow stuck at level 5 without cooldown, force reset
+                transaction.update(roomRef, { rocketLevel: 0, rocketFuel: 0, rocketStatus: "active", rocketContributions: {} });
+                currentLevel = 0;
+                currentFuel = 0;
+            }
+
+            const nextTarget = ROCKET_SYSTEM.targets[currentLevel] || 10000000;
+            const newFuel = currentFuel + amt;
+
+            if (newFuel >= nextTarget && currentLevel < 5) {
+                console.log(`[ADMIN_FUEL] Threshold reached! Launching Level ${currentLevel + 1}`);
+                await processRocketLaunch(transaction, roomId, currentLevel, roomData, "SYSTEM_ADMIN", amt);
+            } else {
+                console.log(`[ADMIN_FUEL] Incrementing fuel to ${newFuel}`);
+                transaction.update(roomRef, {
+                    rocketFuel: admin.firestore.FieldValue.increment(amt),
+                    'rocketContributions.SYSTEM_ADMIN': admin.firestore.FieldValue.increment(amt)
+                });
+            }
+
+            return { success: true, newFuel: newFuel };
+        });
+    } catch (err) {
+        console.error("[ADMIN_FUEL] Transaction failed:", err);
+        // Ensure we re-throw as HttpsError
+        if (err instanceof HttpsError) throw err;
+        throw new HttpsError("internal", err.message || "Transaction failed");
+    }
 });
 
 /**
@@ -181,12 +366,17 @@ function calculateSVIPLevel(points) {
  * Level 51-100: Hard (Exponential growth)
  */
 function getXPRequiredForNextLevel(currentLevel) {
-    if (currentLevel <= 0) return 100;
-    if (currentLevel < 50) {
-        return currentLevel * 200;
-    } else {
-        return 10000 + (currentLevel - 50) * 2000;
-    }
+    if (currentLevel < 10) return 10000;
+    if (currentLevel < 20) return 25000;
+    if (currentLevel < 30) return 50000;
+    if (currentLevel < 40) return 100000;
+    if (currentLevel < 50) return 200000;
+    if (currentLevel < 60) return 300000;
+    if (currentLevel < 70) return 400000;
+    if (currentLevel < 80) return 500000;
+    if (currentLevel < 90) return 600000;
+    if (currentLevel < 100) return 1000000;
+    return 1000000;
 }
 
 function calculateIDLevel(totalXP) {
@@ -209,16 +399,16 @@ function calculateIDLevel(totalXP) {
  * Automated 60/30/10 Split on Milestones
  */
 const SALARY_LEVELS = [
-    { level: 1, target: 10000, label: "Lv.1 Beginner" },
-    { level: 2, target: 50000, label: "Lv.2 Rising Star" },
-    { level: 3, target: 150000, label: "Lv.3 Influencer" },
-    { level: 4, target: 500000, label: "Lv.4 Professional" },
-    { level: 5, target: 1500000, label: "Lv.5 Elite" },
-    { level: 6, target: 5000000, label: "Lv.6 Master" },
-    { level: 7, target: 15000000, label: "Lv.7 Legend" },
-    { level: 8, target: 50000000, label: "Lv.8 Mythic" },
-    { level: 9, target: 150000000, label: "Lv.9 Immortal" },
-    { level: 10, target: 500000000, label: "Lv.10 Ultimate" },
+    { level: 1, target: 1000000, label: "Lv.1 Beginner" },
+    { level: 2, target: 2000000, label: "Lv.2 Rising Star" },
+    { level: 3, target: 4000000, label: "Lv.3 Influencer" },
+    { level: 4, target: 8000000, label: "Lv.4 Professional" },
+    { level: 5, target: 15000000, label: "Lv.5 Elite" },
+    { level: 6, target: 28000000, label: "Lv.6 Master" },
+    { level: 7, target: 51000000, label: "Lv.7 Legend" },
+    { level: 8, target: 87000000, label: "Lv.8 Mythic" },
+    { level: 9, target: 141000000, label: "Lv.9 Immortal" },
+    { level: 10, target: 209000000, label: "Lv.10 Ultimate" },
 ];
 
 function getNextBiWeeklyDate() {
@@ -237,12 +427,12 @@ function getNextBiWeeklyDate() {
  * Internal helper to check for salary milestones.
  * To be called within a transaction.
  */
-async function processSalaryMilestones(transaction, hostUid, beansReceived) {
+async function processSalaryMilestones(transaction, hostUid, beansReceived, preloadedStatusDoc = null, preloadedUserDoc = null) {
     const statusRef = db.collection("salaryStatus").doc(hostUid);
     const userRef = db.collection("users").doc(hostUid);
 
-    const statusDoc = await transaction.get(statusRef);
-    const userDoc = await transaction.get(userRef);
+    const statusDoc = preloadedStatusDoc || await transaction.get(statusRef);
+    const userDoc = preloadedUserDoc || await transaction.get(userRef);
 
     if (!userDoc.exists) return;
     const userData = userDoc.data();
@@ -362,6 +552,7 @@ exports.onUserUpdate = functions.firestore.document("users/{uid}").onUpdate(asyn
         const nextLevel = calculateIDLevel(newXP);
         if (nextLevel !== (after.level || 1)) {
             updates.level = nextLevel;
+            updates.lastLevelUp = admin.firestore.FieldValue.serverTimestamp();
         }
     }
 
@@ -1039,7 +1230,7 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
 
     const uid = context.auth.uid;
-    const { roomId } = data;
+    const { roomId, password } = data;
 
     return db.runTransaction(async (transaction) => {
         const roomRef = db.collection("rooms").doc(roomId);
@@ -1058,33 +1249,52 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
         if (roomData.status !== "active") throw new functions.https.HttpsError("failed-precondition", "Room has ended.");
         if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
 
-        // Check if already in
-        if (participantDoc.exists) return { success: true, message: "Already in room" };
+        // Strict Server-Side Validation: Password Check
+        const isAdmin = roomData.ownerUid === uid || (roomData.admins || []).includes(uid);
+        if (roomData.isPrivate && !isAdmin) {
+            if (!password || password !== roomData.passwordHash) {
+                throw new functions.https.HttpsError("permission-denied", "Incorrect room password.");
+            }
+        }
 
         const userData = userDoc.exists ? userDoc.data() : {};
 
-        // Find available seat if joining as host or needs seat
-        let seatIndex = null;
+        let seatIndex = -1; // Changed to match local logic
         let role = "audience";
 
         if (uid === roomData.ownerUid) {
             seatIndex = 0; // Host always gets seat 0
             role = "host";
-        } else {
-            // Logic to find next available seat could be added here if needed for non-hosts
         }
 
-        transaction.set(participantRef, {
-            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastActive: admin.firestore.FieldValue.serverTimestamp(),
-            seatIndex: seatIndex,
-            isMuted: false,
-            role: role,
-            displayName: userData.displayName || "User",
-            profilePhotoUrl: userData.profilePhotoUrl || "",
-            vipTier: userData.vipTier || "none",
-            tags: userData.tags || [],
-        });
+        if (!participantDoc.exists) {
+            transaction.set(participantRef, {
+                uid: uid,
+                joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+                lastActive: admin.firestore.FieldValue.serverTimestamp(),
+                seatIndex: seatIndex,
+                isMuted: false,
+                role: role,
+                displayName: userData.displayName || "User",
+                profilePhotoUrl: userData.profilePhotoUrl || "",
+                vipTier: userData.vipTier || "none",
+                tags: userData.tags || [],
+            });
+
+            const msgRef = roomRef.collection("messages").doc();
+            transaction.set(msgRef, {
+                uid: uid,
+                text: `${userData.displayName || "User"} joined the room`,
+                type: 'system',
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        } else {
+            transaction.update(participantRef, {
+                lastActive: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        }
+
+        transaction.update(userRef, { activeRoomId: roomId });
 
         return { success: true };
     });
@@ -1162,12 +1372,14 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const receiverRef = db.collection("users").doc(targetUid);
             const roomRef = db.collection("rooms").doc(roomId);
             const giftRef = db.collection("gifts").doc(giftId);
+            const statusRef = db.collection("salaryStatus").doc(targetUid);
 
-            const [senderDoc, receiverDoc, giftDoc, roomDoc] = await Promise.all([
+            const [senderDoc, receiverDoc, giftDoc, roomDoc, statusDoc] = await Promise.all([
                 transaction.get(senderRef),
                 transaction.get(receiverRef),
                 transaction.get(giftRef),
-                transaction.get(roomRef)
+                transaction.get(roomRef),
+                transaction.get(statusRef)
             ]);
 
             if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender profile not found.");
@@ -1180,8 +1392,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             let agencyDoc = null;
             let agencyRef = null;
             if (receiverDoc.exists && receiverDoc.data().agencyId) {
-                // IMPORTANT: Agencies are Users with isAgencyOwner: true
-                agencyRef = db.collection("users").doc(receiverDoc.data().agencyId);
+                // Correctly point to the 'agencies' collection
+                agencyRef = db.collection("agencies").doc(receiverDoc.data().agencyId);
                 agencyDoc = await transaction.get(agencyRef);
             }
 
@@ -1192,9 +1404,13 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             }
 
             // 💎 4. Deduct & Add XP (500 diamonds = 1 XP)
-            const senderXP = Math.floor(totalCost / 500);
+            const currentSpent = senderDoc.data().totalDiamondsSpent || (senderDoc.data().xp * 500) || 0;
+            const newSpent = currentSpent + totalCost;
+            const senderXP = Math.floor(newSpent / 500) - Math.floor(currentSpent / 500);
+            
             transaction.update(senderRef, {
                 diamondBalance: admin.firestore.FieldValue.increment(-totalCost),
+                totalDiamondsSpent: admin.firestore.FieldValue.increment(totalCost),
                 xp: admin.firestore.FieldValue.increment(senderXP),
                 benchXP: admin.firestore.FieldValue.increment(senderXP),
                 dailyXP: admin.firestore.FieldValue.increment(senderXP),
@@ -1210,8 +1426,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 let hostSharePercent = 0.8;
                 let agencySharePercent = 0;
 
-                // Only pay agency if user exists AND is actually an agency owner
-                if (agencyId && agencyDoc && agencyDoc.exists && agencyDoc.data().isAgencyOwner) {
+                // Only pay agency if document exists in 'agencies' collection
+                if (agencyId && agencyDoc && agencyDoc.exists) {
                     hostSharePercent = 0.7;
                     agencySharePercent = 0.1;
                     const agencyBeans = Math.floor(totalCost * agencySharePercent);
@@ -1225,10 +1441,15 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 }
 
                 const beansEarned = Math.floor(totalCost * hostSharePercent);
+                
                 // Receiver XP: 1000 diamonds = 1 XP
-                const receiverXP = Math.floor(totalCost / 1000);
+                const currentEarned = receiverData.totalDiamondsReceived || (receiverData.princeXP * 1000) || 0;
+                const newEarned = currentEarned + totalCost;
+                const receiverXP = Math.floor(newEarned / 1000) - Math.floor(currentEarned / 1000);
+                
                 transaction.update(receiverRef, {
                     beansBalance: admin.firestore.FieldValue.increment(beansEarned),
+                    totalDiamondsReceived: admin.firestore.FieldValue.increment(totalCost),
                     princeXP: admin.firestore.FieldValue.increment(receiverXP),
                     dailyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                     weeklyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
@@ -1236,7 +1457,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 });
 
                 // 💹 NEW: Process Salary Milestones
-                await processSalaryMilestones(transaction, targetUid, beansEarned);
+                await processSalaryMilestones(transaction, targetUid, beansEarned, statusDoc, receiverDoc);
             }
 
             // 📸 6. Social Counters
@@ -1252,6 +1473,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             // 🎬 7. Chat Message (Only for voice rooms)
             if (!isMoment) {
                 const msgRef = roomRef.collection("messages").doc();
+                const receiverName = receiverDoc.exists ? (receiverDoc.data().displayName || "User") : "User";
                 transaction.set(msgRef, {
                     uid: senderUid,
                     senderName: senderDoc.data().displayName || "User",
@@ -1259,7 +1481,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     giftId: giftId,
                     quantity: qty,
                     animationUrl: giftData.lottieAssetPath,
-                    text: `Sent ${qty}x ${giftData.name}`,
+                    text: `Sent to ${receiverName} x${qty}`,
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     targetUid: targetUid
                 });
@@ -1277,6 +1499,53 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                             [scoreField]: admin.firestore.FieldValue.increment(totalCost),
                             [contributionField]: admin.firestore.FieldValue.increment(totalCost)
                         });
+                    }
+                }
+
+                // 🚀 8. Rocket Fuel Logic (Integrated)
+                if (!isMoment) {
+                    const roomData = roomDoc.data();
+                    let currentFuel = roomData.rocketFuel || 0;
+                    let currentLevel = roomData.rocketLevel || 0;
+                    const status = roomData.rocketStatus || "active";
+                    const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
+                    const now = Date.now();
+
+                    let canFuel = true;
+
+                    // 🕰️ Handle Cooldown & Reset
+                    if (status === "cooldown") {
+                        if (now < cooldownUntil) {
+                            canFuel = false; // Don't fuel during cooldown
+                        } else {
+                            // Cooldown expired! Reset to Level 0
+                            currentLevel = 0;
+                            currentFuel = 0;
+                            transaction.update(roomRef, {
+                                rocketLevel: 0,
+                                rocketFuel: 0,
+                                rocketStatus: "active",
+                                rocketContributions: {}
+                            });
+                        }
+                    } else if (currentLevel >= 5) {
+                        transaction.update(roomRef, { rocketLevel: 0, rocketFuel: 0, rocketStatus: "active", rocketContributions: {} });
+                        currentLevel = 0;
+                        currentFuel = 0;
+                    }
+
+                    if (canFuel) {
+                        const nextTarget = ROCKET_SYSTEM.targets[currentLevel] || 10000000;
+                        const newFuel = currentFuel + totalCost;
+                        
+                        if (newFuel >= nextTarget && currentLevel < 5) {
+                            await processRocketLaunch(transaction, roomId, currentLevel, roomData, senderUid, totalCost);
+                        } else {
+                            transaction.update(roomRef, {
+                                rocketFuel: admin.firestore.FieldValue.increment(totalCost),
+                                [`rocketContributions.${senderUid}`]: admin.firestore.FieldValue.increment(totalCost)
+                            });
+                        }
                     }
                 }
             }
@@ -1971,12 +2240,26 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const statsRef = db.collection("games_meta").doc("lucky_spin");
 
     const now = Date.now();
-    const roundId = Math.floor(now / 30000).toString();
+    const ROUND_DURATION_MS = 40000;
+    const roundId = Math.floor(now / ROUND_DURATION_MS).toString();
+    const msIntoRound = now % ROUND_DURATION_MS;
+
+    // Allow late bets to gracefully process for the current round instead of throwing errors
+    // to prevent desync UI crashes.
+    if (msIntoRound >= 38000 && totalBet > 0) {
+        console.warn(`[SpinWheel] Late bet processed at ${msIntoRound}ms for round ${roundId}`);
+    }
 
     return db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
         const settingsDoc = await transaction.get(settingsRef);
         const statsDoc = await transaction.get(statsRef);
+        
+        const playerRef = statsRef.collection("daily_players").doc(uid);
+        const playerDoc = await transaction.get(playerRef);
+
+        const currentRoundBetRef = statsRef.collection("current_round_bets").doc(uid);
+        const currentRoundBetDoc = await transaction.get(currentRoundBetRef);
 
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
         
@@ -2048,22 +2331,81 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                     : segments[0];
             }
 
+            // Find the index of winnerSegment in the segments array
+            const winnerIndex = segments.findIndex(s => s.name === winnerSegment.name && s.multiplier === winnerSegment.multiplier);
+            
+            // Calculate exact stop angle (in degrees) - each segment is 45 degrees (360/8)
+            // Segment 0 is at top (0 degrees), going clockwise
+            // To bring segment to top: angle = 360 - (index * 45) + random micro-offset for realism
+            const stepAngle = 360 / segments.length;
+            const exactStopAngle = (360 - (winnerIndex * stepAngle)) + (Math.random() * 10 - 5); // ±5 degrees randomness
+            
+            // === FULLY BACKEND-CONTROLLED SPIN PHYSICS ===
+            const totalRotations = 7 + Math.floor(Math.random() * 3); // 7-9 rotations
+            const baseDuration = 4500; // EXACTLY 4.5s to fit perfectly within the 40s cycle
+            
+            // Spin config: Complete physics control from backend
+            const spinConfig = {
+                totalRotations: totalRotations,
+                durationMs: baseDuration,
+                
+                // Phase timings (percentages)
+                accelerationDuration: Math.floor(baseDuration * 0.20), // 20%
+                constantSpeedDuration: Math.floor(baseDuration * 0.35), // 35%
+                decelerationDuration: Math.floor(baseDuration * 0.30), // 30%
+                finalSettleDuration: Math.floor(baseDuration * 0.15), // 15%
+                
+                // Curves
+                easeInCurve: "easeInSine",
+                easeOutCurve: "easeOutExpo",
+                
+                // Final tick behavior
+                microStopTicks: 2 + Math.floor(Math.random() * 2), // 2-3 ticks
+                tickSlowdownFactor: 0.80 + Math.random() * 0.08, // 0.80-0.88
+            };
+            
             roundResult = {
                 type: resultType,
                 multiplier: Number(winnerSegment.multiplier) || 0,
                 emoji: winnerSegment.emoji || "🎰",
                 label: resultType === "standard" ? `${winnerSegment.multiplier}x` : resultType.toUpperCase(),
-                name: winnerSegment.name
+                name: winnerSegment.name,
+                category: winnerSegment.category,
+                sectorIndex: winnerIndex >= 0 ? winnerIndex : 0,
+                exactStopAngle: Math.round(exactStopAngle * 10) / 10, // Round to 1 decimal
+                spinConfig: spinConfig // Full backend physics control
             };
+
+            // Calculate current round mathematically
+            const startOfRoundEpochMs = Math.floor(now / ROUND_DURATION_MS) * ROUND_DURATION_MS;
+            const startOfDayUTC = new Date(startOfRoundEpochMs);
+            startOfDayUTC.setUTCHours(0, 0, 0, 0);
+            const currentRoundToday = Math.floor((startOfRoundEpochMs - startOfDayUTC.getTime()) / ROUND_DURATION_MS) + 1;
+
+            // Maintain a list of the last 20 outcomes in Firestore
+            let recentResults = currentStats.recentResults || [];
+            recentResults.unshift({
+                roundId: roundId,
+                emoji: roundResult.emoji,
+                label: roundResult.label,
+                type: roundResult.type,
+                name: roundResult.name,
+                multiplier: roundResult.multiplier,
+                timestamp: now
+            });
+            if (recentResults.length > 20) {
+                recentResults = recentResults.slice(0, 20);
+            }
 
             // Update Global Stats
             const statsUpdate = {
                 lastGlobalRound: roundId,
                 lastGlobalOutcome: roundResult,
-                currentRound: admin.firestore.FieldValue.increment(1),
+                currentRound: currentRoundToday,
                 todaySaladHits: saladHits,
                 todayPizzaHits: pizzaHits,
-                lastResetDate: todayStr
+                lastResetDate: todayStr,
+                recentResults: recentResults
             };
             
             transaction.update(statsRef, statsUpdate);
@@ -2098,8 +2440,58 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
         transaction.update(userRef, userUpdates);
 
+        // --- DAILY PLAYERS LEADERBOARD TRACKING ---
+        if (totalBet > 0) {
+            const userName = userDoc.data().displayName || userDoc.data().username || "User";
+            const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
+
+            if (playerDoc.exists) {
+                transaction.update(playerRef, {
+                    totalBets: admin.firestore.FieldValue.increment(totalBet),
+                    lastPlayed: now,
+                    name: userName,
+                    avatar: userAvatar
+                });
+            } else {
+                transaction.set(playerRef, {
+                    uid: uid,
+                    name: userName,
+                    avatar: userAvatar,
+                    totalBets: totalBet,
+                    lastPlayed: now
+                });
+            }
+        }
+
+        // --- CURRENT ROUND BETS/WINNINGS LEADERBOARD TRACKING ---
+        if (totalBet > 0 || totalPrize > 0) {
+            const userName = userDoc.data().displayName || userDoc.data().username || "User";
+            const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
+
+            if (currentRoundBetDoc.exists && currentRoundBetDoc.data().roundId === roundId) {
+                transaction.update(currentRoundBetRef, {
+                    amount: admin.firestore.FieldValue.increment(totalBet),
+                    winnings: admin.firestore.FieldValue.increment(totalPrize),
+                    lastPlayed: now,
+                    name: userName,
+                    avatar: userAvatar
+                });
+            } else {
+                transaction.set(currentRoundBetRef, {
+                    uid: uid,
+                    name: userName,
+                    avatar: userAvatar,
+                    amount: totalBet,
+                    winnings: totalPrize,
+                    roundId: roundId,
+                    lastPlayed: now
+                });
+            }
+        }
+
+        let todayWinners = null;
         if (totalPrize > 0) {
-            let todayWinners = currentStats.todayWinners || [];
+            todayWinners = currentStats.todayWinners || [];
             const userName = userDoc.data().displayName || userDoc.data().username || "User";
             const userAvatar = userDoc.data().photoURL || "";
 
@@ -2126,6 +2518,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
 
         // Log History
+        const orderId = `NLOT_${roundId}_${uid.substring(0, 5)}_${now}_${Math.floor(1000 + Math.random() * 9000)}`;
         const logRef = userRef.collection("game_history").doc();
         transaction.set(logRef, {
             game: "spin_wheel",
@@ -2137,10 +2530,27 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             label: roundResult.label,
             multiplier: roundResult.multiplier,
             emoji: roundResult.emoji,
+            balanceBefore: Math.max(0, balance - totalBet),
+            balanceAfter: Math.max(0, balance + netChange),
+            orderId: orderId,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        return { prize: totalPrize, label: roundResult.label, type: roundResult.type };
+        let roundWinners = todayWinners || currentStats.todayWinners || [];
+
+        return { 
+            prize: totalPrize, 
+            label: roundResult.label, 
+            type: roundResult.type, 
+            name: roundResult.name,
+            emoji: roundResult.emoji,
+            category: roundResult.category,
+            sectorIndex: roundResult.sectorIndex,
+            exactStopAngle: roundResult.exactStopAngle,
+            multiplier: roundResult.multiplier,
+            roundId: roundId,
+            todayWinners: roundWinners
+        };
     });
 });
 
@@ -2155,7 +2565,34 @@ exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async
         topWinnerAmount: 0,
         lastReset: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
-    console.log("[CRON] Lucky Spin stats reset successfully.");
+
+    // Clear daily players leaderboard
+    try {
+        const playersSnap = await statsRef.collection("daily_players").get();
+        if (!playersSnap.empty) {
+            const batch = db.batch();
+            playersSnap.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            console.log(`[CRON] Deleted ${playersSnap.size} daily leaderboard player documents.`);
+        }
+    } catch (err) {
+        console.error("[CRON] Failed to clear daily players leaderboard:", err);
+    }
+
+    // Clear current round bets
+    try {
+        const betsSnap = await statsRef.collection("current_round_bets").get();
+        if (!betsSnap.empty) {
+            const batch = db.batch();
+            betsSnap.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            console.log(`[CRON] Deleted ${betsSnap.size} current round bet documents.`);
+        }
+    } catch (err) {
+        console.error("[CRON] Failed to clear current round bets:", err);
+    }
+
+    console.log("[CRON] Lucky Spin stats and daily leaderboard reset successfully.");
     return null;
 });
 
@@ -2331,36 +2768,7 @@ exports.seedEconomy = functions.region("us-central1").https.onCall(async (data, 
     return { success: true, message: "Economy Seeding Successful! All Tiers Initialized." };
 });
 
-/**
- * 400. Universal Leveling Engine
- * Automatically calculates and updates User Level based on XP gain.
- * Logic: Every 1,000 XP earned = +1 Level.
- */
-exports.onUserUpdate = functions.firestore.document("users/{uid}").onUpdate(async (change, context) => {
-    const after = change.after.data();
-    const before = change.before.data();
 
-    // Only run logic if XP has increased
-    if ((after.xp || 0) <= (before.xp || 0)) return null;
-
-    const currentXP = after.xp || 0;
-    const currentLevel = after.level || 1;
-
-    // Formula: Level starts at 1, gains +1 for every 1000 XP
-    const calculatedLevel = Math.floor(currentXP / 1000) + 1;
-
-    // Trigger update only if a new level is reached
-    if (calculatedLevel > currentLevel) {
-        console.log(`[LEVEL_UP] User:${context.params.uid} New Level:${calculatedLevel}`);
-
-        return change.after.ref.update({
-            level: calculatedLevel,
-            lastLevelUp: admin.firestore.FieldValue.serverTimestamp()
-        });
-    }
-
-    return null;
-});
 
 /**
  * 500. User: Convert Beans to Diamonds
@@ -2484,7 +2892,7 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
 
     const uid = context.auth.uid;
-    const { amount, method, accountDetails } = data; // amount in Beans
+    const { amount, method, accountDetails, isAgency, agencyId } = data; // amount in Beans
 
     if (!amount || amount < 1000) {
         throw new functions.https.HttpsError("invalid-argument", "Minimum withdrawal: 1,000 Beans.");
@@ -2495,14 +2903,36 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
         const userDoc = await transaction.get(userRef);
 
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+        const userData = userDoc.data();
 
-        const currentBeans = userDoc.data().beansBalance || 0;
-        if (currentBeans < amount) {
-            throw new functions.https.HttpsError("failed-precondition", "Insufficient beans.");
+        // 🛡️ Eligibility Check: Must be verified
+        if (userData.isVerified !== true) {
+            throw new functions.https.HttpsError("failed-precondition", "Account must be verified to withdraw.");
+        }
+
+        let balanceField = "beansBalance";
+        let targetRef = userRef;
+
+        if (isAgency === true) {
+            if (!agencyId) throw new Error("Agency ID required for agency withdrawal.");
+            const agencyRef = db.collection("agencies").doc(agencyId);
+            const agencyDoc = await transaction.get(agencyRef);
+            if (!agencyDoc.exists) throw new Error("Agency not found.");
+            if (agencyDoc.data().ownerUid !== uid) throw new Error("Permission denied: Not agency owner.");
+            
+            const currentAgencyBeans = agencyDoc.data().beansBalance || 0;
+            if (currentAgencyBeans < amount) throw new functions.https.HttpsError("failed-precondition", "Insufficient agency beans.");
+            
+            targetRef = agencyRef;
+        } else {
+            const currentBeans = userData.beansBalance || 0;
+            if (currentBeans < amount) {
+                throw new functions.https.HttpsError("failed-precondition", "Insufficient beans.");
+            }
         }
 
         // Deduct beans immediately
-        transaction.update(userRef, {
+        transaction.update(targetRef, {
             beansBalance: admin.firestore.FieldValue.increment(-amount)
         });
 
@@ -2511,7 +2941,9 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
         transaction.set(withdrawalRef, {
             requestId: withdrawalRef.id,
             uid: uid,
-            username: userDoc.data().username,
+            agencyId: isAgency ? agencyId : null,
+            isAgency: isAgency || false,
+            username: userData.username || userData.displayName,
             amount: amount,
             method: method || "Bank Transfer",
             accountDetails: accountDetails || "",
@@ -2525,9 +2957,10 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
         transaction.set(txRef, {
             type: "withdrawal",
             amount: -amount,
+            isAgency: isAgency || false,
             status: "pending",
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            description: `Withdrawal request of ${amount} Beans initiated.`,
+            description: `Withdrawal request of ${amount} Beans initiated${isAgency ? " (Agency)" : ""}.`,
         });
 
         return { success: true, requestId: withdrawalRef.id };
@@ -2696,10 +3129,90 @@ exports.onWithdrawalStatusChange = functions.firestore.document("withdrawals/{id
         let msg = `Your withdrawal request is now ${after.status}.`;
         if (after.status === "approved") msg = "Your withdrawal request has been approved! 💸";
         if (after.status === "paid") msg = "Success! Your payment has been dispatched. Check your account. ✅";
+        if (after.status === "rejected") msg = `Your withdrawal was rejected: ${after.rejectReason || "Contact Support"}. ❌`;
 
         return sendPush(after.uid, "Withdrawal Update 🏦", msg, { type: "WITHDRAWAL", status: after.status });
     }
     return null;
+});
+
+/**
+ * 💰 Admin: Approve Withdrawal
+ */
+exports.adminApproveWithdrawal = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    
+    // Admin check
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin/SuperAdmin only.");
+    }
+
+    const { id, note } = data;
+    const withdrawalRef = db.collection("withdrawals").doc(id);
+
+    return db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(withdrawalRef);
+        if (!doc.exists) throw new Error("Request not found");
+        if (doc.data().status !== "pending") throw new Error("Request already processed");
+
+        transaction.update(withdrawalRef, {
+            status: "approved",
+            adminNote: note || "",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true };
+    });
+});
+
+/**
+ * 💰 Admin: Reject Withdrawal
+ */
+exports.adminRejectWithdrawal = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin/SuperAdmin only.");
+    }
+
+    const { id, reason } = data;
+    const withdrawalRef = db.collection("withdrawals").doc(id);
+
+    return db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(withdrawalRef);
+        if (!doc.exists) throw new Error("Request not found");
+        if (doc.data().status !== "pending") throw new Error("Request already processed");
+
+        const withdrawalData = doc.data();
+        const amount = withdrawalData.amount;
+        const uid = withdrawalData.uid;
+        const isAgency = withdrawalData.isAgency === true;
+
+        // Refund Beans
+        if (isAgency && withdrawalData.agencyId) {
+            const agencyRef = db.collection("agencies").doc(withdrawalData.agencyId);
+            transaction.update(agencyRef, {
+                beansBalance: admin.firestore.FieldValue.increment(amount)
+            });
+        } else {
+            const userRef = db.collection("users").doc(uid);
+            transaction.update(userRef, {
+                beansBalance: admin.firestore.FieldValue.increment(amount)
+            });
+        }
+
+        transaction.update(withdrawalRef, {
+            status: "rejected",
+            rejectReason: reason || "Rejected by Admin",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true };
+    });
 });
 
 /**
@@ -3630,10 +4143,34 @@ async function resetUsersField(fields) {
     console.log(`[RESET] Finished resetting ${fields.join(", ")} for ${usersSnap.size} users.`);
 }
 
+async function resetRoomsRocket() {
+    const roomsSnap = await db.collection("rooms").get();
+    let batch = db.batch();
+    let count = 0;
+
+    for (const doc of roomsSnap.docs) {
+        batch.update(doc.ref, {
+            rocketFuel: 0,
+            rocketLevel: 0,
+            rocketContributions: {},
+            rocketStatus: "active"
+        });
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) await batch.commit();
+    console.log(`[RESET] Finished resetting rocket progress for ${roomsSnap.size} rooms.`);
+}
+
 exports.scheduledDailyReset = functions.pubsub.schedule('0 0 * * *')
     .timeZone('UTC')
     .onRun(async (context) => {
         await resetUsersField(["dailyXP", "dailyPrinceXP"]);
+        await resetRoomsRocket();
     });
 
 exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')
@@ -3735,7 +4272,7 @@ exports.processSalaryPayouts = functions.pubsub.schedule('0 0 * * *')
                             status: "completed"
                         });
                     } else if (payout.type === "agency" && payout.agencyId) {
-                        const agencyRef = db.collection("users").doc(payout.agencyId);
+                        const agencyRef = db.collection("agencies").doc(payout.agencyId);
                         transaction.update(agencyRef, {
                             beansBalance: admin.firestore.FieldValue.increment(Math.floor(payout.amount))
                         });

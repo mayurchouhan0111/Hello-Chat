@@ -266,51 +266,55 @@ class _ActivePKBattleScreenState extends ConsumerState<ActivePKBattleScreen> {
   }
 
   Widget _buildBottomBar(var room) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              height: 36,
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: TextField(
-                controller: _chatController,
-                cursorColor: Colors.white,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
-                decoration: const InputDecoration(
-                  hintText: "Cheer for your team...",
-                  hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: keyboardHeight),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.white12),
                 ),
-                onSubmitted: (_) => _sendMessage(),
+                child: TextField(
+                  controller: _chatController,
+                  cursorColor: Colors.white,
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                  decoration: const InputDecoration(
+                    hintText: "Cheer for your team...",
+                    hintStyle: TextStyle(color: Colors.white24, fontSize: 12),
+                    border: InputBorder.none,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  onSubmitted: (_) => _sendMessage(),
+                ),
               ),
             ),
-          ),
-          const Gap(12),
-          GestureDetector(
-            onTap: () {
-               showModalBottomSheet(
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => GiftPanel(roomId: widget.roomId),
-              );
-            },
-            child: Container(
-              width: 36, height: 36,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF8E54E9)]),
+            const Gap(12),
+            GestureDetector(
+              onTap: () {
+                 showModalBottomSheet(
+                  context: context,
+                  backgroundColor: Colors.transparent,
+                  builder: (context) => GiftPanel(roomId: widget.roomId),
+                );
+              },
+              child: Container(
+                width: 36, height: 36,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF8E54E9)]),
+                ),
+                child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
               ),
-              child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

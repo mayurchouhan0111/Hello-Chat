@@ -11,6 +11,7 @@ import '../../../../core/models/user_model.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/utils/badge_utils.dart';
 import '../../../../core/widgets/user_badge.dart';
+import '../../../../core/widgets/app_avatar.dart';
 import '../../../../utils/number_formatter.dart';
 
 class ContributionRankingScreen extends ConsumerStatefulWidget {
@@ -149,17 +150,15 @@ class _RankingTile extends StatelessWidget {
           ),
           const Gap(12),
           // Avatar
-          Container(
-            width: 54, height: 54,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.grey[100]!, width: 1),
-            ),
-            child: ClipOval(
-              child: user.profilePhotoUrl.isNotEmpty
-                  ? CachedNetworkImage(imageUrl: user.profilePhotoUrl, fit: BoxFit.cover)
-                  : const Icon(Icons.person, color: Colors.grey),
-            ),
+          AppAvatar(
+            imageUrl: user.profilePhotoUrl,
+            frameUrl: user.profileFrame,
+            vipTier: user.vipTier,
+            userLevel: user.level,
+            tags: user.tags,
+            radius: 27,
+            showFrame: true,
+            frameMultiplier: 2.2, // Increased significantly for ranking list
           ),
           const Gap(16),
           // Info Area

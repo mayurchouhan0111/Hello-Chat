@@ -43,6 +43,21 @@ class FakeVoiceService implements VoiceService {
     }
   }
 
+  @override
+  Future<void> setBroadcasterRole() async {
+    print("Fake voice: set broadcaster role");
+  }
+
+  @override
+  Future<void> setAudienceRole() async {
+    print("Fake voice: set audience role");
+  }
+
+  @override
+  Future<void> toggleSpeakerphone(bool enable) async {
+    print("Fake voice speakerphone toggled: $enable");
+  }
+
   void _startSpeakingSimulation() {
     _simulationTimer?.cancel();
     _simulationTimer = Timer.periodic(Duration(seconds: _random.nextInt(3) + 2), (timer) {

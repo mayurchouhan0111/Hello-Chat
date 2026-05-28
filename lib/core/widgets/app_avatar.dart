@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/constants/app_colors.dart';
 import '../../core/providers/vip_provider.dart';
+import '../../utils/level_utils.dart';
 
 class AppAvatar extends ConsumerWidget {
   final String imageUrl;
@@ -11,6 +12,7 @@ class AppAvatar extends ConsumerWidget {
   final String? badgeUrl;
   final List<String>? tags;
   final String? vipTier;
+  final int? userLevel;
   final double radius;
   final bool showFrame;
   final double frameMultiplier;
@@ -22,29 +24,21 @@ class AppAvatar extends ConsumerWidget {
     this.badgeUrl,
     this.tags,
     this.vipTier,
+    this.userLevel,
     this.radius = 20.0,
     this.showFrame = true,
-    this.frameMultiplier = 1.75,
+    this.frameMultiplier = 1.5, // Increased size
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // 2. Resolve final Frame URL with fallback
     String finalFrameUrl = frameUrl ?? '';
     double customFrameMultiplier = frameMultiplier;
 
-    // --- TAG BASED SPECIAL FRAMES ---
-    if (finalFrameUrl.isEmpty && tags != null) {
-       if (tags!.contains('SuperAdmin')) {
-         finalFrameUrl = 'assets/images/super/super-admin.png';
-       } else if (tags!.contains('Admin')) {
-         finalFrameUrl = 'assets/images/super/admin.png';
-       } else if (tags!.contains('Reseller')) {
-         finalFrameUrl = 'assets/images/super/reseller.png';
-       }
+    if (tags != null && (tags!.contains('Admin') || tags!.contains('SuperAdmin'))) {
+      customFrameMultiplier *= 0.85;
     }
 
-    // 1. Calculate dimensions (after customFrameMultiplier is set)
     final double avatarSize = radius * 2;
     final double frameSize = avatarSize * customFrameMultiplier;
 
@@ -63,6 +57,35 @@ class AppAvatar extends ConsumerWidget {
       }
     }
 
+    if (tags != null && finalFrameUrl.isEmpty) {
+       if (tags!.contains('SuperAdmin')) {
+         finalFrameUrl = 'assets/images/super/super-admin.png';
+       } else if (tags!.contains('Admin')) {
+         finalFrameUrl = 'assets/images/super/admin.png';
+       } else if (tags!.contains('Reseller')) {
+         finalFrameUrl = 'assets/images/super/reseller.png';
+       } else if (tags!.contains('Official')) {
+         finalFrameUrl = 'assets/images/super/official.png';
+       }
+    }
+
+    final bool hasFrame = showFrame && finalFrameUrl.isNotEmpty;
+    final Color borderColor = (userLevel != null && userLevel! > 1 && !hasFrame)
+        ? LevelUtils.getLevelColor(userLevel!)
+        : Colors.white;
+    final double borderWidth = (userLevel != null && userLevel! > 1 && !hasFrame) ? 2.0 : 0.5;
+    final List<BoxShadow> boxShadows = (userLevel != null && userLevel! > 1 && !hasFrame)
+        ? [
+            BoxShadow(
+              color: LevelUtils.getLevelColor(userLevel!).withOpacity(0.45),
+              blurRadius: 8,
+              spreadRadius: 1.5,
+            )
+          ]
+        : [
+            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, spreadRadius: 0),
+          ];
+
     return Stack(
       alignment: Alignment.center,
       clipBehavior: Clip.none,
@@ -74,10 +97,8 @@ class AppAvatar extends ConsumerWidget {
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: AppColors.surfaceLight,
-            border: Border.all(color: Colors.white, width: 0.5),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, spreadRadius: 0),
-            ],
+            border: Border.all(color: borderColor, width: borderWidth),
+            boxShadow: boxShadows,
           ),
           child: ClipOval(
             child: imageUrl.isNotEmpty
@@ -94,23 +115,26 @@ class AppAvatar extends ConsumerWidget {
         // 2. The VIP Frame Layer (Foreground Layer - Overlay)
         if (showFrame && finalFrameUrl.isNotEmpty)
           IgnorePointer(
-            child: SizedBox(
-              width: frameSize,
-              height: frameSize,
-              child: finalFrameUrl.startsWith('assets/')
-                ? Image.asset(
-                    finalFrameUrl,
-                    fit: BoxFit.contain,
-                  )
-                : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
-                  ? Image.network(
+            child: Transform.translate(
+              offset: Offset(0, -radius * 0.15),
+              child: SizedBox(
+                width: frameSize,
+                height: frameSize,
+                child: finalFrameUrl.startsWith('assets/')
+                  ? Image.asset(
                       finalFrameUrl,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                     )
-                  : const SizedBox.shrink(),
-            ).animate(onPlay: (c) => c.repeat(reverse: true))
-             .scale(begin: const Offset(1, 1), end: const Offset(1.03, 1.03), duration: 2.seconds),
+                  : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
+                    ? Image.network(
+                        finalFrameUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      )
+                    : const SizedBox.shrink(),
+              ).animate(onPlay: (c) => c.repeat(reverse: true))
+               .scale(begin: const Offset(1, 1), end: const Offset(1.03, 1.03), duration: 2.seconds),
+            ),
           ),
       ],
     );

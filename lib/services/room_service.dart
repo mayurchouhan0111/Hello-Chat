@@ -86,6 +86,15 @@ class RoomService with BaseFirebaseService {
     };
 
     batch.set(roomRef.collection('participants').doc(uid), participantData);
+
+    // 3. Send Join Message
+    batch.set(roomRef.collection('messages').doc(), {
+      'uid': uid,
+      'text': '${userDataProfile?['displayName'] ?? 'Host'} joined the room',
+      'type': 'system',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
     await batch.commit();
     return roomId;
   }
@@ -96,6 +105,7 @@ class RoomService with BaseFirebaseService {
     
     final roomRef = _db.collection('rooms').doc(roomId);
     final userRef = _db.collection('users').doc(uid);
+    final participantRef = roomRef.collection('participants').doc(uid);
 
     await _db.runTransaction((transaction) async {
       final userSnapshot = await transaction.get(userRef);
@@ -103,22 +113,39 @@ class RoomService with BaseFirebaseService {
       final displayName = userData?['displayName'] ?? 'Guest';
       final photoUrl = userData?['profilePhotoUrl'] ?? '';
 
-      // 1. Add participant
-      transaction.set(roomRef.collection('participants').doc(uid), {
-        'uid': uid,
-        'displayName': displayName,
-        'profilePhotoUrl': photoUrl,
-        'role': 'audience',
-        'joinedAt': FieldValue.serverTimestamp(),
-        'lastActive': FieldValue.serverTimestamp(),
-        'seatIndex': -1,
-        'isMuted': false,
-      });
+      final participantSnapshot = await transaction.get(participantRef);
 
-      // 2. Increment count
-      transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(1)});
+      if (!participantSnapshot.exists) {
+        // 1. Add participant
+        transaction.set(participantRef, {
+          'uid': uid,
+          'displayName': displayName,
+          'profilePhotoUrl': photoUrl,
+          'role': 'audience',
+          'joinedAt': FieldValue.serverTimestamp(),
+          'lastActive': FieldValue.serverTimestamp(),
+          'seatIndex': -1,
+          'isMuted': false,
+        });
 
-      // 3. Track active room on user profile (CRITICAL for presence sync)
+        // 2. Increment count
+        transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(1)});
+
+        // 3. Send Join Message
+        transaction.set(roomRef.collection('messages').doc(), {
+          'uid': uid,
+          'text': '$displayName joined the room',
+          'type': 'system',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      } else {
+        // 1. Update presence for existing participant
+        transaction.update(participantRef, {
+          'lastActive': FieldValue.serverTimestamp(),
+        });
+      }
+
+      // Track active room on user profile (CRITICAL for presence sync)
       transaction.update(userRef, {'activeRoomId': roomId});
     });
   }
@@ -191,6 +218,12 @@ class RoomService with BaseFirebaseService {
       'seatIndex': -1,
       'role': 'listener',
     });
+  }
+
+  Future<void> setSingerRole(String roomId, String targetUid, bool isSinger) async {
+    await _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid).set({
+      'isSinger': isSinger,
+    }, SetOptions(merge: true));
   }
 
   Future<void> updateRoomSettings(String roomId, Map<String, dynamic> updates) async {
@@ -326,6 +359,12 @@ class RoomService with BaseFirebaseService {
   }
 
   // Admin & Settings
+  Future<void> addModerator(String roomId, String targetUid) async {
+    await _db.collection('rooms').doc(roomId).update({
+      'admins': FieldValue.arrayUnion([targetUid])
+    });
+  }
+
   Future<void> removeModerator(String roomId, String targetUid) async {
     await _db.collection('rooms').doc(roomId).update({
       'admins': FieldValue.arrayRemove([targetUid])

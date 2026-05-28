@@ -27,6 +27,8 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
               const SizedBox(height: 16),
               BalanceCard(isDiamond: true, balance: widget.diamondBalance),
               const SizedBox(height: 16),
+              _buildRechargeShortcut(),
+              const SizedBox(height: 12),
               _buildFisherBanner(),
               const SizedBox(height: 12),
               _buildRechargeByRow(),
@@ -83,6 +85,55 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
                 Text("FISHER", style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, shadows: [Shadow(color: Colors.black.withOpacity(0.5), blurRadius: 4)])),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRechargeShortcut() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF2196F3), Color(0xFF1565C0)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF2196F3).withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.add_card_rounded, color: Colors.white, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text("Recharge Diamonds", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                SizedBox(height: 4),
+                Text("Get diamonds instantly", style: TextStyle(color: Colors.white70, fontSize: 12)),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text("Recharge", style: TextStyle(color: Color(0xFF2196F3), fontSize: 13, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -297,7 +348,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
   }
 
   Widget _buildBottomGetButton() {
-    final total = _selectedDiamondAmount != null ? (_selectedDiamondAmount! + 10) : 0; // Simplified logic
+    final total = _selectedDiamondAmount != null ? (_selectedDiamondAmount! + 10) : 0;
     final price = _selectedPrice ?? 0;
 
     return Container(
@@ -307,10 +358,9 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
         width: double.infinity,
         height: 54,
         child: ElevatedButton(
-          onPressed: null, // Simulation Disabled
+          onPressed: () async {
             final amount = _selectedDiamondAmount!;
             
-            // 1. Show Simulated Processing Dialog
             showDialog(
               context: context,
               barrierDismissible: false,
@@ -338,17 +388,14 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
               ),
             );
 
-            // 2. Artificial Delay
             await Future.delayed(const Duration(seconds: 2));
 
             try {
               await ref.read(walletActionProvider.notifier).simulateRecharge(amount);
               
               if (context.mounted) {
-                // 3. Clear processing dialog
                 Navigator.pop(context);
 
-                // 4. Show Professional Success Bottom Sheet or Dialog
                 showModalBottomSheet(
                   context: context,
                   backgroundColor: Colors.transparent,
@@ -407,7 +454,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text("Get ", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                  const PremiumDiamond(size: 16, colors: [Colors.white, Colors.white, Colors.white]), // Just white inside button
+                  const PremiumDiamond(size: 16, colors: [Colors.white, Colors.white, Colors.white]),
                   Text(" $total", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),

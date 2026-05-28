@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../../utils/level_utils.dart';
 
 enum BadgeType {
   wealth,
@@ -18,6 +20,7 @@ class UserBadge extends StatelessWidget {
   final String? prefix;
   final IconData? icon;
   final String? imageAsset;
+  final String? customFrameAsset;
   final EdgeInsetsGeometry? margin;
 
   const UserBadge({
@@ -27,25 +30,31 @@ class UserBadge extends StatelessWidget {
     this.prefix,
     this.icon,
     this.imageAsset,
+    this.customFrameAsset,
     this.margin,
   });
 
   @override
   Widget build(BuildContext context) {
-    // Dynamic font scaling for longer labels to prevent overflow/crowding
     final double baseFontSize = (label.length > 10) ? 7.5 : 8.5;
+
+    // Get frame asset - use unified LevelUtils for level type, else fallback
+    final String frameAsset = (type == BadgeType.level && label.startsWith('Lv.'))
+        ? _getLevelBadgeAsset(label)
+        : (customFrameAsset ?? _getFrameAsset());
 
     return Container(
       margin: margin ?? const EdgeInsets.only(right: 6),
-      height: 38,
+      height: (type == BadgeType.level) ? 22 : 38,
+      constraints: const BoxConstraints(minWidth: 85),
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Background Frame
           Positioned.fill(
             child: Image.asset(
-              _getFrameAsset(),
+              frameAsset,
               fit: BoxFit.fill,
+              errorBuilder: (_, __, ___) => const SizedBox(),
             ),
           ),
           
@@ -66,7 +75,7 @@ class UserBadge extends StatelessWidget {
                       fit: BoxFit.contain,
                     ),
                     const SizedBox(width: 3),
-                  ] else if (icon != null) ...[
+                  ] else if (icon != null && type != BadgeType.level) ...[
                     Icon(
                       icon, 
                       size: 10, 
@@ -93,7 +102,7 @@ class UserBadge extends StatelessWidget {
                       label,
                       overflow: TextOverflow.visible,
                       maxLines: 1,
-                      style: TextStyle(
+                      style: GoogleFonts.cinzel(
                         color: Colors.white,
                         fontSize: baseFontSize,
                         fontWeight: FontWeight.w900,
@@ -115,13 +124,22 @@ class UserBadge extends StatelessWidget {
     switch (type) {
       case BadgeType.wealth:
       case BadgeType.achievement:
-        return const Offset(0, -3); // Shift up for Shield frame (wings at bottom)
+        return const Offset(0, -3);
       case BadgeType.agency:
       case BadgeType.family:
-        return const Offset(0, 1); // Shift down for Scroll frames as requested
+        return const Offset(0, 1);
       default:
         return Offset.zero;
     }
+  }
+
+  String _getLevelBadgeAsset(String label) {
+    final match = RegExp(r'Lv\.?(\d+)').firstMatch(label);
+    if (match != null) {
+      int level = int.tryParse(match.group(1) ?? '1') ?? 1;
+      return LevelUtils.getLevelFrameAsset(level);
+    }
+    return 'assets/images/levels_new/level_badge_0.webp';
   }
 
   String _getFrameAsset() {

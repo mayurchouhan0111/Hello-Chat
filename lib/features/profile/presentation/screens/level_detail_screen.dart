@@ -6,6 +6,7 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/widgets/app_avatar.dart';
 import 'package:hello_chat/utils/level_utils.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class LevelDetailScreen extends ConsumerWidget {
   const LevelDetailScreen({super.key});
@@ -41,26 +42,27 @@ class LevelDetailScreen extends ConsumerWidget {
         data: (user) {
           if (user == null) return const Center(child: Text("No user data"));
 
+          final calculatedLevel = LevelUtils.calculateLevel(user.xp);
           final progress = LevelUtils.getLevelProgress(user.xp);
           final progressPercent = (progress * 100).toStringAsFixed(1);
-          final levelColor = LevelUtils.getLevelColor(user.level);
+          final levelColor = LevelUtils.getLevelColor(calculatedLevel);
 
           return SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
             child: Column(
               children: [
                 // 1. Top Section (Avatar & Progress)
-                _buildTopSection(context, user, progress, progressPercent, levelColor),
+                _buildTopSection(context, user, progress, progressPercent, levelColor, calculatedLevel),
 
                 const Gap(32),
 
                 // 2. Medal Reward
                 _buildMedalRewardSection(),
 
-                const Gap(40),
+                const Gap(32),
 
-                // 3. Pendant Reward
-                // _buildPendantRewardSection(),
+                // 3. XP Rules & Level Up Guide
+                _buildXPRulesSection(),
 
                 const Gap(40),
               ],
@@ -71,7 +73,7 @@ class LevelDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopSection(BuildContext context, user, double progress, String percent, Color levelColor) {
+  Widget _buildTopSection(BuildContext context, user, double progress, String percent, Color levelColor, int calculatedLevel) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -92,11 +94,12 @@ class LevelDetailScreen extends ConsumerWidget {
             imageUrl: user.profilePhotoUrl,
             radius: 50,
             frameUrl: user.profileFrame,
+            userLevel: calculatedLevel,
             frameMultiplier: 1.8,
           ),
           const Gap(12),
           // Level Badge Shield
-          _buildLevelShield(user.level),
+          _buildLevelShield(calculatedLevel),
           const Gap(24),
           
           // Progress Bar with Percentage Bubble
@@ -162,7 +165,7 @@ class LevelDetailScreen extends ConsumerWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      "Lv${user.level}",
+                      "Lv$calculatedLevel",
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16),
                     ),
                     Text(
@@ -180,7 +183,7 @@ class LevelDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildMedalRewardSection() {
-    final medals = [1, 11, 23, 34, 45, 56, 67, 78, 89, 100];
+    final medals = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
     return Column(
       children: [
@@ -195,6 +198,7 @@ class LevelDetailScreen extends ConsumerWidget {
         ),
         const Gap(24),
         Container(
+          width: double.infinity,
           margin: const EdgeInsets.symmetric(horizontal: 20),
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
@@ -202,11 +206,13 @@ class LevelDetailScreen extends ConsumerWidget {
             borderRadius: BorderRadius.circular(12),
             border: Border.all(color: Colors.cyan.withOpacity(0.1)),
           ),
-          child: Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            alignment: WrapAlignment.center,
-            children: medals.map((lv) => _buildLevelChip(lv)).toList(),
+          child: Center(
+            child: Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              alignment: WrapAlignment.center,
+              children: medals.map((lv) => _buildLevelChip(lv)).toList(),
+            ),
           ),
         ),
       ],
@@ -218,23 +224,23 @@ class LevelDetailScreen extends ConsumerWidget {
     int index = LevelUtils.getLevelBadgeIndex(level);
 
     return Container(
-      width: 70,
+      width: 100,
       child: Column(
         children: [
           Stack(
             alignment: Alignment.center,
             children: [
               Image.asset(
-                "assets/images/levels/level_badge_$index.png",
-                width: 48,
-                height: 48,
+                "assets/images/levels_new/level_badge_$index.webp",
+                width: 80,
+                height: 40,
                 fit: BoxFit.contain,
               ),
               Positioned(
-                bottom: 10,
+                bottom: 14,
                 child: Text(
                   "Lv$level",
-                  style: const TextStyle(
+                  style: GoogleFonts.cinzel(
                     color: Colors.white,
                     fontSize: 8,
                     fontWeight: FontWeight.w900,
@@ -390,34 +396,236 @@ class LevelDetailScreen extends ConsumerWidget {
   }
 
   Widget _buildLevelShield(int level) {
-    int index = LevelUtils.getLevelBadgeIndex(level);
-    return Container(
-      height: 80,
-      width: 80,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Image.asset(
-            "assets/images/levels/level_badge_$index.png",
-            fit: BoxFit.contain,
+    int index = 0;
+    if (level >= 80) index = 5;
+    else if (level >= 50) index = 4;
+    else if (level >= 30) index = 3;
+    else if (level >= 20) index = 2;
+    else if (level >= 10) index = 1;
+    else index = 0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          "assets/images/levels/level_badge_$index.png",
+          width: 60,
+          height: 60,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const SizedBox(),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          "Lv.$level",
+          style: GoogleFonts.cinzel(
+            color: Colors.black87,
+            fontSize: 14,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
+            shadows: const [
+              Shadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 0.5)),
+            ],
           ),
-          Positioned(
-            bottom: 18,
-            child: Text(
-              "Lv.$level",
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 11,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 0.5,
-                shadows: [
-                  Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 1)),
-                ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildXPRulesSection() {
+    final rules = [
+      {'range': 'Lv.1 - 10', 'xp': '10K XP'},
+      {'range': 'Lv.10 - 20', 'xp': '25K XP'},
+      {'range': 'Lv.20 - 30', 'xp': '50K XP'},
+      {'range': 'Lv.30 - 40', 'xp': '100K XP'},
+      {'range': 'Lv.40 - 50', 'xp': '200K XP'},
+      {'range': 'Lv.50 - 60', 'xp': '300K XP'},
+      {'range': 'Lv.60 - 70', 'xp': '400K XP'},
+      {'range': 'Lv.70 - 80', 'xp': '500K XP'},
+      {'range': 'Lv.80 - 90', 'xp': '600K XP'},
+      {'range': 'Lv.90 - 100', 'xp': '1.0M XP'},
+    ];
+
+    return Column(
+      children: [
+        const Text(
+          "How to Level Up",
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const Gap(8),
+        const Text(
+          "Earn XP by participating and interacting to boost your profile level.",
+          style: TextStyle(fontSize: 13, color: Colors.grey),
+        ),
+        const Gap(24),
+        // 1. Diamonds to XP rate cards
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              // Sender Card
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFFFF4081).withOpacity(0.08),
+                        const Color(0xFFFF80AB).withOpacity(0.15),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFFF4081).withOpacity(0.15)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF4081).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.outbox_rounded, color: Color(0xFFFF4081), size: 24),
+                      ),
+                      const Gap(10),
+                      const Text(
+                        "Sending Gifts",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                      ),
+                      const Gap(4),
+                      Text(
+                        "500 💎 = 1 XP",
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFFFF4081),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              const Gap(16),
+              // Receiver Card
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        const Color(0xFF9C27B0).withOpacity(0.08),
+                        const Color(0xFFBA68C8).withOpacity(0.15),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFF9C27B0).withOpacity(0.15)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9C27B0).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.move_to_inbox_rounded, color: Color(0xFF9C27B0), size: 24),
+                      ),
+                      const Gap(10),
+                      const Text(
+                        "Receiving Gifts",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
+                      ),
+                      const Gap(4),
+                      Text(
+                        "1,000 💎 = 1 XP",
+                        style: GoogleFonts.outfit(
+                          color: const Color(0xFF9C27B0),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        ),
+        const Gap(28),
+        // 2. XP Brackets title
+        const Text(
+          "XP Required Per Level Up",
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+        ),
+        const Gap(16),
+        // 3. Brackets list
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.grey[50],
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey[200]!),
+          ),
+          child: Column(
+            children: [
+              ...rules.map((rule) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.trending_up_rounded, color: Colors.cyan[600], size: 18),
+                          const Gap(8),
+                          Text(
+                            rule['range']!,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.cyan[50],
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          "${rule['xp']} per level",
+                          style: TextStyle(
+                            color: Colors.cyan[800],
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+              Divider(color: Colors.grey[200]),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.info_outline_rounded, size: 14, color: Colors.grey),
+                    const Gap(6),
+                    Text(
+                      "Maximum Level cap is exactly Level 100",
+                      style: TextStyle(color: Colors.grey[600], fontSize: 11, fontWeight: FontWeight.w500),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

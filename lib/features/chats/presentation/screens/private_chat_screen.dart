@@ -10,6 +10,7 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/constants/app_colors.dart';
+import 'package:go_router/go_router.dart';
 
 class PrivateChatScreen extends ConsumerStatefulWidget {
   final String chatId;
@@ -122,7 +123,10 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                 child: messagesAsync.when(
                   data: (messages) => _buildMessageList(messages, currentUid),
                   loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
-                  error: (e, __) => Center(child: Text("Error: $e")),
+                  error: (e, __) {
+                    debugPrint("Chat Error: $e");
+                    return _buildMessageList([], currentUid);
+                  },
                 ),
               ),
               SafeArea(child: _buildInputArea()),
@@ -210,6 +214,10 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
     final timestamp = (msg['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now();
     final timeStr = "${timestamp.hour}:${timestamp.minute.toString().padLeft(2, '0')}";
     
+    if (msg['type'] == 'room_invite') {
+      return _buildRoomInviteBubble(msg, isMe, timeStr);
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -256,6 +264,111 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                   ),
                 ],
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRoomInviteBubble(Map<String, dynamic> msg, bool isMe, String timeStr) {
+    final text = msg['text'] as String? ?? "";
+    final lines = text.split('\n');
+    final inviteText = lines.first;
+    String? roomId;
+    if (lines.length > 1) {
+       final url = lines.last;
+       if (url.contains('/live-room/')) {
+         roomId = url.split('/live-room/').last;
+       } else if (url.contains('/room/')) {
+         roomId = url.split('/room/').last; // Backwards compatibility
+       }
+    }
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: EdgeInsets.only(
+          bottom: 4,
+          left: isMe ? 40 : 0,
+          right: isMe ? 0 : 40,
+        ),
+        width: 240,
+        decoration: BoxDecoration(
+          color: isMe ? AppColors.primary.withOpacity(0.9) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: isMe ? Colors.transparent : Colors.black12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isMe ? Colors.white10 : Colors.blue.shade50,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isMe ? Colors.white24 : AppColors.primary.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.headset_mic_rounded, color: isMe ? Colors.white : AppColors.primary, size: 20),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      inviteText,
+                      style: TextStyle(
+                        color: isMe ? Colors.white : Colors.black87,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (roomId != null)
+              GestureDetector(
+                onTap: () => context.push('/live-room/$roomId'),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF00E5FF),
+                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(15)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    "JOIN ROOM",
+                    style: TextStyle(color: Colors.black87, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.only(right: 8, bottom: 4, top: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text(
+                    timeStr,
+                    style: TextStyle(color: isMe ? Colors.white70 : Colors.grey[500], fontSize: 9),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      msg['isRead'] == true ? Icons.done_all : Icons.done,
+                      size: 12,
+                      color: msg['isRead'] == true ? AppColors.diamond : Colors.white70,
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),

@@ -8,7 +8,7 @@ class Participant {
   final DateTime lastActive;
   final int? seatIndex;
   final bool isMuted;
-  final String role; // "host" | "admin" | "speaker" | "audience"
+  final String role;
   final String vipTier;
   final String nobleTier;
   final String entryAnimation;
@@ -16,6 +16,10 @@ class Participant {
   final bool priorityMicAccess;
   final bool isAdmin;
   final List<String> tags;
+  final int level;
+  final bool isSinger;
+  final int diamondsSent;
+  final int diamondsReceived;
 
   Participant({
     required this.uid,
@@ -33,6 +37,10 @@ class Participant {
     this.priorityMicAccess = false,
     this.isAdmin = false,
     this.tags = const [],
+    this.level = 1,
+    this.isSinger = false,
+    this.diamondsSent = 0,
+    this.diamondsReceived = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -52,7 +60,22 @@ class Participant {
       'priorityMicAccess': priorityMicAccess,
       'isAdmin': isAdmin,
       'tags': tags,
+      'level': level,
+      'isSinger': isSinger,
+      'diamondsSent': diamondsSent,
+      'diamondsReceived': diamondsReceived,
     };
+  }
+
+  static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
+    if (value == null) return fallback ?? DateTime.now();
+    if (value is Timestamp) return value.toDate();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    return fallback ?? DateTime.now();
   }
 
   factory Participant.fromMap(Map<String, dynamic> map, String docId) {
@@ -60,8 +83,8 @@ class Participant {
       uid: docId,
       displayName: map['displayName'] ?? "User",
       profilePhotoUrl: map['profilePhotoUrl'] ?? "",
-      joinedAt: map['joinedAt'] != null ? (map['joinedAt'] as Timestamp).toDate() : DateTime.now(),
-      lastActive: map['lastActive'] != null ? (map['lastActive'] as Timestamp).toDate() : DateTime.now(),
+      joinedAt: _parseDateTime(map['joinedAt']),
+      lastActive: _parseDateTime(map['lastActive']),
       seatIndex: map['seatIndex'],
       isMuted: map['isMuted'] ?? false,
       role: map['role'] ?? 'audience',
@@ -72,6 +95,10 @@ class Participant {
       priorityMicAccess: map['priorityMicAccess'] ?? false,
       isAdmin: map['isAdmin'] ?? false,
       tags: (map['tags'] as Iterable?)?.whereType<String>().toList() ?? [],
+      level: map['level'] ?? 1,
+      isSinger: map['isSinger'] ?? false,
+      diamondsSent: map['diamondsSent'] ?? 0,
+      diamondsReceived: map['diamondsReceived'] ?? 0,
     );
   }
 }

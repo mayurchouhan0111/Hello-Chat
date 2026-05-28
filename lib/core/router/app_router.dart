@@ -52,6 +52,10 @@ import '../../features/rooms/presentation/screens/live_room_screen.dart';
 import '../../features/rooms/presentation/screens/active_pk_battle_screen.dart';
 import '../providers/auth_provider.dart';
 
+import '../../features/wallet/presentation/screens/withdrawal_history_screen.dart';
+import '../../features/wallet/presentation/screens/withdraw_beans_screen.dart';
+import '../../features/profile/presentation/screens/verification_screen.dart';
+
 class AppRoutes {
   // Auth
   static const splash          = '/';
@@ -98,6 +102,9 @@ class AppRoutes {
   static const pkBattle         = '/pk-battle';
   static const resellerCenter   = '/reseller-center';
   static const levelDetail      = '/level-detail';
+  static const verification     = '/verification';
+  static const withdrawalHistory = '/withdrawal-history';
+  static const withdrawBeans     = '/withdraw-beans';
 }
 
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -359,6 +366,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.levelDetail,
         builder: (context, state) => const LevelDetailScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.verification,
+        builder: (context, state) => const VerificationScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.withdrawalHistory,
+        builder: (context, state) => const WithdrawalHistoryScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.withdrawBeans,
+        builder: (context, state) => const WithdrawBeansScreen(),
       ),
     ],
   );

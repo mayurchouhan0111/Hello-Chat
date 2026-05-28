@@ -1,10 +1,11 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 
 mixin class BaseFirebaseService {
-  // ⚡ Explicit region selection to avoid regional mismatches (matching backend)
-  FirebaseFunctions get _functions => FirebaseFunctions.instanceFor(region: 'us-central1');
+  // ⚡ Using default instance to match other services and avoid App Check / regional mismatches
+  FirebaseFunctions get _functions => FirebaseFunctions.instance;
 
   Future<dynamic> callFunction(String name, [Map<String, dynamic>? data]) async {
     // 🛡️ Debug Auth State
@@ -17,16 +18,16 @@ mixin class BaseFirebaseService {
       );
     }
 
-    // 🔑 Diagnostic: Check if we can actually get a valid token
-    try {
-      final token = await user.getIdToken(true); // Force refresh to be sure
-      if (token == null || token.isEmpty) {
-        debugPrint('⚠️ [BaseFirebaseService] User is logged in but ID Token is empty!');
-      } else {
-        debugPrint('✅ [BaseFirebaseService] ID Token refresh successful for ${user.uid.substring(0, 5)}...');
+    // 🔑 Diagnostic: Check if we can actually get a valid token (cached to prevent latency)
+    if (kDebugMode) {
+      try {
+        final token = await user.getIdToken(false);
+        if (token == null || token.isEmpty) {
+          debugPrint('⚠️ [BaseFirebaseService] User is logged in but ID Token is empty!');
+        }
+      } catch (e) {
+        debugPrint('🛑 [BaseFirebaseService] Failed to fetch ID Token: $e');
       }
-    } catch (e) {
-      debugPrint('🛑 [BaseFirebaseService] Failed to fetch ID Token: $e');
     }
 
     try {

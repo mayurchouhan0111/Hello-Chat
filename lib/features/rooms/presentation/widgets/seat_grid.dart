@@ -3,6 +3,7 @@ import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/models/emoji_reaction.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/auth_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -16,6 +17,7 @@ class SeatGrid extends ConsumerWidget {
   final List<int> lockedSeats;
   final bool isYoutubeActive;
   final String ownerUid;
+  final List<EmojiReaction> emojiReactions;
 
   const SeatGrid({
     super.key,
@@ -27,6 +29,7 @@ class SeatGrid extends ConsumerWidget {
     this.lockedSeats = const [],
     this.isYoutubeActive = false,
     this.ownerUid = '',
+    this.emojiReactions = const [],
   });
 
   @override
@@ -72,7 +75,9 @@ class SeatGrid extends ConsumerWidget {
     final itemCount = (isOwner && !showHostInGrid) ? capacity - 1 : capacity;
  
     return Padding(
-      padding: const EdgeInsets.only(top: 8, bottom: 8, left: 0, right: 0),
+      padding: isYoutubeActive 
+          ? const EdgeInsets.only(top: 2, bottom: 2, left: 0, right: 0)
+          : const EdgeInsets.only(top: 8, bottom: 8, left: 0, right: 0),
       child: GridView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
@@ -80,7 +85,9 @@ class SeatGrid extends ConsumerWidget {
           crossAxisCount: crossAxisCount,
           mainAxisSpacing: isYoutubeActive ? 2 : 2,
           crossAxisSpacing: isYoutubeActive ? 4 : 4,
-          mainAxisExtent: (isYoutubeActive && capacity == 16) ? 60 : (isYoutubeActive ? 78 : 82),
+          mainAxisExtent: (isYoutubeActive
+              ? (capacity >= 16 ? 56 : 64)
+              : (capacity >= 16 ? 64 : (capacity >= 12 ? 72 : 82))) + 12,
         ),
       itemCount: itemCount,
       itemBuilder: (context, gridIndex) {
@@ -97,6 +104,7 @@ class SeatGrid extends ConsumerWidget {
         final isOccupied = participant.uid.isNotEmpty;
 
         return GestureDetector(
+          key: ValueKey('seat_${index}_${participant.uid}'),
           onTap: () => onSeatTap(index),
           onLongPress: () => onSeatLongPress(index),
           child: Column(
@@ -114,6 +122,28 @@ class SeatGrid extends ConsumerWidget {
                         : Text("${index + 1}", style: TextStyle(color: Colors.white70, fontSize: fontSize))),
                 ),
               ),
+              if (isOccupied)
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.black45,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text("💎", style: TextStyle(fontSize: 7)),
+                      const SizedBox(width: 2),
+                      Text(
+                        participant.diamondsReceived >= 1000 
+                            ? '${(participant.diamondsReceived / 1000).toStringAsFixed(1)}k' 
+                            : '${participant.diamondsReceived}',
+                        style: TextStyle(color: Colors.yellowAccent, fontSize: fontSize - 1, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         );
@@ -144,13 +174,14 @@ class SeatGrid extends ConsumerWidget {
     final userAsync = ref.watch(userProfileProvider(p.uid));
     final isOwnerView = currentUid == ownerUid && ownerUid.isNotEmpty;
     final isOwnerSeat = p.uid == ownerUid && ownerUid.isNotEmpty;
-    
+
     return userAsync.when(
       data: (user) {
         final u = user as UserModel;
         String? displayFrame = u.profileFrame;
 
         return SizedBox(
+          key: ValueKey('seat_avatar_${p.uid}'),
           width: radius * 2,
           height: radius * 2,
           child: Stack(
@@ -170,6 +201,7 @@ class SeatGrid extends ConsumerWidget {
                       imageUrl: u.profilePhotoUrl,
                       frameUrl: displayFrame,
                       vipTier: u.vipTier,
+                      userLevel: u.level,
                       tags: u.tags,
                       radius: radius,
                       showFrame: true,
@@ -196,7 +228,7 @@ class SeatGrid extends ConsumerWidget {
               
               if (p.role == 'host')
                 Positioned(
-                  top: -10, // Moved up to clear big frames
+                  top: -10,
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
@@ -207,6 +239,31 @@ class SeatGrid extends ConsumerWidget {
                     child: Text("OWNER", style: TextStyle(color: Colors.black, fontSize: radius > 22 ? 8 : 6, fontWeight: FontWeight.bold)),
                   ),
                 ),
+
+              if (emojiReactions.any((r) => r.uid == p.uid))
+                ...emojiReactions
+                    .where((r) => r.uid == p.uid)
+                    .map((reaction) => [
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: ClipOval(
+                            child: Image.asset(
+                              reaction.assetPath,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                            ),
+                          ),
+                        ).animate()
+                          .fadeIn(duration: 200.ms)
+                          .scale(
+                            begin: const Offset(0.3, 0.3),
+                            end: const Offset(1.0, 1.0),
+                            duration: 400.ms,
+                            curve: Curves.easeOutBack,
+                          )
+                          .fadeOut(duration: 400.ms, delay: 1100.ms),
+                      ),
+                    ]).expand((e) => e),
             ],
           ),
         ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fadeIn();

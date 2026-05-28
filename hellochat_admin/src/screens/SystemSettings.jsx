@@ -212,6 +212,10 @@ export const SystemSettings = () => {
                        <span className="text-[10px] font-bold text-slate-500 uppercase">Bean ⮕ USD ($)</span>
                        <input type="number" step="0.001" className="glass-input-sm w-24 text-right" value={config.currency?.beanToDollar} onChange={e => setConfig({...config, currency: {...config.currency, beanToDollar: parseFloat(e.target.value)}})} />
                     </div>
+                    <div className="flex items-center justify-between">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase">Min Withdrawal (Beans)</span>
+                       <input type="number" step="100" className="glass-input-sm w-24 text-right" value={config.currency?.minWithdrawal || 1000} onChange={e => setConfig({...config, currency: {...config.currency, minWithdrawal: parseInt(e.target.value)}})} />
+                    </div>
                  </div>
               </div>
 

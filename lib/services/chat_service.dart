@@ -22,6 +22,15 @@ class ChatService {
     });
   }
 
+  Future<void> sendStickerMessage(String roomId, String uid, String stickerPath) async {
+    await _db.collection('rooms').doc(roomId).collection('messages').add({
+      'uid': uid,
+      'text': stickerPath,
+      'type': 'sticker',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> sendSystemMessage(String roomId, String text) async {
     await _db.collection('rooms').doc(roomId).collection('messages').add({
       'uid': 'system',

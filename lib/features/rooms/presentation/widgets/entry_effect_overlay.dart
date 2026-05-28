@@ -123,6 +123,7 @@ class _EntryEffectOverlayState extends State<EntryEffectOverlay> with SingleTick
             asset,
             width: width,
             fit: BoxFit.contain,
+            frameRate: FrameRate.composition, // ⚡ Optimize Lottie frame rate!
           ),
           
           // 2. User Avatar

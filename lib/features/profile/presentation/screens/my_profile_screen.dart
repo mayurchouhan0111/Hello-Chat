@@ -101,18 +101,46 @@ class MyProfileScreen extends ConsumerWidget {
                 radius: 46,
                 vipTier: userData.vipTier,
                 frameUrl: userData.profileFrame,
+                userLevel: userData.level,
                 frameMultiplier: 2.0,
               ),
             ),
           ),
           const Gap(16),
-          Text(
-            userData.displayName,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: Colors.black,
-            ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                userData.displayName,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.black,
+                ),
+              ),
+              if (userData.isVerified == true) ...[
+                const Gap(6),
+                const Icon(Icons.verified_rounded, color: Color(0xFF00ACC1), size: 18),
+              ],
+              if (userData.isReseller) ...[
+                const Gap(6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.store_rounded, color: Colors.white, size: 12),
+                      SizedBox(width: 3),
+                      Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ],
           ),
         ],
       ),
@@ -217,28 +245,36 @@ class MyProfileScreen extends ConsumerWidget {
             isLevel: true,
             onTap: () => context.push(AppRoutes.levelDetail),
           ),
-          const Gap(10),
+          const Gap(8),
           _buildShortcutCard(
-            label: "VIP Center",
+            label: "VIP",
             icon: Icons.workspace_premium_outlined,
             color: const Color(0xFFFFF7ED),
             iconColor: const Color(0xFFEA580C),
             onTap: () => context.push(AppRoutes.vipShop),
           ),
-          const Gap(10),
+          const Gap(8),
+          _buildShortcutCard(
+            label: "Withdraw",
+            icon: Icons.account_balance_wallet_rounded,
+            color: const Color(0xFFF5F3FF),
+            iconColor: const Color(0xFF7C3AED),
+            onTap: () => context.push(AppRoutes.withdrawBeans),
+          ),
+          const Gap(8),
           _buildShortcutCard(
             label: "Family",
             icon: Icons.groups_2_outlined,
-            color: const Color(0xFFF5F3FF),
-            iconColor: const Color(0xFF7C3AED),
-            onTap: () => context.push(userData.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
-          ),
-          const Gap(10),
-          _buildShortcutCard(
-            label: "Earnings",
-            icon: Icons.monetization_on_outlined,
             color: const Color(0xFFECFDF5),
             iconColor: const Color(0xFF059669),
+            onTap: () => context.push(userData.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
+          ),
+          const Gap(8),
+          _buildShortcutCard(
+            label: "Invite",
+            icon: Icons.person_add_alt_1_rounded,
+            color: const Color(0xFFFFF1F2),
+            iconColor: const Color(0xFFE11D48),
             onTap: () => context.push(AppRoutes.invite),
           ),
         ],
@@ -331,10 +367,47 @@ class MyProfileScreen extends ConsumerWidget {
     return Column(
       children: [
         _buildMenuTile(
+          icon: Icons.shield_outlined,
+          label: userData.isVerified == true ? "Account Verified" : "Identity Verification",
+          iconColor: userData.isVerified == true ? const Color(0xFF4CAF50) : const Color(0xFF00ACC1),
+          trailing: userData.isVerified == true 
+            ? const Icon(Icons.check_circle_rounded, color: Color(0xFF4CAF50), size: 20)
+            : _buildNotificationDot(color: Colors.cyan),
+          onTap: () => context.push(AppRoutes.verification),
+        ),
+        if (userData.isReseller) ...[
+          _buildMenuTile(
+            icon: Icons.store_rounded,
+            label: "Reseller Portal",
+            iconColor: const Color(0xFF4CAF50),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4CAF50).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text("Active", style: TextStyle(color: Color(0xFF4CAF50), fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+            onTap: () => context.push(AppRoutes.resellerCenter),
+          ),
+        ],
+        _buildMenuTile(
+          icon: Icons.add_card_rounded,
+          label: "Recharge",
+          iconColor: const Color(0xFF2196F3),
+          onTap: () => context.push(AppRoutes.wallet),
+        ),
+        _buildMenuTile(
           icon: Icons.card_giftcard_rounded,
           label: "Invite get coins",
           iconColor: const Color(0xFFFFB300),
           onTap: () => context.push(AppRoutes.invite),
+        ),
+        _buildMenuTile(
+          icon: Icons.account_balance_wallet_rounded,
+          label: "Wallet (Withdraw)",
+          iconColor: const Color(0xFFF06292),
+          onTap: () => context.push(AppRoutes.wallet),
         ),
         _buildMenuTile(
           icon: Icons.favorite_rounded,
@@ -356,9 +429,9 @@ class MyProfileScreen extends ConsumerWidget {
         ),
         _buildMenuTile(
           icon: Icons.account_balance_wallet_rounded,
-          label: "Wallet",
-          iconColor: const Color(0xFFF06292),
-          onTap: () => context.push(AppRoutes.wallet),
+          label: "Salary History",
+          iconColor: Colors.amber[700]!,
+          onTap: () => context.push(AppRoutes.salaryHistory),
         ),
         _buildMenuTile(
           icon: Icons.stars_rounded,

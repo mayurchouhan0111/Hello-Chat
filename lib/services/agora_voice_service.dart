@@ -46,47 +46,83 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       await _engine!.initialize(const RtcEngineContext(
         appId: AgoraConfig.appId,
         channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
+        audioScenario: AudioScenarioType.audioScenarioChorus,
       ));
+
+      // Set audio profile for professional music/singing quality
+      await _engine!.setAudioProfile(
+        profile: AudioProfileType.audioProfileMusicHighQualityStereo,
+      );
 
       _engine!.registerEventHandler(
         RtcEngineEventHandler(
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-            debugPrint("✅ Joined Agora channel: ${connection.channelId}");
+            try {
+              debugPrint("✅ Joined Agora channel: ${connection.channelId}");
+            } catch (e) {
+              debugPrint("⚠️ Error in onJoinChannelSuccess: $e");
+            }
+            return;
           },
           onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
-            debugPrint("👥 Remote user $remoteUid joined");
-            _remoteUids.add(remoteUid);
-            _remoteUsersController.add(List.unmodifiable(_remoteUids));
+            try {
+              debugPrint("👥 Remote user $remoteUid joined");
+              _remoteUids.add(remoteUid);
+              _remoteUsersController.add(List.unmodifiable(_remoteUids));
+            } catch (e) {
+              debugPrint("⚠️ Error in onUserJoined: $e");
+            }
+            return;
           },
           onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
-            debugPrint("👋 Remote user $remoteUid left. Reason: $reason");
-            _remoteUids.remove(remoteUid);
-            _remoteUsersController.add(List.unmodifiable(_remoteUids));
+            try {
+              debugPrint("👋 Remote user $remoteUid left. Reason: $reason");
+              _remoteUids.remove(remoteUid);
+              _remoteUsersController.add(List.unmodifiable(_remoteUids));
+            } catch (e) {
+              debugPrint("⚠️ Error in onUserOffline: $e");
+            }
+            return;
           },
           onAudioVolumeIndication: (RtcConnection connection, List<AudioVolumeInfo> speakers, int speakerNumber, int totalVolume) {
-            bool speaking = speakers.any((s) => s.uid == 0 && (s.volume ?? 0) > 15);
-            _speakingController.add(speaking);
+            try {
+              bool speaking = speakers.any((s) => s.uid == 0 && (s.volume ?? 0) > 15);
+              _speakingController.add(speaking);
+            } catch (e) {
+              debugPrint("⚠️ Error in onAudioVolumeIndication: $e");
+            }
+            return;
           },
           onError: (ErrorCodeType err, String msg) {
-            if (_engine == null) return;
-            debugPrint("🛑 AGORA ERROR: $err, $msg");
-            
-            if (err == ErrorCodeType.errInvalidToken) {
-              debugPrint("❌ CRITICAL: Agora Token was rejected. This usually means the App Certificate in the backend does not match the Agora Console.");
+            try {
+              if (_engine == null) return;
+              debugPrint("🛑 AGORA ERROR: $err, $msg");
+              
+              if (err == ErrorCodeType.errInvalidToken) {
+                debugPrint("❌ CRITICAL: Agora Token was rejected. This usually means the App Certificate in the backend does not match the Agora Console.");
+              }
+            } catch (e) {
+              debugPrint("⚠️ Error in onError callback: $e");
             }
+            return;
           },
           onLeaveChannel: (RtcConnection connection, RtcStats stats) {
-            debugPrint("🚪 Left channel");
-            _remoteUids.clear();
-            _remoteUsersController.add([]);
-            _currentRoomId = null;
-            _isRetrying = false;
+            try {
+              debugPrint("🚪 Left channel");
+              _remoteUids.clear();
+              _remoteUsersController.add([]);
+              _currentRoomId = null;
+              _isRetrying = false;
+            } catch (e) {
+              debugPrint("⚠️ Error in onLeaveChannel callback: $e");
+            }
+            return;
           },
         ),
       );
 
       await _engine!.enableAudioVolumeIndication(interval: 200, smooth: 3, reportVad: true);
-      await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
+      await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
       await _engine!.enableAudio();
       
       try {
@@ -151,12 +187,12 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       await _engine!.joinChannel(
         token: finalToken ?? "",
         channelId: roomId,
-        uid: 0, // Must match the UID used in Cloud Functions (0)
+        uid: 0,
         options: const ChannelMediaOptions(
           autoSubscribeAudio: true,
-          publishMicrophoneTrack: true,
+          publishMicrophoneTrack: false,
           publishCameraTrack: false,
-          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          clientRoleType: ClientRoleType.clientRoleAudience,
         ),
       );
     } catch (e) {
@@ -199,6 +235,34 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
     }
   }
 
+  @override
+  Future<void> setBroadcasterRole() async {
+    if (_engine != null) {
+      try {
+        await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+          clientRoleType: ClientRoleType.clientRoleBroadcaster,
+          publishMicrophoneTrack: !_isMuted,
+        ));
+      } catch (e) {
+        debugPrint("⚠️ AGORA SET BROADCASTER ERROR: $e");
+      }
+    }
+  }
+
+  @override
+  Future<void> setAudienceRole() async {
+    if (_engine != null) {
+      try {
+        await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+          clientRoleType: ClientRoleType.clientRoleAudience,
+          publishMicrophoneTrack: false,
+        ));
+      } catch (e) {
+        debugPrint("⚠️ AGORA SET AUDIENCE ERROR: $e");
+      }
+    }
+  }
+
   Future<void> toggleCamera(bool enable) async {
     if (_engine != null) {
       try {
@@ -214,6 +278,80 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       } catch (e) {
         debugPrint("⚠️ AGORA CAMERA TOGGLE ERROR: $e");
       }
+    }
+  }
+
+  Future<void> setMicVolume(int volume) async {
+    if (_engine != null) {
+      await _engine!.adjustRecordingSignalVolume(volume);
+    }
+  }
+
+  Future<void> enableInEarMonitoring(bool enable) async {
+    if (_engine != null) {
+      await _engine!.enableInEarMonitoring(
+        enabled: enable,
+        includeAudioFilters: EarMonitoringFilterType.earMonitoringFilterBuiltInAudioFilters,
+      );
+    }
+  }
+
+  Future<void> setAudioEffectPreset(AudioEffectPreset preset) async {
+    if (_engine != null) {
+      await _engine!.setAudioEffectPreset(preset);
+    }
+  }
+
+  Future<void> setVoiceBeautifierPreset(VoiceBeautifierPreset preset) async {
+    if (_engine != null) {
+      await _engine!.setVoiceBeautifierPreset(preset);
+    }
+  }
+
+  Future<void> setLocalVoiceEqualization({required AudioEqualizationBandFrequency bandFrequency, required int bandGain}) async {
+    if (_engine != null) {
+      await _engine!.setLocalVoiceEqualization(
+        bandFrequency: bandFrequency,
+        bandGain: bandGain,
+      );
+    }
+  }
+
+  Future<void> startAudioMixing(String url) async {
+    if (_engine != null) {
+      try {
+        await _engine!.startAudioMixing(
+          filePath: url,
+          loopback: false,
+          cycle: 1,
+        );
+      } catch (e) {
+        debugPrint("⚠️ AGORA START AUDIO MIXING ERROR: $e");
+      }
+    }
+  }
+
+  Future<void> pauseAudioMixing() async {
+    if (_engine != null) {
+      await _engine!.pauseAudioMixing();
+    }
+  }
+
+  Future<void> resumeAudioMixing() async {
+    if (_engine != null) {
+      await _engine!.resumeAudioMixing();
+    }
+  }
+
+  Future<void> stopAudioMixing() async {
+    if (_engine != null) {
+      await _engine!.stopAudioMixing();
+    }
+  }
+
+  Future<void> adjustAudioMixingVolume(int volume) async {
+    if (_engine != null) {
+      await _engine!.adjustAudioMixingVolume(volume);
     }
   }
 

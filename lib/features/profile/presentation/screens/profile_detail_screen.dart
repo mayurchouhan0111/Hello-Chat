@@ -18,6 +18,7 @@ import 'package:hello_chat/core/models/family_model.dart';
 import 'package:hello_chat/core/providers/family_provider.dart';
 import 'package:hello_chat/utils/number_formatter.dart';
 import 'package:hello_chat/utils/level_utils.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'dart:ui';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -286,6 +287,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 radius: 50,
                 vipTier: userData.vipTier,
                 frameUrl: userData.profileFrame,
+                userLevel: userData.level,
                 frameMultiplier: 2.0,
               ),
             ],
@@ -398,6 +400,24 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 color: userData.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pink,
                 size: 16,
               ),
+              if (userData.isReseller) ...[
+                const Gap(6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.store_rounded, color: Colors.white, size: 12),
+                      SizedBox(width: 3),
+                      Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -542,17 +562,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     final itemWidth = (screenWidth - 32 - 12) / 4; 
 
     final badges = rawBadges.map((b) {
-       return SizedBox(
-         width: itemWidth,
-         child: b is UserBadge ? UserBadge(
-           label: b.label,
-           type: b.type,
-           prefix: b.prefix,
-           icon: b.icon,
-           imageAsset: b.imageAsset,
-           margin: EdgeInsets.zero,
-         ) : b,
-       );
+       return b is UserBadge ? UserBadge(
+         label: b.label,
+         type: b.type,
+         prefix: b.prefix,
+         icon: b.icon,
+         imageAsset: b.imageAsset,
+         customFrameAsset: b.customFrameAsset,
+         margin: const EdgeInsets.only(right: 8, bottom: 8),
+       ) : b;
     }).toList();
 
     return Padding(
@@ -576,39 +594,40 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildLevelShield(UserModel user) {
-    int level = user.level;
-    int index = LevelUtils.getLevelBadgeIndex(level);
+    int level = LevelUtils.calculateLevel(user.xp);
+    int index = 0;
+    if (level >= 80) index = 5;
+    else if (level >= 50) index = 4;
+    else if (level >= 30) index = 3;
+    else if (level >= 20) index = 2;
+    else if (level >= 10) index = 1;
+    else index = 0;
 
     return GestureDetector(
       onTap: () => context.push(AppRoutes.levelDetail),
-      child: Container(
-        height: 70, // Prominent sizing
-        width: 70,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            Image.asset(
-              "assets/images/levels/level_badge_$index.png", 
-              fit: BoxFit.contain,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            "assets/images/levels/level_badge_$index.png",
+            width: 52,
+            height: 52,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => const SizedBox(),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            "Lv.$level",
+            style: GoogleFonts.cinzel(
+              color: Colors.black87,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              shadows: const [
+                Shadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 0.5)),
+              ],
             ),
-            Positioned(
-              bottom: 16,
-              child: Text(
-                "Lv.$level",
-                style: const TextStyle(
-                  color: Colors.white, 
-                  fontSize: 10, 
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                  shadows: [
-                    Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 1)),
-                    Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, -1)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -623,66 +642,12 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   }
 
   Widget _buildLevelTag(int level) {
-    final color = LevelUtils.getLevelColor(level);
-    int index = LevelUtils.getLevelBadgeIndex(level);
-    final assetPath = "assets/images/levels/level_badge_$index.png";
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            color,
-            color.withOpacity(0.7),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.4),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-          // Inner Glow effect
-          BoxShadow(
-            color: Colors.white.withOpacity(0.2),
-            blurRadius: 2,
-            spreadRadius: -1,
-            offset: const Offset(0, 1),
-          ),
-        ],
-        border: Border.all(
-          color: Colors.white.withOpacity(0.2),
-          width: 0.5,
-        ),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Image.asset(assetPath, width: 16, height: 16, fit: BoxFit.contain),
-              const Gap(4),
-              Text(
-                "Lv.$level",
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.5,
-                  shadows: [
-                    Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return UserBadge(
+      label: "Lv.$level",
+      type: BadgeType.level,
+      customFrameAsset: LevelUtils.getLevelFrameAsset(level),
+      icon: Icons.shield_rounded,
+      margin: EdgeInsets.zero,
     );
   }
 

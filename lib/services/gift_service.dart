@@ -46,6 +46,10 @@ class GiftService extends BaseFirebaseService {
       {'id': 'rocket', 'name': 'Rocket', 'price': 5000, 'cat': 'special', 'img': '🚀', 'file': 'Rocket loader.json'},
       {'id': 'car', 'name': 'Red Sport Car', 'price': 20000, 'cat': 'special', 'img': '🏎️', 'file': 'Red Car.json'},
       {'id': 'airplane', 'name': 'Airplane', 'price': 30000, 'cat': 'special', 'img': '✈️', 'file': 'airplane.json'},
+      // ── SVGA Premium Gifts ─────────────────────────────────
+      {'id': 'mystic_rings', 'name': 'Mystic Rings', 'price': 1200, 'cat': 'special', 'img': '💍', 'file': '164 (1).svga'},
+      {'id': 'royal_carriage', 'name': 'Royal Carriage', 'price': 8000, 'cat': 'luxury', 'img': '🎠', 'file': '235.svga'},
+      {'id': 'crystal_palace', 'name': 'Crystal Palace', 'price': 15000, 'cat': 'luxury', 'img': '🏰', 'file': '100.svga'},
     ];
 
     final tempDir = await getTemporaryDirectory();
@@ -60,7 +64,9 @@ class GiftService extends BaseFirebaseService {
     int order = 1;
     for (var g in localGifts) {
       // 1. Load from assets
-      final byteData = await rootBundle.load('assets/animations/lottie/${g['file']}');
+      final isSvga = g['file'].endsWith('.svga');
+      final assetPath = isSvga ? 'assets/svga/${g['file']}' : 'assets/animations/lottie/${g['file']}';
+      final byteData = await rootBundle.load(assetPath);
       final file = File('${tempDir.path}/${g['file']}');
       await file.writeAsBytes(byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
 
@@ -96,29 +102,59 @@ class GiftService extends BaseFirebaseService {
   Future<void> sendGift({
     required String roomId,
     required GiftModel gift,
-    String? targetUid,
+    required List<String> targetUids,
     int quantity = 1,
     bool isMoment = false,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception("User not authenticated.");
 
-    // Refresh token to prevent UNAUTHENTICATED error on Blaze/Cloud Run
-    await user.getIdToken(true);
+    // Retrieve cached token instantly instead of forcing slow network refresh
+    await user.getIdToken(false);
 
-    await callFunction('sendGiftWithCombo', {
-      'roomId': roomId,
-      'giftId': gift.giftId,
-      'targetUid': targetUid ?? roomId,
-      'quantity': quantity,
-      'isMoment': isMoment,
-    });
+    // Call Cloud Function concurrently for all targets
+    await Future.wait(targetUids.map((targetUid) => 
+      callFunction('sendGiftWithCombo', {
+        'roomId': roomId,
+        'giftId': gift.giftId,
+        'targetUid': targetUid,
+        'quantity': quantity,
+        'isMoment': isMoment,
+      })
+    ));
+
+    // Track diamonds sent and received in the room session
+    try {
+      final totalPoints = gift.priceInDiamonds * quantity;
+      final batch = _db.batch();
+
+      for (var targetUid in targetUids) {
+        batch.set(
+          _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid),
+          {'diamondsReceived': FieldValue.increment(totalPoints)},
+          SetOptions(merge: true),
+        );
+      }
+
+      batch.set(
+        _db.collection('rooms').doc(roomId).collection('participants').doc(user.uid),
+        {'diamondsSent': FieldValue.increment(totalPoints * targetUids.length)},
+        SetOptions(merge: true),
+      );
+
+      await batch.commit();
+    } catch (e) {
+      debugPrint("Error updating diamonds metrics: $e");
+    }
 
     // PK Battle Integration: Update scores if target is on a PK team
-    if (!isMoment && targetUid != null) {
-      _updatePKScore(roomId, targetUid, gift.priceInDiamonds * quantity);
+    if (!isMoment) {
+      for (var targetUid in targetUids) {
+        _updatePKScore(roomId, targetUid, gift.priceInDiamonds * quantity);
+      }
     }
   }
+
 
   Future<void> _updatePKScore(String roomId, String targetUid, int points) async {
     try {
@@ -150,5 +186,13 @@ class GiftService extends BaseFirebaseService {
     } catch (e) {
       debugPrint("Error updating PK score: $e");
     }
+  }
+
+  Future<List<GiftModel>> getGiftsFuture() async {
+    final snapshot = await _db.collection('gifts')
+      .where('isActive', isEqualTo: true)
+      .orderBy('sortOrder', descending: false)
+      .get();
+    return snapshot.docs.map((doc) => GiftModel.fromMap(doc.data(), doc.id)).toList();
   }
 }

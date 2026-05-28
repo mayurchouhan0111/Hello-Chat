@@ -8,7 +8,6 @@ import '../../../../core/models/user_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import 'package:hello_chat/services/room_service.dart';
-import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:hello_chat/core/providers/pk_mode_provider.dart';
 
 class PKMatchingBottomSheet extends ConsumerStatefulWidget {

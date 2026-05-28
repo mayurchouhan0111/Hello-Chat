@@ -41,10 +41,16 @@ class RoomModel {
   final bool isYoutubeActive;
   final String youtubeStatus; // "playing" | "paused" | "stopped"
   final int youtubeSeekTime;
+  final int youtubeVolume;
   final Map<String, dynamic>? pkChallenge;
   final Map<String, dynamic>? pkContributions;
   final Map<String, dynamic>? pkWinnerData;
   final List<int> lockedSeats;
+  final int rocketFuel;
+  final int rocketLevel;
+  final Map<String, int>? rocketContributions;
+  final String rocketStatus; // "active" | "cooldown"
+  final DateTime? rocketCooldownUntil;
 
   RoomModel({
     required this.roomId,
@@ -87,10 +93,16 @@ class RoomModel {
     this.isYoutubeActive = false,
     this.youtubeStatus = 'stopped',
     this.youtubeSeekTime = 0,
+    this.youtubeVolume = 100,
     this.pkChallenge,
     this.pkContributions,
     this.pkWinnerData,
     this.lockedSeats = const [],
+    this.rocketFuel = 0,
+    this.rocketLevel = 0,
+    this.rocketContributions,
+    this.rocketStatus = "active",
+    this.rocketCooldownUntil,
   });
 
   Map<String, dynamic> toMap() {
@@ -135,10 +147,16 @@ class RoomModel {
       'isYoutubeActive': isYoutubeActive,
       'youtubeStatus': youtubeStatus,
       'youtubeSeekTime': youtubeSeekTime,
+      'youtubeVolume': youtubeVolume,
       'pkChallenge': pkChallenge,
       'pkContributions': pkContributions,
       'pkWinnerData': pkWinnerData,
       'lockedSeats': lockedSeats,
+      'rocketFuel': rocketFuel,
+      'rocketLevel': rocketLevel,
+      'rocketContributions': rocketContributions,
+      'rocketStatus': rocketStatus,
+      'rocketCooldownUntil': rocketCooldownUntil != null ? Timestamp.fromDate(rocketCooldownUntil!) : null,
     };
   }
 
@@ -184,10 +202,16 @@ class RoomModel {
       isYoutubeActive: map['isYoutubeActive'] ?? false,
       youtubeStatus: map['youtubeStatus'] ?? 'stopped',
       youtubeSeekTime: (map['youtubeSeekTime'] ?? 0) as int,
+      youtubeVolume: (map['youtubeVolume'] ?? 100) as int,
       pkChallenge: map['pkChallenge'] != null ? Map<String, dynamic>.from(map['pkChallenge']) : null,
       pkContributions: map['pkContributions'] != null ? Map<String, dynamic>.from(map['pkContributions']) : null,
       pkWinnerData: map['pkWinnerData'] != null ? Map<String, dynamic>.from(map['pkWinnerData']) : null,
       lockedSeats: (map['lockedSeats'] as Iterable?)?.whereType<int>().toList() ?? [],
+      rocketFuel: (map['rocketFuel'] ?? 0) as int,
+      rocketLevel: (map['rocketLevel'] ?? 0) as int,
+      rocketContributions: (map['rocketContributions'] as Map?)?.cast<String, int>(),
+      rocketStatus: map['rocketStatus'] ?? 'active',
+      rocketCooldownUntil: (map['rocketCooldownUntil'] as Timestamp?)?.toDate(),
     );
   }
 

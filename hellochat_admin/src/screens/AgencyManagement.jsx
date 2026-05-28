@@ -463,7 +463,6 @@ export const AgencyManagement = () => {
                          <p className="text-[9px] font-bold text-emerald-900/50">Cumulative Gifting</p>
                       </div>
                    </div>
->
 
                    {/* Recent Performance HUD */}
                    <div className="bg-indigo-600/5 border border-indigo-500/10 p-8 rounded-[40px] space-y-4">

@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/room_model.dart';
 import '../../../../core/models/participant_model.dart';
@@ -15,6 +16,7 @@ import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/overlay_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/models/emoji_reaction.dart';
 import '../../../../core/router/app_router.dart';
 import '../widgets/seat_grid.dart';
 import '../widgets/chat_widget.dart';
@@ -30,6 +32,7 @@ import '../widgets/entry_effect_overlay.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../core/services/report_service.dart';
+import '../../../../services/voice_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../widgets/viewers_list_sheet.dart';
@@ -41,6 +44,11 @@ import '../widgets/room_user_options_sheet.dart';
 import '../widgets/youtube_panel.dart';
 import '../widgets/youtube_room_player.dart';
 import '../widgets/room_invite_sheet.dart';
+import '../widgets/rocket_progress_widget.dart';
+import '../widgets/rocket_launch_overlay.dart';
+import '../widgets/rocket_completion_vap_overlay.dart';
+import '../widgets/sticker_sheet.dart';
+import '../widgets/share_room_sheet.dart';
 
 class LiveRoomScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -77,6 +85,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Timer? _presenceTimer;
   bool _isLeavingRoom = false;
   bool _isLeavingVoluntarily = false;
+  bool _isRocketLaunching = false;
+  int _launchingLevel = 1;
+  bool _isMinimizing = false;
+  bool _hasJoinedRoom = false;
+  final List<EmojiReaction> _emojiReactions = [];
+  // Store needed providers to avoid ref reads during dispose
+  late final VoiceService _voiceService;
 
   void _showUserOptions(Participant p) async {
     final uid = ref.read(authStateProvider).value?.uid;
@@ -106,25 +121,29 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     
     // 🛡️ Auto-Clear PIP: If we are entering a room, hide any existing minimized bubbles.
     Future.microtask(() => ref.read(roomOverlayProvider.notifier).clear());
-
     WidgetsBinding.instance.addObserver(this);
+    // Capture providers early to avoid ref reads in dispose
+    _voiceService = ref.read(voiceServiceProvider);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       
       try {
         final roomService = ref.read(roomServiceProvider);
-        final voiceService = ref.read(voiceServiceProvider);
         final authState = ref.read(authStateProvider).value;
-
+        
         // Step 1: Join Firestore Room
         await roomService.joinRoom(widget.roomId);
         if (!mounted) return;
-
+        if (mounted) setState(() => _hasJoinedRoom = true);
+        
         // Step 2: Join Agora Channel
-        await voiceService.joinRoom(widget.roomId, authState?.uid ?? 'guest');
-
+        await _voiceService.joinRoom(widget.roomId, authState?.uid ?? 'guest');
+        
         // Step 3: Start Presence Heartbeat
         _startPresenceTimer();
+        
+        // Keep screen awake while in room
+        WakelockPlus.enable();
       } catch (e) {
         if (mounted) {
           debugPrint("Error joining room: $e");
@@ -149,20 +168,30 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   @override
   void dispose() {
-    // 🛡️ Pre-capture ref values before disposal begins
-    final isMinimized = ref.read(roomOverlayProvider).isMinimized;
-    final voiceService = ref.read(voiceServiceProvider);
+    // We check if the user is explicitly leaving. If not, auto-minimize to prevent dropping call.
+    final voiceService = _voiceService;
 
     WidgetsBinding.instance.removeObserver(this);
     _presenceTimer?.cancel();
-    
+
     // 🎧 Voice Persistence Logic
-    // If we are minimizing, we stay in the voice channel!
-    if (!isMinimized) {
+    // If we are minimizing OR navigating away without explicitly leaving, we stay in the voice channel!
+    if (!_isMinimizing && _isLeavingVoluntarily) {
       voiceService.leaveRoom();
+    } else {
+      // Auto-minimize if we navigate away (e.g. going to messages) without leaving the room
+      if (!_isLeavingVoluntarily && !_isLeavingRoom) {
+         try {
+           ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
+         } catch (_) {}
+      }
     }
-    
+
     _chatController.dispose();
+
+    // Disable wake lock when leaving room
+    WakelockPlus.disable();
+
     super.dispose();
   }
 
@@ -171,10 +200,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       _isLeavingRoom = true;
       _isLeavingVoluntarily = true;
     });
+    
     final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
     final myUid = ref.read(authStateProvider).value?.uid;
+    final router = GoRouter.of(context);
+    final voiceService = ref.read(voiceServiceProvider);
+    final roomService = ref.read(roomServiceProvider);
+    
     if (room != null && myUid == room.ownerUid) {
-      if (!mounted) return;
       final result = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
@@ -199,25 +232,33 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       );
 
       if (result == 'minimize') {
-        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
-        if (mounted && GoRouter.of(context).canPop()) context.pop();
+        _isMinimizing = true;
+        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/home');
+        }
       } else if (result == 'end') {
-        if (!mounted) return;
-        await ref.read(voiceServiceProvider).leaveRoom();
-        if (!mounted) return;
-        await ref.read(roomServiceProvider).endRoom(widget.roomId);
-        if (mounted && GoRouter.of(context).canPop()) context.pop();
+        await voiceService.leaveRoom();
+        await roomService.endRoom(widget.roomId);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/home');
+        }
       } else if (result == 'leave') {
-        if (!mounted) return;
-        await ref.read(voiceServiceProvider).leaveRoom();
-        if (!mounted) return;
-        await ref.read(roomServiceProvider).leaveRoom(widget.roomId);
-        if (mounted && GoRouter.of(context).canPop()) context.pop();
+        await voiceService.leaveRoom();
+        await roomService.leaveRoom(widget.roomId);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/home');
+        }
       } else {
         if (mounted) setState(() => _isLeavingRoom = false);
       }
     } else {
-      // For Guests: show a quick Choice Dialog (Leave or Minimize)
       final result = await showDialog<String>(
         context: context,
         builder: (context) => AlertDialog(
@@ -238,14 +279,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       );
 
       if (result == 'minimize') {
-        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
-        if (mounted && GoRouter.of(context).canPop()) context.pop();
+        ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/home');
+        }
       } else if (result == 'leave') {
-        if (!mounted) return;
-        await ref.read(voiceServiceProvider).leaveRoom();
-        if (!mounted) return;
-        await ref.read(roomServiceProvider).leaveRoom(widget.roomId);
-        if (mounted && GoRouter.of(context).canPop()) context.pop();
+        await voiceService.leaveRoom();
+        await roomService.leaveRoom(widget.roomId);
+        if (router.canPop()) {
+          router.pop();
+        } else {
+          router.go('/home');
+        }
       } else {
         if (mounted) setState(() => _isLeavingRoom = false);
       }
@@ -262,6 +309,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     await ref.read(chatServiceProvider).sendTextMessage(widget.roomId, uid, text);
     _chatController.clear();
     FocusScope.of(context).unfocus();
+  }
+
+  void _showStickerSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StickerSheet(
+        onStickerSelected: (path) async {
+          final uid = ref.read(authStateProvider).value?.uid;
+          if (uid == null) return;
+          await ref.read(chatServiceProvider).sendStickerMessage(widget.roomId, uid, path);
+        },
+      ),
+    );
   }
 
   @override
@@ -282,7 +343,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 const SnackBar(content: Text("The host has ended this room.")),
               );
               if (GoRouter.of(context).canPop()) {
-                context.pop();
+                Future.microtask(() {
+                  if (context.mounted) {
+                    context.pop();
+                  }
+                });
               }
             }
           }
@@ -310,6 +375,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                }
             }
           }
+
+          // 🚀 Rocket Launch Trigger
+          if (prevRoom != null) {
+            final target = _getTargetForLevel(prevRoom.rocketLevel);
+            if (room.rocketFuel >= target && prevRoom.rocketFuel < target) {
+              _showRocketLaunchAnimation(room.rocketLevel + 1);
+            }
+          }
         }
       }
     });
@@ -317,8 +390,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     ref.listen(roomParticipantsProvider(widget.roomId), (prev, next) {
       if (!mounted) return;
       
+      if (!_hasJoinedRoom) return;
+
       if (!_isLeavingVoluntarily && !_isLeavingRoom) {
-        // Safe check for myUid using the value captured in build
         if (myUid != null && next.hasValue) {
           final participants = next.value!;
           final isStillIn = participants.any((p) => p.uid == myUid);
@@ -330,7 +404,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   const SnackBar(content: Text("Disconnected due to inactivity or connection loss.")),
                 );
                 if (GoRouter.of(context).canPop()) {
-                  context.pop();
+                  Future.microtask(() {
+                    if (context.mounted) {
+                      context.pop();
+                    }
+                  });
                 }
               }
             }
@@ -338,7 +416,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       }
 
+      if (myUid != null && prev != null && prev.hasValue && next.hasValue) {
+        final prevMe = prev.value!.where((p) => p.uid == myUid).firstOrNull;
+        final nextMe = next.value!.where((p) => p.uid == myUid).firstOrNull;
+        if (prevMe != null && nextMe != null && prevMe.isMuted != nextMe.isMuted) {
+          ref.read(voiceServiceProvider).muteLocalAudio(nextMe.isMuted);
+        }
+      }
+
       if (_entryParticipant == null && next.hasValue) {
+
         final pts = next.value!;
         final now = DateTime.now();
         for (var p in pts) {
@@ -348,6 +435,26 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                setState(() => _entryParticipant = p);
              }
              break;
+          }
+        }
+      }
+    });
+
+    ref.listen(roomMessagesProvider(widget.roomId), (prev, next) {
+      if (!mounted) return;
+      if (prev == null || !prev.hasValue || !next.hasValue) return;
+      final prevMsgs = prev.value ?? [];
+      final nextMsgs = next.value ?? [];
+      for (final msg in nextMsgs) {
+        if (msg.type != 'text' && msg.type != 'sticker') continue;
+        final exists = prevMsgs.any((pm) => pm.msgId == msg.msgId);
+        if (!exists) {
+          if (msg.type == 'sticker' && msg.text.isNotEmpty) {
+            final reaction = EmojiReaction(uid: msg.uid, assetPath: msg.text, timestamp: DateTime.now());
+            setState(() => _emojiReactions.add(reaction));
+            Future.delayed(const Duration(milliseconds: 1800), () {
+              if (mounted) setState(() => _emojiReactions.remove(reaction));
+            });
           }
         }
       }
@@ -392,15 +499,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   ),
                   Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
 
+                  // BACKGROUND LAYER (Seats, Video - Stays fixed)
                   SafeArea(
                     child: Column(
                       children: [
                         _buildRoomAppBar(room, profiles.value ?? []),
                         
                         Expanded(
-                          child: SingleChildScrollView(
-                            physics: const BouncingScrollPhysics(),
-                            child: Column(
+                          child: Column(
                                 children: [
                                 YouTubeRoomPlayer(room: room, myUid: myUid),
                                   if (!room.isYoutubeActive) ...[
@@ -421,66 +527,99 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                       orElse: () => const SizedBox.shrink(), 
                                     ),
                                   ],
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                                  child: profiles.maybeWhen(
-                                    data: (pts) => SeatGrid(
-                                      participants: pts,
-                                      capacity: room.capacity,
-                                      lockedSeats: room.lockedSeats,
-                                      isYoutubeActive: room.isYoutubeActive,
-                                      ownerUid: room.ownerUid,
-                                      onSeatTap: (idx) => _onSeatTap(idx, pts, room),
-                                      onSeatLongPress: (idx) => _onSeatLongPress(idx, room),
-                                      onUserLongPress: _showUserOptions,
+                                  Expanded(
+                                    child: profiles.maybeWhen(
+                                      data: (pts) => SeatGrid(
+                                        key: ValueKey('seatgrid_${widget.roomId}'),
+                                        participants: pts,
+                                        capacity: room.capacity,
+                                        lockedSeats: room.lockedSeats,
+                                        isYoutubeActive: room.isYoutubeActive,
+                                        ownerUid: room.ownerUid,
+                                        emojiReactions: _emojiReactions,
+                                        onSeatTap: (idx) => _onSeatTap(idx, pts, room),
+                                        onSeatLongPress: (idx) => _onSeatLongPress(idx, room),
+                                        onUserLongPress: _showUserOptions,
+                                      ),
+                                      orElse: () => const SizedBox(), 
                                     ),
-                                    orElse: () => const SizedBox(height: 300), // Stable estimated height
                                   ),
-                                ),
-                                const SizedBox(height: 120), // Reduced from 180 to optimize space
-                              ],
-                            ),
-                          ),
+                                ],
+                              ),
                         ),
-
-                        _buildBottomBar(room),
                       ],
                     ),
                   ),
 
+                  // ═══════════════════════════════════════════════════════════
+                  // LAYER 2: SCROLLABLE CHAT MESSAGES + BROADCASTS
+                  // ═══════════════════════════════════════════════════════════
+                  Positioned(
+                    bottom: 56 + 8 + MediaQuery.of(context).padding.bottom,
+                    left: 4,
+                    right: 70,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: (MediaQuery.of(context).size.height * 0.24).clamp(160.0, 220.0),
+                      ),
+                      child: messagesAsync.when(
+                        data: (msgs) {
+                          final broadcasts = ref.watch(activeBroadcastsProvider).value ?? [];
+                          return ChatWidget(
+                            messages: msgs,
+                            broadcasts: broadcasts.isNotEmpty ? [broadcasts.first] : [],
+                            onUserTap: (uid) {
+                              final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
+                              final p = pts.firstWhere(
+                                (p) => p.uid == uid, 
+                                orElse: () => Participant(
+                                  uid: uid, 
+                                  joinedAt: DateTime.now(), 
+                                  lastActive: DateTime.now(), 
+                                  isMuted: false, 
+                                  role: 'audience',
+                                )
+                              );
+                              _showUserOptions(p);
+                            },
+                          );
+                        },
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
+
+                  // ═══════════════════════════════════════════════════════════
+                  // LAYER 3: BOTTOM INPUT BAR + ACTION BUTTONS
+                  // Moves up with keyboard, everything else stays
+                  // ═══════════════════════════════════════════════════════════
+                  Positioned(
+                    bottom: MediaQuery.of(context).viewInsets.bottom,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      top: false,
+                      child: _buildBottomBar(room),
+                    ),
+                  ),
+
+                  // ═══════════════════════════════════════════════════════════
+                  // LAYER 4: ROCKET WIDGET (fixed, right side)
+                  // ═══════════════════════════════════════════════════════════
+                  Positioned(
+                    bottom: 60 + MediaQuery.of(context).padding.bottom,
+                    right: 12,
+                    child: RocketProgressWidget(room: room),
+                  ),
+
+                  // PK CHALLENGE BANNER (conditional)
                   if (!room.pkActive && room.pkChallenge != null)
                     Positioned(
                       top: 100, left: 20, right: 20,
                       child: PKChallengeBanner(room: room),
                     ),
-
-                  Positioned(
-                    bottom: 115, // Moved down slightly as requested
-                    left: 12,
-                    right: 40,
-                    child: IgnorePointer(
-                      ignoring: false,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxHeight: 200),
-                        child: ShaderMask(
-                          shaderCallback: (Rect bounds) {
-                            return const LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, Colors.white],
-                              stops: [0.0, 0.2], // Fade out the top 20%
-                            ).createShader(bounds);
-                          },
-                          blendMode: BlendMode.dstIn,
-                          child: messagesAsync.when(
-                            data: (msgs) => ChatWidget(messages: msgs),
-                            loading: () => const SizedBox.shrink(),
-                            error: (_, __) => const SizedBox.shrink(),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+                  _buildRocketOverlay(),
                 ],
               ),
             ),
@@ -489,6 +628,30 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       },
       loading: () => const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator())),
       error: (e, __) => Scaffold(backgroundColor: Colors.black, body: Center(child: Text("Error: $e"))),
+    );
+  }
+
+  Widget _buildPinnedBroadcast(List<BroadcastModel> broadcasts) {
+    if (broadcasts.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF673AB7).withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12, width: 0.5),
+      ),
+      child: Text(
+        broadcasts.first.message,
+        style: const TextStyle(
+          color: Color(0xFF00E5FF),
+          fontSize: 13,
+          fontWeight: FontWeight.bold,
+          height: 1.4,
+        ),
+      ),
     );
   }
 
@@ -528,7 +691,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       decoration: const BoxDecoration(
         color: Colors.transparent,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -536,53 +699,65 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           // 1. Top Row: Info & Controls
           Row(
             children: [
-              // Consolidated Info & Spark Box
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ownerAsync.when(
-                      data: (owner) {
-                        final u = owner as UserModel?;
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            AppAvatar(
-                              radius: 18,
-                              imageUrl: u?.profilePhotoUrl ?? "",
-                              tags: u?.tags,
-                              showFrame: false,
-                            ),
-                            const Gap(8),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  room.name,
-                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
-                                ),
-                                Text(
-                                  "ID:${u?.displayId ?? '...'}",
-                                  style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 9, fontWeight: FontWeight.bold),
-                                ),
-                              ],
-                            ),
-                            const Gap(8),
-                          ],
-                        );
-                      },
-                      loading: () => const SizedBox(width: 80, height: 40),
-                      error: (_, __) => const SizedBox(width: 80, height: 40),
-                    ),
-                    // Spark Follow Button
-                    GestureDetector(
-                      onTap: () async {
+              // Consolidated Info & Spark Box - Clickable for Room Settings (Admin only)
+              Builder(
+                builder: (context) {
+                  final myUid = ref.watch(authStateProvider).value?.uid;
+                  final isAdmin = room.ownerUid == myUid || room.admins.contains(myUid);
+                  
+                  return GestureDetector(
+                    onTap: isAdmin ? () => _showRoomSettings(room) : null,
+                    behavior: HitTestBehavior.opaque,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ownerAsync.when(
+                        data: (owner) {
+                          final u = owner as UserModel?;
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AppAvatar(
+                                radius: 18,
+                                imageUrl: u?.profilePhotoUrl ?? "",
+                                tags: u?.tags,
+                                showFrame: false,
+                              ),
+                              const Gap(8),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    room.name.split(' ').length > 3 
+                                      ? '${room.name.split(' ').take(3).join(' ')}...' 
+                                      : room.name,
+                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  Text(
+                                    "ID:${u?.displayId ?? '...'}",
+                                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 9, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                              const Gap(8),
+                            ],
+                          );
+                        },
+                        loading: () => const SizedBox(width: 80, height: 40),
+                        error: (_, __) => const SizedBox(width: 80, height: 40),
+                      ),
+                      // Spark Follow Button
+                      GestureDetector(
+                        onTap: () async {
                         final myUid = ref.read(authStateProvider).value?.uid;
                         if (myUid == null) return;
                         if (myUid == room.ownerUid) {
@@ -616,18 +791,39 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     ),
                   ],
                 ),
-              ),
+                ),
+                );
+              },
+            ),
               const Spacer(),
               // Right Action Buttons
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildCircleActionBtn(Icons.share_rounded, onTap: () {
+                    showModalBottomSheet(
+                      context: context,
+                      backgroundColor: Colors.transparent,
+                      isScrollControlled: true,
+                      builder: (context) => ShareRoomSheet(
+                        roomId: room.roomId,
+                        roomName: room.name,
+                      ),
+                    );
+                  }),
+                  const Gap(10),
                   _buildCircleActionBtn(Icons.refresh_rounded, onTap: () {}),
                   const Gap(10),
                   _buildCircleActionBtn(Icons.zoom_in_map_rounded, onTap: () {
-                     ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
-                     if (mounted && GoRouter.of(context).canPop()) context.pop();
-                  }),
+                     _isMinimizing = true;
+                     final router = GoRouter.of(context);
+                     ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
+                     if (router.canPop()) {
+                       router.pop();
+                     } else {
+                       router.go('/home');
+                     }
+                   }),
                   const Gap(10),
                   _buildCircleActionBtn(Icons.close_rounded, isClose: true, onTap: _leaveRoom),
                 ],
@@ -734,6 +930,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 imageUrl: topParticipants[index].profilePhotoUrl.isEmpty 
                     ? "https://picsum.photos/seed/${topParticipants[index].uid}/100" 
                     : topParticipants[index].profilePhotoUrl,
+                userLevel: topParticipants[index].level,
                 tags: topParticipants[index].tags,
               ),
             ),
@@ -798,135 +995,126 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
 
+  // Unified bottom bar: input field + all buttons in ONE fixed row
   Widget _buildBottomBar(RoomModel room) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: TextField(
-                controller: _chatController,
-                cursorColor: Colors.white,
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
-                decoration: InputDecoration(
-                  hintText: "Say hi...",
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-                  filled: true,
-                  fillColor: Colors.black.withOpacity(0.5),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: BorderSide(color: Colors.white.withOpacity(0.1)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(20),
-                    borderSide: const BorderSide(color: Colors.white24),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    return Consumer(builder: (context, ref, child) {
+      final myUid = FirebaseAuth.instance.currentUser?.uid;
+      final bool isHostOrAdmin = room.ownerUid == myUid || (room.admins.contains(myUid));
+
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // ── Text input ──────────────────────────────────────────────
+            Expanded(
+              child: Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white24),
                 ),
-                onSubmitted: (_) => _sendMessage(),
+                child: TextField(
+                  controller: _chatController,
+                  cursorColor: Colors.white,
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                  decoration: InputDecoration(
+                    hintText: "Say hi...",
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                    filled: true,
+                    fillColor: Colors.transparent,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.white70, size: 20),
+                      onPressed: _showStickerSheet,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+                  onSubmitted: (_) => _sendMessage(),
+                ),
               ),
             ),
-          ),
-          const Gap(6),
+            const Gap(6),
 
-          Consumer(builder: (context, ref, child) {
-            final myUid = FirebaseAuth.instance.currentUser?.uid;
-            final bool isHostOrAdmin = room.ownerUid == myUid || (room.admins.contains(myUid));
-            
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Builder(builder: (context) {
-                  final isExpired = room.pkEndTime != null && room.pkEndTime!.isBefore(DateTime.now());
-                  if ((myUid == room.ownerUid && room.pkActive) || (isExpired && room.pkPhase == 'finished')) {
-                    return GestureDetector(
-                      onTap: () => ref.read(roomServiceProvider).endPKBattle(room.roomId),
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(colors: isExpired ? [Colors.cyan, Colors.blue] : [Colors.pink, Colors.red]),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(isExpired ? Icons.refresh_rounded : Icons.stop_rounded, color: Colors.white, size: 14),
-                            const Gap(4),
-                            Text(isExpired ? "CLEANUP" : "END PK", style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  return const SizedBox.shrink();
-                }),
-
-                if (isHostOrAdmin)
-                   _buildCompactBottomButton(Icons.live_tv_rounded, const Color(0xFFFF0000), _showYouTubePanel),
-
-                if (!room.pkActive) ...[
-                  
-                  _buildCompactBottomButton(
-                    _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded, 
-                    Colors.white, 
-                    () {
-                      setState(() => _isSpeakerOn = !_isSpeakerOn);
-                      ref.read(voiceServiceProvider).toggleSpeakerphone(_isSpeakerOn);
-                    }
-                  ),
-                  
-                  Consumer(builder: (context, ref, child) {
-                    final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
-                    final myUid = ref.watch(authStateProvider).value?.uid;
-                    final myPart = participants.where((p) => p.uid == myUid && p.seatIndex != -1).firstOrNull;
-                    
-                    if (myPart == null) return const SizedBox.shrink();
-                    
-                    return _buildCompactBottomButton(
-                      myPart.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded, 
-                      myPart.isMuted ? Colors.redAccent : Colors.white, 
-                      () async {
-                        final newMute = !myPart.isMuted;
-                        await ref.read(voiceServiceProvider).muteLocalAudio(newMute);
-                        await ref.read(roomServiceProvider).muteUser(widget.roomId, myUid ?? '', newMute);
-                      }
-                    );
-                  }),
-
-                  _buildCompactBottomButton(Icons.military_tech_rounded, Colors.orangeAccent, _showPKPanel),
-                  _buildCompactBottomButton(Icons.games_outlined, Colors.white, _showGamesPanel),
-                  const Gap(4),
-                ],
-
-                GestureDetector(
-                  onTap: _showGiftPanel,
+            // ── Action buttons ───────────────────────────────────────────
+            Builder(builder: (context) {
+              final isExpired = room.pkEndTime != null && room.pkEndTime!.isBefore(DateTime.now());
+              if ((myUid == room.ownerUid && room.pkActive) || (isExpired && room.pkPhase == 'finished')) {
+                return GestureDetector(
+                  onTap: () => ref.read(roomServiceProvider).endPKBattle(room.roomId),
                   child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF8E54E9)]),
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: isExpired ? [Colors.cyan, Colors.blue] : [Colors.pink, Colors.red]),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 16),
+                    child: Row(
+                      children: [
+                        Icon(isExpired ? Icons.refresh_rounded : Icons.stop_rounded, color: Colors.white, size: 14),
+                        const Gap(4),
+                        Text(isExpired ? "CLEANUP" : "END PK", style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
                   ),
+                );
+              }
+              return const SizedBox.shrink();
+            }),
+
+            if (isHostOrAdmin)
+              _buildCompactBottomButton(Icons.live_tv_rounded, const Color(0xFFFF0000), _showYouTubePanel),
+
+            if (!room.pkActive) ...[
+              _buildCompactBottomButton(
+                _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                Colors.white,
+                () {
+                  setState(() => _isSpeakerOn = !_isSpeakerOn);
+                  ref.read(voiceServiceProvider).toggleSpeakerphone(_isSpeakerOn);
+                },
+              ),
+              Consumer(builder: (context, ref, child) {
+                final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+                final myUid = ref.watch(authStateProvider).value?.uid;
+                final myPart = participants.where((p) => p.uid == myUid && p.seatIndex != -1).firstOrNull;
+                if (myPart == null) return const SizedBox.shrink();
+                return _buildCompactBottomButton(
+                  myPart.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                  myPart.isMuted ? Colors.redAccent : Colors.white,
+                  () async {
+                    final newMute = !myPart.isMuted;
+                    await ref.read(voiceServiceProvider).muteLocalAudio(newMute);
+                    await ref.read(roomServiceProvider).muteUser(widget.roomId, myUid ?? '', newMute);
+                  },
+                );
+              }),
+              _buildCompactBottomButton(Icons.military_tech_rounded, Colors.orangeAccent, _showPKPanel),
+              _buildCompactBottomButton(Icons.games_outlined, Colors.white, _showGamesPanel),
+              const Gap(4),
+            ],
+
+            GestureDetector(
+              onTap: _showGiftPanel,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF8E54E9)]),
                 ),
-              ],
-            );
-          }),
-        ],
-      ),
-    );
+                child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 16),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildCompactBottomButton(IconData icon, Color color, VoidCallback onTap) {
@@ -970,57 +1158,117 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               final displayFrame = u.profileFrame;
               const double frameMult = 2.3;
 
-              return Stack(
-                alignment: Alignment.bottomCenter,
-                clipBehavior: Clip.none,
+              return Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Stack(
-                    alignment: Alignment.center,
+                    alignment: Alignment.bottomCenter,
+                    clipBehavior: Clip.none,
                     children: [
-                      _buildHostRipple(),
-                      AppAvatar(
-                        imageUrl: u.profilePhotoUrl,
-                        frameUrl: displayFrame,
-                        vipTier: u.vipTier,
-                        tags: u.tags,
-                        radius: 28,
-                        showFrame: true,
-                        frameMultiplier: frameMult,
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          _buildHostRipple(),
+                          SizedBox(
+                            width: 56, // radius 28 * 2
+                            height: 56,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.none,
+                              children: [
+                                AppAvatar(
+                                  imageUrl: u.profilePhotoUrl,
+                                  frameUrl: displayFrame,
+                                  vipTier: u.vipTier,
+                                  userLevel: u.level,
+                                  tags: u.tags,
+                                  radius: 28,
+                                  showFrame: true,
+                                  frameMultiplier: frameMult,
+                                ),
+                                if (_emojiReactions.any((r) => r.uid == host.uid))
+                                  ..._emojiReactions
+                                      .where((r) => r.uid == host.uid)
+                                      .map((reaction) => Positioned.fill(
+                                            child: IgnorePointer(
+                                              child: ClipOval(
+                                                child: Image.asset(
+                                                  reaction.assetPath,
+                                                  fit: BoxFit.cover,
+                                                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                                                ),
+                                              ),
+                                            ).animate()
+                                              .fadeIn(duration: 200.ms)
+                                              .scale(
+                                                begin: const Offset(0.3, 0.3),
+                                                end: const Offset(1.0, 1.0),
+                                                duration: 400.ms,
+                                                curve: Curves.easeOutBack,
+                                              )
+                                              .fadeOut(duration: 400.ms, delay: 1100.ms),
+                                          )),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
+                      Positioned(
+                        bottom: -4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white10, width: 0.5),
+                          ),
+                          child: Text(
+                            u.displayName,
+                            style: const TextStyle(
+                              color: Colors.white, 
+                              fontSize: 10, 
+                              fontWeight: FontWeight.bold,
+                              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ),
+                      if (host.isMuted)
+                         Positioned(
+                          top: 0, right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                            child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
+                          ),
+                        ),
                     ],
                   ),
-                  Positioned(
-                    bottom: -4,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: Colors.black54,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: Colors.white10, width: 0.5),
-                      ),
-                      child: Text(
-                        u.displayName,
-                        style: const TextStyle(
-                          color: Colors.white, 
-                          fontSize: 10, 
-                          fontWeight: FontWeight.bold,
-                          shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 0.5),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text("💎", style: TextStyle(fontSize: 8)),
+                        const SizedBox(width: 4),
+                        Text(
+                          host.diamondsReceived >= 1000 
+                              ? '${(host.diamondsReceived / 1000).toStringAsFixed(1)}k' 
+                              : '${host.diamondsReceived}',
+                          style: const TextStyle(color: Colors.yellowAccent, fontSize: 9, fontWeight: FontWeight.bold),
                         ),
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      ],
                     ),
                   ),
-                  if (host.isMuted)
-                     Positioned(
-                      top: 0, right: 0,
-                      child: Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                        child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
-                      ),
-                    ),
                 ],
               );
             },
@@ -1048,6 +1296,33 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
 
   void _showPKPanel() {
+    final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
+    final myUid = ref.read(authStateProvider).value?.uid;
+
+    if (room == null || myUid == null) return;
+
+    // Only allow room owner to start PK
+    if (room.ownerUid != myUid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.lock_outline_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text("Only the room owner can start a PK Battle!", style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
+          backgroundColor: Colors.orange[800],
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1255,6 +1530,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
+      sheetAnimationStyle: AnimationStyle(
+        duration: Duration.zero,
+        reverseDuration: Duration.zero,
+      ),
       builder: (context) => GiftPanel(roomId: widget.roomId),
     );
   }
@@ -1281,6 +1560,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         return;
       }
       await ref.read(roomServiceProvider).takeSeat(widget.roomId, index);
+      await ref.read(voiceServiceProvider).setBroadcasterRole();
     } else if (participantOnSeat.uid == uid) {
       _showMySeatOptions(myParticipation);
     } else {
@@ -1381,6 +1661,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               onTap: () async {
                 Navigator.pop(context);
                 await ref.read(voiceServiceProvider).muteLocalAudio(true);
+                await ref.read(voiceServiceProvider).setAudienceRole();
                 await ref.read(roomServiceProvider).leaveSeat(widget.roomId);
               },
             ),
@@ -1510,5 +1791,32 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         ],
       ),
     ).animate().fadeIn().slideX(begin: 1, end: 0);
+  }
+
+  int _getTargetForLevel(int level) {
+    switch (level) {
+      case 0: return 1000000;
+      case 1: return 2000000;
+      case 2: return 3000000;
+      case 3: return 5000000;
+      case 4: return 10000000;
+      default: return 10000000;
+    }
+  }
+
+  void _showRocketLaunchAnimation(int level) {
+    if (_isRocketLaunching) return;
+    setState(() {
+      _isRocketLaunching = true;
+      _launchingLevel = level;
+    });
+  }
+
+  Widget _buildRocketOverlay() {
+    if (!_isRocketLaunching) return const SizedBox.shrink();
+    return RocketCompletionVapOverlay(
+      level: _launchingLevel, 
+      onComplete: () => setState(() => _isRocketLaunching = false),
+    );
   }
 }

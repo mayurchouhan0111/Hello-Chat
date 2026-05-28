@@ -16,6 +16,7 @@ import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
+import 'package:hello_chat/core/utils/room_navigation_helper.dart';
 
 import '../../../profile/presentation/screens/my_profile_screen.dart';
 import '../../../moments/presentation/screens/square_screen.dart';
@@ -57,7 +58,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           if (i == 2) {
             final activeRoom = ref.read(userActiveRoomStreamProvider).value;
             if (activeRoom != null) {
-              context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': activeRoom.roomId});
+              RoomNavigationHelper.joinRoom(context, ref, activeRoom.roomId, preloadedRoom: activeRoom);
             } else {
               context.push(AppRoutes.createRoom);
             }
@@ -322,7 +323,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       data: (activeRoom) => GestureDetector(
         onTap: () {
           if (activeRoom != null) {
-            context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': activeRoom.roomId});
+            RoomNavigationHelper.joinRoom(context, ref, activeRoom.roomId, preloadedRoom: activeRoom);
           } else {
             context.push(AppRoutes.createRoom);
           }
@@ -463,7 +464,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildImageGridItem(RoomModel room) {
     return GestureDetector(
-      onTap: () => context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': room.roomId}),
+      onTap: () => RoomNavigationHelper.joinRoom(context, ref, room.roomId, preloadedRoom: room),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -519,7 +520,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  room.name,
+                  room.name.split(' ').length > 3 
+                    ? '${room.name.split(' ').take(3).join(' ')}...' 
+                    : room.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Colors.black87, fontSize: 10.5, fontWeight: FontWeight.w500),

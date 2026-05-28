@@ -181,6 +181,7 @@ class _ChatListItem extends ConsumerWidget {
                 radius: 24,
                 vipTier: user?.vipTier,
                 frameUrl: user?.profileFrame,
+                userLevel: user?.level,
                 tags: user?.tags,
               ),
               loading: () => CircleAvatar(radius: 24, backgroundColor: Colors.grey[100]),

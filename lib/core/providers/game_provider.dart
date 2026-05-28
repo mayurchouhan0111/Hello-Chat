@@ -25,7 +25,7 @@ class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> with BaseFireb
     try {
       final user = _auth.currentUser;
       if (user != null) {
-        await user.getIdToken(true); // Ensure fresh auth token
+        await user.getIdToken(false); // Ensure cached auth token
       }
 
       final data = await callFunction('playSpinWheel', {
@@ -49,7 +49,7 @@ class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> with BaseFireb
     try {
       final user = _auth.currentUser;
       if (user != null) {
-        await user.getIdToken(true);
+        await user.getIdToken(false);
       }
 
       final data = await callFunction('playLuckyDraw', {
@@ -143,5 +143,43 @@ final luckyDrawSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic
         'ticketPrices': [10, 50, 100, 500],
         'currentPrizePool': 0,
         'frequencyMinutes': 30,
+      });
+});
+
+// 🏆 Daily Top Players Leaderboard Stream Provider
+final luckySpinLeaderboardProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('games_meta')
+      .doc('lucky_spin')
+      .collection('daily_players')
+      .orderBy('totalBets', descending: true)
+      .limit(100)
+      .snapshots()
+      .map((snap) => snap.docs.map((d) => d.data()).toList());
+});
+
+// 🏆 Current Round Bets / Winners Stream Provider (Top 3)
+final luckySpinCurrentRoundWinnersProvider = StreamProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, roundId) {
+  if (roundId.isEmpty) return Stream.value([]);
+  
+  return FirebaseFirestore.instance
+      .collection('games_meta')
+      .doc('lucky_spin')
+      .collection('current_round_bets')
+      .where('roundId', isEqualTo: roundId)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs.map((d) => d.data()).toList();
+        list.sort((a, b) {
+          final aWinnings = (a['winnings'] as num?)?.toInt() ?? 0;
+          final bWinnings = (b['winnings'] as num?)?.toInt() ?? 0;
+          if (aWinnings != bWinnings) {
+            return bWinnings.compareTo(aWinnings);
+          }
+          final aAmount = (a['amount'] as num?)?.toInt() ?? 0;
+          final bAmount = (b['amount'] as num?)?.toInt() ?? 0;
+          return bAmount.compareTo(aAmount);
+        });
+        return list.take(3).toList();
       });
 });

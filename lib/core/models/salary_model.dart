@@ -17,16 +17,16 @@ class SalaryLevel {
   double get adminShare => targetBeans * 0.1;
 
   static const List<SalaryLevel> allLevels = [
-    SalaryLevel(level: 1, targetBeans: 10000, label: "Lv.1 Beginner"),
-    SalaryLevel(level: 2, targetBeans: 50000, label: "Lv.2 Rising Star"),
-    SalaryLevel(level: 3, targetBeans: 150000, label: "Lv.3 Influencer"),
-    SalaryLevel(level: 4, targetBeans: 500000, label: "Lv.4 Professional"),
-    SalaryLevel(level: 5, targetBeans: 1500000, label: "Lv.5 Elite"),
-    SalaryLevel(level: 6, targetBeans: 5000000, label: "Lv.6 Master"),
-    SalaryLevel(level: 7, targetBeans: 15000000, label: "Lv.7 Legend"),
-    SalaryLevel(level: 8, targetBeans: 50000000, label: "Lv.8 Mythic"),
-    SalaryLevel(level: 9, targetBeans: 150000000, label: "Lv.9 Immortal"),
-    SalaryLevel(level: 10, targetBeans: 500000000, label: "Lv.10 Ultimate"),
+    SalaryLevel(level: 1, targetBeans: 1000000, label: "Lv.1 Beginner"),
+    SalaryLevel(level: 2, targetBeans: 2000000, label: "Lv.2 Rising Star"),
+    SalaryLevel(level: 3, targetBeans: 4000000, label: "Lv.3 Influencer"),
+    SalaryLevel(level: 4, targetBeans: 8000000, label: "Lv.4 Professional"),
+    SalaryLevel(level: 5, targetBeans: 15000000, label: "Lv.5 Elite"),
+    SalaryLevel(level: 6, targetBeans: 28000000, label: "Lv.6 Master"),
+    SalaryLevel(level: 7, targetBeans: 51000000, label: "Lv.7 Legend"),
+    SalaryLevel(level: 8, targetBeans: 87000000, label: "Lv.8 Mythic"),
+    SalaryLevel(level: 9, targetBeans: 141000000, label: "Lv.9 Immortal"),
+    SalaryLevel(level: 10, targetBeans: 209000000, label: "Lv.10 Ultimate"),
   ];
 
   static SalaryLevel getLevel(int level) {

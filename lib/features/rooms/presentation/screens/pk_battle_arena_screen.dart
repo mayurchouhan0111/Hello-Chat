@@ -247,28 +247,32 @@ class PKBattleArenaScreen extends ConsumerWidget {
   Widget _buildPKBottomBar(BuildContext context, WidgetRef ref) {
      final myUid = ref.watch(authStateProvider).value?.uid;
      final isHost = room.ownerUid == myUid;
+     final double keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
 
-     return Container(
-       padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-       child: Row(
-         children: [
-           Expanded(
-             child: Container(
-               height: 40,
-               decoration: BoxDecoration(
-                 color: Colors.white.withOpacity(0.08),
-                 borderRadius: BorderRadius.circular(20),
-               ),
-               child: const Center(
-                 child: Text("Cheer for your team...", style: TextStyle(color: Colors.white38, fontSize: 12)),
+     return Padding(
+       padding: EdgeInsets.only(bottom: keyboardHeight),
+       child: Container(
+         padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+         child: Row(
+           children: [
+             Expanded(
+               child: Container(
+                 height: 40,
+                 decoration: BoxDecoration(
+                   color: Colors.white.withOpacity(0.08),
+                   borderRadius: BorderRadius.circular(20),
+                 ),
+                 child: const Center(
+                   child: Text("Cheer for your team...", style: TextStyle(color: Colors.white38, fontSize: 12)),
+                 ),
                ),
              ),
-           ),
-           const Gap(12),
-           _buildActionButton(Icons.theater_comedy_rounded, Colors.purpleAccent, () {}),
-           const Gap(8),
-           _buildGiftButton(context),
-         ],
+             const Gap(12),
+             _buildActionButton(Icons.theater_comedy_rounded, Colors.purpleAccent, () {}),
+             const Gap(8),
+             _buildGiftButton(context),
+           ],
+         ),
        ),
      );
   }

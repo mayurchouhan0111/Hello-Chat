@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import 'contribution_ranking_screen.dart';
+import '../../../../core/widgets/app_avatar.dart';
+import 'package:hello_chat/core/utils/room_navigation_helper.dart';
 
 class LeaderboardScreen extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -121,7 +123,7 @@ class RoomTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return _BaseRankingScreen(
       title: "LIVE ROOMS",
-      field: "activeUsers",
+      field: "currentUsersCount",
       subtitle: "MOST POPULAR",
       accentColor: const Color(0xFF2DD4BF),
       isRoom: true,
@@ -137,7 +139,7 @@ class OverallTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return _BaseRankingScreen(
       title: "GLOBAL BEST",
-      field: "totalXP",
+      field: "xp",
       subtitle: "OVERALL RANKING",
       accentColor: const Color(0xFFFACC15),
     );
@@ -193,6 +195,10 @@ class _BaseRankingScreen extends StatelessWidget {
                 countryCode: (isRoom || !showFlag) ? null : (data['countryCode'] ?? "US"),
                 scoreLabel: isRoom ? "AUDIENCE" : (field == "benchXP" ? "SENT" : (field == "princeXP" ? "RCVD" : "XP")),
                 isRoom: isRoom,
+                frameUrl: isRoom ? null : (data['profileFrame'] as String?),
+                vipTier: isRoom ? null : (data['vipTier'] as String?),
+                level: isRoom ? null : (data['level'] as int?),
+                tags: isRoom ? null : (data['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
               ).animate().fadeIn(delay: Duration(milliseconds: (index * 40).clamp(0, 1000))).slideX(begin: 0.1);
             },
           );
@@ -202,7 +208,7 @@ class _BaseRankingScreen extends StatelessWidget {
   }
 }
 
-class _RankingItem extends StatelessWidget {
+class _RankingItem extends ConsumerWidget {
   final String uid;
   final int rank;
   final String name;
@@ -213,6 +219,10 @@ class _RankingItem extends StatelessWidget {
   final String? countryCode;
   final String scoreLabel;
   final bool isRoom;
+  final String? frameUrl;
+  final String? vipTier;
+  final int? level;
+  final List<String>? tags;
 
   const _RankingItem({
     required this.uid,
@@ -225,10 +235,14 @@ class _RankingItem extends StatelessWidget {
     this.countryCode,
     required this.scoreLabel,
     this.isRoom = false,
+    this.frameUrl,
+    this.vipTier,
+    this.level,
+    this.tags,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     Color getRankColor() {
       if (rank == 1) return const Color(0xFFFFD700);
       if (rank == 2) return const Color(0xFFE2E8F0);
@@ -239,7 +253,7 @@ class _RankingItem extends StatelessWidget {
     return InkWell(
       onTap: () {
         if (isRoom) {
-          context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': uid});
+          RoomNavigationHelper.joinRoom(context, ref, uid);
         } else {
           context.push(AppRoutes.userProfile, extra: uid);
         }
@@ -260,11 +274,23 @@ class _RankingItem extends StatelessWidget {
           const SizedBox(width: 8),
           Stack(
             children: [
-              CircleAvatar(
-                radius: 26,
-                backgroundColor: const Color(0xFFF1F5F9),
-                backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
-              ),
+              if (isRoom) 
+                CircleAvatar(
+                  radius: 26,
+                  backgroundColor: const Color(0xFFF1F5F9),
+                  backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
+                )
+              else
+                AppAvatar(
+                  imageUrl: photoUrl,
+                  frameUrl: frameUrl,
+                  vipTier: vipTier,
+                  userLevel: level,
+                  tags: tags,
+                  radius: 26,
+                  showFrame: true,
+                  frameMultiplier: 1.5,
+                ),
               if (countryCode != null) Positioned(
                 right: 0, bottom: 0,
                 child: Container(

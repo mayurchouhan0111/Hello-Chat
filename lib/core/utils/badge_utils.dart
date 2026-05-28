@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../widgets/user_badge.dart';
+import '../../utils/level_utils.dart';
 
 List<Widget> getBadgesForUser(UserModel user) {
   final List<Widget> badges = [];
@@ -17,18 +18,13 @@ List<Widget> getBadgesForUser(UserModel user) {
 
   // 3. Level Badge
   int level = user.level;
-  int index = 0;
-  if (level >= 80) index = 5;
-  else if (level >= 50) index = 4;
-  else if (level >= 30) index = 3;
-  else if (level >= 20) index = 2;
-  else if (level >= 10) index = 1;
-  else index = 0;
+  int frameIndex = LevelUtils.getLevelBadgeIndex(level);
 
   badges.add(UserBadge(
     label: "Lv.$level", 
     type: BadgeType.level, 
-    imageAsset: "assets/images/levels/level_badge_$index.png"
+    customFrameAsset: "assets/images/levels_new/level_badge_$frameIndex.webp",
+    icon: Icons.shield_rounded,
   ));
 
   // 4. VIP
@@ -62,9 +58,11 @@ List<Widget> getBadgesForUser(UserModel user) {
   }
 
   // 10. Loyal Veteran
-  final ageInDays = DateTime.now().difference(user.createdAt).inDays;
-  if (ageInDays > 180) {
-    badges.add(const UserBadge(label: "Veteran", type: BadgeType.role, icon: Icons.history));
+  if (user.createdAt != null) {
+    final ageInDays = DateTime.now().difference(user.createdAt).inDays;
+    if (ageInDays > 180) {
+      badges.add(const UserBadge(label: "Veteran", type: BadgeType.role, icon: Icons.history));
+    }
   }
 
   return badges;

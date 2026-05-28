@@ -189,7 +189,16 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
             ],
           ),
           const Gap(12),
-          Text(family.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+          SizedBox(
+            width: rank == 1 ? 110 : 90,
+            child: Text(
+              family.name,
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
+          ),
           const Gap(2),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

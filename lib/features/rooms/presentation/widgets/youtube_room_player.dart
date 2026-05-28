@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:pod_player/pod_player.dart';
+import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import '../../../../core/models/room_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
@@ -18,20 +18,28 @@ class YouTubeRoomPlayer extends ConsumerStatefulWidget {
 }
 
 class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
-  PodPlayerController? _controller;
+  bool _showVolumeSlider = false;
+  YoutubePlayerController? _controller;
+  StreamSubscription<YoutubePlayerValue>? _playerStateSubscription;
+  StreamSubscription<YoutubeVideoState>? _videoStateSubscription;
+  Duration _currentPosition = Duration.zero;
   String? _currentVideoId;
-  bool _showControls = true;
-  Timer? _hideTimer;
-  bool _isOwner = false;
   bool _isDisposed = false;
   bool _isLoading = false;
+  bool _hasAutoplayed = false;
   int _lastSyncedSeekTime = -1;
+  DateTime? _lastSeekSyncTime;
   late final _roomService = ref.read(roomServiceProvider);
+  YoutubeError _errorCode = YoutubeError.none;
+
+  bool get _isOwner => (widget.myUid ?? ref.read(authStateProvider).value?.uid) == widget.room.ownerUid;
+  int _lastSyncedVolume = 100;
+  bool _lastSyncedMute = true;
+  DateTime? _lastVolumeSyncTime;
 
   @override
   void initState() {
     super.initState();
-    _isOwner = (widget.myUid ?? ref.read(authStateProvider).value?.uid) == widget.room.ownerUid;
     _initPlayer(widget.room.youtubeVideoId);
   }
 
@@ -40,150 +48,219 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     super.didUpdateWidget(oldWidget);
     
     final newId = widget.room.youtubeVideoId;
-    if (newId != oldWidget.room.youtubeVideoId) {
+    final oldId = oldWidget.room.youtubeVideoId;
+    
+    // Compare parsed IDs rather than raw strings to prevent duplicate re-initialization 
+    // when URLs are stored in different formats (e.g. raw URL vs short video ID).
+    final newParsed = newId != null ? (YoutubePlayerController.convertUrlToId(newId) ?? newId) : null;
+    final oldParsed = oldId != null ? (YoutubePlayerController.convertUrlToId(oldId) ?? oldId) : null;
+
+    if (newParsed != oldParsed) {
       _initPlayer(newId);
-    } else if (_controller != null && _controller!.isInitialised && !_isOwner) {
-      // Sync for guests
+    } else if (_controller != null) {
+      // Sync for everyone
       final room = widget.room;
       
       // Sync Play/Pause
-      final isPlaying = _controller!.isVideoPlaying;
+      final isPlaying = _controller!.value.playerState == PlayerState.playing;
       if (room.youtubeStatus == 'playing' && !isPlaying) {
-        _controller!.play();
+        _controller!.playVideo();
       } else if (room.youtubeStatus == 'paused' && isPlaying) {
-        _controller!.pause();
+        _controller!.pauseVideo();
       }
 
       // Sync Seek
       if (room.youtubeSeekTime != _lastSyncedSeekTime) {
         _lastSyncedSeekTime = room.youtubeSeekTime;
-        final localPosition = _controller!.currentVideoPosition.inSeconds;
+        final localPosition = _currentPosition.inSeconds;
         final roomPosition = room.youtubeSeekTime;
         if ((roomPosition - localPosition).abs() > 3) {
-          _controller!.videoSeekTo(Duration(seconds: roomPosition));
+          _controller!.seekTo(seconds: roomPosition.toDouble());
         }
       }
+
+      // Sync Mute and Volume
+      final shouldBeMuted = !room.backgroundMusic;
+      if (shouldBeMuted != _lastSyncedMute) {
+        _lastSyncedMute = shouldBeMuted;
+        if (shouldBeMuted) {
+          _controller!.mute();
+        } else {
+          _controller!.unMute();
+          _controller!.setVolume(room.youtubeVolume);
+        }
+      }
+
+      if (!shouldBeMuted && room.youtubeVolume != _lastSyncedVolume) {
+        _lastSyncedVolume = room.youtubeVolume;
+        _controller!.setVolume(room.youtubeVolume);
+      }
     }
+  }
+
+  void _onPlayerStateChange(YoutubePlayerValue value) {
+    if (!mounted || _isDisposed || _controller == null) return;
+    
+    final state = value.playerState;
+    final isPlaying = state == PlayerState.playing;
+    final hasError = value.hasError;
+    final errorCode = value.error;
+    
+    debugPrint("📺 [YouTubeRoomPlayer] State Update: state=$state, isPlaying=$isPlaying, hasError=$hasError, errorCode=$errorCode");
+    
+    if (hasError) {
+      _errorCode = errorCode;
+    } else if (state == PlayerState.playing || state == PlayerState.buffering) {
+      _errorCode = YoutubeError.none;
+    }
+    
+    // Auto-trigger play once when player transitions into unStarted or cued states
+    if (!_hasAutoplayed && (state == PlayerState.unStarted || state == PlayerState.cued)) {
+      final shouldPlay = widget.room.youtubeStatus == 'playing' || widget.room.youtubeStatus == 'stopped';
+      _hasAutoplayed = true;
+      debugPrint("📺 Autoplay check: isOwner=$_isOwner, roomStatus=${widget.room.youtubeStatus}, shouldPlay=$shouldPlay");
+      if (shouldPlay) {
+        debugPrint("📺 Autoplaying video inside state change listener");
+        Future.microtask(() {
+          if (_controller != null && mounted) {
+            _controller!.playVideo();
+            
+            final shouldBeMuted = !widget.room.backgroundMusic;
+            _lastSyncedMute = shouldBeMuted;
+            if (shouldBeMuted) {
+              _controller!.mute();
+            } else {
+              _controller!.unMute();
+              _controller!.setVolume(widget.room.youtubeVolume);
+            }
+            
+            // If it's a new video starting, we can just push playing
+            if (widget.room.youtubeStatus != 'playing') {
+              _roomService.updateRoomSettings(widget.room.roomId, {
+                'youtubeStatus': 'playing',
+                'youtubeSeekTime': _currentPosition.inSeconds,
+              });
+            }
+            if (widget.room.youtubeSeekTime > 0) {
+              _controller!.seekTo(seconds: widget.room.youtubeSeekTime.toDouble());
+            }
+          }
+        });
+      } else {
+        debugPrint("📺 Guest player staying cued/paused because room status is not 'playing'");
+      }
+    }
+
+    // Automatically sync play/pause status from native YouTube player gestures/controls for ANY user
+    final newStatus = state == PlayerState.playing ? 'playing' : (state == PlayerState.paused ? 'paused' : null);
+    if (newStatus != null && newStatus != widget.room.youtubeStatus) {
+      debugPrint("📡 Syncing status change from native player: status=$newStatus");
+      _roomService.updateRoomSettings(widget.room.roomId, {
+        'youtubeStatus': newStatus,
+        'youtubeSeekTime': _currentPosition.inSeconds,
+      });
+    }
+    
+    setState(() {});
   }
 
   Future<void> _initPlayer(String? videoId) async {
     if (videoId == null || videoId.isEmpty || _isLoading || _isDisposed) return;
     
-    if (_currentVideoId == videoId && _controller != null) return;
+    final parsedId = YoutubePlayerController.convertUrlToId(videoId) ?? videoId;
+    if (_currentVideoId == parsedId && _controller != null) return;
 
     setState(() {
       _isLoading = true;
+      _currentPosition = Duration.zero;
+      _errorCode = YoutubeError.none;
     });
     
-    _currentVideoId = videoId;
+    _currentVideoId = parsedId;
 
     try {
       // 1. Detach old controller first
-      if (_controller != null) {
-        final oldController = _controller;
+      final oldController = _controller;
+      if (oldController != null) {
         _controller = null;
-        // Small delay to let the widget tree rebuild without the old controller
+        _playerStateSubscription?.cancel();
+        _videoStateSubscription?.cancel();
         await Future.delayed(const Duration(milliseconds: 100));
-        oldController!.dispose();
+        oldController.close();
       }
 
-      final controller = PodPlayerController(
-        playVideoFrom: PlayVideoFrom.youtube('https://www.youtube.com/watch?v=$videoId'),
-        podPlayerConfig: const PodPlayerConfig(
-          autoPlay: true,
-          isLooping: false,
-          videoQualityPriority: [1080, 720, 360],
+      // Configure trusted origin, enable native controls, and use a Mobile User-Agent optimized for mobile WebView layout
+      final controller = YoutubePlayerController.fromVideoId(
+        videoId: parsedId,
+        autoPlay: true,
+        params: const YoutubePlayerParams(
+          showControls: true, // Native player controls are enabled and 100% interactive
+          showFullscreenButton: false,
+          mute: true, // Initial mute required for autoplay
+          showVideoAnnotations: false,
+          origin: 'https://www.youtube-nocookie.com', // Fix Error 152/153 origin verification rejection
+          userAgent: 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36', // Forces mobile web interface
         ),
       );
       
       _controller = controller;
-      await (_controller!.initialise() as dynamic);
       
-      if (_isDisposed) {
-        _controller?.dispose();
-        return;
-      }
+      _playerStateSubscription = _controller!.stream.listen((value) {
+        _onPlayerStateChange(value);
+      });
+      
+      _videoStateSubscription = _controller!.videoStateStream.listen((state) {
+        if (!mounted || _isDisposed) return;
+        
+        final newPosition = state.position;
+        
+        // Robust automatic seek synchronization for ANY user using native YouTube seek bar/gestures
+        if (_controller != null) {
+          final diff = (newPosition.inSeconds - _currentPosition.inSeconds).abs();
+          if (diff > 3) {
+            final now = DateTime.now();
+            if (_lastSeekSyncTime == null || now.difference(_lastSeekSyncTime!) > const Duration(milliseconds: 1000)) {
+              _lastSeekSyncTime = now;
+              debugPrint("⏩ [YouTubeRoomPlayer] User manually seeked! Syncing new position: ${newPosition.inSeconds}s");
+              _roomService.updateRoomSettings(widget.room.roomId, {
+                'youtubeSeekTime': newPosition.inSeconds,
+              });
+            }
+          }
 
-      // Initial mute
-      _controller!.mute(); 
+          // Polling for volume changes (since no native volume event exists)
+          _controller!.volume.then((currentVol) {
+            if (currentVol != widget.room.youtubeVolume && currentVol != _lastSyncedVolume) {
+              final now = DateTime.now();
+              if (_lastVolumeSyncTime == null || now.difference(_lastVolumeSyncTime!) > const Duration(milliseconds: 1000)) {
+                _lastVolumeSyncTime = now;
+                _lastSyncedVolume = currentVol;
+                _roomService.updateRoomSettings(widget.room.roomId, {
+                  'youtubeVolume': currentVol,
+                });
+              }
+            }
+          }).catchError((_) {});
+        }
+        
+        setState(() {
+          _currentPosition = newPosition;
+        });
+      });
+
+      _hasAutoplayed = false;
 
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
-      _scheduleHide();
     } catch (e) {
-      debugPrint('❌ [PodPlayer] Init error: $e');
+      debugPrint('❌ [YoutubePlayer] Init error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _scheduleHide() {
-    if (_isDisposed) return;
-    _hideTimer?.cancel();
-    setState(() => _showControls = true);
-    _hideTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && !_isDisposed) setState(() => _showControls = false);
-    });
-  }
-
-  void _toggleControls() {
-    if (_showControls) {
-      _hideTimer?.cancel();
-      setState(() => _showControls = false);
-    } else {
-      _scheduleHide();
-    }
-  }
-
-  void _togglePlayPause() async {
-    if (_controller == null || !_controller!.isInitialised || !_isOwner) return;
-    
-    final isPlaying = _controller!.isVideoPlaying;
-
-    if (isPlaying) {
-      _controller!.pause();
-    } else {
-      _controller!.play();
-    }
-
-    // Sync to Firestore
-    final position = _controller!.currentVideoPosition.inSeconds;
-    _roomService.updateRoomSettings(widget.room.roomId, {
-      'youtubeStatus': isPlaying ? 'paused' : 'playing',
-      'youtubeSeekTime': position,
-    });
-
-    if (mounted) setState(() {}); // Update local UI
-    _scheduleHide();
-  }
-
-  void _seekRelative(int seconds) async {
-    if (_controller == null || !_controller!.isInitialised || !_isOwner) return;
-    
-    final currentPos = _controller!.currentVideoPosition;
-    final newPos = currentPos + Duration(seconds: seconds);
-    
-    _controller!.videoSeekTo(newPos);
-
-    // Sync to Firestore
-    _roomService.updateRoomSettings(widget.room.roomId, {
-      'youtubeSeekTime': newPos.inSeconds,
-    });
-
-    if (mounted) setState(() {});
-    _scheduleHide();
-  }
-
-  void _toggleMute() {
-    if (_controller == null || !_controller!.isInitialised) return;
-    if (_controller!.isMute) {
-      _controller!.unMute();
-    } else {
-      _controller!.mute();
-    }
-    if (mounted) setState(() {}); 
-    _scheduleHide();
-  }
 
   void _stopVideo() {
     _roomService.setYoutubeVideo(widget.room.roomId, '');
@@ -192,18 +269,27 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
   @override
   void dispose() {
     _isDisposed = true;
-    _hideTimer?.cancel();
-    _controller?.dispose();
+    _playerStateSubscription?.cancel();
+    _videoStateSubscription?.cancel();
+    if (_controller != null) {
+      final c = _controller;
+      _controller = null;
+      Future.delayed(const Duration(milliseconds: 500), () {
+        try {
+          c?.close();
+        } catch (_) {}
+      });
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (widget.room.youtubeVideoId.isEmpty) {
+    if (widget.room.youtubeVideoId?.isEmpty ?? true) {
       return const SizedBox.shrink();
     }
 
-    if (_controller == null || _isLoading || !_controller!.isInitialised) {
+    if (_controller == null || _isLoading) {
       return Container(
         height: 200,
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -225,7 +311,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     }
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.black,
         borderRadius: BorderRadius.circular(20),
@@ -239,118 +325,177 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
       ),
       clipBehavior: Clip.hardEdge,
       child: AspectRatio(
-        aspectRatio: 16 / 9,
+        aspectRatio: 16 / 10,
         child: Stack(
           children: [
-            // 📺 The Video Player
+            // 📺 The WebView YouTube Player (100% native interactive control, rate-limit safe, lifetime robust iframe)
             Positioned.fill(
-              child: AbsorbPointer(
-                child: Center(
-                  child: PodVideoPlayer(
-                    controller: _controller!,
-                    frameAspectRatio: 16 / 9,
-                    videoAspectRatio: 16 / 9,
-                    alwaysShowProgressBar: false,
-                    podProgressBarConfig: const PodProgressBarConfig(
-                      playingBarColor: Colors.red,
-                      circleHandlerColor: Colors.red,
-                    ),
-                    podPlayerLabels: const PodPlayerLabels(
-                      play: "",
-                      pause: "",
-                      error: "",
-                    ),
-                    // Completely replace the native overlay with an empty widget
-                    overlayBuilder: (options) => const SizedBox.shrink(),
-                    // Disable default UI elements where possible
-                    onToggleFullScreen: (isFullScreen) async {},
-                  ),
-                ),
+              child: YoutubePlayer(
+                key: ValueKey(_currentVideoId),
+                controller: _controller!,
+                aspectRatio: 16 / 10,
               ),
             ),
 
-            // 🖱️ Interaction Layer (Toggles Controls)
-            Positioned.fill(
-              child: GestureDetector(
-                onTap: _toggleControls,
-                behavior: HitTestBehavior.opaque,
-                child: const SizedBox.expand(),
-              ),
-            ),
-
-            // 🎛️ Controls Overlay
-            if (_showControls)
+            // 🛑 Error Overlay
+            if (_errorCode != YoutubeError.none)
               Positioned.fill(
-                child: AnimatedOpacity(
-                  opacity: _showControls ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 250),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withOpacity(0.7),
-                          Colors.transparent,
-                          Colors.transparent,
-                          Colors.black.withOpacity(0.7),
-                        ],
-                      ),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        // Top Bar: Mute & Label
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text("LIVE", style: TextStyle(color: Colors.red, fontSize: 10, fontWeight: FontWeight.bold)),
-                              _controlIcon(
-                                _controller!.isMute ? Icons.volume_off_rounded : Icons.volume_up_rounded,
-                                _toggleMute,
-                                size: 24,
-                              ),
-                            ],
-                          ),
+                child: Container(
+                  color: Colors.black.withOpacity(0.95),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.redAccent.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1.5),
                         ),
-
-                        // Center: Play/Pause/Seek (For Owner only)
-                        if (_isOwner)
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              _controlIcon(Icons.replay_10_rounded, () => _seekRelative(-10), size: 28),
-                              const Gap(40),
-                              _controlIcon(
-                                _controller!.isVideoPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
-                                _togglePlayPause,
-                                size: 50,
-                              ),
-                              const Gap(40),
-                              _controlIcon(Icons.forward_30_rounded, () => _seekRelative(30), size: 28),
-                            ],
-                          ),
-
-                        // Bottom Bar: Progress & Close
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: _buildProgressBar(),
-                              ),
-                              if (_isOwner) ...[
-                                const Gap(16),
-                                _controlIcon(Icons.close_rounded, _stopVideo, color: Colors.white, size: 24),
-                              ],
-                            ],
+                        child: const Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.redAccent,
+                          size: 40,
+                        ),
+                      ),
+                      const Gap(16),
+                      Text(
+                        _getErrorMessage(_errorCode),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const Gap(8),
+                      Text(
+                        _getErrorSubmessage(_errorCode),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                      ),
+                      if (_isOwner) ...[
+                        const Gap(24),
+                        ElevatedButton.icon(
+                          onPressed: _stopVideo,
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text("Select Another Video", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            elevation: 0,
                           ),
                         ),
                       ],
+                    ],
+                  ),
+                ),
+              ),
+
+            // 🔊 Volume Control Button (Center Right, Owner only)
+            if (_isOwner)
+              Positioned(
+                right: 12,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Row(
+                  children: [
+                    if (_showVolumeSlider)
+                      Container(
+                        width: 100,
+                        height: 32,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                        ),
+                        child: SliderTheme(
+                          data: SliderThemeData(
+                            trackHeight: 2,
+                            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                            overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          ),
+                          child: Slider(
+                            value: widget.room.youtubeVolume.toDouble(),
+                            min: 0,
+                            max: 100,
+                            activeColor: Colors.white,
+                            inactiveColor: Colors.white24,
+                            onChanged: (val) {
+                              if (_controller != null) {
+                                _controller!.setVolume(val.toInt());
+                                _roomService.updateRoomSettings(widget.room.roomId, {
+                                  'youtubeVolume': val.toInt(),
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _showVolumeSlider = !_showVolumeSlider;
+                        });
+                      },
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.7),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                          boxShadow: [
+                            BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3)),
+                          ],
+                        ),
+                        child: Icon(
+                          widget.room.youtubeVolume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                ),
+              ),
+
+            // 🛑 Elegant Close Button (Owner only, positioned safely in top-left to avoid blocking native YouTube controls)
+            if (_isOwner)
+              Positioned(
+                top: 12,
+                left: 12,
+                child: GestureDetector(
+                  onTap: _stopVideo,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.redAccent,
+                      size: 16,
                     ),
                   ),
                 ),
@@ -361,56 +506,34 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
     );
   }
 
-  Widget _buildProgressBar() {
-    return StreamBuilder(
-      stream: Stream.periodic(const Duration(seconds: 1)),
-      builder: (context, snapshot) {
-        final current = _controller!.currentVideoPosition;
-        final total = _controller!.totalVideoLength;
-        final progress = total.inSeconds > 0 ? current.inSeconds / total.inSeconds : 0.0;
 
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            LinearProgressIndicator(
-              value: progress,
-              backgroundColor: Colors.white.withOpacity(0.2),
-              valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
-              minHeight: 3,
-            ),
-            const Gap(6),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(_formatDuration(current), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
-                Text(_formatDuration(total), style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ],
-        );
-      },
-    );
+  String _getErrorMessage(YoutubeError error) {
+    switch (error) {
+      case YoutubeError.notEmbeddable:
+        return "Video Embedding Restricted (Error 150/101)";
+      case YoutubeError.videoNotFound:
+        return "Video Not Found (Error 100)";
+      case YoutubeError.invalidParam:
+        return "Invalid Video Parameter (Error 2)";
+      case YoutubeError.html5Error:
+        return "HTML5 Player Error (Error 5)";
+      default:
+        return "Playback Error Occurred";
+    }
   }
 
-  String _formatDuration(Duration duration) {
-    String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    return "${duration.inHours > 0 ? '${duration.inHours}:' : ''}$twoDigitMinutes:$twoDigitSeconds";
-  }
-
-  Widget _controlIcon(IconData icon, VoidCallback onTap, {double size = 24, Color color = Colors.white}) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.4),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: color, size: size),
-      ),
-    );
+  String _getErrorSubmessage(YoutubeError error) {
+    switch (error) {
+      case YoutubeError.notEmbeddable:
+        return "The creator has restricted this video from being played in external apps. Please choose a different video.";
+      case YoutubeError.videoNotFound:
+        return "The video may have been deleted or set to private by the owner.";
+      case YoutubeError.invalidParam:
+        return "The video URL or ID is invalid. Please verify and try another link.";
+      case YoutubeError.html5Error:
+        return "This device's WebView failed to initialize the HTML5 player.";
+      default:
+        return "YouTube failed to load or play this video. Try another link.";
+    }
   }
 }

@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../utils/level_utils.dart';
 
 class UserModel {
   final String uid;
@@ -69,7 +70,11 @@ class UserModel {
   final String? personalLabel;
   final String? company;
   final bool isReseller;
+  final bool isVerified;
+  final String verificationStatus; // 'unverified', 'pending', 'verified', 'rejected'
+  final String? idPhotoUrl;
   final double walletBalance;
+  final String? activeRoomId;
 
   UserModel({
     required this.uid,
@@ -140,15 +145,28 @@ class UserModel {
     this.personalLabel,
     this.company,
     this.isReseller = false,
+    this.isVerified = false,
+    this.verificationStatus = 'unverified',
+    this.idPhotoUrl,
     this.walletBalance = 0.0,
+    this.activeRoomId,
   });
+
+  static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
+    if (value == null) return fallback ?? DateTime.now();
+    if (value is Timestamp) return value.toDate();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+    }
+    return fallback ?? DateTime.now();
+  }
 
   factory UserModel.fromMap(Map<String, dynamic> data) {
     return UserModel(
       uid: (data['uid'] as String?) ?? '',
-      createdAt: data['createdAt'] != null 
-          ? (data['createdAt'] as Timestamp).toDate() 
-          : DateTime.now(),
+      createdAt: _parseDateTime(data['createdAt']),
       phoneNumber: data['phoneNumber'] as String?,
       email: data['email'] as String?,
       username: (data['username'] as String?) ?? '',
@@ -168,7 +186,7 @@ class UserModel {
       dailyPrinceXP: (data['dailyPrinceXP'] as num? ?? 0).toInt(),
       weeklyPrinceXP: (data['weeklyPrinceXP'] as num? ?? 0).toInt(),
       monthlyPrinceXP: (data['monthlyPrinceXP'] as num? ?? 0).toInt(),
-      level: (data['level'] as num? ?? 1).toInt(),
+      level: LevelUtils.calculateLevel((data['xp'] as num? ?? 0).toInt()),
       followerCount: (data['followerCount'] as num? ?? 0).toInt(),
       followingCount: (data['followingCount'] as num? ?? 0).toInt(),
       friendsCount: (data['friendsCount'] as num? ?? 0).toInt(),
@@ -180,17 +198,11 @@ class UserModel {
       badgeIcon: (data['badgeIcon'] as String?) ?? '',
       tags: (data['tags'] as Iterable?)?.whereType<String>().toList() ?? [],
       vipTier: (data['vipTier'] as String?) ?? 'none',
-      vipExpiry: data['vipExpiry'] != null 
-          ? (data['vipExpiry'] as Timestamp).toDate() 
-          : null,
+      vipExpiry: data['vipExpiry'] != null ? _parseDateTime(data['vipExpiry']) : null,
       nobleTier: data['nobleTier'] as String?,
-      nobleExpiry: data['nobleExpiry'] != null 
-          ? (data['nobleExpiry'] as Timestamp).toDate() 
-          : null,
+      nobleExpiry: data['nobleExpiry'] != null ? _parseDateTime(data['nobleExpiry']) : null,
       isBanned: (data['isBanned'] as bool?) ?? false,
-      lastActive: data['lastActive'] != null 
-          ? (data['lastActive'] as Timestamp).toDate() 
-          : DateTime.now(),
+      lastActive: _parseDateTime(data['lastActive']),
       lastVipClaim: (data['lastVipClaim'] as String?) ?? '',
       agencyId: data['agencyId'] as String?,
       isAgencyOwner: (data['isAgencyOwner'] as bool?) ?? false,
@@ -212,7 +224,7 @@ class UserModel {
       helloId: (data['helloId'] as num?)?.toInt(),
       visitorCount: (data['visitorCount'] as num? ?? 0).toInt(),
       recentVisitors: (data['recentVisitors'] as Iterable?)?.whereType<String>().toList() ?? [],
-      birthday: data['birthday'] != null ? (data['birthday'] as Timestamp).toDate() : null,
+      birthday: data['birthday'] != null ? _parseDateTime(data['birthday']) : null,
       height: data['height'] as String?,
       weight: data['weight'] as String?,
       hometown: data['hometown'] as String?,
@@ -221,7 +233,11 @@ class UserModel {
       personalLabel: data['personalLabel'] as String?,
       company: data['company'] as String?,
       isReseller: (data['isReseller'] as bool?) ?? false,
+      isVerified: (data['isVerified'] as bool?) ?? false,
+      verificationStatus: (data['verificationStatus'] as String?) ?? 'unverified',
+      idPhotoUrl: data['idPhotoUrl'] as String?,
       walletBalance: (data['walletBalance'] as num? ?? 0.0).toDouble(),
+      activeRoomId: data['activeRoomId'] as String?,
     );
   }
 
@@ -295,7 +311,11 @@ class UserModel {
       'personalLabel': personalLabel,
       'company': company,
       'isReseller': isReseller,
+      'isVerified': isVerified,
+      'verificationStatus': verificationStatus,
+      'idPhotoUrl': idPhotoUrl,
       'walletBalance': walletBalance,
+      'activeRoomId': activeRoomId,
     };
   }
 
@@ -368,7 +388,11 @@ class UserModel {
     String? personalLabel,
     String? company,
     bool? isReseller,
+    bool? isVerified,
+    String? verificationStatus,
+    String? idPhotoUrl,
     double? walletBalance,
+    String? activeRoomId,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -439,7 +463,11 @@ class UserModel {
       personalLabel: personalLabel ?? this.personalLabel,
       company: company ?? this.company,
       isReseller: isReseller ?? this.isReseller,
+      isVerified: isVerified ?? this.isVerified,
+      verificationStatus: verificationStatus ?? this.verificationStatus,
+      idPhotoUrl: idPhotoUrl ?? this.idPhotoUrl,
       walletBalance: walletBalance ?? this.walletBalance,
+      activeRoomId: activeRoomId ?? this.activeRoomId,
     );
   }
 

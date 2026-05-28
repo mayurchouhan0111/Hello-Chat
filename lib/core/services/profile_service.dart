@@ -100,6 +100,14 @@ class ProfileService extends BaseFirebaseService {
     await _db.collection('users').doc(uid).update(updates);
   }
 
+  // Generic Update for Metadata/KYC
+  Future<void> updateProfileFields(String uid, Map<String, dynamic> data) async {
+    await _db.collection('users').doc(uid).update({
+      ...data,
+      'lastActive': FieldValue.serverTimestamp(),
+    });
+  }
+
   // Update User Location
   Future<void> updateUserLocation(String uid, String country) async {
     await _db.collection('users').doc(uid).update({

@@ -48,8 +48,9 @@ export const RoomManagement = () => {
   };
 
   const filteredRooms = rooms.filter(r => 
-    r.title?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    r.ownerUid?.toLowerCase().includes(searchTerm.toLowerCase())
+    r.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    r.ownerUid?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    r.id?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -73,7 +74,7 @@ export const RoomManagement = () => {
               </div>
               <input 
                 type="text" 
-                placeholder="Locate room by title or owner ID..."
+                placeholder="Locate room by name or ID..."
                 className="glass-input w-full pl-12 !py-3.5"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -204,7 +205,7 @@ export const RoomManagement = () => {
                            <span className="text-[10px] font-black text-white uppercase tracking-tighter">BATTLE ACTIVE</span>
                         </div>
                        )}
-                      <h3 className="text-xl font-black text-white tracking-tight truncate">{room.title || 'Untitled Room'}</h3>
+                      <h3 className="text-xl font-black text-white tracking-tight truncate">{room.name || 'Untitled Room'}</h3>
                       <div className="flex items-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
                            <Users size={14} className="text-[#B4E0A2]" />
@@ -309,7 +310,7 @@ export const RoomManagement = () => {
                       </div>
                     )}
 
-                    <div className="pt-3 border-t border-white/5">
+                    <div className="pt-3 border-t border-white/5 space-y-2">
                       <button 
                         onClick={(e) => {
                           e.stopPropagation();
@@ -318,6 +319,27 @@ export const RoomManagement = () => {
                         className="w-full flex items-center justify-center gap-2 p-2 bg-[#B4E0A2]/10 border border-[#B4E0A2]/20 rounded-xl hover:bg-[#B4E0A2] text-[#B4E0A2] hover:text-black text-[10px] font-black uppercase tracking-wider transition-all"
                       >
                         <Zap size={12} /> +10K Diamonds (Star Mission Test)
+                      </button>
+
+                      <button 
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const amount = prompt("Enter Fuel Amount (Diamonds):", "1000000");
+                          if (!amount) return;
+                          
+                          try {
+                            const { getFunctions, httpsCallable } = await import('firebase/functions');
+                            const { app } = await import('../firebase');
+                            const funcs = getFunctions(app, 'us-central1');
+                            const injectFuel = httpsCallable(funcs, 'adminFuelRocket');
+                            await injectFuel({ roomId: room.id, amount: parseInt(amount) });
+                          } catch (err) {
+                            alert("Error: " + err.message);
+                          }
+                        }}
+                        className="w-full flex items-center justify-center gap-2 p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500 text-indigo-400 hover:text-white text-[10px] font-black uppercase tracking-wider transition-all"
+                      >
+                        <Flame size={12} /> Ignite Rocket (Launch Test)
                       </button>
                     </div>
 

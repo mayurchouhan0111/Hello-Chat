@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, functions } from '../firebase';
 import { 
   collection, 
   query, 
@@ -9,6 +9,7 @@ import {
   updateDoc,
   serverTimestamp 
 } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { 
   Clock, 
   CheckCircle2, 
@@ -41,13 +42,27 @@ export const WithdrawalManagement = () => {
 
   const handleUpdateStatus = async (requestId, newStatus) => {
     if(!window.confirm(`Are you sure you want to mark this request as ${newStatus.toUpperCase()}?`)) return;
+    
     try {
-      await updateDoc(doc(db, "withdrawals", requestId), {
-        status: newStatus,
-        processedAt: serverTimestamp(),
-        processedBy: user.uid
-      });
+      if (newStatus === 'approved') {
+        const approve = httpsCallable(functions, 'adminApproveWithdrawal');
+        await approve({ id: requestId });
+      } else if (newStatus === 'rejected') {
+        const reason = window.prompt("Enter rejection reason:");
+        if (reason === null) return;
+        const reject = httpsCallable(functions, 'adminRejectWithdrawal');
+        await reject({ id: requestId, reason });
+      } else {
+        // Direct update for 'completed' status
+        await updateDoc(doc(db, "withdrawals", requestId), {
+          status: newStatus,
+          processedAt: serverTimestamp(),
+          processedBy: user.uid
+        });
+      }
+      
       await logAdminAction(user, "WITHDRAWAL_STATUS_UPDATE", requestId, { status: newStatus });
+      alert(`Status updated to ${newStatus}`);
     } catch (err) {
       alert("Update failed: " + err.message);
     }

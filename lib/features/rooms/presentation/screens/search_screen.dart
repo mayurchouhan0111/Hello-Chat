@@ -4,6 +4,7 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/providers/search_provider.dart';
 import '../../../../core/router/app_router.dart';
+import 'package:hello_chat/core/utils/room_navigation_helper.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
   const SearchScreen({super.key});
@@ -175,7 +176,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           itemBuilder: (context, index) {
             final room = rooms[index];
             return ListTile(
-            onTap: () => context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': room.roomId}),
+            onTap: () => RoomNavigationHelper.joinRoom(context, ref, room.roomId, preloadedRoom: room),
               leading: Container(
                 width: 48, height: 48,
                 decoration: BoxDecoration(

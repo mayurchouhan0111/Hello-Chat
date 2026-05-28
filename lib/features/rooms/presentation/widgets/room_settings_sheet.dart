@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+import '../../../../core/services/cloudinary_service.dart';
 import '../../../../core/models/room_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/user_model.dart';
+import 'administrator_sheet.dart';
+import 'room_music_sheet.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class RoomSettingsSheet extends ConsumerStatefulWidget {
   final RoomModel room;
@@ -18,6 +24,7 @@ class RoomSettingsSheet extends ConsumerStatefulWidget {
 class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   late TextEditingController _nameController;
   late TextEditingController _noticeController;
+  bool _isUploadingImage = false;
 
   @override
   void initState() {
@@ -31,6 +38,25 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
     _nameController.dispose();
     _noticeController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAndUploadImage(String roomId) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
+    if (pickedFile != null) {
+      setState(() => _isUploadingImage = true);
+      try {
+        final coverUrl = await ref.read(cloudinaryServiceProvider).uploadImage(pickedFile.path);
+        await _update(roomId, "coverUrl", coverUrl);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Cover image updated successfully!")));
+        }
+      } catch (e) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Upload failed: $e")));
+      } finally {
+        if (mounted) setState(() => _isUploadingImage = false);
+      }
+    }
   }
 
   Future<void> _update(String roomId, String field, dynamic value) async {
@@ -72,7 +98,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   void _showCapacityDialog(RoomModel room) {
     showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -80,7 +106,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
             title: Text("$cap Seats"),
             onTap: () async {
               await _update(room.roomId, "capacity", cap);
-              if (mounted) Navigator.pop(context);
+              if (mounted) Navigator.pop(sheetContext);
             },
           )).toList(),
         ),
@@ -91,7 +117,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   void _showMicModeDialog(RoomModel room) {
      showModalBottomSheet(
       context: context,
-      builder: (context) => Container(
+      builder: (sheetContext) => Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -99,7 +125,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
             title: Text(mode),
             onTap: () async {
               await _update(room.roomId, "micMode", mode.toLowerCase());
-              if (mounted) Navigator.pop(context);
+              if (mounted) Navigator.pop(sheetContext);
             },
           )).toList(),
         ),
@@ -109,6 +135,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.room.roomId));
     
     return roomAsync.when(
@@ -151,11 +178,13 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                               bottom: 0,
                               right: 0,
                               child: InkWell(
-                                onTap: () {}, 
+                                onTap: () => _pickAndUploadImage(room.roomId), 
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: const BoxDecoration(color: AppColors.primary, shape: BoxShape.circle),
-                                  child: const Icon(Icons.camera_alt, color: Colors.white, size: 14),
+                                  child: _isUploadingImage
+                                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                      : const Icon(Icons.camera_alt, color: Colors.white, size: 14),
                                 ),
                               ),
                             ),
@@ -198,11 +227,15 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat cleared!")));
                           }),
                           _buildBottomAction(Icons.image_outlined, "Theme", onTap: () => _showThemePicker(room)),
-                          _buildBottomAction(
-                            room.backgroundMusic ? Icons.music_note_rounded : Icons.music_off_rounded, 
-                            "Music", 
-                            onTap: () => _update(room.roomId, "backgroundMusic", !room.backgroundMusic)
-                          ),
+                          if (room.ownerUid == uid || room.admins.contains(uid))
+                            _buildBottomAction(
+                              Icons.music_note_rounded, 
+                              "Music", 
+                              onTap: () {
+                                Navigator.pop(context);
+                                _showMusicSheet(room);
+                              }
+                            ),
                           _buildBottomAction(
                             room.isPrivate ? Icons.lock_rounded : Icons.lock_open_rounded, 
                             "Lock", 
@@ -291,72 +324,24 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
     );
   }
 
+  void _showMusicSheet(RoomModel room) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final isAdmin = room.ownerUid == uid || room.admins.contains(uid);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => RoomMusicSheet(room: room, isAdmin: isAdmin),
+    );
+  }
+
   void _showAdminPanel(RoomModel room) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-        child: Column(
-          children: [
-            const Gap(12),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2))),
-            const Gap(20),
-            const Text("Moderators", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const Gap(10),
-            const Text("Moderators can mute and kick users.", style: TextStyle(color: Colors.black54, fontSize: 13)),
-            const Gap(20),
-            Expanded(
-              child: room.admins.isEmpty
-                ? const Center(child: Text("No moderators set"))
-                : ListView.builder(
-                    itemCount: room.admins.length,
-                    itemBuilder: (context, index) {
-                      final adminUid = room.admins[index];
-                      // Fetch user profile for display
-                      final userAsync = ref.watch(userProfileProvider(adminUid));
-                      return userAsync.when(
-                        data: (user) {
-                          if (user == null) return const SizedBox.shrink();
-                          return ListTile(
-                            leading: CircleAvatar(backgroundImage: NetworkImage(user.profilePhotoUrl)),
-                            title: Text(user.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                            subtitle: Text("Level ${user.level}"),
-                            trailing: room.ownerUid == adminUid 
-                              ? const Chip(label: Text("Owner", style: TextStyle(fontSize: 10)))
-                              : IconButton(
-                                  icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
-                                  onPressed: () async {
-                                    await ref.read(roomServiceProvider).removeModerator(room.roomId, adminUid);
-                                  },
-                                ),
-                          );
-                        },
-                        loading: () => const ListTile(title: Text("Loading...")),
-                        error: (_, __) => const ListTile(title: Text("Error fetching user")),
-                      );
-                    },
-                  ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-                  onPressed: () {
-                     // In a real app, open a search dialog
-                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Search for users to add as mods")));
-                  },
-                  child: const Text("Add Moderator", style: TextStyle(color: Colors.white)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      builder: (context) => AdministratorSheet(room: room),
     );
   }
 
@@ -377,9 +362,17 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
         controller: controller,
         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
         onSubmitted: (val) => _update(roomId, field, val.trim()),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.check_circle, color: AppColors.primary),
+            onPressed: () {
+              FocusScope.of(context).unfocus();
+              _update(roomId, field, controller.text.trim());
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Updated successfully!")));
+            },
+          ),
         ),
       ),
     );
@@ -408,23 +401,27 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   }
 
   Widget _buildBottomAction(IconData icon, String label, {VoidCallback? onTap}) {
-    return GestureDetector(
+    return InkWell(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white, 
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 4, offset: const Offset(0, 2))],
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.white, 
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 4, offset: const Offset(0, 2))],
+              ),
+              child: Icon(icon, color: AppColors.primary, size: 24),
             ),
-            child: Icon(icon, color: AppColors.primary, size: 24),
-          ),
-          const Gap(6),
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54, fontWeight: FontWeight.bold)),
-        ],
+            const Gap(6),
+            Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54, fontWeight: FontWeight.bold)),
+          ],
+        ),
       ),
     );
   }
