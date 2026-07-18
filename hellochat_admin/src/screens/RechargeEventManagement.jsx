@@ -9,7 +9,10 @@ import {
   updateDoc, 
   doc, 
   deleteDoc, 
-  Timestamp 
+  Timestamp,
+  getDocs,
+  where,
+  writeBatch
 } from 'firebase/firestore';
 import { 
   Calendar, 
@@ -22,7 +25,9 @@ import {
   Save, 
   X, 
   Check, 
-  AlertCircle 
+  AlertCircle,
+  Globe,
+  Monitor
 } from 'lucide-react';
 
 const TABS = [
@@ -47,6 +52,7 @@ export const RechargeEventManagement = () => {
     startDate: '',
     endDate: '',
     isActive: true,
+    webUrl: '',
   });
 
   // Package Form State
@@ -108,6 +114,7 @@ export const RechargeEventManagement = () => {
       startDate: '',
       endDate: '',
       isActive: true,
+      webUrl: '',
     });
     setEditingEventId(null);
     setShowEventForm(false);
@@ -121,6 +128,7 @@ export const RechargeEventManagement = () => {
       startDate: ev.startDate || '',
       endDate: ev.endDate || '',
       isActive: ev.isActive !== false,
+      webUrl: ev.webUrl || '',
     });
     setEditingEventId(ev.id);
     setShowEventForm(true);
@@ -153,18 +161,43 @@ export const RechargeEventManagement = () => {
         startDate: startTs,
         endDate: endTs,
         isActive: eventForm.isActive,
+        webUrl: eventForm.webUrl.trim(),
       };
 
+      let savedEventId = editingEventId;
       if (editingEventId) {
         await updateDoc(doc(db, 'recharge_bonus_events', editingEventId), data);
         showMsg('✅ Event successfully updated.');
       } else {
-        await addDoc(collection(db, 'recharge_bonus_events'), {
+        const ref = await addDoc(collection(db, 'recharge_bonus_events'), {
           ...data,
           createdAt: Timestamp.now(),
         });
+        savedEventId = ref.id;
         showMsg('✅ Event successfully created.');
       }
+
+      // Single active event enforcement
+      if (eventForm.isActive) {
+        const activeQuery = query(
+          collection(db, 'recharge_bonus_events'),
+          where('isActive', '==', true)
+        );
+        const activeSnap = await getDocs(activeQuery);
+        
+        const batch = writeBatch(db);
+        let hasUpdates = false;
+        activeSnap.docs.forEach((docSnap) => {
+          if (docSnap.id !== savedEventId) {
+            batch.update(doc(db, 'recharge_bonus_events', docSnap.id), { isActive: false });
+            hasUpdates = true;
+          }
+        });
+        if (hasUpdates) {
+          await batch.commit();
+        }
+      }
+
       resetEventForm();
     } catch (err) {
       showMsg('❌ Error saving event: ' + err.message, 'error');
@@ -376,6 +409,15 @@ export const RechargeEventManagement = () => {
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Hosted Event Web URL (Optional)</label>
+                    <input 
+                      type="text" placeholder="e.g. https://hellochat-admin.netlify.app/premium_event/ (leave empty for local fallback)"
+                      className="glass-input w-full h-14"
+                      value={eventForm.webUrl} onChange={e => setEventForm({...eventForm, webUrl: e.target.value})}
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Start Date & Time</label>
@@ -413,6 +455,23 @@ export const RechargeEventManagement = () => {
                       value={eventForm.description} onChange={e => setEventForm({...eventForm, description: e.target.value})}
                     />
                   </div>
+
+                  {eventForm.webUrl && (
+                    <div className="space-y-2 border-t border-white/[0.04] pt-6">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                        <Monitor size={12} className="text-[#00E5FF]" /> Live Web Event Preview
+                      </label>
+                      <div className="border border-white/10 rounded-2xl overflow-hidden bg-slate-950 flex justify-center items-center shadow-inner relative mx-auto" style={{ height: '640px', width: '375px', marginTop: '10px' }}>
+                        <iframe 
+                          src={`${eventForm.webUrl}${eventForm.webUrl.endsWith('/') ? '' : '/'}?recharge=45&eventId=${editingEventId || 'preview'}`} 
+                          title="Hosted Event Preview" 
+                          width="100%" 
+                          height="100%" 
+                          className="border-none"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex gap-4 pt-4 border-t border-white/[0.04]">
                     <button type="submit" className="px-8 h-12 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center gap-2">
@@ -460,6 +519,11 @@ export const RechargeEventManagement = () => {
                             </td>
                             <td className="p-5 font-bold text-white max-w-xs truncate">
                               <div>{ev.title}</div>
+                              {ev.webUrl && (
+                                <div className="text-[9px] text-[#00E5FF] font-mono mt-0.5 flex items-center gap-1">
+                                  <Globe size={10} /> {ev.webUrl}
+                                </div>
+                              )}
                               <div className="text-[10px] font-medium text-slate-500 mt-1 truncate">{ev.description}</div>
                             </td>
                             <td className="p-5 text-slate-400 font-mono">{ev.startDate.replace('T', ' ')}</td>
