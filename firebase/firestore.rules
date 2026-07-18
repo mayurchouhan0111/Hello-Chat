@@ -381,6 +381,23 @@ service cloud.firestore {
       allow delete: if request.auth != null && request.auth.uid == resource.data.senderUid;
     }
 
+    // 🔥 Dynamic Event System
+    match /dynamic_events/{eventId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /recharge_milestones/{msId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    match /user_event_progress/{progressId} {
+      allow read: if request.auth != null && (request.auth.uid == resource.data.uid || isAdmin());
+      allow write: if request.auth != null; // server functions handle writes
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if isAdmin();
+    }
+
     // Helper functions
     function isAdmin() {
       return request.auth != null && 

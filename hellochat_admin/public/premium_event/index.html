@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Premium Recharge Rebate Event</title>
+  
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- Stylesheet Links -->
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/animations.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+  <!-- Simulated Mobile Device Frame Wrapper -->
+  <div class="app-viewport">
+    
+    <!-- Header Navigation bar with return link -->
+    <header class="top-navigation">
+      <div class="back-btn" onclick="if(window.parent) window.parent.postMessage('back', '*'); else alert('Back clicked');">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M15 19L8 12L15 5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </header>
+
+    <!-- Parallax Hero block -->
+    <section class="hero-banner">
+      <!-- Parallax Background Layer -->
+      <div class="parallax-bg"></div>
+      
+      <!-- Vector gold coin particle canvas overlay -->
+      <canvas id="particle-canvas"></canvas>
+
+      <!-- Gilded header titles and buttons overlay -->
+      <div class="hero-content">
+        <h1 class="event-title" id="event-title-node">
+          Recharge <span>Bonus Event</span>
+        </h1>
+
+        <!-- Red exchange badge ribbon -->
+        <div class="exchange-badge">
+          <span class="val-usd">1 $</span>
+          <span class="val-eq">=</span>
+          <span class="val-coins">3m coins <span class="up-arrow">▲</span></span>
+        </div>
+
+        <!-- Call to action button with gloss reflection -->
+        <button class="recharge-btn" onclick="if(window.parent) window.parent.postMessage('recharge', '*'); else alert('Redirecting to wallet...');">
+          Go to recharge
+        </button>
+
+        <!-- Count down clock digits cards -->
+        <div class="countdown-box">
+          <div class="countdown-label">Event Ends In</div>
+          <div class="countdown-timer">
+            <div class="timer-segment">
+              <span class="timer-val" id="timer-days">00</span>
+              <span class="timer-unit">Days</span>
+            </div>
+            <div class="timer-divider">:</div>
+            <div class="timer-segment">
+              <span class="timer-val" id="timer-hours">00</span>
+              <span class="timer-unit">Hrs</span>
+            </div>
+            <div class="timer-divider">:</div>
+            <div class="timer-segment">
+              <span class="timer-val" id="timer-mins">00</span>
+              <span class="timer-unit">Mins</span>
+            </div>
+            <div class="timer-divider">:</div>
+            <div class="timer-segment">
+              <span class="timer-val" id="timer-secs">00</span>
+              <span class="timer-unit">Secs</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Scrollable Content Frame Panels -->
+    <main class="content-area">
+      
+      <!-- Ornate Panel 1: Event Details -->
+      <article class="ornate-card">
+        <!-- Corner Brackets -->
+        <div class="card-corner tl"></div>
+        <div class="card-corner tr"></div>
+        <div class="card-corner bl"></div>
+        <div class="card-corner br"></div>
+
+        <!-- Intricate Header Decor -->
+        <div class="card-header-decor">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#ffd700" />
+                <stop offset="25%" stop-color="#fff3a8" />
+                <stop offset="50%" stop-color="#b8860b" />
+                <stop offset="75%" stop-color="#fff3a8" />
+                <stop offset="100%" stop-color="#8a640f" />
+              </linearGradient>
+            </defs>
+            <path d="M0,30 Q100,5 200,5 Q300,5 400,30" fill="none" stroke="url(#gold-gradient)" stroke-width="3.5" />
+            <path d="M10,30 Q100,10 200,10 Q300,10 390,30" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.2" />
+            <path d="M170,18 L180,5 L200,12 L220,5 L230,18 L200,32 Z" fill="#800000" stroke="url(#gold-gradient)" stroke-width="2" />
+            <path d="M140,25 Q155,15 165,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="135" cy="26" r="2" fill="url(#gold-gradient)" />
+            <path d="M260,25 Q245,15 235,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="265" cy="26" r="2" fill="url(#gold-gradient)" />
+          </svg>
+          <div class="ruby-gem"></div>
+        </div>
+
+        <div class="ornate-card-body">
+          <h2 class="panel-title">Event Details</h2>
+          <p id="details-text-node">Loading event details...</p>
+          <p id="details-note-node" style="margin-top: 10px; font-style: italic; font-size: 11px; color: var(--text-muted);"></p>
+        </div>
+
+        <!-- Intricate Footer Decor -->
+        <div class="card-footer-decor">
+          <svg viewBox="0 0 400 20" preserveAspectRatio="none">
+            <path d="M0,5 Q100,20 200,20 Q300,20 400,5" fill="none" stroke="url(#gold-gradient)" stroke-width="3" />
+            <path d="M10,5 Q100,16 200,16 Q300,16 390,5" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1" />
+            <path d="M190,5 L200,14 L210,5" fill="none" stroke="url(#gold-gradient)" stroke-width="2" />
+          </svg>
+        </div>
+      </article>
+
+      <!-- Ornate Panel 2: Milestone rewards vertical thermometer tracker -->
+      <article class="ornate-card">
+        <!-- Corner Brackets -->
+        <div class="card-corner tl"></div>
+        <div class="card-corner tr"></div>
+        <div class="card-corner bl"></div>
+        <div class="card-corner br"></div>
+
+        <!-- Intricate Header Decor -->
+        <div class="card-header-decor">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <path d="M0,30 Q100,5 200,5 Q300,5 400,30" fill="none" stroke="url(#gold-gradient)" stroke-width="3.5" />
+            <path d="M10,30 Q100,10 200,10 Q300,10 390,30" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.2" />
+            <path d="M170,18 L180,5 L200,12 L220,5 L230,18 L200,32 Z" fill="#800000" stroke="url(#gold-gradient)" stroke-width="2" />
+            <path d="M140,25 Q155,15 165,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="135" cy="26" r="2" fill="url(#gold-gradient)" />
+            <path d="M260,25 Q245,15 235,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="265" cy="26" r="2" fill="url(#gold-gradient)" />
+          </svg>
+          <div class="ruby-gem"></div>
+        </div>
+
+        <div class="ornate-card-body">
+          <h2 class="panel-title">Milestone Progress</h2>
+          <div class="progress-section">
+            <div class="user-progress-info">
+              <span>Your Recharge: <span id="current-recharge-val" style="color: var(--gold-primary);">0 $</span></span>
+              <span id="next-target-val">Calculating...</span>
+            </div>
+            
+            <div class="vertical-progress-wrapper">
+              <!-- Vertical Timeline Line -->
+              <div class="vertical-line-bg"></div>
+              <div class="vertical-line-fill" id="vertical-line-fill"></div>
+              
+              <!-- Milestone Nodes Rows (loaded dynamically) -->
+              <div class="vertical-nodes-container" id="vertical-nodes-container"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Intricate Footer Decor -->
+        <div class="card-footer-decor">
+          <svg viewBox="0 0 400 20" preserveAspectRatio="none">
+            <path d="M0,5 Q100,20 200,20 Q300,20 400,5" fill="none" stroke="url(#gold-gradient)" stroke-width="3" />
+            <path d="M10,5 Q100,16 200,16 Q300,16 390,5" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1" />
+            <path d="M190,5 L200,14 L210,5" fill="none" stroke="url(#gold-gradient)" stroke-width="2" />
+          </svg>
+        </div>
+      </article>
+
+      <!-- Ornate Panel 3: Recharge Rebate Multipliers Table -->
+      <article class="ornate-card">
+        <!-- Corner Brackets -->
+        <div class="card-corner tl"></div>
+        <div class="card-corner tr"></div>
+        <div class="card-corner bl"></div>
+        <div class="card-corner br"></div>
+
+        <!-- Intricate Header Decor -->
+        <div class="card-header-decor">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <path d="M0,30 Q100,5 200,5 Q300,5 400,30" fill="none" stroke="url(#gold-gradient)" stroke-width="3.5" />
+            <path d="M10,30 Q100,10 200,10 Q300,10 390,30" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.2" />
+            <path d="M170,18 L180,5 L200,12 L220,5 L230,18 L200,32 Z" fill="#800000" stroke="url(#gold-gradient)" stroke-width="2" />
+            <path d="M140,25 Q155,15 165,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="135" cy="26" r="2" fill="url(#gold-gradient)" />
+            <path d="M260,25 Q245,15 235,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="265" cy="26" r="2" fill="url(#gold-gradient)" />
+          </svg>
+          <div class="ruby-gem"></div>
+        </div>
+
+        <div class="ornate-card-body">
+          <h2 class="panel-title">Rebate Multipliers</h2>
+          <p id="table-desc-text">Loading table details...</p>
+          <p id="table-note-text" style="font-style: italic; color: #d4af37; font-size: 12px; margin-top: 6px;"></p>
+          
+          <div class="recharge-table-container">
+            <table class="recharge-table">
+              <thead>
+                <tr>
+                  <th>Recharge/$</th>
+                  <th>Basic Coins</th>
+                  <th>Bonus Coins</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody id="recharge-table-body">
+                <!-- Rows loaded via app.js -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Intricate Footer Decor -->
+        <div class="card-footer-decor">
+          <svg viewBox="0 0 400 20" preserveAspectRatio="none">
+            <path d="M0,5 Q100,20 200,20 Q300,20 400,5" fill="none" stroke="url(#gold-gradient)" stroke-width="3" />
+            <path d="M10,5 Q100,16 200,16 Q300,16 390,5" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1" />
+            <path d="M190,5 L200,14 L210,5" fill="none" stroke="url(#gold-gradient)" stroke-width="2" />
+          </svg>
+        </div>
+      </article>
+
+      <!-- Ornate Panel 4: FAQs -->
+      <article class="ornate-card">
+        <!-- Corner Brackets -->
+        <div class="card-corner tl"></div>
+        <div class="card-corner tr"></div>
+        <div class="card-corner bl"></div>
+        <div class="card-corner br"></div>
+
+        <!-- Intricate Header Decor -->
+        <div class="card-header-decor">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <path d="M0,30 Q100,5 200,5 Q300,5 400,30" fill="none" stroke="url(#gold-gradient)" stroke-width="3.5" />
+            <path d="M10,30 Q100,10 200,10 Q300,10 390,30" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.2" />
+            <path d="M170,18 L180,5 L200,12 L220,5 L230,18 L200,32 Z" fill="#800000" stroke="url(#gold-gradient)" stroke-width="2" />
+            <path d="M140,25 Q155,15 165,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="135" cy="26" r="2" fill="url(#gold-gradient)" />
+            <path d="M260,25 Q245,15 235,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="265" cy="26" r="2" fill="url(#gold-gradient)" />
+          </svg>
+          <div class="ruby-gem"></div>
+        </div>
+
+        <div class="ornate-card-body">
+          <h2 class="panel-title">Frequently Asked Questions</h2>
+          <div class="faq-accordion" id="faq-accordion-container">
+            <!-- Accordion cards populated via app.js -->
+          </div>
+        </div>
+
+        <!-- Intricate Footer Decor -->
+        <div class="card-footer-decor">
+          <svg viewBox="0 0 400 20" preserveAspectRatio="none">
+            <path d="M0,5 Q100,20 200,20 Q300,20 400,5" fill="none" stroke="url(#gold-gradient)" stroke-width="3" />
+            <path d="M10,5 Q100,16 200,16 Q300,16 390,5" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1" />
+            <path d="M190,5 L200,14 L210,5" fill="none" stroke="url(#gold-gradient)" stroke-width="2" />
+          </svg>
+        </div>
+      </article>
+
+      <!-- Ornate Panel 5: Rules list -->
+      <article class="ornate-card">
+        <!-- Corner Brackets -->
+        <div class="card-corner tl"></div>
+        <div class="card-corner tr"></div>
+        <div class="card-corner bl"></div>
+        <div class="card-corner br"></div>
+
+        <!-- Intricate Header Decor -->
+        <div class="card-header-decor">
+          <svg viewBox="0 0 400 40" preserveAspectRatio="none">
+            <path d="M0,30 Q100,5 200,5 Q300,5 400,30" fill="none" stroke="url(#gold-gradient)" stroke-width="3.5" />
+            <path d="M10,30 Q100,10 200,10 Q300,10 390,30" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="1.2" />
+            <path d="M170,18 L180,5 L200,12 L220,5 L230,18 L200,32 Z" fill="#800000" stroke="url(#gold-gradient)" stroke-width="2" />
+            <path d="M140,25 Q155,15 165,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="135" cy="26" r="2" fill="url(#gold-gradient)" />
+            <path d="M260,25 Q245,15 235,22" fill="none" stroke="url(#gold-gradient)" stroke-width="1.5" />
+            <circle cx="265" cy="26" r="2" fill="url(#gold-gradient)" />
+          </svg>
+          <div class="ruby-gem"></div>
+        </div>
+
+        <div class="ornate-card-body">
+          <h2 class="panel-title">Event Rules</h2>
+          <ul class="rules-list" id="rules-list-container">
+            <!-- Items loaded via app.js -->
+          </ul>
+        </div>
+
+        <!-- Intricate Footer Decor -->
+        <div class="card-footer-decor">
+          <svg viewBox="0 0 400 20" preserveAspectRatio="none">
+            <path d="M0,5 Q100,20 200,20 Q300,20 400,5" fill="none" stroke="url(#gold-gradient)" stroke-width="3" />
+            <path d="M10,5 Q100,16 200,16 Q300,16 390,5" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1" />
+            <path d="M190,5 L200,14 L210,5" fill="none" stroke="url(#gold-gradient)" stroke-width="2" />
+          </svg>
+        </div>
+      </article>
+
+    </main>
+
+    <!-- Sticky footer CTA -->
+    <footer class="sticky-footer">
+      <div class="footer-info">
+        <span class="footer-label">Current Offer</span>
+        <span class="footer-value" id="footer-ratio-val">1 $ = 3M Coins</span>
+      </div>
+      <button class="footer-btn" onclick="if(window.parent) window.parent.postMessage('recharge', '*'); else alert('Redirecting to wallet...');">
+        Recharge Now
+      </button>
+    </footer>
+
+  </div>
+
+  <!-- JavaScript Orchestrator Imports -->
+  <script src="js/countdown.js"></script>
+  <script src="js/progress.js"></script>
+  <script src="js/particles.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -65,6 +65,7 @@ import '../../features/rooms/presentation/screens/room_support_screen.dart';
 import '../../features/inbox/presentation/screens/inbox_screen.dart';
 import '../../features/vip/presentation/screens/vip_rewards_screen.dart';
 import '../../features/recharge_event/presentation/screens/recharge_event_detail_screen.dart';
+import '../../features/events/presentation/screens/dynamic_event_screen.dart';
 
 class AppRoutes {
   // Auth
@@ -121,6 +122,7 @@ class AppRoutes {
   static const inbox             = '/inbox';
   static const vipRewards        = '/vip-rewards';
   static const rechargeEventDetail = '/recharge-event-detail';
+  static const dynamicEvent        = '/event';
   static const friendList         = '/friend-list';
   static const friendRequests     = '/friend-requests';
   static const friendshipPortal   = '/friendship-portal';
@@ -449,6 +451,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.rechargeEventDetail,
         builder: (context, state) => const RechargeEventDetailScreen(),
+      ),
+      GoRoute(
+        path: '/event/:eventId',
+        name: AppRoutes.dynamicEvent,
+        builder: (context, state) {
+          final eventId = state.pathParameters['eventId'] ?? '';
+          return DynamicEventScreen(eventId: eventId);
+        },
       ),
       GoRoute(
         path: AppRoutes.friendList,

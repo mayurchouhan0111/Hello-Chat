@@ -570,13 +570,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       case 'recharge_event':
         context.push(AppRoutes.rechargeEventDetail);
         break;
+      case 'event':
+        if (banner.actionValue != null && banner.actionValue!.isNotEmpty) {
+          context.push('/event/${banner.actionValue}');
+        }
+        break;
       case 'profile':
         if (banner.actionValue != null && banner.actionValue!.isNotEmpty) {
           context.push('/user-profile', extra: {'uid': banner.actionValue});
         }
         break;
       case 'external_url':
-        // handled elsewhere if needed
         break;
     }
   }

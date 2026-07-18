@@ -3696,6 +3696,60 @@ exports.rechargeDiamonds = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * Enhanced recharge with event bonus integration
+ * Used by the app for event-integrated recharges
+ */
+exports.enhancedRecharge = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { amount, packageId } = data;
+    if (!amount || amount <= 0) throw new functions.https.HttpsError("invalid-argument", "Invalid amount.");
+
+    let rechargeResult;
+    try {
+        rechargeResult = await db.runTransaction(async (transaction) => {
+            const userRef = db.collection("users").doc(uid);
+            const userDoc = await transaction.get(userRef);
+            if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+            const userData = userDoc.data();
+            const currentMonthly = (userData.monthlyRecharge || 0) + amount;
+
+            let newSvipLevel = -1;
+            let newSvipPoints = 0;
+            for (const tier of SVIP_TIERS) {
+                if (currentMonthly >= tier.min) { newSvipLevel = tier.level; newSvipPoints = tier.points; }
+                else break;
+            }
+
+            const updates = { diamondBalance: admin.firestore.FieldValue.increment(amount), monthlyRecharge: currentMonthly };
+            if (newSvipLevel !== -1) { updates.svipLevel = newSvipLevel; updates.svipPoints = newSvipPoints; }
+            transaction.update(userRef, updates);
+
+            const txRef = userRef.collection("transactions").doc();
+            transaction.set(txRef, {
+                type: "RECHARGE", amount, packageId: packageId || "CUSTOM",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                monthlyRechargeTotal: currentMonthly,
+                newSvipLevel: newSvipLevel >= 0 ? newSvipLevel : null
+            });
+
+            return { success: true, newBalance: (userData.diamondBalance || 0) + amount, newSvipLevel };
+        });
+    } catch (e) {
+        throw e;
+    }
+
+    // Apply event bonuses (best-effort, don't fail recharge)
+    let eventBonus = null;
+    let milestoneProgress = null;
+    try { eventBonus = await processRechargeBonusInline(uid, amount); } catch (e) { console.error("Bonus error:", e); }
+    try { milestoneProgress = await trackRechargeMilestoneInline(uid, amount, false); } catch (e) { console.error("Milestone error:", e); }
+
+    return { ...rechargeResult, eventBonus, milestoneProgress };
+});
+
+/**
  * 16. Reset Monthly Recharge (Cron Job)
  * Occurs on 1st of every month at midnight UTC.
  */
@@ -6947,6 +7001,450 @@ exports.resetDailyRelationshipRankings = functions.pubsub.schedule("0 0 * * *").
 
     await batch.commit();
     console.log(`[RANKINGS] Daily rankings calculated for ${ranked.length} relationships.`);
+});
+
+// ════════════════════════════════════════════════════════════════
+// 🎯 DYNAMIC EVENT SYSTEM — Recharge Bonus & Milestone Events
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Get active events for the current time
+ */
+async function getActiveEvents(type) {
+    const now = admin.firestore.Timestamp.now();
+    let query = db.collection("dynamic_events")
+        .where("isActive", "==", true)
+        .where("startDate", "<=", now)
+        .where("endDate", ">=", now);
+    if (type) {
+        query = query.where("type", "==", type);
+    }
+    const snap = await query.get();
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+/**
+ * Inline: process recharge bonus (no auth check — caller must handle)
+ */
+async function processRechargeBonusInline(uid, amount) {
+    const events = await getActiveEvents("recharge_bonus");
+    if (events.length === 0) return { bonus: 0, eventId: null };
+
+    const event = events[0];
+    const packagesSnap = await db.collection("recharge_bonus_packages")
+        .where("eventId", "==", event.id)
+        .where("isActive", "==", true)
+        .orderBy("rechargeAmount", "asc")
+        .get();
+
+    let totalBonus = 0;
+    let matchedPackage = null;
+    for (const pkgDoc of packagesSnap.docs) {
+        const pkg = pkgDoc.data();
+        if (amount >= (pkg.rechargeAmount || 0)) {
+            totalBonus = Math.max(totalBonus, pkg.bonusCoins || 0);
+            matchedPackage = { id: pkgDoc.id, ...pkg };
+        }
+    }
+
+    if (totalBonus > 0) {
+        const userRef = db.collection("users").doc(uid);
+        await userRef.update({
+            beansBalance: admin.firestore.FieldValue.increment(totalBonus),
+            [`event_bonuses.${event.id}`]: admin.firestore.FieldValue.increment(totalBonus)
+        });
+        await db.collection("users").doc(uid).collection("transactions").add({
+            type: "event_bonus", amount: totalBonus, currency: "beans",
+            eventId: event.id, eventName: event.title || "Bonus Event",
+            description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
+            timestamp: admin.firestore.Timestamp.now()
+        });
+    }
+    return { bonus: totalBonus, eventId: event.id, package: matchedPackage };
+}
+
+/**
+ * Inline: track recharge milestone (no auth check — caller must handle)
+ */
+async function trackRechargeMilestoneInline(uid, amount, includeBonus = false) {
+    const events = await getActiveEvents("recharge_milestone");
+    if (events.length === 0) return { progress: null, milestones: [] };
+
+    const event = events[0];
+    const milestonesSnap = await db.collection("recharge_milestones")
+        .where("eventId", "==", event.id)
+        .where("isActive", "==", true)
+        .orderBy("targetAmount", "asc")
+        .get();
+
+    if (milestonesSnap.docs.length === 0) return { progress: null, milestones: [] };
+
+    const progressRef = db.collection("user_event_progress").doc(`${uid}_${event.id}`);
+    const progressDoc = await progressRef.get();
+
+    let currentProgress = amount;
+    const claimedMilestones = [];
+    if (progressDoc.exists) {
+        const pData = progressDoc.data();
+        currentProgress += (pData.progress || 0);
+        claimedMilestones.push(...(pData.claimedMilestones || []));
+    }
+
+    const milestones = milestonesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const newlyClaimed = [];
+    const batch = db.batch();
+
+    for (const ms of milestones) {
+        if (!claimedMilestones.includes(ms.id) && currentProgress >= (ms.targetAmount || 0)) {
+            newlyClaimed.push(ms.id);
+            if ((ms.rewardType || "coins") === "coins" && (ms.rewardAmount || 0) > 0) {
+                batch.update(db.collection("users").doc(uid), {
+                    beansBalance: admin.firestore.FieldValue.increment(ms.rewardAmount)
+                });
+            }
+        }
+    }
+
+    batch.set(progressRef, {
+        uid, eventId: event.id, progress: currentProgress,
+        claimedMilestones: [...claimedMilestones, ...newlyClaimed],
+        updatedAt: admin.firestore.Timestamp.now()
+    }, { merge: true });
+    await batch.commit();
+
+    return { progress: currentProgress, newlyClaimed, allClaimed: [...claimedMilestones, ...newlyClaimed] };
+}
+
+/**
+ * 🎯 Process recharge bonus — called after a successful recharge
+ * Applies bonus coins from active recharge bonus events
+ */
+exports.processRechargeBonus = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const { amount } = data; // amount in diamonds recharged
+    if (!amount || amount <= 0) throw new HttpsError("invalid-argument", "Invalid recharge amount.");
+
+    const uid = context.auth.uid;
+    const events = await getActiveEvents("recharge_bonus");
+    if (events.length === 0) return { bonus: 0, eventId: null };
+
+    const event = events[0];
+    const packagesSnap = await db.collection("recharge_bonus_packages")
+        .where("eventId", "==", event.id)
+        .where("isActive", "==", true)
+        .orderBy("rechargeAmount", "asc")
+        .get();
+
+    let totalBonus = 0;
+    let matchedPackage = null;
+    for (const pkgDoc of packagesSnap.docs) {
+        const pkg = pkgDoc.data();
+        const pkgAmount = pkg.rechargeAmount || 0;
+        const bonus = pkg.bonusCoins || 0;
+        if (amount >= pkgAmount) {
+            totalBonus = Math.max(totalBonus, bonus);
+            matchedPackage = { id: pkgDoc.id, ...pkg };
+        }
+    }
+
+    if (totalBonus > 0) {
+        const userRef = db.collection("users").doc(uid);
+        await userRef.update({
+            beansBalance: admin.firestore.FieldValue.increment(totalBonus),
+            [`event_bonuses.${event.id}`]: admin.firestore.FieldValue.increment(totalBonus)
+        });
+
+        await db.collection("users").doc(uid).collection("transactions").add({
+            type: "event_bonus",
+            amount: totalBonus,
+            currency: "beans",
+            eventId: event.id,
+            eventName: event.title || "Bonus Event",
+            description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
+            timestamp: admin.firestore.Timestamp.now()
+        });
+    }
+
+    return { bonus: totalBonus, eventId: event.id, package: matchedPackage };
+});
+
+/**
+ * 🎯 Track recharge milestone — update user's progress toward milestones
+ */
+exports.trackRechargeMilestone = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const { amount, includeBonus } = data;
+    if (!amount || amount <= 0) throw new HttpsError("invalid-argument", "Invalid amount.");
+
+    const uid = context.auth.uid;
+    const events = await getActiveEvents("recharge_milestone");
+    if (events.length === 0) return { progress: null, milestones: [] };
+
+    const event = events[0];
+    const milestonesSnap = await db.collection("recharge_milestones")
+        .where("eventId", "==", event.id)
+        .where("isActive", "==", true)
+        .orderBy("targetAmount", "asc")
+        .get();
+
+    if (milestonesSnap.docs.length === 0) return { progress: null, milestones: [] };
+
+    // Get or create user progress
+    const progressRef = db.collection("user_event_progress").doc(`${uid}_${event.id}`);
+    const progressDoc = await progressRef.get();
+
+    let currentProgress = 0;
+    const claimedMilestones = [];
+
+    if (progressDoc.exists) {
+        const pData = progressDoc.data();
+        currentProgress = (pData.progress || 0) + amount;
+        claimedMilestones.push(...(pData.claimedMilestones || []));
+    } else {
+        currentProgress = amount;
+    }
+
+    // Get all milestones
+    const milestones = milestonesSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const newlyClaimed = [];
+    const batch = db.batch();
+
+    for (const ms of milestones) {
+        if (!claimedMilestones.includes(ms.id) && currentProgress >= (ms.targetAmount || 0)) {
+            // Claim reward
+            const rewardAmount = ms.rewardAmount || 0;
+            const rewardType = ms.rewardType || "coins";
+            newlyClaimed.push(ms.id);
+
+            if (rewardType === "coins" && rewardAmount > 0) {
+                const userRef = db.collection("users").doc(uid);
+                batch.update(userRef, {
+                    beansBalance: admin.firestore.FieldValue.increment(rewardAmount),
+                    [`event_milestone_rewards.${event.id}.${ms.id}`]: admin.firestore.FieldValue.increment(rewardAmount)
+                });
+            }
+        }
+    }
+
+    // Save progress
+    batch.set(progressRef, {
+        uid,
+        eventId: event.id,
+        progress: currentProgress,
+        claimedMilestones: [...claimedMilestones, ...newlyClaimed],
+        updatedAt: admin.firestore.Timestamp.now()
+    }, { merge: true });
+
+    await batch.commit();
+
+    return {
+        progress: currentProgress,
+        newlyClaimed,
+        allClaimed: [...claimedMilestones, ...newlyClaimed],
+        milestones: milestones.map(m => ({
+            id: m.id,
+            targetAmount: m.targetAmount,
+            rewardAmount: m.rewardAmount,
+            rewardType: m.rewardType,
+            label: m.label || "",
+            claimed: [...claimedMilestones, ...newlyClaimed].includes(m.id)
+        }))
+    };
+});
+
+/**
+ * 🎯 Claim a specific milestone reward manually
+ */
+exports.claimMilestoneReward = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const { eventId, milestoneId } = data;
+    if (!eventId || !milestoneId) throw new HttpsError("invalid-argument", "eventId and milestoneId required.");
+
+    const uid = context.auth.uid;
+    const progressRef = db.collection("user_event_progress").doc(`${uid}_${eventId}`);
+    const progressDoc = await progressRef.get();
+
+    if (!progressDoc.exists) throw new HttpsError("not-found", "No progress found.");
+
+    const pData = progressDoc.data();
+    const claimed = pData.claimedMilestones || [];
+    if (claimed.includes(milestoneId)) throw new HttpsError("already-exists", "Already claimed.");
+
+    const msDoc = await db.collection("recharge_milestones").doc(milestoneId).get();
+    if (!msDoc.exists) throw new HttpsError("not-found", "Milestone not found.");
+    const ms = msDoc.data();
+
+    if ((pData.progress || 0) < (ms.targetAmount || 0)) {
+        throw new HttpsError("failed-precondition", "Target not reached yet.");
+    }
+
+    const rewardAmount = ms.rewardAmount || 0;
+    if (rewardAmount > 0) {
+        await db.collection("users").doc(uid).update({
+            beansBalance: admin.firestore.FieldValue.increment(rewardAmount)
+        });
+    }
+
+    await progressRef.update({
+        claimedMilestones: admin.firestore.FieldValue.arrayUnion([milestoneId]),
+        updatedAt: admin.firestore.Timestamp.now()
+    });
+
+    return { success: true, rewardAmount, milestoneId };
+});
+
+/**
+ * 📊 Get user's event progress
+ */
+exports.getUserEventProgress = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const { eventId } = data;
+    if (!eventId) throw new HttpsError("invalid-argument", "eventId required.");
+
+    const uid = context.auth.uid;
+    const progressRef = db.collection("user_event_progress").doc(`${uid}_${eventId}`);
+    const doc = await progressRef.get();
+
+    if (!doc.exists) {
+        return { progress: 0, claimedMilestones: [] };
+    }
+
+    const pData = doc.data();
+    return {
+        progress: pData.progress || 0,
+        claimedMilestones: pData.claimedMilestones || [],
+        updatedAt: pData.updatedAt
+    };
+});
+
+/**
+ * 🎯 Upload/Create Banner via callable function
+ */
+exports.uploadBanner = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { bannerId, imageUrl, title, subtitle, buttonText, actionType, actionValue, isActive, priority } = data;
+    if (!imageUrl || !title) throw new HttpsError("invalid-argument", "imageUrl and title required.");
+
+    const bid = bannerId || db.collection("app_banners").doc().id;
+    await db.collection("app_banners").doc(bid).set({
+        bannerId: bid,
+        imageUrl,
+        title,
+        subtitle: subtitle || "",
+        buttonText: buttonText || "",
+        actionType: actionType || "none",
+        actionValue: actionValue || "",
+        isActive: isActive !== false,
+        priority: priority || 100,
+        createdBy: context.auth.uid,
+        createdAt: admin.firestore.Timestamp.now()
+    });
+
+    return { success: true, bannerId: bid };
+});
+
+/**
+ * 🌱 Seed Default Event Models (Admin)
+ */
+exports.seedEventSystem = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new HttpsError("permission-denied", "Admin only.");
+    }
+
+    const now = admin.firestore.Timestamp.now();
+    const future = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+
+    // Seed a sample recharge bonus event
+    const bonusEventRef = db.collection("dynamic_events").doc("sample_bonus_event");
+    await bonusEventRef.set({
+        id: "sample_bonus_event",
+        title: "Recharge Bonus Event",
+        description: "Get bonus diamonds on every recharge!",
+        type: "recharge_bonus",
+        htmlContent: "<h1>Recharge Bonus</h1><p>Get bonus diamonds on every recharge!</p><ul><li>$1 → 3M coins</li><li>$5 → 15M coins</li><li>$10 → 35M coins</li></ul>",
+        bannerImage: "",
+        backgroundImage: "",
+        backgroundType: "color",
+        backgroundColor: "#1a0a2e",
+        themeColor: "#FFD700",
+        icon: "stars",
+        buttonText: "Recharge Now",
+        buttonColor: "#D32F2F",
+        buttonAction: "recharge",
+        navigationTarget: "/wallet",
+        priority: 1,
+        isActive: true,
+        startDate: now,
+        endDate: future,
+        createdAt: now,
+        createdBy: context.auth.uid
+    });
+
+    // Seed sample bonus packages
+    const packages = [
+        { eventId: "sample_bonus_event", rechargeAmount: 1, baseCoins: 1000000, bonusCoins: 2000000, totalCoins: 3000000, sortOrder: 1, isActive: true },
+        { eventId: "sample_bonus_event", rechargeAmount: 5, baseCoins: 5000000, bonusCoins: 10000000, totalCoins: 15000000, sortOrder: 2, isActive: true },
+        { eventId: "sample_bonus_event", rechargeAmount: 10, baseCoins: 10000000, bonusCoins: 25000000, totalCoins: 35000000, sortOrder: 3, isActive: true },
+    ];
+
+    const batch = db.batch();
+    for (const pkg of packages) {
+        const ref = db.collection("recharge_bonus_packages").doc();
+        batch.set(ref, pkg);
+    }
+
+    // Seed a sample milestone event
+    const milestoneEventRef = db.collection("dynamic_events").doc("sample_milestone_event");
+    await milestoneEventRef.set({
+        id: "sample_milestone_event",
+        title: "Recharge Milestone Event",
+        description: "Reach recharge milestones to claim rewards!",
+        type: "recharge_milestone",
+        htmlContent: "<h1>Milestone Event</h1><p> Reach recharge milestones and claim rewards! </p>",
+        bannerImage: "",
+        backgroundImage: "",
+        backgroundType: "gradient",
+        backgroundColor: "#0d1b2a",
+        backgroundGradient: ["#0d1b2a", "#1b2838", "#2d3a4a"],
+        themeColor: "#00E5FF",
+        icon: "flag",
+        buttonText: "Recharge Now",
+        buttonColor: "#00E5FF",
+        buttonAction: "recharge",
+        navigationTarget: "/wallet",
+        priority: 2,
+        isActive: true,
+        startDate: now,
+        endDate: future,
+        includeBonus: false,
+        createdAt: now,
+        createdBy: context.auth.uid
+    });
+
+    // Seed sample milestones
+    const milestones = [
+        { eventId: "sample_milestone_event", targetAmount: 10, rewardAmount: 1000000, rewardType: "coins", label: "10M", sortOrder: 1, isActive: true },
+        { eventId: "sample_milestone_event", targetAmount: 20, rewardAmount: 3000000, rewardType: "coins", label: "20M", sortOrder: 2, isActive: true },
+        { eventId: "sample_milestone_event", targetAmount: 50, rewardAmount: 8000000, rewardType: "coins", label: "50M", sortOrder: 3, isActive: true },
+        { eventId: "sample_milestone_event", targetAmount: 100, rewardAmount: 20000000, rewardType: "coins", label: "100M", sortOrder: 4, isActive: true },
+    ];
+
+    for (const ms of milestones) {
+        const ref = db.collection("recharge_milestones").doc();
+        batch.set(ref, ms);
+    }
+
+    await batch.commit();
+    return { success: true, message: "Sample events seeded!" };
 });
 
 /**

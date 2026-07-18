@@ -1,0 +1,45 @@
+{
+  "title": "Recharge Bonus Event",
+  "subtitle": "1 $ = 3m coins",
+  "endDate": "2026-10-31T23:59:59Z",
+  "detailsText": "The Recharge Rebate Event is now upgraded! No chest unlocking required — enjoy massive instant returns. Get 3 million coins for every $1 you recharge. Recharge now and claim big rewards instantly! 🎊",
+  "detailsNote": "Note: Platform reserves the right to final interpretation of this event. Please consult customer service for specific rules.",
+  "tableText": "For every $1 recharged, you will ultimately receive 3 million coins, including 1m basic coins and 2m event bonus coins. The same applies to all other recharge amounts; you can refer to the table below for details.",
+  "tableNote": "Note: Details of the rewards for each recharge can be viewed in the coins Recharge Record.",
+  "packages": [
+    { "rechargeAmount": 1, "baseCoins": "1,000,000", "bonusCoins": "2,000,000", "totalCoins": "3,000,000" },
+    { "rechargeAmount": 5, "baseCoins": "5,000,000", "bonusCoins": "10,000,000", "totalCoins": "15,000,000" },
+    { "rechargeAmount": 10, "baseCoins": "10,000,000", "bonusCoins": "20,000,000", "totalCoins": "30,000,000" },
+    { "rechargeAmount": 30, "baseCoins": "3,000,0000", "bonusCoins": "60,000,000", "totalCoins": "90,000,000" },
+    { "rechargeAmount": 100, "baseCoins": "100,000,000", "bonusCoins": "200,000,000", "totalCoins": "300,000,000" }
+  ],
+  "userProgress": {
+    "currentRecharge": 45,
+    "milestones": [
+      { "threshold": 10, "reward": "1.5M Coins + Gold Badge (3 Days)", "icon": "🏆" },
+      { "threshold": 30, "reward": "5M Coins + Royal Crown Frame (7 Days)", "icon": "👑" },
+      { "threshold": 50, "reward": "10M Coins + Phoenix Effect (15 Days)", "icon": "🔥" },
+      { "threshold": 100, "reward": "30M Coins + Golden Dragon Mount (30 Days)", "icon": "🐉" }
+    ]
+  },
+  "faqs": [
+    {
+      "q": "How do I claim my bonus coins?",
+      "a": "Bonus coins are automatically credited to your wallet instantly upon successful recharge. No manual claiming or chest unlocking is required!"
+    },
+    {
+      "q": "Is there any limit to the recharge amount?",
+      "a": "No! There are no limits to the recharge amount. You will receive 3 million coins for every single dollar recharged during the event duration."
+    },
+    {
+      "q": "Where can I view my recharge history?",
+      "a": "You can view your detailed recharge and bonus records inside the 'Recharge Record' screen in your wallet settings."
+    }
+  ],
+  "rules": [
+    "The event is active from July 18, 2026, until October 31, 2026.",
+    "Bonus coins do not count towards VIP level points; only basic coins contribute to VIP progress.",
+    "Any recharge done outside the event window will not be eligible for bonus rebate multipliers.",
+    "Hayi reserves the final interpretation rights of this event. In case of cheat detection, the system reserves the right to freeze the user account."
+  ]
+}

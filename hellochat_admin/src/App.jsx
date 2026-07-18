@@ -23,7 +23,7 @@ import { MomentsManagement } from './screens/MomentsManagement';
 import { KYCManagement } from './screens/KYCManagement';
 import { RoomSupportManagement } from './screens/RoomSupportManagement';
 import { FamilyBattleConfig } from './screens/FamilyBattleConfig';
-import { RechargeEventManagement } from './screens/RechargeEventManagement';
+import { EventBuilder } from './screens/EventBuilder';
 import { RelationshipManagement } from './screens/RelationshipManagement';
 
 function App() {
@@ -140,7 +140,12 @@ function App() {
           } />
           <Route path="/recharge-event" element={
             <AdminLayout>
-              <RechargeEventManagement />
+              <EventBuilder />
+            </AdminLayout>
+          } />
+          <Route path="/events" element={
+            <AdminLayout>
+              <EventBuilder />
             </AdminLayout>
           } />
           <Route path="/relationships" element={

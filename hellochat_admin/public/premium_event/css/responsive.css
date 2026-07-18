@@ -1,0 +1,96 @@
+/* RESPONSIVE.CSS - MOBILE-FIRST MEDIA QUERIES */
+
+/* For smaller screen viewports (phones under 360px wide) */
+@media screen and (max-width: 360px) {
+  .event-title {
+    font-size: 28px;
+    margin-top: 10px;
+    margin-bottom: 15px;
+  }
+  
+  .event-title span {
+    font-size: 32px;
+  }
+
+  .exchange-badge {
+    padding: 6px 20px;
+    font-size: 18px;
+    min-width: 240px;
+    margin-bottom: 15px;
+  }
+
+  .exchange-badge .val-usd {
+    font-size: 20px;
+  }
+
+  .recharge-btn {
+    padding: 10px 32px;
+    font-size: 16px;
+  }
+
+  .timer-val {
+    font-size: 16px;
+    min-width: 30px;
+    padding: 3px 6px;
+  }
+
+  .countdown-box {
+    margin-top: 15px;
+    padding: 8px 10px;
+  }
+
+  .ornate-card-body {
+    padding: 20px 12px 15px 12px;
+    font-size: 13px;
+  }
+
+  .recharge-table th {
+    font-size: 10px;
+    padding: 8px 4px;
+  }
+
+  .recharge-table td {
+    font-size: 11px;
+    padding: 8px 4px;
+  }
+
+  .progress-node-circle {
+    width: 20px;
+    height: 20px;
+    font-size: 9px;
+  }
+
+  .progress-node-reward {
+    font-size: 8px;
+    top: 26px;
+  }
+}
+
+/* For desktops (simulate standalone page presentation when opened outside app) */
+@media screen and (min-width: 480px) {
+  body {
+    /* Subtle background grid on desktop behind the phone wrapper */
+    background-image: 
+      linear-gradient(to right, rgba(255, 215, 0, 0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 215, 0, 0.02) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+}
+
+/* Scrollbar styling for the simulated mobile frame */
+.app-viewport::-webkit-scrollbar {
+  width: 5px;
+}
+
+.app-viewport::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+
+.app-viewport::-webkit-scrollbar-thumb {
+  background: var(--gold-deep);
+  border-radius: 10px;
+}
+
+.app-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-primary);
+}
