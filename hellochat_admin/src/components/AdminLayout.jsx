@@ -25,6 +25,7 @@ import {
   Store,
   Image,
   Swords,
+  Layers,
 } from 'lucide-react';
 import logo from '../assets/logo.webp';
 
@@ -56,7 +57,8 @@ const Sidebar = () => {
     { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
     { name: 'Family Battle', icon: Swords, path: '/family-battle-config' },
     { name: 'Room Support', icon: HeartHandshake, path: '/room-support' },
-    { name: 'Event Builder', icon: Coins, path: '/recharge-event' },
+    { name: 'Recharge Event', icon: Coins, path: '/recharge-event' },
+    { name: 'Event Builder', icon: Layers, path: '/events' },
     { name: 'Relationships', icon: HeartHandshake, path: '/relationships' },
     { name: 'Settings', icon: Settings, path: '/settings' },
     { name: 'Audit Trail', icon: History, path: '/logs' },

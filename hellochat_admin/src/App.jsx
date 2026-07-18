@@ -24,6 +24,7 @@ import { KYCManagement } from './screens/KYCManagement';
 import { RoomSupportManagement } from './screens/RoomSupportManagement';
 import { FamilyBattleConfig } from './screens/FamilyBattleConfig';
 import { EventBuilder } from './screens/EventBuilder';
+import { RechargeEventManagement } from './screens/RechargeEventManagement';
 import { RelationshipManagement } from './screens/RelationshipManagement';
 
 function App() {
@@ -140,7 +141,7 @@ function App() {
           } />
           <Route path="/recharge-event" element={
             <AdminLayout>
-              <EventBuilder />
+              <RechargeEventManagement />
             </AdminLayout>
           } />
           <Route path="/events" element={
