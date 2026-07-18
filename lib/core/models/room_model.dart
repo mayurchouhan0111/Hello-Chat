@@ -16,7 +16,9 @@ class RoomModel {
   final DateTime? endedAt;
   final String status; // "active" | "ended"
   final List<String> admins;
+  final List<String> moderators;
   final List<String> bannedUids;
+  final Map<String, dynamic>? banExpiries;
   final bool pkActive;
   final DateTime? pkStartTime;
   final DateTime? pkEndTime;
@@ -51,6 +53,7 @@ class RoomModel {
   final Map<String, int>? rocketContributions;
   final String rocketStatus; // "active" | "cooldown"
   final DateTime? rocketCooldownUntil;
+  final Map<String, dynamic>? lastRocketResults;
 
   RoomModel({
     required this.roomId,
@@ -68,7 +71,9 @@ class RoomModel {
     this.endedAt,
     required this.status,
     required this.admins,
+    required this.moderators,
     required this.bannedUids,
+    this.banExpiries,
     this.pkActive = false,
     this.pkStartTime,
     this.pkEndTime,
@@ -103,6 +108,7 @@ class RoomModel {
     this.rocketContributions,
     this.rocketStatus = "active",
     this.rocketCooldownUntil,
+    this.lastRocketResults,
   });
 
   Map<String, dynamic> toMap() {
@@ -122,7 +128,9 @@ class RoomModel {
       'endedAt': endedAt != null ? Timestamp.fromDate(endedAt!) : null,
       'status': status,
       'admins': admins,
+      'moderators': moderators,
       'bannedUids': bannedUids,
+      'banExpiries': banExpiries,
       'pkActive': pkActive,
       'pkStartTime': pkStartTime != null ? Timestamp.fromDate(pkStartTime!) : null,
       'pkEndTime': pkEndTime != null ? Timestamp.fromDate(pkEndTime!) : null,
@@ -157,6 +165,7 @@ class RoomModel {
       'rocketContributions': rocketContributions,
       'rocketStatus': rocketStatus,
       'rocketCooldownUntil': rocketCooldownUntil != null ? Timestamp.fromDate(rocketCooldownUntil!) : null,
+      'lastRocketResults': lastRocketResults,
     };
   }
 
@@ -177,7 +186,9 @@ class RoomModel {
       endedAt: (map['endedAt'] as Timestamp?)?.toDate(),
       status: map['status'] ?? 'active',
       admins: (map['admins'] as Iterable?)?.whereType<String>().toList() ?? [],
+      moderators: (map['moderators'] as Iterable?)?.whereType<String>().toList() ?? [],
       bannedUids: (map['bannedUids'] as Iterable?)?.whereType<String>().toList() ?? [],
+      banExpiries: map['banExpiries'] != null ? Map<String, dynamic>.from(map['banExpiries']) : null,
       pkActive: map['pkActive'] ?? false,
       pkStartTime: (map['pkStartTime'] as Timestamp?)?.toDate(),
       pkEndTime: (map['pkEndTime'] as Timestamp?)?.toDate(),
@@ -212,6 +223,7 @@ class RoomModel {
       rocketContributions: (map['rocketContributions'] as Map?)?.cast<String, int>(),
       rocketStatus: map['rocketStatus'] ?? 'active',
       rocketCooldownUntil: (map['rocketCooldownUntil'] as Timestamp?)?.toDate(),
+      lastRocketResults: map['lastRocketResults'] != null ? Map<String, dynamic>.from(map['lastRocketResults']) : null,
     );
   }
 

@@ -41,6 +41,7 @@ class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> with BaseFireb
       state = AsyncValue.data(gameResult);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 
@@ -66,6 +67,7 @@ class GameNotifier extends StateNotifier<AsyncValue<GameResult?>> with BaseFireb
       ));
     } catch (e, st) {
       state = AsyncValue.error(e, st);
+      rethrow;
     }
   }
 }
@@ -88,6 +90,9 @@ final gameSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((r
             'maxWager': 5000,
             'maxWinCap': 50000,
             'dailyProfitLimit': 100000,
+            'roundDurationMs': 40000,
+            'bettingDurationSeconds': 10,
+            'revealDurationSeconds': 5,
             'segments': [
               {'id': '1', 'name': 'Apple', 'multiplier': 2, 'weight': 550, 'emoji': '🍎'},
               {'id': '2', 'name': 'Orange', 'multiplier': 3, 'weight': 250, 'emoji': '🍊'},

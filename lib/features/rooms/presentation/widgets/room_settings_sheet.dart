@@ -12,6 +12,7 @@ import '../../../../core/models/user_model.dart';
 import 'administrator_sheet.dart';
 import 'room_music_sheet.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class RoomSettingsSheet extends ConsumerStatefulWidget {
   final RoomModel room;
@@ -242,6 +243,8 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                             onTap: () => _showPasswordDialog(room)
                           ),
                           _buildBottomAction(Icons.admin_panel_settings_outlined, "Admin", onTap: () => _showAdminPanel(room)),
+                          if (room.bannedUids.isNotEmpty)
+                            _buildBottomAction(Icons.block, "Bans", onTap: () => _showBannedUsers(room)),
                         ],
                       ),
                       const Gap(40),
@@ -343,6 +346,108 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
       isScrollControlled: true,
       builder: (context) => AdministratorSheet(room: room),
     );
+  }
+
+  void _showBannedUsers(RoomModel room) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final isOwner = room.ownerUid == uid;
+    final isAdmin = room.admins.contains(uid);
+    if (!isOwner && !isAdmin) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => Container(
+        height: MediaQuery.of(context).size.height * 0.6,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            const Gap(12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2))),
+            const Gap(16),
+            Text("Banned Users (${room.bannedUids.length})", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            const Gap(4),
+            Text("Permanent bans shown without expiry", style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+            const Gap(12),
+            Expanded(
+              child: room.bannedUids.isEmpty
+                ? Center(child: Text("No banned users", style: TextStyle(color: Colors.grey[400])))
+                : ListView.builder(
+                    itemCount: room.bannedUids.length,
+                    itemBuilder: (context, index) {
+                      final buid = room.bannedUids[index];
+                      final expiry = room.banExpiries?[buid];
+                      final expiryDate = expiry != null ? (expiry as dynamic).toDate() as DateTime? : null;
+                      final isExpired = expiryDate != null && expiryDate.isBefore(DateTime.now());
+                      final expiryStr = expiryDate != null
+                        ? (isExpired ? "Expired" : "Expires: ${_formatBanExpiry(expiryDate)}")
+                        : "Permanent";
+
+                      return Consumer(
+                        builder: (context, ref, child) {
+                          final userAsync = ref.watch(userProfileProvider(buid));
+                          return userAsync.when(
+                            data: (user) {
+                              final displayName = user?.displayName ?? "User";
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  backgroundImage: NetworkImage(
+                                    (user?.profilePhotoUrl ?? "").isNotEmpty
+                                      ? user!.profilePhotoUrl
+                                      : 'https://picsum.photos/seed/$buid/100'
+                                  ),
+                                ),
+                                title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                subtitle: Text(expiryStr, style: TextStyle(fontSize: 12, color: isExpired ? Colors.green : Colors.red[400])),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.person_remove_alt_1, color: Colors.orange),
+                                  onPressed: () async {
+                                    await ref.read(roomServiceProvider).unbanUser(room.roomId, buid);
+                                    if (sheetContext.mounted) {
+                                      ScaffoldMessenger.of(sheetContext).showSnackBar(
+                                        SnackBar(content: Text("$displayName unbanned"))
+                                      );
+                                    }
+                                  },
+                                ),
+                              );
+                            },
+                            loading: () => ListTile(
+                              leading: const CircleAvatar(child: CircularProgressIndicator()),
+                              title: const Text("Loading..."),
+                            ),
+                            error: (_, __) => ListTile(
+                              title: Text("User: $buid"),
+                              subtitle: Text(expiryStr),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.person_remove_alt_1, color: Colors.orange),
+                                onPressed: () async {
+                                  await ref.read(roomServiceProvider).unbanUser(room.roomId, buid);
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatBanExpiry(DateTime dt) {
+    final now = DateTime.now();
+    final diff = dt.difference(now);
+    if (diff.inMinutes < 60) return "${diff.inMinutes}m";
+    if (diff.inHours < 24) return "${diff.inHours}h ${diff.inMinutes % 60}m";
+    return "${diff.inDays}d ${diff.inHours % 24}h";
   }
 
   Widget _buildLabel(String text) {

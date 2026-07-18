@@ -180,6 +180,7 @@ class _BaseRankingScreen extends StatelessWidget {
 
           final items = snapshot.data!.docs;
           return ListView.builder(
+            itemExtent: 77.0,
             itemCount: items.length,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
             itemBuilder: (context, index) {

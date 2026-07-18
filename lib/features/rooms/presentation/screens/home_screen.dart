@@ -13,6 +13,7 @@ import 'package:hello_chat/core/models/user_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:hello_chat/core/providers/ranking_preview_provider.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
@@ -26,6 +27,7 @@ import '../../../chats/presentation/screens/chat_list_screen.dart';
 import '../../../../core/providers/chat_provider.dart';
 
 import '../../../../core/services/broadcast_service.dart';
+import '../../../../core/services/notification_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -37,6 +39,22 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 0; 
   int _currentBannerIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkPendingRoute();
+    });
+  }
+
+  void _checkPendingRoute() {
+    final route = NotificationService.pendingRoute;
+    if (route != null) {
+      NotificationService.clearPendingRoute();
+      context.push(route);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -535,8 +553,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  void _handleBannerAction(BuildContext context, BannerModel banner) async {
-    // Action Logic
+  void _handleBannerAction(BuildContext context, BannerModel banner) {
+    switch (banner.actionType) {
+      case 'room_support':
+        final activeRoom = ref.read(currentUserProfileProvider).value?.activeRoomId;
+        context.push('/room-support', extra: {'roomId': activeRoom});
+        break;
+      case 'room':
+        if (banner.actionValue != null && banner.actionValue!.isNotEmpty) {
+          RoomNavigationHelper.joinRoom(context, ref, banner.actionValue!);
+        }
+        break;
+      case 'recharge':
+        context.push('/wallet');
+        break;
+      case 'recharge_event':
+        context.push(AppRoutes.rechargeEventDetail);
+        break;
+      case 'profile':
+        if (banner.actionValue != null && banner.actionValue!.isNotEmpty) {
+          context.push('/user-profile', extra: {'uid': banner.actionValue});
+        }
+        break;
+      case 'external_url':
+        // handled elsewhere if needed
+        break;
+    }
   }
 }
 

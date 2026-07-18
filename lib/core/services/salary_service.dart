@@ -68,20 +68,20 @@ class SalaryService extends BaseFirebaseService {
     final salaryLevel = SalaryLevel.getLevel(level);
     final now = DateTime.now();
     
-    // 1. Host Payout (60%) - Available Next Day
+    // 1. Host Payout (60%) - Available Next Day (Converted from Beans to USD)
     final hostPayoutDate = DateTime(now.year, now.month, now.day + 1);
     final hostPayoutRef = _db.collection('salaryPayouts').doc();
     transaction.set(hostPayoutRef, SalaryPayout(
       id: hostPayoutRef.id,
       uid: host.uid,
-      amount: salaryLevel.hostShare,
+      amount: salaryLevel.hostShare * 0.01,
       type: 'host',
       level: level,
       scheduledDate: hostPayoutDate,
       createdAt: now,
     ).toMap());
 
-    // 2. Agency Payout (30%) - Bi-Weekly (15th or 30th)
+    // 2. Agency Payout (30%) - Bi-Weekly (15th or 30th) (Kept in Beans)
     if (host.agencyId != null) {
       final agencyPayoutDate = _getNextBiWeeklyDate(now);
       final agencyPayoutRef = _db.collection('salaryPayouts').doc();
@@ -97,13 +97,13 @@ class SalaryService extends BaseFirebaseService {
       ).toMap());
     }
 
-    // 3. Admin Payout (10%) - Bi-Weekly
+    // 3. Admin Payout (10%) - Bi-Weekly (Converted from Beans to USD)
     final adminPayoutDate = _getNextBiWeeklyDate(now);
     final adminPayoutRef = _db.collection('salaryPayouts').doc();
     transaction.set(adminPayoutRef, SalaryPayout(
       id: adminPayoutRef.id,
       uid: 'SYSTEM_ADMIN',
-      amount: salaryLevel.adminShare,
+      amount: salaryLevel.adminShare * 0.01,
       type: 'admin',
       level: level,
       scheduledDate: adminPayoutDate,

@@ -7,6 +7,7 @@ class RoomMessage {
   final String type; // "text" | "system" | "gift"
   final String? giftId;
   final String? animationUrl;
+  final int quantity;
   final DateTime createdAt;
 
   RoomMessage({
@@ -16,6 +17,7 @@ class RoomMessage {
     required this.type,
     this.giftId,
     this.animationUrl,
+    this.quantity = 1,
     required this.createdAt,
   });
 
@@ -26,6 +28,7 @@ class RoomMessage {
       'type': type,
       'giftId': giftId,
       'animationUrl': animationUrl,
+      'quantity': quantity,
       'createdAt': Timestamp.fromDate(createdAt),
     };
   }
@@ -38,6 +41,7 @@ class RoomMessage {
       type: map['type'] ?? 'text',
       giftId: map['giftId'],
       animationUrl: map['animationUrl'],
+      quantity: (map['quantity'] as num? ?? 1).toInt(),
       createdAt: _parseDate(map['createdAt']),
     );
   }

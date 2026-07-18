@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "enabled": true,
+    "servers": {
+      "firebase": {
+        "command": "npx",
+        "args": ["-y", "firebase-tools@latest", "experimental:mcp", "--port", "$port", "--mode", "sse"],
+        "workingDirectory": "."
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
+import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:hello_chat/core/utils/rocket_vap_config.dart';
 import '../../../../core/models/room_model.dart';
 import './rocket_detail_sheet.dart';
 
@@ -40,11 +42,9 @@ class _RocketProgressWidgetState extends State<RocketProgressWidget> with Single
     _currentLevel = level;
 
     try {
-      // SVGA paths: 1 (1).svga for Level 0, 1 (2).svga for Level 1, etc.
-      // Clamp level to 4 (Level 5) max to avoid loading 1 (6).svga which doesn't exist
       final displayLevel = level.clamp(0, 4);
-      final svgaPath = 'assets/rocket/VAP/1 (${displayLevel + 1}).svga';
-      final videoItem = await SVGAParser.shared.decodeFromAssets(svgaPath);
+      final svgaPath = RocketVapConfig.svgaIconPath(displayLevel);
+      final videoItem = await SvgaParserUtil.decodeSafeFromAssets(svgaPath);
       
       if (mounted) {
         _controller?.videoItem = videoItem;

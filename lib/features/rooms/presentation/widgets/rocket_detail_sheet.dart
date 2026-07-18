@@ -1,13 +1,13 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
-import 'package:flutter_vap_plugin/flutter_vap_plugin.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
+import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:hello_chat/core/utils/rocket_vap_config.dart';
+import 'package:hello_chat/core/widgets/vap_player.dart';
 import '../../../../core/models/room_model.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/room_provider.dart';
@@ -22,61 +22,17 @@ class RocketDetailSheet extends ConsumerStatefulWidget {
 }
 
 class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with TickerProviderStateMixin {
-  int _selectedLevel = 0; // 0-indexed
-  final FlutterVapController _mainVapController = FlutterVapController();
-  
+  int _selectedLevel = 0;
+  String _selectedTab = "Top1";
+
   Timer? _countdownTimer;
   String _timeString = "00:00:00";
-  bool _isInitialized = false;
-  final Map<int, String> _tempFilePaths = {};
-
-  final List<String> _vapFiles = [
-    'assets/rocket/VAP/1-a.mp4',
-    'assets/rocket/VAP/2-a.mp4',
-    'assets/rocket/VAP/3-a.mp4',
-    'assets/rocket/VAP/4-a.mp4',
-    'assets/rocket/VAP/5-a.mp4',
-  ];
 
   @override
   void initState() {
     super.initState();
     _selectedLevel = widget.room.rocketLevel.clamp(0, 4);
     _startCountdown();
-    
-    // Start initialization
-    _initializeAndPlay();
-  }
-
-  Future<void> _initializeAndPlay() async {
-    await _prepareTempFiles();
-    if (mounted) {
-      setState(() => _isInitialized = true);
-      // Give native view a moment to attach to the tree
-      Future.delayed(const Duration(milliseconds: 300), () {
-        if (mounted) {
-          _loadMainAnimation();
-        }
-      });
-    }
-  }
-
-  Future<void> _prepareTempFiles() async {
-    try {
-      final tempDir = await getTemporaryDirectory();
-      for (int i = 0; i < _vapFiles.length; i++) {
-        final vapPath = _vapFiles[i];
-        // Use rootBundle directly for more reliability
-        final byteData = await rootBundle.load(vapPath);
-        final bytes = byteData.buffer.asUint8List();
-        final tempFile = File('${tempDir.path}/rocket_${i + 1}_a.mp4');
-        await tempFile.writeAsBytes(bytes);
-        _tempFilePaths[i] = tempFile.path;
-        debugPrint("SUCCESS: Prepared temp file $i: ${tempFile.path}");
-      }
-    } catch (e) {
-      debugPrint("FATAL ERROR preparing VAP files: $e");
-    }
   }
 
   void _startCountdown() {
@@ -88,39 +44,16 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
       final now = DateTime.now();
       final tomorrow = DateTime(now.year, now.month, now.day + 1);
       final diff = tomorrow.difference(now);
-      
+
       setState(() {
         _timeString = "${diff.inHours.toString().padLeft(2, '0')}:${(diff.inMinutes % 60).toString().padLeft(2, '0')}:${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
       });
     });
   }
 
-  Future<void> _loadMainAnimation() async {
-    if (!mounted) return;
-    final path = _tempFilePaths[_selectedLevel];
-    if (path == null) {
-      debugPrint("ERROR: No temp file path for level $_selectedLevel");
-      return;
-    }
-    
-    try {
-      await _mainVapController.stop();
-      if (!mounted) return;
-      debugPrint("PLAYING VAP: $path for level $_selectedLevel");
-      await _mainVapController.play(
-        path: path,
-        sourceType: VapSourceType.file,
-        repeatCount: 9999, 
-      );
-    } catch (e) {
-      debugPrint("Main VAP Play Error: $e");
-    }
-  }
-
   @override
   void dispose() {
     _countdownTimer?.cancel();
-    _mainVapController.stop();
     super.dispose();
   }
 
@@ -139,10 +72,18 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.room.roomId));
     final room = roomAsync.value ?? widget.room;
-    
+
     final target = _getTargetForLevel(_selectedLevel);
     final fuel = _selectedLevel == room.rocketLevel ? room.rocketFuel : (_selectedLevel < room.rocketLevel ? target : 0);
     final progress = (fuel / target).clamp(0.0, 1.0);
+
+    final contributions = _resolveContributions(room);
+    final sorted = contributions.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topContributorId = sorted.isNotEmpty ? sorted.first.key : room.ownerUid;
+    final topUser = ref.watch(userProfileProvider(topContributorId)).value;
+
+    final top3Uids = sorted.take(3).map((e) => e.key).toList();
 
     return Container(
       width: double.infinity,
@@ -170,7 +111,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildLevelSelector(room),
-                    Expanded(child: _buildMainRocketDisplay(room)),
+                    Expanded(child: _buildMainRocketDisplay(room, topUser?.profilePhotoUrl)),
                     _buildRightControls(progress),
                   ],
                 ),
@@ -205,20 +146,17 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
         children: List.generate(5, (index) {
           final isSelected = _selectedLevel == index;
           final isCurrent = room.rocketLevel == index;
-          
+
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () {
-              if (!mounted) return;
-              setState(() {
-                _selectedLevel = index;
-                _loadMainAnimation();
-              });
-            },
+              onTap: () {
+                if (!mounted) return;
+                setState(() => _selectedLevel = index);
+              },
             child: Container(
-              height: 60,
-              width: 50,
-              margin: const EdgeInsets.only(bottom: 6),
+              height: 52,
+              width: 48,
+              margin: const EdgeInsets.only(bottom: 4),
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: isSelected ? const Color(0xFFCC00FF).withOpacity(0.3) : Colors.transparent,
@@ -231,9 +169,8 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  // Dynamic SVGA Rocket Level Logo
                   _RocketLevelSvgaButton(level: index),
-                  
+
                   if (isCurrent)
                     Positioned(
                       top: 1, right: 1,
@@ -252,28 +189,26 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     );
   }
 
-  Widget _buildMainRocketDisplay(RoomModel room) {
+  Widget _buildMainRocketDisplay(RoomModel room, String? profileImageUrl) {
+    final variant = _selectedLevel >= 3 ? 3 : 2;
+    final vapPath = RocketVapConfig.vapAssetPath(_selectedLevel, variant: variant);
+
     return Stack(
       clipBehavior: Clip.none,
       children: [
-        // VAP Animation Layer - Shifted down with same total height
         Positioned(
           top: -10,
           bottom: -110,
           left: -40,
           right: -40,
-          child: _isInitialized 
-            ? FlutterVapView(
-                controller: _mainVapController,
-                scaleType: VapScaleType.fitXY,
-                onVideoFinish: () {
-                  if (mounted) _loadMainAnimation();
-                },
-              )
-            : const Center(child: CircularProgressIndicator(color: Color(0xFFCC00FF))),
+          child: VapAnimation(
+            assetPath: vapPath,
+            profileImageUrl: profileImageUrl,
+            fit: BoxFit.contain,
+            loop: true,
+          ),
         ),
 
-        // Level Badge Layer
         Positioned(
           top: 0, left: 20,
           child: Container(
@@ -290,7 +225,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
           ),
         ),
 
-        // Multiplier Badge
         Positioned(
           top: 0, right: 0,
           child: Container(
@@ -314,8 +248,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
           ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(duration: 2.seconds),
         ),
 
-        // Cooldown Banner Overlay
-        if (room.rocketStatus == "cooldown" && 
+        if (room.rocketStatus == "cooldown" &&
             room.rocketCooldownUntil != null &&
             room.rocketCooldownUntil!.isAfter(DateTime.now()))
           Positioned.fill(
@@ -376,13 +309,13 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
   }
 
   Widget _buildRightControls(double progress) {
-    const double trackHeight = 200; // Even shorter height as requested
-    
+    const double trackHeight = 200;
+
     return Container(
       width: 50,
       margin: const EdgeInsets.only(right: 8),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.end, // Align everything to the bottom
+        mainAxisAlignment: MainAxisAlignment.end,
         children: [
           SizedBox(
             height: trackHeight,
@@ -390,7 +323,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
               alignment: Alignment.bottomCenter,
               clipBehavior: Clip.none,
               children: [
-                // Futuristic Glass Track
                 Positioned.fill(
                   child: Center(
                     child: Container(
@@ -414,7 +346,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                         borderRadius: BorderRadius.circular(20),
                         child: Stack(
                           children: [
-                            // Subtle metallic reflection layer
                             Positioned.fill(
                               child: Container(
                                 decoration: BoxDecoration(
@@ -446,7 +377,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                         colors: [
                           Color(0xFF8E54E9),
                           Color(0xFFCC00FF),
-                          Color(0xFF00FFFF), // Cyan for that cyberpunk neon pop
+                          Color(0xFF00FFFF),
                         ],
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
@@ -462,7 +393,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                     ),
                     child: Stack(
                       children: [
-                        // Internal energy pulse
                         Positioned.fill(
                           child: Container(
                             decoration: BoxDecoration(
@@ -483,7 +413,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                   ),
                 ),
 
-                // Floating Glowing Tip (Bloom)
                 if (progress > 0.05)
                   Positioned(
                     bottom: (progress * trackHeight) - 4,
@@ -503,7 +432,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                     ),
                   ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(duration: 1.seconds, begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2)),
 
-                // Futuristic Percentage Tag
                 Positioned(
                   bottom: (progress * trackHeight) - 10,
                   right: -15,
@@ -553,121 +481,344 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     );
   }
 
+  /// Resolves contributors from live rocketContributions (preferred) or lastRocketResults (fallback after launch)
+  Map<String, int> _resolveContributions(RoomModel room) {
+    if (room.rocketContributions != null && room.rocketContributions!.isNotEmpty) {
+      return room.rocketContributions!;
+    }
+    if (room.lastRocketResults != null) {
+      final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
+      final result = <String, int>{};
+      for (final entry in top3) {
+        if (entry is Map) {
+          final uid = entry['uid'] as String?;
+          final amount = entry['amount'] as num?;
+          if (uid != null && amount != null) {
+            result[uid] = amount.toInt();
+          }
+        }
+      }
+      return result;
+    }
+    return {};
+  }
+
+  Map<String, dynamic> _getRewardsForLevel(int level) {
+    const duration24h = '24h';
+    const duration72h = '72h';
+    switch (level) {
+      case 0: return {'king': 30000, 't2': 15000, 't3': 7500, 'xp': 2000, 'frameDuration': duration24h};
+      case 1: return {'king': 60000, 't2': 40000, 't3': 30000, 'xp': 3000, 'frameDuration': duration24h};
+      case 2: return {'king': 200000, 't2': 150000, 't3': 100000, 'xp': 5000, 'frameDuration': duration24h};
+      case 3: return {'king': 500000, 't2': 300000, 't3': 250000, 'xp': 10000, 'frameDuration': duration24h};
+      case 4: return {'king': 800000, 't2': 500000, 't3': 350000, 'xp': 15000, 'frameDuration': duration72h};
+      default: return {'king': 30000, 't2': 15000, 't3': 7500, 'xp': 2000, 'frameDuration': duration24h};
+    }
+  }
+
   Widget _buildBottomPanel(RoomModel room) {
+    final contributions = _resolveContributions(room);
+    final sortedRoomUids = contributions.keys.toList()
+      ..sort((a, b) => contributions[b]!.compareTo(contributions[a]!));
+
+    final top3 = sortedRoomUids.take(3).toList();
+    final rest = sortedRoomUids.skip(3).toList();
+    final rewards = _getRewardsForLevel(_selectedLevel);
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFF1E0045),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             "Reset countdown: $_timeString",
             style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
           ),
-          const Gap(10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF8E54E9), Color(0xFFCC00FF)]),
-              borderRadius: BorderRadius.circular(12),
+          const Gap(8),
+          // Top 3 Contributor List (always visible when contributors exist)
+          if (top3.isNotEmpty)
+            ...top3.asMap().entries.map((entry) {
+              final rank = entry.key;
+              final uid = entry.value;
+              final medal = rank == 0 ? "🥇" : (rank == 1 ? "🥈" : "🥉");
+              return _buildContributorRow(uid, contributions[uid] ?? 0, medal);
+            }),
+          if (top3.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text("No contributors yet", style: TextStyle(color: Colors.white54, fontSize: 13)),
             ),
-            child: const Center(
-              child: Text("My Reward", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-            ),
-          ),
-          const Gap(10),
+          const Gap(8),
+          // Reward info
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: ["Top1", "Top2", "Top3", "In Room"].map((tab) => Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: tab == "Top1" ? const Color(0xFFCC00FF) : Colors.transparent,
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: const Color(0xFFCC00FF)),
-              ),
-              child: Text(tab, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-            )).toList(),
-          ),
-          const Gap(12),
-          Row(
             children: [
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Rocket king", style: TextStyle(color: Color(0xFFFFD700), fontSize: 16, fontWeight: FontWeight.w900)),
-                  Text("last / this week", style: TextStyle(color: Colors.white54, fontSize: 10)),
-                ],
-              ),
-              const Spacer(),
-              _buildRankingAvatars(room),
-              const Gap(10),
-              const Icon(Icons.chevron_right_rounded, color: Colors.white54),
+              _buildRewardChip("🥇", "${_formatReward(rewards['king'] as int)} 💎"),
+              _buildRewardChip("🥈", "${_formatReward(rewards['t2'] as int)} 💎"),
+              _buildRewardChip("🥉", "${_formatReward(rewards['t3'] as int)} 💎"),
             ],
           ),
+          const Gap(4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFCC00FF).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.auto_awesome, color: Color(0xFFFFD700), size: 12),
+                const SizedBox(width: 4),
+                Text(
+                  "Top 3 each receive Rocket Frame (${rewards['frameDuration']})",
+                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+          ),
+          const Gap(12),
+          // Rank 4+ scrollable list
+          if (rest.isNotEmpty)
+            SizedBox(
+              height: 120,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: rest.length,
+                itemBuilder: (context, index) {
+                  final uid = rest[index];
+                  final contribution = contributions[uid] ?? 0;
+                  final rank = index + 4;
+                  return Consumer(
+                    builder: (context, ref, child) {
+                      final userAsync = ref.watch(userProfileProvider(uid));
+                      return userAsync.when(
+                        data: (user) {
+                          if (user == null) return const SizedBox.shrink();
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 4),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 24,
+                                  child: Text("#$rank", style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                                ),
+                                AppAvatar(
+                                  imageUrl: user.profilePhotoUrl,
+                                  frameUrl: user.profileFrame,
+                                  vipTier: user.vipTier,
+                                  userLevel: user.level,
+                                  tags: user.tags,
+                                  radius: 14,
+                                  showFrame: true,
+                                  frameMultiplier: 1.3,
+                                ),
+                                const Gap(8),
+                                Expanded(
+                                  child: Text(user.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
+                                ),
+                                Text("$contribution 💎", style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 11)),
+                              ],
+                            ),
+                          );
+                        },
+                        loading: () => const SizedBox.shrink(),
+                        error: (_, __) => const SizedBox.shrink(),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          if (sortedRoomUids.isEmpty)
+            const SizedBox(
+              height: 60,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.workspace_premium_outlined, color: Colors.white24, size: 24),
+                    Gap(4),
+                    Text("Be the first to contribute!", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildRankingAvatars(RoomModel room) {
-    final contributions = room.rocketContributions ?? {};
-    final sortedUids = contributions.keys.toList()
-      ..sort((a, b) => contributions[b]!.compareTo(contributions[a]!));
-    final top3Uids = sortedUids.take(3).toList();
+  Widget _buildPodiumPosition(String uid, int contribution, int rank, RoomModel room) {
+    return Consumer(
+      builder: (context, ref, child) {
+        final userAsync = ref.watch(userProfileProvider(uid));
+        return userAsync.when(
+          data: (user) {
+            if (user == null) return const SizedBox.shrink();
+            final podiumHeight = rank == 1 ? 80.0 : 60.0;
+            final crownColors = [Colors.amber, const Color(0xFFC0C0C0), const Color(0xFFCD7F32)];
+            final rankLabels = ["ROCKET KING", "TOP 2", "TOP 3"];
 
-    return Row(
-      children: List.generate(3, (index) {
-        final color = index == 0 ? Colors.amber : (index == 1 ? Colors.grey : Colors.brown);
-        final uid = index < top3Uids.length ? top3Uids[index] : null;
-        
-        return Container(
-          margin: const EdgeInsets.only(left: 8),
-          child: Stack(
-            alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              if (uid != null)
-                Consumer(
-                  builder: (context, ref, child) {
-                    final userAsync = ref.watch(userProfileProvider(uid));
-                    return userAsync.when(
-                      data: (user) => AppAvatar(
-                        radius: 20,
-                        imageUrl: user?.profilePhotoUrl ?? "",
-                        showFrame: true,
-                        tags: user?.tags,
+            return GestureDetector(
+              onTap: () {},
+              child: Container(
+                width: 100,
+                alignment: Alignment.bottomCenter,
+                padding: EdgeInsets.only(bottom: rank == 1 ? 0 : 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        AppAvatar(
+                          imageUrl: user.profilePhotoUrl,
+                          frameUrl: user.profileFrame,
+                          vipTier: user.vipTier,
+                          userLevel: user.level,
+                          tags: user.tags,
+                          radius: rank == 1 ? 22 : 16,
+                          showFrame: true,
+                          frameMultiplier: rank == 1 ? 1.8 : 1.4,
+                        ),
+                        Positioned(
+                          bottom: -4,
+                          left: 0,
+                          right: 0,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: crownColors[rank - 1],
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                "#$rank",
+                                style: const TextStyle(color: Colors.black, fontSize: 7, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Gap(4),
+                    Text(
+                      user.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
+                    ),
+                    Text(
+                      "$contribution 💎",
+                      style: const TextStyle(color: Colors.amber, fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                    if (rank == 1)
+                      Container(
+                        margin: const EdgeInsets.only(top: 2),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.amber.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: Colors.amber.withOpacity(0.5)),
+                        ),
+                        child: Text(rankLabels[rank - 1], style: const TextStyle(color: Colors.amber, fontSize: 7, fontWeight: FontWeight.bold)),
                       ),
-                      loading: () => const AppAvatar(radius: 20, imageUrl: "", showFrame: true),
-                      error: (_, __) => const AppAvatar(radius: 20, imageUrl: "", showFrame: true),
-                    );
-                  },
-                )
-              else
-                const AppAvatar(
-                  radius: 20,
-                  imageUrl: "",
-                  showFrame: true,
-                ),
-              Positioned(
-                top: -8,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: color, width: 1),
-                  ),
-                  child: Icon(Icons.workspace_premium_rounded, color: color, size: 12),
+                  ],
                 ),
               ),
-            ],
+            );
+          },
+          loading: () => SizedBox(
+            width: 80,
+            height: 60,
+            child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24))),
           ),
+          error: (_, __) => const SizedBox.shrink(),
         );
-      }),
+      },
+    );
+  }
+
+  Widget _buildContributorRow(String uid, int contribution, String medal) {
+    return Consumer(
+      builder: (context, ref, child) {
+        final userAsync = ref.watch(userProfileProvider(uid));
+        return userAsync.when(
+          data: (user) {
+            if (user == null) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Text(medal, style: const TextStyle(fontSize: 16)),
+                  const SizedBox(width: 8),
+                  AppAvatar(
+                    imageUrl: user.profilePhotoUrl,
+                    frameUrl: user.profileFrame,
+                    vipTier: user.vipTier,
+                    userLevel: user.level,
+                    tags: user.tags,
+                    radius: 14,
+                    showFrame: true,
+                    frameMultiplier: 1.2,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      user.displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                    ),
+                  ),
+                  Text(
+                    "$contribution 💎",
+                    style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ],
+              ),
+            );
+          },
+          loading: () => const SizedBox(height: 30, child: Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)))),
+          error: (_, __) => const SizedBox.shrink(),
+        );
+      },
+    );
+  }
+
+  String _formatReward(int amount) {
+    if (amount >= 1000000) return "${(amount / 1000000).toStringAsFixed(amount % 1000000 == 0 ? 0 : 1)}M";
+    if (amount >= 1000) return "${(amount / 1000).toStringAsFixed(amount % 1000 == 0 ? 0 : 0)}K";
+    return amount.toString();
+  }
+
+  Widget _buildRewardChip(String emoji, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(emoji, style: const TextStyle(fontSize: 12)),
+          const SizedBox(width: 4),
+          Text(text, style: const TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 
@@ -678,10 +829,10 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
         final now = DateTime.now();
         final diff = until.difference(now);
         if (diff.isNegative) return const SizedBox.shrink();
-        
+
         final m = diff.inMinutes.toString().padLeft(2, '0');
         final s = (diff.inSeconds % 60).toString().padLeft(2, '0');
-        
+
         return Text(
           "$m:$s",
           style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
@@ -712,8 +863,8 @@ class _RocketLevelSvgaButtonState extends State<_RocketLevelSvgaButton> with Sin
 
   Future<void> _loadAnimation() async {
     try {
-      final svgaPath = 'assets/rocket/VAP/1 (${widget.level + 1}).svga';
-      final videoItem = await SVGAParser.shared.decodeFromAssets(svgaPath);
+      final svgaPath = RocketVapConfig.svgaIconPath(widget.level);
+      final videoItem = await SvgaParserUtil.decodeSafeFromAssets(svgaPath);
       if (mounted) {
         setState(() {
           _controller?.videoItem = videoItem;

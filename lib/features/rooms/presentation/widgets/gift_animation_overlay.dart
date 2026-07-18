@@ -1,9 +1,16 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import 'package:gap/gap.dart';
+import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../core/utils/app_persistent_cache.dart';
+import '../../../../core/models/gift_model.dart';
 import '../../../../core/models/message_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
@@ -30,6 +37,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
   _ActiveGiftAnimation? _currentAnimation;
   bool _isPlaying = false;
   Timer? _animationTimer;
+  List<GiftModel> _gifts = [];
 
   @override
   void initState() {
@@ -40,16 +48,32 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
   void _preloadGifts() async {
     try {
       final gifts = await ref.read(giftServiceProvider).getGiftsFuture();
+      if (mounted) {
+        setState(() {
+          _gifts = gifts;
+        });
+      }
       for (final gift in gifts) {
         final url = gift.lottieAssetPath.trim();
-        if (url.isNotEmpty && url.startsWith('http')) {
+        if (url.isNotEmpty) {
           if (url.toLowerCase().contains('.svga')) {
-            debugPrint("[GiftCache] Preloading SVGA gift: ${gift.name} from $url");
-            SvgaCache.preload(url);
+            final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
+            if (localPath != null) {
+              debugPrint("[GiftCache] Using local SVGA asset for: ${gift.name} ($localPath)");
+              SvgaParserUtil.decodeSafeFromAssets(localPath);
+            } else if (url.startsWith('http')) {
+              debugPrint("[GiftCache] Preloading SVGA gift: ${gift.name} from $url");
+              SvgaCache.preload(url);
+            }
           } else {
-            debugPrint("[GiftCache] Preloading Lottie gift: ${gift.name} from $url");
-            // Warm cache composition for Lottie compositions
-            AssetLottie(url).load();
+            final localLottie = SvgaParserUtil.getLocalLottiePath(url);
+            if (localLottie != null) {
+              debugPrint("[GiftCache] Using local Lottie asset for: ${gift.name} ($localLottie)");
+              LottieCache.preloadLocal(localLottie);
+            } else if (url.startsWith('http')) {
+              debugPrint("[GiftCache] Preloading Lottie gift: ${gift.name} from $url");
+              LottieCache.preload(url);
+            }
           }
         }
       }
@@ -69,17 +93,32 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
           !_processedMessageIds.contains(msg.msgId) &&
           msg.createdAt.isAfter(threshold)) {
         
-        final anim = _ActiveGiftAnimation(
-          id: msg.msgId,
-          url: msg.animationUrl!,
-          senderUid: msg.uid,
-          text: msg.text,
-        );
-        
-        // Prevent queue from growing indefinitely (cap at 8 items for spam protection)
-        if (_pendingQueue.length < 8) {
-          _pendingQueue.add(anim);
-          changed = true;
+        final giftUrl = msg.animationUrl!.trim();
+        String? imageUrl;
+        try {
+          final matchedGift = _gifts.firstWhere(
+            (g) => g.lottieAssetPath.trim() == giftUrl,
+          );
+          imageUrl = matchedGift.imageUrl;
+        } catch (_) {
+          // If not found in memory, try to find a match in the active gifts list
+        }
+
+        final qty = msg.quantity;
+        for (int i = 0; i < qty; i++) {
+          final anim = _ActiveGiftAnimation(
+            id: "${msg.msgId}_$i",
+            url: msg.animationUrl!,
+            senderUid: msg.uid,
+            text: msg.text,
+            imageUrl: imageUrl,
+          );
+          
+          // Prevent queue from growing indefinitely (cap at 50 items for spam protection)
+          if (_pendingQueue.length < 50) {
+            _pendingQueue.add(anim);
+            changed = true;
+          }
         }
       }
       _processedMessageIds.add(msg.msgId);
@@ -143,16 +182,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
     return Stack(
       children: [
         widget.child,
-        Positioned.fill(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 400),
-            switchInCurve: Curves.easeOut,
-            switchOutCurve: Curves.easeIn,
-            child: _currentAnimation != null
-                ? _buildAnimationItem(_currentAnimation!)
-                : const SizedBox.shrink(key: ValueKey('empty_gift_overlay')),
+        if (_currentAnimation != null)
+          Positioned.fill(
+            child: _buildAnimationItem(_currentAnimation!),
           ),
-        ),
       ],
     );
   }
@@ -188,12 +221,14 @@ class _ActiveGiftAnimation {
   final String url;
   final String senderUid;
   final String text;
+  final String? imageUrl;
 
   _ActiveGiftAnimation({
     required this.id, 
     required this.url,
     required this.senderUid,
     required this.text,
+    this.imageUrl,
   });
 }
 
@@ -205,7 +240,7 @@ class _GiftNotificationBanner extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userAsync = ref.watch(userProfileProvider(uid));
+    final userAsync = ref.watch(cachedUserProfileProvider(uid));
 
     return userAsync.when(
       data: (user) {
@@ -269,37 +304,342 @@ class _GiftAnimationPlayer extends StatefulWidget {
 }
 
 class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
+  bool _hasError = false;
+
   @override
   Widget build(BuildContext context) {
+    if (_hasError) {
+      return _FallbackImagePlayer(
+        imageUrl: widget.animation.imageUrl,
+        onComplete: widget.onComplete,
+      );
+    }
+
     final url = widget.animation.url.trim();
+    final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
+
+    if (localPath != null) {
+      return _SvgaLocalPlayer(
+        assetPath: localPath,
+        onComplete: widget.onComplete,
+        onError: () {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+            });
+          }
+        },
+      );
+    }
+
     final isSvga = url.toLowerCase().contains('.svga');
+    if (isSvga) {
+      return _SvgaNetworkPlayer(
+        url: url,
+        onComplete: widget.onComplete,
+        onError: () {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+            });
+          }
+        },
+      );
+    }
+
+    final localLottiePath = SvgaParserUtil.getLocalLottiePath(url);
+    if (localLottiePath != null) {
+      return Center(
+        child: _LottieLocalPlayer(
+          assetPath: localLottiePath,
+          originalUrl: url,
+          onComplete: widget.onComplete,
+          onError: () {
+            if (mounted) {
+              setState(() {
+                _hasError = true;
+              });
+            }
+          },
+        ),
+      );
+    }
 
     return Center(
-      child: isSvga
-          ? _SvgaNetworkPlayer(
-              url: url,
-              onComplete: widget.onComplete,
-            )
-          : Lottie.network(
-              url,
-              repeat: false,
-              fit: BoxFit.contain,
-              frameRate: FrameRate.composition,
-              onLoaded: (composition) {
-                // Play for the exact composition duration
-                Future.delayed(composition.duration, () {
-                  if (mounted) {
-                    widget.onComplete();
+      child: _LottieNetworkPlayer(
+        url: url,
+        onComplete: widget.onComplete,
+        onError: () {
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+            });
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _SvgaLocalPlayer extends StatefulWidget {
+  final String assetPath;
+  final VoidCallback onComplete;
+  final VoidCallback onError;
+  const _SvgaLocalPlayer({
+    required this.assetPath,
+    required this.onComplete,
+    required this.onError,
+  });
+
+  @override
+  State<_SvgaLocalPlayer> createState() => _SvgaLocalPlayerState();
+}
+
+class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerProviderStateMixin {
+  SVGAAnimationController? _controller;
+  bool _isLoading = true;
+  Timer? _completeTimer;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  final List<Timer> _audioTimers = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = SVGAAnimationController(vsync: this);
+    _loadAnimation();
+  }
+
+  void _loadAnimation() async {
+    try {
+      final videoItem = await SvgaParserUtil.decodeSafeFromAssets(widget.assetPath);
+      if (mounted) {
+        setState(() {
+          _controller?.videoItem = videoItem;
+          _isLoading = false;
+          _controller?.forward(from: 0.0);
+        });
+
+        int frames = 0;
+        int fps = 0;
+        try {
+          final params = (videoItem as dynamic).params;
+          if (params != null) {
+            frames = params.frames;
+            fps = params.fps;
+          }
+        } catch (e) {
+          debugPrint("[SVGAPlayer] Failed to get SVGA frames/fps from params: $e");
+        }
+
+        _playEmbeddedAudios(videoItem, fps);
+
+        final int durationMs = (frames > 0 && fps > 0)
+            ? ((frames / fps) * 1000).toInt()
+            : 6500;
+
+        debugPrint("[SVGAPlayer] Playing local SVGA: ${widget.assetPath} for duration: ${durationMs}ms (frames: $frames, fps: $fps)");
+
+        _completeTimer?.cancel();
+        _completeTimer = Timer(Duration(milliseconds: durationMs), () {
+          if (mounted) {
+            widget.onComplete();
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint("Error parsing local SVGA: $e");
+      widget.onError();
+    }
+  }
+
+  void _playEmbeddedAudios(dynamic videoItem, int fps) async {
+    try {
+      final movieItem = (videoItem as dynamic).movieItem;
+      if (movieItem == null) return;
+      
+      final audios = movieItem.audios;
+      final images = movieItem.images;
+      
+      if (audios != null && audios.isNotEmpty && images != null && fps > 0) {
+        final tempDir = await getTemporaryDirectory();
+        for (final audio in audios) {
+          final String audioKey = audio.audioKey;
+          final bytes = images[audioKey];
+          if (bytes != null && bytes.isNotEmpty) {
+            final tempFile = File('${tempDir.path}/svga_audio_${audioKey}');
+            if (!await tempFile.exists()) {
+              await tempFile.writeAsBytes(bytes);
+            }
+            
+            final int delayMs = (audio.startFrame / fps * 1000).toInt();
+            if (delayMs > 0) {
+              final timer = Timer(Duration(milliseconds: delayMs), () async {
+                if (mounted && _controller?.isAnimating == true) {
+                  try {
+                    await _audioPlayer.stop();
+                    await _audioPlayer.play(DeviceFileSource(tempFile.path));
+                  } catch (ae) {
+                    debugPrint("[SVGAPlayer] Error playing SVGA temp audio: $ae");
                   }
-                });
-              },
-              errorBuilder: (context, error, stackTrace) {
-                debugPrint("Lottie error: $error");
-                // Immediately call onComplete so the queue doesn't get stuck!
-                widget.onComplete();
-                return const SizedBox.shrink(); 
-              },
+                }
+              });
+              _audioTimers.add(timer);
+            } else {
+              try {
+                await _audioPlayer.stop();
+                await _audioPlayer.play(DeviceFileSource(tempFile.path));
+              } catch (ae) {
+                debugPrint("[SVGAPlayer] Error playing SVGA temp audio: $ae");
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("[SVGAPlayer] Failed to extract/play embedded SVGA audio: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _completeTimer?.cancel();
+    for (final timer in _audioTimers) {
+      timer.cancel();
+    }
+    _audioPlayer.stop();
+    _audioPlayer.dispose();
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading || _controller?.videoItem == null) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox(
+      width: MediaQuery.of(context).size.width,
+      height: MediaQuery.of(context).size.height,
+      child: SVGAImage(
+        _controller!,
+        fit: BoxFit.contain,
+      ),
+    );
+  }
+}
+
+class _FallbackImagePlayer extends StatefulWidget {
+  final String? imageUrl;
+  final VoidCallback onComplete;
+  const _FallbackImagePlayer({required this.imageUrl, required this.onComplete});
+
+  @override
+  State<_FallbackImagePlayer> createState() => _FallbackImagePlayerState();
+}
+
+class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scaleAnimation;
+  late final Animation<double> _rotationAnimation;
+  Timer? _dismissTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+
+    _scaleAnimation = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 0.8, end: 1.2).chain(CurveTween(curve: Curves.elasticOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween<double>(begin: 1.2, end: 0.8).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_controller);
+
+    _rotationAnimation = Tween<double>(begin: -0.1, end: 0.1).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+
+    _dismissTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) {
+        widget.onComplete();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _dismissTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final img = widget.imageUrl ?? '';
+    final isUrl = img.startsWith('http');
+
+    return Center(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Transform.rotate(
+              angle: _rotationAnimation.value,
+              child: Container(
+                width: 160,
+                height: 160,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: RadialGradient(
+                    colors: [
+                      const Color(0xFFFFD700).withOpacity(0.6),
+                      const Color(0xFFFF8C00).withOpacity(0.2),
+                      Colors.transparent,
+                    ],
+                    stops: const [0.3, 0.7, 1.0],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFFD700).withOpacity(_controller.value * 0.4),
+                      blurRadius: 30,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: isUrl
+                      ? CachedNetworkImage(
+                          imageUrl: img,
+                          width: 100,
+                          height: 100,
+                          fit: BoxFit.contain,
+                          placeholder: (context, url) => const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+                          ),
+                          errorWidget: (context, url, error) => const Icon(
+                            Icons.card_giftcard,
+                            color: Color(0xFFFFD700),
+                            size: 80,
+                          ),
+                        )
+                      : Text(
+                          img.isNotEmpty ? img : '🎁',
+                          style: const TextStyle(fontSize: 80),
+                        ),
+                ),
+              ),
             ),
+          );
+        },
+      ),
     );
   }
 }
@@ -307,7 +647,12 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
 class _SvgaNetworkPlayer extends StatefulWidget {
   final String url;
   final VoidCallback onComplete;
-  const _SvgaNetworkPlayer({required this.url, required this.onComplete});
+  final VoidCallback onError;
+  const _SvgaNetworkPlayer({
+    required this.url,
+    required this.onComplete,
+    required this.onError,
+  });
 
   @override
   State<_SvgaNetworkPlayer> createState() => _SvgaNetworkPlayerState();
@@ -317,6 +662,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
   SVGAAnimationController? _controller;
   bool _isLoading = true;
   Timer? _completeTimer;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  final List<Timer> _audioTimers = [];
 
   @override
   void initState() {
@@ -332,10 +679,9 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
         setState(() {
           _controller?.videoItem = videoItem;
           _isLoading = false;
-          _controller?.forward();
+          _controller?.forward(from: 0.0);
         });
 
-        // Calculate duration precisely from SVGA videoItem params (frames and fps)
         int frames = 0;
         int fps = 0;
         try {
@@ -348,9 +694,11 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
           debugPrint("[SVGAPlayer] Failed to get SVGA frames/fps from params: $e");
         }
 
+        _playEmbeddedAudios(videoItem, fps);
+
         final int durationMs = (frames > 0 && fps > 0)
             ? ((frames / fps) * 1000).toInt()
-            : 6500; // Generous 6.5s fallback
+            : 6500;
 
         debugPrint("[SVGAPlayer] Playing SVGA: ${widget.url} for duration: ${durationMs}ms (frames: $frames, fps: $fps)");
 
@@ -363,13 +711,66 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
       }
     } catch (e) {
       debugPrint("Error parsing network SVGA: $e");
-      widget.onComplete(); // Immediately complete so the queue doesn't get stuck!
+      widget.onError();
+    }
+  }
+
+  void _playEmbeddedAudios(dynamic videoItem, int fps) async {
+    try {
+      final movieItem = (videoItem as dynamic).movieItem;
+      if (movieItem == null) return;
+      
+      final audios = movieItem.audios;
+      final images = movieItem.images;
+      
+      if (audios != null && audios.isNotEmpty && images != null && fps > 0) {
+        final tempDir = await getTemporaryDirectory();
+        for (final audio in audios) {
+          final String audioKey = audio.audioKey;
+          final bytes = images[audioKey];
+          if (bytes != null && bytes.isNotEmpty) {
+            final tempFile = File('${tempDir.path}/svga_audio_${audioKey}');
+            if (!await tempFile.exists()) {
+              await tempFile.writeAsBytes(bytes);
+            }
+            
+            final int delayMs = (audio.startFrame / fps * 1000).toInt();
+            if (delayMs > 0) {
+              final timer = Timer(Duration(milliseconds: delayMs), () async {
+                if (mounted && _controller?.isAnimating == true) {
+                  try {
+                    await _audioPlayer.stop();
+                    await _audioPlayer.play(DeviceFileSource(tempFile.path));
+                  } catch (ae) {
+                    debugPrint("[SVGAPlayer] Error playing SVGA temp audio: $ae");
+                  }
+                }
+              });
+              _audioTimers.add(timer);
+            } else {
+              try {
+                await _audioPlayer.stop();
+                await _audioPlayer.play(DeviceFileSource(tempFile.path));
+              } catch (ae) {
+                debugPrint("[SVGAPlayer] Error playing SVGA temp audio: $ae");
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("[SVGAPlayer] Failed to extract/play embedded SVGA audio: $e");
     }
   }
 
   @override
   void dispose() {
     _completeTimer?.cancel();
+    for (final timer in _audioTimers) {
+      timer.cancel();
+    }
+    _audioPlayer.stop();
+    _audioPlayer.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -379,23 +780,45 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
     if (_isLoading || _controller?.videoItem == null) {
       return const SizedBox.shrink();
     }
-    return SizedBox.expand(
-      child: SVGAImage(_controller!),
+    return SizedBox(
+      width: MediaQuery.of(context).size.width,
+      height: MediaQuery.of(context).size.height,
+      child: SVGAImage(
+        _controller!,
+        fit: BoxFit.contain,
+      ),
     );
   }
 }
 
-// ⚡ Global SVGA Memory Cache & Concurrency Lock preloader
 class SvgaCache {
-  static final Map<String, dynamic> _cache = {};
+  static Future<dynamic> load(String url) async {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) throw Exception("Empty URL");
+    return await SvgaParserUtil.decodeSafeFromUrl(cleanUrl);
+  }
+
+  static void preload(String url) {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isNotEmpty) {
+      SvgaParserUtil.decodeSafeFromUrl(cleanUrl).then((_) {
+        debugPrint("[GiftCache] SVGA Preloaded and cached successfully: $url");
+      }).catchError((e) {
+        debugPrint("Background SVGA preloading failed for $url: $e");
+      });
+    }
+  }
+}
+
+class LottieCache {
+  static final Map<String, LottieComposition> _cache = {};
   static final Set<String> _loading = {};
 
-  static Future<dynamic> load(String url) async {
+  static Future<LottieComposition> load(String url) async {
     final cleanUrl = url.trim();
     if (_cache.containsKey(cleanUrl)) {
       return _cache[cleanUrl]!;
     }
-    // Concurrency lock to prevent multiple downloads of the same asset
     while (_loading.contains(cleanUrl)) {
       await Future.delayed(const Duration(milliseconds: 100));
       if (_cache.containsKey(cleanUrl)) {
@@ -405,17 +828,252 @@ class SvgaCache {
     
     _loading.add(cleanUrl);
     try {
-      final videoItem = await SVGAParser.shared.decodeFromURL(cleanUrl);
-      _cache[cleanUrl] = videoItem;
-      return videoItem;
+      final file = await AppPersistentCache.getFile(cleanUrl);
+      final composition = await FileLottie(file).load();
+      _cache[cleanUrl] = composition;
+      return composition;
     } finally {
       _loading.remove(cleanUrl);
     }
   }
 
-  static void preload(String url) {
-    load(url).catchError((e) {
-      debugPrint("Background SVGA preloading failed for $url: $e");
-    });
+  static void preload(String url) async {
+    try {
+      await load(url);
+    } catch (e) {
+      debugPrint("Background Lottie preloading failed for $url: $e");
+    }
+  }
+
+  static Future<LottieComposition> loadLocal(String assetPath) async {
+    final cleanPath = assetPath.trim();
+    if (_cache.containsKey(cleanPath)) {
+      return _cache[cleanPath]!;
+    }
+    while (_loading.contains(cleanPath)) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_cache.containsKey(cleanPath)) {
+        return _cache[cleanPath]!;
+      }
+    }
+    
+    _loading.add(cleanPath);
+    try {
+      final composition = await AssetLottie(cleanPath).load();
+      _cache[cleanPath] = composition;
+      return composition;
+    } finally {
+      _loading.remove(cleanPath);
+    }
+  }
+
+  static void preloadLocal(String assetPath) async {
+    try {
+      await loadLocal(assetPath);
+    } catch (e) {
+      debugPrint("Background local Lottie preloading failed for $assetPath: $e");
+    }
+  }
+}
+
+class _LottieNetworkPlayer extends StatefulWidget {
+  final String url;
+  final VoidCallback onComplete;
+  final VoidCallback onError;
+  const _LottieNetworkPlayer({
+    required this.url,
+    required this.onComplete,
+    required this.onError,
+  });
+
+  @override
+  State<_LottieNetworkPlayer> createState() => _LottieNetworkPlayerState();
+}
+
+class _LottieNetworkPlayerState extends State<_LottieNetworkPlayer> with SingleTickerProviderStateMixin {
+  LottieComposition? _composition;
+  bool _isLoading = true;
+  late final AnimationController _controller;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  static const Map<String, String> _lottieGiftSounds = {
+    'rose': 'https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav',
+    'balloon': 'https://assets.mixkit.co/active_storage/sfx/2019/2019-84.wav',
+    'cake': 'https://assets.mixkit.co/active_storage/sfx/2017/2017-84.wav',
+    'diamond': 'https://assets.mixkit.co/active_storage/sfx/2018/2018-84.wav',
+    'cat': 'https://assets.mixkit.co/active_storage/sfx/2068/2068-84.wav',
+    'crown': 'https://assets.mixkit.co/active_storage/sfx/2016/2016-84.wav',
+    'gold': 'https://assets.mixkit.co/active_storage/sfx/2016/2016-84.wav',
+    'celebration': 'https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav',
+    'rocket': 'https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav',
+    'car': 'https://assets.mixkit.co/active_storage/sfx/2022/2022-84.wav',
+    'airplane': 'https://assets.mixkit.co/active_storage/sfx/2023/2023-84.wav',
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+    _loadAnimation();
+  }
+
+  void _loadAnimation() async {
+    try {
+      final composition = await LottieCache.load(widget.url);
+      if (mounted) {
+        setState(() {
+          _composition = composition;
+          _isLoading = false;
+          _controller.duration = composition.duration;
+          _controller.forward().whenComplete(() {
+            if (mounted) {
+              widget.onComplete();
+            }
+          });
+        });
+        _playGiftSound();
+      }
+    } catch (e) {
+      debugPrint("Error loading Lottie composition: $e");
+      widget.onError();
+    }
+  }
+
+  void _playGiftSound() async {
+    final lowerUrl = widget.url.toLowerCase();
+    String? matchedSoundUrl;
+    for (final entry in _lottieGiftSounds.entries) {
+      if (lowerUrl.contains(entry.key)) {
+        matchedSoundUrl = entry.value;
+        break;
+      }
+    }
+    if (matchedSoundUrl != null) {
+      try {
+        await _audioPlayer.stop();
+        final file = await AppPersistentCache.getFile(matchedSoundUrl);
+        await _audioPlayer.play(DeviceFileSource(file.path));
+      } catch (e) {
+        debugPrint("[LottiePlayer] Error playing gift sound: $e");
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.stop();
+    _audioPlayer.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading || _composition == null) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox.expand(
+      child: Lottie(
+        composition: _composition,
+        controller: _controller,
+        fit: BoxFit.contain,
+        frameRate: FrameRate.composition,
+      ),
+    );
+  }
+}
+
+class _LottieLocalPlayer extends StatefulWidget {
+  final String assetPath;
+  final String originalUrl;
+  final VoidCallback onComplete;
+  final VoidCallback onError;
+  const _LottieLocalPlayer({
+    required this.assetPath,
+    required this.originalUrl,
+    required this.onComplete,
+    required this.onError,
+  });
+
+  @override
+  State<_LottieLocalPlayer> createState() => _LottieLocalPlayerState();
+}
+
+class _LottieLocalPlayerState extends State<_LottieLocalPlayer> with SingleTickerProviderStateMixin {
+  LottieComposition? _composition;
+  bool _isLoading = true;
+  late final AnimationController _controller;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+    _loadAnimation();
+  }
+
+  void _loadAnimation() async {
+    try {
+      final composition = await LottieCache.loadLocal(widget.assetPath);
+      if (mounted) {
+        setState(() {
+          _composition = composition;
+          _isLoading = false;
+          _controller.duration = composition.duration;
+          _controller.forward().whenComplete(() {
+            if (mounted) {
+              widget.onComplete();
+            }
+          });
+        });
+        _playGiftSound();
+      }
+    } catch (e) {
+      debugPrint("Error loading local Lottie composition: $e");
+      widget.onError();
+    }
+  }
+
+  void _playGiftSound() async {
+    final lowerUrl = widget.originalUrl.toLowerCase();
+    String? matchedSoundUrl;
+    for (final entry in _LottieNetworkPlayerState._lottieGiftSounds.entries) {
+      if (lowerUrl.contains(entry.key)) {
+        matchedSoundUrl = entry.value;
+        break;
+      }
+    }
+    if (matchedSoundUrl != null) {
+      try {
+        await _audioPlayer.stop();
+        final file = await AppPersistentCache.getFile(matchedSoundUrl);
+        await _audioPlayer.play(DeviceFileSource(file.path));
+      } catch (e) {
+        debugPrint("[LottieLocalPlayer] Error playing gift sound: $e");
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.stop();
+    _audioPlayer.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading || _composition == null) {
+      return const SizedBox.shrink();
+    }
+    return SizedBox.expand(
+      child: Lottie(
+        composition: _composition,
+        controller: _controller,
+        fit: BoxFit.contain,
+        frameRate: FrameRate.composition,
+      ),
+    );
   }
 }

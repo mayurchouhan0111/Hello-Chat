@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/vip_provider.dart';
+import '../../../../core/models/user_model.dart';
 import '../../../../core/models/vip_tier_model.dart';
 
 // ─────────────────────────────────────────────
@@ -413,6 +414,7 @@ class _VIPCarouselScreenState extends ConsumerState<VIPCarouselScreen>
                 final isCenter = index == _currentPage;
                 final userTier = (user?.vipTier ?? '').toLowerCase();
                 final isActive = userTier == (tier.name ?? '').toLowerCase() && userTier != 'none';
+                final remainingDays = user is UserModel ? user.vipRemainingDays : 0;
 
                 return AnimatedScale(
                   scale: isCenter ? 1.0 : 0.92,
@@ -425,6 +427,7 @@ class _VIPCarouselScreenState extends ConsumerState<VIPCarouselScreen>
                       tier: tier,
                       accent: accent,
                       isActive: isActive,
+                      remainingDays: remainingDays,
                       isExpanded: _expandedIndex == index,
                       onTap: () => _toggleExpand(index),
                     ),
@@ -639,10 +642,12 @@ class _VIPCarouselScreenState extends ConsumerState<VIPCarouselScreen>
           final accent = HexColor.fromHex(tier.themeColor ?? '#10B981');
           final userTier = (user?.vipTier ?? '').toLowerCase();
           final isActive = userTier == (tier.name ?? '').toLowerCase() && userTier != 'none';
+          final remainingDays = user is UserModel ? user.vipRemainingDays : 0;
           return _TierEntryRow(
             tier: tier,
             accent: accent,
             isActive: isActive,
+            remainingDays: remainingDays,
             isLast: e.key == tiers.length - 1,
           );
         }),
@@ -684,6 +689,7 @@ class _VIPCarouselCard extends StatelessWidget {
   final VIPTierModel tier;
   final Color accent;
   final bool isActive;
+  final int remainingDays;
   final bool isExpanded;
   final VoidCallback onTap;
 
@@ -691,6 +697,7 @@ class _VIPCarouselCard extends StatelessWidget {
     required this.tier,
     required this.accent,
     required this.isActive,
+    required this.remainingDays,
     required this.isExpanded,
     required this.onTap,
   });
@@ -812,7 +819,7 @@ class _VIPCarouselCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (isActive) _ActivePill(accent: accent),
+                        if (isActive) _ActivePill(accent: accent, remainingDays: remainingDays),
                       ],
                     ),
 
@@ -994,12 +1001,14 @@ class _TierEntryRow extends StatelessWidget {
   final VIPTierModel tier;
   final Color accent;
   final bool isActive;
+  final int remainingDays;
   final bool isLast;
 
   const _TierEntryRow({
     required this.tier,
     required this.accent,
     required this.isActive,
+    required this.remainingDays,
     required this.isLast,
   });
 
@@ -1093,6 +1102,24 @@ class _TierEntryRow extends StatelessWidget {
                                   ),
                                 ),
                               ),
+                              if (remainingDays > 0) ...[
+                                const Gap(6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(20),
+                                    color: Colors.green.withOpacity(0.12),
+                                  ),
+                                  child: Text(
+                                    '${remainingDays}d',
+                                    style: const TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ],
                         ),
@@ -1138,7 +1165,8 @@ class _TierEntryRow extends StatelessWidget {
 
 class _ActivePill extends StatelessWidget {
   final Color accent;
-  const _ActivePill({required this.accent});
+  final int remainingDays;
+  const _ActivePill({required this.accent, required this.remainingDays});
 
   @override
   Widget build(BuildContext context) {
@@ -1158,7 +1186,7 @@ class _ActivePill extends StatelessWidget {
           ),
           const Gap(5),
           Text(
-            'ACTIVE',
+            remainingDays > 0 ? '${remainingDays}d' : 'ACTIVE',
             style: TextStyle(
               color: accent.lighter,
               fontSize: 9,

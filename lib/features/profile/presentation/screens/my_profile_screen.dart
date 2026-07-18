@@ -36,7 +36,7 @@ class MyProfileScreen extends ConsumerWidget {
               children: [
                 _buildHeader(context, userData),
                 const Gap(12),
-                _buildStatsRow(userData),
+                _buildStatsRow(userData, context),
                 const Gap(16),
                 _buildShortcutCards(context, userData),
                 const Gap(16),
@@ -84,7 +84,7 @@ class MyProfileScreen extends ConsumerWidget {
                     ),
                     IconButton(
                       icon: const Icon(Icons.person_add_outlined, color: Colors.black87, size: 22),
-                      onPressed: () {},
+                      onPressed: () => context.push(AppRoutes.friendRequests),
                     ),
                   ],
                 ),
@@ -184,13 +184,16 @@ class MyProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildStatsRow(UserModel userData) {
+  Widget _buildStatsRow(UserModel userData, BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem("Friends", formatCount(userData.friendsCount)),
+          GestureDetector(
+            onTap: () => context.push(AppRoutes.friendList),
+            child: _buildStatItem("Friends", formatCount(userData.friendsCount)),
+          ),
           _buildStatItem("Following", formatCount(userData.followingCount)),
           _buildStatItem("Fans", formatCount(userData.followerCount)),
         ],
@@ -414,6 +417,12 @@ class MyProfileScreen extends ConsumerWidget {
           label: "Love House",
           iconColor: const Color(0xFFF06292),
           onTap: () => context.push(AppRoutes.loveHouse),
+        ),
+        _buildMenuTile(
+          icon: Icons.people_alt_rounded,
+          label: "Friendship Hall",
+          iconColor: const Color(0xFF2196F3),
+          onTap: () => context.push(AppRoutes.friendshipPortal),
         ),
         _buildMenuTile(
           icon: Icons.people_alt_rounded,

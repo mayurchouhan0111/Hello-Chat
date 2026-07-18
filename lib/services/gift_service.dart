@@ -47,9 +47,9 @@ class GiftService extends BaseFirebaseService {
       {'id': 'car', 'name': 'Red Sport Car', 'price': 20000, 'cat': 'special', 'img': '🏎️', 'file': 'Red Car.json'},
       {'id': 'airplane', 'name': 'Airplane', 'price': 30000, 'cat': 'special', 'img': '✈️', 'file': 'airplane.json'},
       // ── SVGA Premium Gifts ─────────────────────────────────
-      {'id': 'mystic_rings', 'name': 'Mystic Rings', 'price': 1200, 'cat': 'special', 'img': '💍', 'file': '164 (1).svga'},
+      {'id': 'mystic_rings', 'name': 'Mystic Rings', 'price': 1200, 'cat': 'special', 'img': '💍', 'file': 'mystic_rings.svga'},
       {'id': 'royal_carriage', 'name': 'Royal Carriage', 'price': 8000, 'cat': 'luxury', 'img': '🎠', 'file': '235.svga'},
-      {'id': 'crystal_palace', 'name': 'Crystal Palace', 'price': 15000, 'cat': 'luxury', 'img': '🏰', 'file': '100.svga'},
+      {'id': 'crystal_palace', 'name': 'Crystal Palace', 'price': 15000, 'cat': 'luxury', 'img': '🏰', 'file': '100_optimized.svga'},
     ];
 
     final tempDir = await getTemporaryDirectory();

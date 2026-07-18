@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
@@ -9,6 +10,8 @@ import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/providers/family_provider.dart';
+import '../../../../core/constants/app_colors.dart';
 
 class ViewersListSheet extends ConsumerStatefulWidget {
   final String roomId;
@@ -105,6 +108,7 @@ class _ViewersListSheetState extends ConsumerState<ViewersListSheet> with Single
               ? const Center(child: CircularProgressIndicator(color: Color(0xFF8E54E9)))
               : TabBarView(
               controller: _tabController,
+              physics: const NeverScrollableScrollPhysics(),
               children: [
                 _buildViewerList('viewers', validParticipants),
                 _buildViewerList('vip', validParticipants),
@@ -323,6 +327,7 @@ class _ViewerListItem extends ConsumerWidget {
     final AsyncValue<UserModel?> userAsync = ref.watch(userProfileProvider(participant.uid));
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
     final isMe = currentUserUid == participant.uid;
+    final liveUser = userAsync.value;
 
     return Material(
       color: Colors.transparent,
@@ -332,7 +337,7 @@ class _ViewerListItem extends ConsumerWidget {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              _buildAvatar(),
+              _buildAvatar(liveUser),
               const Gap(8),
               Expanded(child: _buildUserInfo(userAsync)),
             ],
@@ -342,18 +347,24 @@ class _ViewerListItem extends ConsumerWidget {
     );
   }
 
-Widget _buildAvatar() {
+  Widget _buildAvatar(UserModel? liveUser) {
+    final String imgUrl = liveUser?.profilePhotoUrl ?? participant.profilePhotoUrl;
+    final String frameUrl = liveUser?.profileFrame ?? participant.profileFrame;
+    final String vipTier = liveUser?.vipTier ?? participant.vipTier;
+    final int level = liveUser?.level ?? participant.level;
+    final List<String> tags = liveUser?.tags ?? participant.tags;
+
     return AppAvatar(
-      imageUrl: participant.profilePhotoUrl.isEmpty 
-        ? "https://picsum.photos/seed/${participant.uid}/100" 
-        : participant.profilePhotoUrl,
-      frameUrl: participant.profileFrame,
-      vipTier: participant.vipTier,
-      userLevel: participant.level,
+      imageUrl: imgUrl.isEmpty
+          ? "https://picsum.photos/seed/${participant.uid}/100"
+          : imgUrl,
+      frameUrl: frameUrl,
+      vipTier: vipTier,
+      userLevel: level,
       radius: 22,
       showFrame: true,
       frameMultiplier: 1.4,
-      tags: participant.tags,
+      tags: tags,
     );
   }
 
@@ -433,6 +444,10 @@ Widget _buildAvatar() {
                 _buildGenderBadge(gender),
             ],
           ),
+          if (user.familyId != null) ...[
+            const Gap(4),
+            _FamilyBadgeInline(familyId: user.familyId!, isOwner: isOwner),
+          ],
           if (badges.isNotEmpty) ...[
             const Gap(6),
             SizedBox(
@@ -603,6 +618,91 @@ Widget _buildAvatar() {
           fontWeight: FontWeight.bold,
         ),
       ),
+    );
+  }
+}
+
+class _FamilyBadgeInline extends ConsumerWidget {
+  final String familyId;
+  final bool isOwner;
+  const _FamilyBadgeInline({required this.familyId, this.isOwner = false});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final familyAsync = ref.watch(familyStreamProvider(familyId));
+
+    return familyAsync.when(
+      data: (family) {
+        if (family == null) return const SizedBox.shrink();
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                const Color(0xFFF4845F).withOpacity(0.85),
+                const Color(0xFFF8A978).withOpacity(0.75),
+                const Color(0xFFFCCBA9).withOpacity(0.65),
+              ],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFF4845F).withOpacity(0.25),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (family.avatarUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CachedNetworkImage(
+                    imageUrl: family.avatarUrl!,
+                    width: 16,
+                    height: 16,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              const SizedBox(width: 5),
+              Text(
+                family.name,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+              const SizedBox(width: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  family.rankName,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              if (isOwner) ...[
+                const SizedBox(width: 4),
+                const Icon(Icons.workspace_premium, color: Colors.white, size: 12),
+              ],
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

@@ -15,6 +15,9 @@ class FakeVoiceService implements VoiceService {
   Stream<bool> get isSpeakingStream => _speakingController.stream;
 
   @override
+  Stream<List<int>> get speakingUidsStream => const Stream.empty();
+
+  @override
   Future<void> initialize() async {
     print("Fake voice initialized");
   }
@@ -56,6 +59,16 @@ class FakeVoiceService implements VoiceService {
   @override
   Future<void> toggleSpeakerphone(bool enable) async {
     print("Fake voice speakerphone toggled: $enable");
+  }
+
+  @override
+  Future<void> onAppPaused() async {
+    print("Fake voice: app paused");
+  }
+
+  @override
+  Future<void> onAppResumed() async {
+    print("Fake voice: app resumed");
   }
 
   void _startSpeakingSimulation() {

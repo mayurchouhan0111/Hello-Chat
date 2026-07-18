@@ -48,7 +48,7 @@ class _GiftPanelState extends State<GiftPanel> {
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, child) {
-        final userAsync = ref.watch(currentUserProfileProvider);
+        final diamondBalance = ref.watch(currentUserProfileProvider.select((u) => u.value?.diamondBalance ?? 0));
         final giftsAsync = ref.watch(giftsStreamProvider);
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
 
@@ -61,7 +61,7 @@ class _GiftPanelState extends State<GiftPanel> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Column(
             children: [
-              _buildHeader(context, userAsync, ref),
+              _buildHeader(context, ref),
               Gap(8),
               participantsAsync.when(
                 data: (pts) => _buildRecipientSelector(pts),
@@ -104,7 +104,7 @@ class _GiftPanelState extends State<GiftPanel> {
               ),
               const Divider(color: Colors.white10),
               _buildComboRow(),
-              _buildFooter(userAsync, ref),
+              _buildFooter(diamondBalance, ref),
             ],
           ),
         );
@@ -269,11 +269,7 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, AsyncValue<dynamic> userAsync, WidgetRef ref) {
-    UserModel? userData;
-    if (userAsync.hasValue) userData = userAsync.value as UserModel?;
-    final isAdmin = userData?.tags.any((t) => t == 'Admin' || t == 'SuperAdmin') ?? false;
-
+  Widget _buildHeader(BuildContext context, WidgetRef ref) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -292,9 +288,7 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildFooter(AsyncValue<dynamic> userAsync, WidgetRef ref) {
-    UserModel? userData;
-    if (userAsync.hasValue) userData = userAsync.value as UserModel?;
+  Widget _buildFooter(int diamondBalance, WidgetRef ref) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
@@ -302,7 +296,7 @@ class _GiftPanelState extends State<GiftPanel> {
           const PremiumDiamond(size: 18),
           const SizedBox(width: 6),
           Text(
-            "${userData?.diamondBalance ?? 0}",
+            "$diamondBalance",
             style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
           ),
           const Spacer(),

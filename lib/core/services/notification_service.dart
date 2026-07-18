@@ -5,10 +5,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../router/app_router.dart';
 
 class NotificationService {
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
+
+  static String? _pendingRoute;
+  static String? get pendingRoute => _pendingRoute;
+  static void clearPendingRoute() => _pendingRoute = null;
 
   // Initialize
   Future<void> initialize() async {
@@ -24,15 +31,46 @@ class NotificationService {
     const DarwinInitializationSettings iosSettings = DarwinInitializationSettings();
     const InitializationSettings initSettings = InitializationSettings(android: androidSettings, iOS: iosSettings);
     
-    await _localNotifications.initialize(initSettings);
+    await _localNotifications.initialize(
+      initSettings,
+      onDidReceiveNotificationResponse: (NotificationResponse response) {
+        final payload = response.payload;
+        if (payload != null && payload.isNotEmpty) {
+          handleNotificationTap({'route': payload});
+        }
+      },
+    );
 
     // 3. Listen to Foreground Messages
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       _showLocalNotification(message);
     });
 
-    // 4. Update Token
+    // 4. Listen to Background Taps
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      handleNotificationTap(message.data);
+    });
+
+    // 5. Handle Cold Starts
+    final initialMessage = await _fcm.getInitialMessage();
+    if (initialMessage != null) {
+      handleNotificationTap(initialMessage.data);
+    }
+
+    // 6. Update Token
     await updateToken();
+  }
+
+  void handleNotificationTap(Map<String, dynamic> data) {
+    final route = data['route'] as String?;
+    if (route != null && route.isNotEmpty) {
+      final context = rootNavigatorKey.currentContext;
+      if (context != null) {
+        context.push(route);
+      } else {
+        _pendingRoute = route;
+      }
+    }
   }
 
   Future<void> updateToken() async {
@@ -90,11 +128,14 @@ class NotificationService {
     
     NotificationDetails details = NotificationDetails(android: androidDetails);
 
+    final route = message.data['route'];
+
     await _localNotifications.show(
       notification.hashCode,
       notification.title,
       notification.body,
       details,
+      payload: route,
     );
   }
 }

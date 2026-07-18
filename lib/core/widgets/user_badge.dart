@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import '../../utils/level_utils.dart';
+import 'svga_player.dart';
 
 enum BadgeType {
   wealth,
@@ -51,11 +53,21 @@ class UserBadge extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           Positioned.fill(
-            child: Image.asset(
-              frameAsset,
-              fit: BoxFit.fill,
-              errorBuilder: (_, __, ___) => const SizedBox(),
-            ),
+            child: frameAsset.endsWith('.svga')
+                ? (frameAsset.startsWith('http')
+                    ? SvgaPlayer(url: frameAsset, fit: BoxFit.fill)
+                    : SvgaPlayer(assetPath: frameAsset, fit: BoxFit.fill))
+                : (frameAsset.startsWith('http')
+                    ? CachedNetworkImage(
+                        imageUrl: frameAsset,
+                        fit: BoxFit.fill,
+                        errorWidget: (_, __, ___) => const SizedBox(),
+                      )
+                    : Image.asset(
+                        frameAsset,
+                        fit: BoxFit.fill,
+                        errorBuilder: (_, __, ___) => const SizedBox(),
+                      )),
           ),
           
           // Content with Visual Offset Adjustment

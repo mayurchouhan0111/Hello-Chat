@@ -9,7 +9,8 @@ import {
   deleteDoc,
   onSnapshot,
   addDoc,
-  serverTimestamp
+  serverTimestamp,
+  Timestamp
 } from 'firebase/firestore';
 import { 
   Settings, 
@@ -56,6 +57,13 @@ export const SystemSettings = () => {
   const [broadcastImage, setBroadcastImage] = useState('');
   const [isPush, setIsPush] = useState(false);
   const [broadcasting, setBroadcasting] = useState(false);
+
+  // Broadcast Filters & Scheduling State
+  const [vipsOnly, setVipsOnly] = useState(false);
+  const [minLevel, setMinLevel] = useState(0);
+  const [targetCountries, setTargetCountries] = useState('');
+  const [targetFamilies, setTargetFamilies] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
   const [rewardAmount, setRewardAmount] = useState('');
   const { user } = useAdmin();
 
@@ -124,20 +132,44 @@ export const SystemSettings = () => {
     if (!broadcastMsg) return;
     setBroadcasting(true);
     try {
+      const scheduledTimestamp = scheduledAt ? Timestamp.fromDate(new Date(scheduledAt)) : null;
+
       await addDoc(collection(db, "global_announcements"), {
         title: broadcastTitle,
         message: broadcastMsg,
         imageUrl: broadcastImage,
         isPush: isPush,
+        filters: {
+          vipsOnly: vipsOnly,
+          minLevel: parseInt(minLevel) || 0,
+          countries: targetCountries ? targetCountries.split(',').map(s => s.trim().toUpperCase()).filter(s => !!s) : [],
+          families: targetFamilies ? targetFamilies.split(',').map(s => s.trim()).filter(s => !!s) : [],
+        },
+        scheduledAt: scheduledTimestamp,
         createdAt: serverTimestamp(), // Match Flutter createdAt
         isActive: true, // Match Flutter isActive filter
-        type: 'system' // Match Flutter type
+        type: 'system', // Match Flutter type
+        pushStatus: scheduledTimestamp ? 'scheduled' : 'pending',
       });
 
-      await logAdminAction(user, "GLOBAL_BROADCAST", "SYSTEM", { message: broadcastMsg, isPush: isPush });
+      await logAdminAction(user, "GLOBAL_BROADCAST", "SYSTEM", { 
+        message: broadcastMsg, 
+        isPush: isPush,
+        scheduled: !!scheduledTimestamp
+      });
+      
       setBroadcastMsg('');
       setBroadcastImage('');
-      alert(isPush ? "FCM Push (Rich) & Ticker Transmitted! 📡" : "Ticker Transmitted! 📢");
+      setVipsOnly(false);
+      setMinLevel(0);
+      setTargetCountries('');
+      setTargetFamilies('');
+      setScheduledAt('');
+      
+      alert(scheduledTimestamp 
+        ? "Broadcast successfully scheduled! ⏰" 
+        : (isPush ? "FCM Push & Ticker Transmitted! 📡" : "Ticker Transmitted! 📢")
+      );
     } catch (err) {
       alert("Broadcast Error: " + err.message);
     } finally {
@@ -339,6 +371,58 @@ export const SystemSettings = () => {
                    </div>
                 </div>
 
+                 {/* Filters HUD */}
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white/[0.02] p-6 rounded-2xl border border-white/5">
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Minimum User Level</label>
+                       <input 
+                         type="number"
+                         min="0"
+                         className="glass-input w-full h-14"
+                         value={minLevel}
+                         onChange={e => setMinLevel(e.target.value)}
+                       />
+                    </div>
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Target Countries (comma separated)</label>
+                       <input 
+                         placeholder="All Countries"
+                         className="glass-input w-full h-14"
+                         value={targetCountries}
+                         onChange={e => setTargetCountries(e.target.value)}
+                       />
+                    </div>
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Target Family IDs (comma separated)</label>
+                       <input 
+                         placeholder="All Families"
+                         className="glass-input w-full h-14"
+                         value={targetFamilies}
+                         onChange={e => setTargetFamilies(e.target.value)}
+                       />
+                    </div>
+                    <div className="space-y-3 md:col-span-2">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Scheduled Delivery Time (Optional)</label>
+                       <input 
+                         type="datetime-local"
+                         className="glass-input w-full h-14 text-white"
+                         value={scheduledAt}
+                         onChange={e => setScheduledAt(e.target.value)}
+                       />
+                    </div>
+                    <div className="flex items-end pb-3">
+                       <label className="flex items-center gap-4 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-5 h-5 rounded-lg border-white/10 bg-transparent text-[#00E5FF] focus:ring-[#00E5FF] focus:ring-offset-0"
+                            checked={vipsOnly}
+                            onChange={(e) => setVipsOnly(e.target.checked)}
+                          />
+                          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Target VIP Users Only</span>
+                       </label>
+                    </div>
+                 </div>
+
                 <textarea 
                   placeholder="Transmit message to ALL active rooms and home screen popup..."
                   className="glass-input w-full h-32 py-4 resize-none"
@@ -384,13 +468,29 @@ export const SystemSettings = () => {
                                value={banner.imageUrl} onChange={e => updateBanner(banner.id, 'imageUrl', e.target.value)}
                              />
                           </div>
-                          <div className="relative">
-                             <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" size={14} />
-                             <input 
-                               placeholder="ACTION TARGET (URL/ID)" className="glass-input-sm w-full pl-10" 
-                               value={banner.actionValue} onChange={e => updateBanner(banner.id, 'actionValue', e.target.value)}
-                             />
-                          </div>
+                           <div className="relative">
+                              <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" size={14} />
+                              <input 
+                                placeholder="ACTION TARGET (URL/ID)" className="glass-input-sm w-full pl-10" 
+                                value={banner.actionValue} onChange={e => updateBanner(banner.id, 'actionValue', e.target.value)}
+                              />
+                           </div>
+                           <div className="relative">
+                              <select
+                                className="glass-input-sm w-full pl-3 appearance-none cursor-pointer"
+                                value={banner.actionType || 'none'}
+                                onChange={e => updateBanner(banner.id, 'actionType', e.target.value)}
+                                style={{background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: '12px', padding: '10px 12px', color: '#fff', fontSize: '12px', fontWeight: 600}}
+                              >
+                                <option value="none">None (Decorative)</option>
+                                <option value="recharge">Recharge → /wallet</option>
+                                <option value="room">Join Room → actionValue = roomId</option>
+                                <option value="room_support">Room Support → /room-support</option>
+                                <option value="recharge_event">Recharge Event → /recharge-event-detail</option>
+                                <option value="profile">View Profile → actionValue = uid</option>
+                                <option value="external_url">External URL → actionValue = url</option>
+                              </select>
+                           </div>
                        </div>
                     </div>
                   ))}

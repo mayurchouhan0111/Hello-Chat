@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hello_chat/core/models/room_model.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
 import 'package:hello_chat/core/models/message_model.dart';
+import 'package:hello_chat/core/models/room_banner_model.dart';
 
 final roomServiceProvider = Provider<RoomService>((ref) {
   return RoomService();
@@ -36,6 +37,10 @@ final isSpeakingProvider = StreamProvider<bool>((ref) {
   return ref.watch(voiceServiceProvider).isSpeakingStream;
 });
 
+final speakingUidsProvider = StreamProvider<List<int>>((ref) {
+  return ref.watch(voiceServiceProvider).speakingUidsStream;
+});
+
 final chatServiceProvider = Provider<ChatService>((ref) {
   return ChatService();
 });
@@ -57,6 +62,10 @@ final userActiveRoomStreamProvider = StreamProvider<RoomModel?>((ref) {
       .map((snapshot) => snapshot.docs.isNotEmpty 
           ? RoomModel.fromFirestore(snapshot.docs.first) 
           : null);
+});
+
+final roomBannersProvider = StreamProvider<List<RoomBannerModel>>((ref) {
+  return ref.watch(roomServiceProvider).getRoomBannersStream();
 });
 
 final roomMicRequestsProvider = StreamProvider.family<List<String>, String>((ref, roomId) {

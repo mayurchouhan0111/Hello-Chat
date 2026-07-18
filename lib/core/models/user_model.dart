@@ -13,6 +13,7 @@ class UserModel {
   final String profilePhotoUrl;
   final String gender;
   final int diamondBalance;
+  final int diamondStock;
   final int beansBalance;
   final int xp;
   final int dailyXP;
@@ -41,6 +42,7 @@ class UserModel {
   final bool isBanned;
   final DateTime lastActive;
   final String lastVipClaim;
+  final DateTime? lastDailyClaim;
   final String? agencyId;
   final bool isAgencyOwner;
   final String? familyId;
@@ -58,7 +60,11 @@ class UserModel {
   final String? partnerAvatar;
   final int cpLevel;
   final int cpPoints;
+  final String? bestFriendUid;
+  final String? bestFriendName;
+  final String? bestFriendAvatar;
   final int? helloId;
+  final int? familyMemberLevel;
   final int visitorCount;
   final List<String> recentVisitors; // Avatars of last 5 visitors
   final DateTime? birthday;
@@ -76,56 +82,58 @@ class UserModel {
   final double walletBalance;
   final String? activeRoomId;
 
-  UserModel({
+UserModel({
     required this.uid,
     required this.createdAt,
-    this.phoneNumber,
+    required this.phoneNumber,
     this.email,
     required this.username,
     required this.displayName,
-    required this.bio,
-    required this.country,
-    required this.profilePhotoUrl,
-    required this.gender,
-    required this.diamondBalance,
-    required this.beansBalance,
-    required this.xp,
-    required this.dailyXP,
-    required this.weeklyXP,
-    required this.monthlyXP,
-    required this.benchXP,
-    required this.princeXP,
-    required this.dailyPrinceXP,
-    required this.weeklyPrinceXP,
-    required this.monthlyPrinceXP,
-    required this.level,
-    required this.followerCount,
-    required this.followingCount,
-    required this.friendsCount,
-    required this.status,
-    required this.badges,
-    required this.profileFrame,
-    required this.chatBubble,
-    required this.entryAnimation,
-    required this.badgeIcon,
-    required this.tags,
-    required this.vipTier,
+    this.bio = '',
+    this.country = '',
+    this.profilePhotoUrl = '',
+    this.gender = 'female',
+    this.diamondBalance = 0,
+    this.diamondStock = 0,
+    this.beansBalance = 0,
+    this.xp = 0,
+    this.dailyXP = 0,
+    this.weeklyXP = 0,
+    this.monthlyXP = 0,
+    this.benchXP = 0,
+    this.princeXP = 0,
+    this.dailyPrinceXP = 0,
+    this.weeklyPrinceXP = 0,
+    this.monthlyPrinceXP = 0,
+    this.level = 1,
+    this.followerCount = 0,
+    this.followingCount = 0,
+    this.friendsCount = 0,
+    this.status = 'offline',
+    this.badges = const [],
+    this.profileFrame = '',
+    this.chatBubble = '',
+    this.entryAnimation = '',
+    this.badgeIcon = '',
+    this.tags = const [],
+    this.vipTier = 'none',
     this.vipExpiry,
     this.nobleTier,
     this.nobleExpiry,
-    required this.isBanned,
+    this.isBanned = false,
     required this.lastActive,
     this.lastVipClaim = '',
+    this.lastDailyClaim,
+
     this.agencyId,
     this.isAgencyOwner = false,
     this.familyId,
     this.isFamilyOwner = false,
-    this.combatPoints = 0,
-    this.svipLevel,
-    this.svipPoints,
-    this.monthlyRecharge,
-    required this.blockedUids,
-    required this.referralCode,
+    this.svipLevel = 0,
+    this.svipPoints = 0,
+    this.monthlyRecharge = 0,
+    this.blockedUids = const [],
+    this.referralCode = '',
     this.referredBy,
     this.totalReferralEarnings = 0,
     this.partnerUid,
@@ -133,7 +141,9 @@ class UserModel {
     this.partnerAvatar,
     this.cpLevel = 0,
     this.cpPoints = 0,
+    this.combatPoints = 0,
     this.helloId,
+    this.familyMemberLevel = 0,
     this.visitorCount = 0,
     this.recentVisitors = const [],
     this.birthday,
@@ -146,10 +156,13 @@ class UserModel {
     this.company,
     this.isReseller = false,
     this.isVerified = false,
-    this.verificationStatus = 'unverified',
+this.verificationStatus = 'unverified',
     this.idPhotoUrl,
     this.walletBalance = 0.0,
     this.activeRoomId,
+    this.bestFriendUid,
+    this.bestFriendName,
+    this.bestFriendAvatar,
   });
 
   static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
@@ -176,6 +189,7 @@ class UserModel {
       profilePhotoUrl: (data['profilePhotoUrl'] as String?) ?? '',
       gender: (data['gender'] as String?) ?? 'male',
       diamondBalance: (data['diamondBalance'] as num? ?? 0).toInt(),
+      diamondStock: (data['diamondStock'] as num? ?? 0).toInt(),
       beansBalance: (data['beansBalance'] as num? ?? 0).toInt(),
       xp: (data['xp'] as num? ?? 0).toInt(),
       dailyXP: (data['dailyXP'] as num? ?? 0).toInt(),
@@ -204,6 +218,7 @@ class UserModel {
       isBanned: (data['isBanned'] as bool?) ?? false,
       lastActive: _parseDateTime(data['lastActive']),
       lastVipClaim: (data['lastVipClaim'] as String?) ?? '',
+      lastDailyClaim: data['lastDailyClaim'] != null ? _parseDateTime(data['lastDailyClaim']) : null,
       agencyId: data['agencyId'] as String?,
       isAgencyOwner: (data['isAgencyOwner'] as bool?) ?? false,
       familyId: data['familyId'] as String?,
@@ -222,6 +237,7 @@ class UserModel {
       cpPoints: (data['cpPoints'] as num? ?? 0).toInt(),
       combatPoints: (data['combatPoints'] as num? ?? 0).toInt(),
       helloId: (data['helloId'] as num?)?.toInt(),
+      familyMemberLevel: (data['familyMemberLevel'] as num?)?.toInt(),
       visitorCount: (data['visitorCount'] as num? ?? 0).toInt(),
       recentVisitors: (data['recentVisitors'] as Iterable?)?.whereType<String>().toList() ?? [],
       birthday: data['birthday'] != null ? _parseDateTime(data['birthday']) : null,
@@ -238,6 +254,9 @@ class UserModel {
       idPhotoUrl: data['idPhotoUrl'] as String?,
       walletBalance: (data['walletBalance'] as num? ?? 0.0).toDouble(),
       activeRoomId: data['activeRoomId'] as String?,
+      bestFriendUid: data['bestFriendUid'] as String?,
+      bestFriendName: data['bestFriendName'] as String?,
+      bestFriendAvatar: data['bestFriendAvatar'] as String?,
     );
   }
 
@@ -254,6 +273,7 @@ class UserModel {
       'profilePhotoUrl': profilePhotoUrl,
       'gender': gender,
       'diamondBalance': diamondBalance,
+      'diamondStock': diamondStock,
       'beansBalance': beansBalance,
       'xp': xp,
       'dailyXP': dailyXP,
@@ -282,6 +302,7 @@ class UserModel {
       'isBanned': isBanned,
       'lastActive': lastActive,
       'lastVipClaim': lastVipClaim,
+      'lastDailyClaim': lastDailyClaim,
       'agencyId': agencyId,
       'isAgencyOwner': isAgencyOwner,
       'familyId': familyId,
@@ -295,11 +316,15 @@ class UserModel {
       'totalReferralEarnings': totalReferralEarnings,
       'partnerUid': partnerUid,
       'partnerName': partnerName,
-      'partnerAvatar': partnerAvatar,
-      'cpLevel': cpLevel,
+'partnerAvatar': partnerAvatar,
+        'bestFriendUid': bestFriendUid,
+        'bestFriendName': bestFriendName,
+        'bestFriendAvatar': bestFriendAvatar,
+        'cpLevel': cpLevel,
       'cpPoints': cpPoints,
       'combatPoints': combatPoints,
       'helloId': helloId,
+      'familyMemberLevel': familyMemberLevel,
       'visitorCount': visitorCount,
       'recentVisitors': recentVisitors,
       'birthday': birthday,
@@ -331,6 +356,7 @@ class UserModel {
     String? profilePhotoUrl,
     String? gender,
     int? diamondBalance,
+    int? diamondStock,
     int? beansBalance,
     int? xp,
     int? dailyXP,
@@ -359,6 +385,7 @@ class UserModel {
     bool? isBanned,
     DateTime? lastActive,
     String? lastVipClaim,
+    DateTime? lastDailyClaim,
     String? agencyId,
     bool? isAgencyOwner,
     String? familyId,
@@ -373,10 +400,14 @@ class UserModel {
     String? partnerUid,
     String? partnerName,
     String? partnerAvatar,
+    String? bestFriendUid,
+    String? bestFriendName,
+    String? bestFriendAvatar,
     int? cpLevel,
     int? cpPoints,
     int? combatPoints,
     int? helloId,
+    int? familyMemberLevel,
     int? visitorCount,
     List<String>? recentVisitors,
     DateTime? birthday,
@@ -406,6 +437,7 @@ class UserModel {
       profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
       gender: gender ?? this.gender,
       diamondBalance: diamondBalance ?? this.diamondBalance,
+      diamondStock: diamondStock ?? this.diamondStock,
       beansBalance: beansBalance ?? this.beansBalance,
       xp: xp ?? this.xp,
       dailyXP: dailyXP ?? this.dailyXP,
@@ -434,6 +466,7 @@ class UserModel {
       isBanned: isBanned ?? this.isBanned,
       lastActive: lastActive ?? this.lastActive,
       lastVipClaim: lastVipClaim ?? this.lastVipClaim,
+      lastDailyClaim: lastDailyClaim ?? this.lastDailyClaim,
       agencyId: agencyId ?? this.agencyId,
       isAgencyOwner: isAgencyOwner ?? this.isAgencyOwner,
       familyId: familyId ?? this.familyId,
@@ -448,10 +481,14 @@ class UserModel {
       partnerUid: partnerUid ?? this.partnerUid,
       partnerName: partnerName ?? this.partnerName,
       partnerAvatar: partnerAvatar ?? this.partnerAvatar,
+      bestFriendUid: bestFriendUid ?? this.bestFriendUid,
+       bestFriendName: bestFriendName ?? this.bestFriendName,
+       bestFriendAvatar: bestFriendAvatar ?? this.bestFriendAvatar,
       cpLevel: cpLevel ?? this.cpLevel,
       cpPoints: cpPoints ?? this.cpPoints,
       combatPoints: combatPoints ?? this.combatPoints,
       helloId: helloId ?? this.helloId,
+      familyMemberLevel: familyMemberLevel ?? this.familyMemberLevel,
       visitorCount: visitorCount ?? this.visitorCount,
       recentVisitors: recentVisitors ?? this.recentVisitors,
       birthday: birthday ?? this.birthday,
@@ -472,6 +509,37 @@ class UserModel {
   }
 
   bool get isAdmin => tags.contains('Admin') || tags.contains('SuperAdmin');
+  bool get isSuperAdmin => tags.contains('SuperAdmin');
+
+  bool get isVipActive {
+    if (vipTier == 'none' || vipTier.isEmpty) return false;
+    if (vipExpiry == null) return false;
+    return vipExpiry!.isAfter(DateTime.now());
+  }
+
+  int get vipRemainingDays {
+    if (!isVipActive || vipExpiry == null) return 0;
+    return vipExpiry!.difference(DateTime.now()).inDays.clamp(0, 30);
+  }
+
+  String get vipRemainingDaysText {
+    if (!isVipActive || vipExpiry == null) return 'Expired';
+    final days = vipRemainingDays;
+    if (days <= 0) return 'Expired';
+    if (days == 1) return '1 Day';
+    return '$days Days';
+  }
+
+  bool get isNobleActive {
+    if (nobleTier == null || nobleTier!.isEmpty) return false;
+    if (nobleExpiry == null) return false;
+    return nobleExpiry!.isAfter(DateTime.now());
+  }
+
+  int get nobleRemainingDays {
+    if (!isNobleActive || nobleExpiry == null) return 0;
+    return nobleExpiry!.difference(DateTime.now()).inDays.clamp(0, 30);
+  }
 
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     return UserModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});

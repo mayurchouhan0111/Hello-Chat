@@ -11,6 +11,10 @@ import 'package:audioplayers/audioplayers.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:hello_chat/core/utils/app_persistent_cache.dart';
+import 'package:hello_chat/core/services/wakelock_service.dart';
+import 'package:hello_chat/core/services/game_recovery_service.dart';
 
 enum SpinGameState { betting, spinning, results }
 
@@ -22,24 +26,198 @@ class SpinWheelScreen extends ConsumerStatefulWidget {
   ConsumerState<SpinWheelScreen> createState() => _SpinWheelScreenState();
 }
 
-class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerProviderStateMixin {
+class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   double _pointerAngle = 0.0;
   int _countdown = 30;
   Timer? _timer;
   int _currentSegment = 0;
   Map<String, int> _currentBets = {};
   Map<String, int> _betClickCounts = {};
+  Map<String, int> _confirmedBets = {};
   String? _focusedIcon;
   String? _lastResultType;
   int _selectedChipValue = 100;
   int _todayProfits = 0;
   bool _isSpinning = false;
   bool _isBetLocked = false;
+  bool _isOffline = false;
+  bool _platformHasNetwork = true;
+  bool? _rtdbConnected;
+  Timer? _debounceTimer;
+  StreamSubscription? _connectivitySub;
+  StreamSubscription? _platformConnectivitySub;
+
+  Map<String, dynamic>? _pendingRoundResult;
+  bool _hasPendingResult = false;
+  String? _resultPendingRoundId;
+
+  // Stored result for server-clock-synced display
+  SpinItem? _storedWinItem;
+  int _storedPrize = 0;
+  int _storedWager = 0;
+  List<dynamic> _storedWinners = [];
+  String _storedRoundId = '';
+  Map<String, int>? _storedBets;
+
+  String? _hasShownResultForRound;
+  bool _isBottomSheetOpen = false;
+  Route? _bottomSheetRoute;
+  DateTime? _bottomSheetOpenTime;
+
+  int _roundTransitionCountdown = 0;
+  bool _showRoundTransition = false;
+  String _countdownLabel = "Select time";
 
   late AnimationController _idleController;
   SpinGameState _gameState = SpinGameState.betting;
   final AudioPlayer _audioPlayer = AudioPlayer();
-  
+  final AudioPlayer _effectPlayer = AudioPlayer();
+
+  // Track cached sound paths to avoid socket exceptions
+  String? _localBetSoundPath;
+  String? _localSpinSoundPath;
+  String? _localWinSoundPath;
+
+  void _precacheSounds() async {
+    try {
+      final betFile = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
+      final spinFile = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav");
+      final winFile = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav");
+      
+      if (mounted) {
+        setState(() {
+          _localBetSoundPath = betFile.path;
+          _localSpinSoundPath = spinFile.path;
+          _localWinSoundPath = winFile.path;
+        });
+        debugPrint("🔊 SpinWheel: Game sounds precached locally successfully!");
+      }
+    } catch (e) {
+      debugPrint("⚠️ SpinWheel: Failed to precache game sounds: $e");
+    }
+  }
+
+  void _playBetSoundAndHaptic() async {
+    // HapticFeedback.lightImpact();
+    try {
+      await _effectPlayer.stop();
+      if (_localBetSoundPath != null) {
+        await _effectPlayer.play(DeviceFileSource(_localBetSoundPath!));
+      } else {
+        final file = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
+        _localBetSoundPath = file.path;
+        await _effectPlayer.play(DeviceFileSource(_localBetSoundPath!));
+      }
+    } catch (_) {}
+  }
+
+  void _playCountdownTick() async {
+    // HapticFeedback.selectionClick();
+    try {
+      await _effectPlayer.stop();
+      if (_localBetSoundPath != null) {
+        await _effectPlayer.play(DeviceFileSource(_localBetSoundPath!));
+      } else {
+        final file = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
+        _localBetSoundPath = file.path;
+        await _effectPlayer.play(DeviceFileSource(_localBetSoundPath!));
+      }
+    } catch (_) {}
+  }
+
+  void _placeBet(String itemName, List<SpinItem> items) {
+    if (_isBetLocked) return;
+    if (_isOffline) return;
+
+    final lowerName = itemName.toLowerCase().trim();
+    if (lowerName == 'salad' || lowerName == 'pizza') {
+      return;
+    }
+
+    final matchedItem = items.firstWhere(
+      (item) => item.name.toLowerCase().trim() == itemName.toLowerCase().trim(),
+      orElse: () => SpinItem(name: itemName, multiplier: 1, emoji: ''),
+    );
+    final exactName = matchedItem.name;
+
+    final wallet = ref.read(walletBalanceProvider).value;
+    final diamonds = wallet?['diamonds'] ?? 0;
+    final beans = wallet?['beans'] ?? 0;
+    final totalPlayingPower = diamonds + (beans * 2 / 7).floor();
+
+    final currentTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
+    if (currentTotalBet + _selectedChipValue > totalPlayingPower) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Insufficient Diamonds & Stars"))
+      );
+      return;
+    }
+
+    _playBetSoundAndHaptic();
+
+    setState(() {
+      _currentBets[exactName] = (_currentBets[exactName] ?? 0) + _selectedChipValue;
+      _betClickCounts[exactName] = (_betClickCounts[exactName] ?? 0) + 1;
+    });
+
+    // Clear confirmed state since bets changed
+    setState(() {
+      _confirmedBets = {};
+    });
+
+    // Start debounce timer for auto-submit
+    _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || _currentBets.isEmpty) return;
+      _autoSubmitBets();
+    });
+
+    // Persist bet state for crash recovery
+    final now = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final roundId = (now ~/ serverRoundMs).toString();
+    GameRecoveryService().saveBetState(
+      bets: _currentBets,
+      betClickCounts: _betClickCounts,
+      roundId: roundId,
+      timestamp: now,
+    );
+  }
+
+  Future<void> _autoSubmitBets() async {
+    if (_currentBets.isEmpty || _isBetLocked) return;
+
+    final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
+    if (totalBet <= 0) return;
+
+    final now = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+
+    // Only auto-submit during betting phase (first 30 seconds of 40s cycle)
+    if (secondsIntoCycle >= 30) return;
+
+    try {
+      final result = await ref.read(gameServiceProvider).playSpinWheel(
+        betAmount: totalBet,
+        bets: _currentBets,
+        roomId: widget.roomId,
+      );
+
+      if (!mounted) return;
+
+      final resultRoundId = result['roundId']?.toString();
+      if (resultRoundId != null && result['status'] == 'confirmed') {
+        setState(() {
+          _confirmedBets = Map.from(_currentBets);
+        });
+        GameRecoveryService().clearBetState();
+      }
+    } catch (e) {
+      debugPrint("⚠️ Auto-submit failed: $e");
+    }
+  }
+
   int _tickCurrentIndex = 0;
   int _tickTargetIndex = 0;
   int _currentTickIndex = 0;
@@ -50,6 +228,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   bool _spinCompleted = false;
   bool _resultLock = false;
   int? _lastCalculatedRound;
+  BuildContext? _bottomSheetContext;
   
   int _serverTimeOffset = 0;
   StreamSubscription? _offsetSubscription;
@@ -63,6 +242,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) async => await WakelockService().acquire());
+
     _offsetSubscription = FirebaseDatabase.instance.ref('.info/serverTimeOffset').onValue.listen((event) {
       if (mounted) {
         final offset = (event.snapshot.value as num?)?.toInt() ?? 0;
@@ -71,6 +253,31 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         });
       }
     });
+
+    // Firebase RTDB connection state
+    _connectivitySub = FirebaseDatabase.instance.ref('.info/connected').onValue.listen((event) {
+      if (!mounted) return;
+      final rtdbConnected = event.snapshot.value as bool? ?? false;
+      debugPrint('[SPIN_WHEEL] Firebase RTDB .info/connected = $rtdbConnected');
+      _updateOfflineState(rtdbConnected: rtdbConnected);
+    });
+
+    // Platform network connectivity (WiFi / Mobile data)
+    _platformConnectivitySub = Connectivity().onConnectivityChanged.listen((result) {
+      if (!mounted) return;
+      final hasNetwork = result != ConnectivityResult.none;
+      debugPrint('[SPIN_WHEEL] Platform connectivity = $result (hasNetwork=$hasNetwork)');
+      _updateOfflineState(platformOnline: hasNetwork);
+    });
+
+    // Initial platform check
+    Connectivity().checkConnectivity().then((result) {
+      if (!mounted) return;
+      final hasNetwork = result != ConnectivityResult.none;
+      debugPrint('[SPIN_WHEEL] Initial platform connectivity = $result (hasNetwork=$hasNetwork)');
+      _updateOfflineState(platformOnline: hasNetwork);
+    });
+
     _lastCalculatedRound = _calculateCurrentRound();
     _idleController = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
     int lastIdleSegment = 0;
@@ -89,28 +296,132 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       });
 
       if (segment != lastIdleSegment) {
-        HapticFeedback.lightImpact();
+        // HapticFeedback.lightImpact();
         lastIdleSegment = segment;
       }
     });
 
+    _precacheSounds();
     _startCountdown();
     _playPhaseSound(SpinGameState.betting);
+
+    _tryRecoverGameState();
+  }
+
+  Future<void> _tryRecoverGameState() async {
+    try {
+      final saved = await GameRecoveryService().loadBetState();
+      if (saved == null || !mounted) return;
+
+      final savedRoundId = saved['roundId'] as String?;
+      final savedBets = saved['bets'] as Map<String, dynamic>?;
+      final savedClickCounts = saved['betClickCounts'] as Map<String, dynamic>?;
+      final savedTimestamp = saved['timestamp'] as int?;
+
+      if (savedRoundId == null || savedBets == null || savedTimestamp == null) return;
+
+      final now = _synchronizedTimeMs;
+      const serverRoundMs = 40000;
+      final currentRoundIdStr = (now ~/ serverRoundMs).toString();
+      final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+
+      // Only recover if the saved state is for the current round and betting is not locked yet
+      if (savedRoundId != currentRoundIdStr || secondsIntoCycle >= 25) {
+        await GameRecoveryService().clearBetState();
+        return;
+      }
+
+      // Check if state is recent enough (within last 60 seconds)
+      final age = now - savedTimestamp;
+      if (age > 60000) {
+        await GameRecoveryService().clearBetState();
+        return;
+      }
+
+      if (mounted) {
+        setState(() {
+          for (final entry in savedBets.entries) {
+            _currentBets[entry.key] = (entry.value as num).toInt();
+          }
+          for (final entry in (savedClickCounts ?? {}).entries) {
+            _betClickCounts[entry.key] = (entry.value as num).toInt();
+          }
+        });
+        debugPrint("♻️ Game recovery: Restored bets for round $savedRoundId");
+        // Re-submit restored bets if still in betting phase
+        final secondsIntoCycle = (_synchronizedTimeMs % serverRoundMs) ~/ 1000;
+        if (secondsIntoCycle < 30) {
+          _debounceTimer?.cancel();
+          _debounceTimer = Timer(const Duration(milliseconds: 500), () {
+            if (mounted && _currentBets.isNotEmpty) _autoSubmitBets();
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("⚠️ Game recovery failed: $e");
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.paused) {
+      // Save current game state on pause
+      final now = _synchronizedTimeMs;
+      const serverRoundMs = 40000;
+      final roundId = (now ~/ serverRoundMs).toString();
+      GameRecoveryService().saveBetState(
+        bets: _currentBets,
+        betClickCounts: _betClickCounts,
+        roundId: roundId,
+        timestamp: now,
+      );
+      // Release wakelock when app goes to background
+      WakelockService().release();
+    } else if (state == AppLifecycleState.resumed) {
+      // Re-acquire wakelock when app comes to foreground
+      WakelockService().acquire();
+    }
   }
 
   void _playPhaseSound(SpinGameState state) async {
     try {
       await _audioPlayer.stop();
-      String soundPath = "";
+      if (!mounted) return;
+
       switch (state) {
         case SpinGameState.betting:
-          soundPath = "sounds/betting_tick.mp3";
+          if (_localBetSoundPath != null) {
+            await _audioPlayer.play(DeviceFileSource(_localBetSoundPath!));
+          } else {
+            final file = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
+            _localBetSoundPath = file.path;
+            if (mounted && _gameState == SpinGameState.betting) {
+              await _audioPlayer.play(DeviceFileSource(_localBetSoundPath!));
+            }
+          }
           break;
         case SpinGameState.spinning:
-          soundPath = "sounds/wheel_spin.mp3";
+          if (_localSpinSoundPath != null) {
+            await _audioPlayer.play(DeviceFileSource(_localSpinSoundPath!));
+          } else {
+            final file = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav");
+            _localSpinSoundPath = file.path;
+            if (mounted && _gameState == SpinGameState.spinning) {
+              await _audioPlayer.play(DeviceFileSource(_localSpinSoundPath!));
+            }
+          }
           break;
         case SpinGameState.results:
-          soundPath = "sounds/win_celebration.mp3";
+          if (_localWinSoundPath != null) {
+            await _audioPlayer.play(DeviceFileSource(_localWinSoundPath!));
+          } else {
+            final file = await AppPersistentCache.getFile("https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav");
+            _localWinSoundPath = file.path;
+            if (mounted && _gameState == SpinGameState.results) {
+              await _audioPlayer.play(DeviceFileSource(_localWinSoundPath!));
+            }
+          }
           break;
       }
     } catch (_) {}
@@ -130,61 +441,99 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
       if (!mounted) return;
 
+      const serverRoundDurationMs = 40000;
+      const serverBettingPhaseSec = 30;
+      const serverSpinPhaseSec = 5;
+
       final now = _synchronizedTimeMs;
-      const totalCycle = 40000;
-      final secondsIntoCycle = (now % totalCycle) ~/ 1000;
-      final msIntoCycle = now % totalCycle;
+      final secondsIntoCycle = (now % serverRoundDurationMs) ~/ 1000;
+      final msIntoCycle = now % serverRoundDurationMs;
       final currentRoundVal = _calculateCurrentRound();
-      final currentRoundIdStr = (now ~/ 40000).toString();
+      final currentRoundIdStr = (now ~/ serverRoundDurationMs).toString();
 
       // Rollover / Invalidations on a new round
       if (_lastCalculatedRound != null && currentRoundVal != _lastCalculatedRound) {
-        ref.invalidate(luckySpinStatsProvider);
-        ref.invalidate(userGameHistoryProvider);
-        ref.invalidate(walletBalanceProvider);
-        
+        // We no longer automatically close the bottom sheet here to prevent double-pop 
+        // crashes if the user is dismissing it at the exact same moment.
+        // It will be replaced when the next result arrives, or dismissed naturally.
+
         setState(() {
+          _currentBets = {};
+          _betClickCounts = {};
           _hasSpunForRound = null;
           _hasStartedFallbackCall = false;
+          _hasShownResultForRound = null;
+          if (_resultPendingRoundId != currentRoundIdStr) {
+            _pendingRoundResult = null;
+            _hasPendingResult = false;
+            _resultPendingRoundId = null;
+          }
+          _resultLock = false;
+          _spinCompleted = false;
+          _showRoundTransition = false;
         });
 
-        // Auto dismiss old result dialog when new round starts
-        if (_resultLock) {
-          if (Navigator.canPop(context)) {
-            Navigator.pop(context);
-          }
-          setState(() {
-            _resultLock = false;
-            _spinCompleted = false;
-          });
+        // Show any pending stored result from previous round after clearing old state
+        if (_storedWinItem != null) {
+          _showStoredResult();
         }
+        _clearStoredResult();
+        ref.invalidate(luckySpinStatsProvider);
+        ref.invalidate(userGameHistoryProvider);
       }
       _lastCalculatedRound = currentRoundVal;
 
-      // Update countdown display
-      final newCountdown = (30 - secondsIntoCycle).clamp(0, 30);
-      if (newCountdown != _countdown) {
-        setState(() {
-          _countdown = newCountdown;
-        });
+      // Round transition countdown (last 3 seconds before next round)
+      final transitionStart = serverBettingPhaseSec + serverSpinPhaseSec + 7;
+      if (secondsIntoCycle >= transitionStart && secondsIntoCycle < serverRoundDurationMs ~/ 1000) {
+        final remaining = (serverRoundDurationMs ~/ 1000) - secondsIntoCycle;
+        if (remaining <= 3 && remaining >= 1) {
+          if (!_showRoundTransition) {
+            setState(() { _showRoundTransition = true; });
+          }
+          if (remaining != _roundTransitionCountdown) {
+            setState(() { _roundTransitionCountdown = remaining; });
+          }
+        }
+      } else {
+        if (_showRoundTransition) {
+          setState(() { _showRoundTransition = false; });
+        }
       }
 
-      // Update bet locking state
-      final newBetLocked = (secondsIntoCycle >= 25);
+      // Update countdown display (phase-aware)
+      int newCountdown;
+      String newLabel;
+      if (_gameState == SpinGameState.results) {
+        newCountdown = ((serverBettingPhaseSec + serverSpinPhaseSec + 5) - secondsIntoCycle).clamp(0, 5);
+        newLabel = "Winning";
+      } else if (_gameState == SpinGameState.spinning) {
+        newCountdown = 0;
+        newLabel = "Spinning";
+      } else {
+        newCountdown = (serverBettingPhaseSec - secondsIntoCycle).clamp(0, serverBettingPhaseSec);
+        newLabel = "Select time";
+      }
+      if (newCountdown != _countdown || newLabel != _countdownLabel) {
+        setState(() {
+          _countdown = newCountdown;
+          _countdownLabel = newLabel;
+        });
+        if (newCountdown <= 5 && newCountdown > 0 && _gameState == SpinGameState.betting) {
+          _playCountdownTick();
+        }
+      }
+
+      // Update bet locking state (lock 5s before server betting phase end)
+      final newBetLocked = (secondsIntoCycle >= serverBettingPhaseSec - 5);
       if (newBetLocked != _isBetLocked) {
         setState(() {
           _isBetLocked = newBetLocked;
         });
       }
 
-      // Read real-time global state from provider stream
-      final statsAsync = ref.read(luckySpinStatsProvider);
-      final stats = statsAsync.value;
-      final lastGlobalRound = stats?['lastGlobalRound']?.toString();
-      final lastGlobalOutcome = stats?['lastGlobalOutcome'] as Map<String, dynamic>?;
-
-      // PHASE 1: BETTING / IDLE (0s to 30s)
-      if (secondsIntoCycle < 30) {
+      // PHASE 1: BETTING / IDLE
+      if (secondsIntoCycle < serverBettingPhaseSec) {
         if (_gameState != SpinGameState.betting && !_isSpinning) {
           setState(() {
             _gameState = SpinGameState.betting;
@@ -194,8 +543,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           });
         }
       }
-      // PHASE 2: SPINNING PHASE (30s to 35s)
-      else if (secondsIntoCycle >= 30 && secondsIntoCycle < 35) {
+      // PHASE 2: SPINNING PHASE
+      else if (secondsIntoCycle >= serverBettingPhaseSec && secondsIntoCycle < serverBettingPhaseSec + serverSpinPhaseSec) {
         if (_gameState != SpinGameState.spinning && !_isSpinning && _hasSpunForRound != currentRoundIdStr) {
           setState(() {
             _gameState = SpinGameState.spinning;
@@ -209,15 +558,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           if (totalBet > 0) {
             _handleSpin();
             _hasSpunForRound = currentRoundIdStr;
-          } 
-          // 2. Spectator: Watch global Firestore outcome
+          }
+          // 2. Spectator: Use pending result from local storage, else fallback call
           else {
-            if (lastGlobalRound == currentRoundIdStr && lastGlobalOutcome != null) {
-              _startSpin(lastGlobalOutcome);
+            if (_hasPendingResult && _resultPendingRoundId == currentRoundIdStr) {
+              _startSpin(_pendingRoundResult!);
               _hasSpunForRound = currentRoundIdStr;
-            } 
-            // 3. Fallback: Spectator "ticks" round if still blank after 1.5 seconds
-            else if (msIntoCycle >= 31500 && !_hasStartedFallbackCall) {
+              _hasPendingResult = false;
+            } else if (msIntoCycle >= serverBettingPhaseSec * 1000 + 1500 && !_hasStartedFallbackCall) {
               _hasStartedFallbackCall = true;
               _handleSpin();
               _hasSpunForRound = currentRoundIdStr;
@@ -225,50 +573,90 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           }
         }
       }
-      // PHASE 3: RESULTS CELEBRATION (35s to 40s)
-      else if (secondsIntoCycle >= 35) {
+      // PHASE 3: RESULTS CELEBRATION
+      else if (secondsIntoCycle >= serverBettingPhaseSec + serverSpinPhaseSec) {
         if (_gameState != SpinGameState.results && !_isSpinning) {
           setState(() {
             _gameState = SpinGameState.results;
           });
         }
 
-        // Late Join / Spectator Catch-up dialog
-        if (!_resultLock && lastGlobalRound == currentRoundIdStr && lastGlobalOutcome != null) {
-          final settings = ref.read(gameSettingsProvider).value;
-          final segmentsMap = (settings?['segments'] as List? ?? []);
-          final prize = 0;
-          final wager = 0;
-          final resultName = lastGlobalOutcome['name'] as String? ?? "";
-          final resultEmoji = lastGlobalOutcome['emoji'] as String? ?? "";
-          final resultCategory = lastGlobalOutcome['category'] as String?;
-          final int serverSectorIndex = (lastGlobalOutcome['sectorIndex'] as num?)?.toInt() ?? 0;
+        // Show stored result from spin animation
+        if (_storedWinItem != null && _hasShownResultForRound != currentRoundIdStr) {
+          _hasShownResultForRound = currentRoundIdStr;
+          _showStoredResult();
+        }
 
-          final matchingSegment = segmentsMap.firstWhere(
-            (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
-            orElse: () => segmentsMap[serverSectorIndex],
-          );
+        // Late Join / Spectator Catch-up: prefer pending result, fallback to stream
+        if (!_resultLock && !_isSpinning && _storedWinItem == null && _hasShownResultForRound != currentRoundIdStr) {
+          Map<String, dynamic>? outcome;
+          if (_hasPendingResult && _resultPendingRoundId == currentRoundIdStr) {
+            outcome = _pendingRoundResult;
+          } else {
+            final statsAsync = ref.read(luckySpinStatsProvider);
+            final stats = statsAsync.value;
+            final lastGlobalRound = stats?['lastGlobalRound']?.toString();
+            if (lastGlobalRound == currentRoundIdStr) {
+              outcome = stats?['lastGlobalOutcome'] as Map<String, dynamic>?;
+            }
+          }
 
-          final winningItem = SpinItem(
-            name: matchingSegment['name'] ?? resultName,
-            multiplier: 0,
-            emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
-            category: resultCategory ?? matchingSegment['category']
-          );
+          if (outcome != null) {
+            final resultSettings = ref.read(gameSettingsProvider).value;
+            final segmentsMap = (resultSettings?['segments'] as List? ?? []);
+            
+            // Default to spectator
+            int prize = 0;
+            int wager = 0;
+            Map<String, int>? betsCopy;
 
-          final roundWinners = lastGlobalOutcome['todayWinners'] as List? ?? lastGlobalOutcome['roundWinners'] as List? ?? [];
-          final roundIdVal = lastGlobalOutcome['roundId']?.toString() ?? currentRoundIdStr;
+            // Try to recover user's actual bet result from their game history if they were a player
+            final history = ref.read(userGameHistoryProvider).value ?? [];
+            final matchedHistory = history.where((h) => h['roundId']?.toString() == currentRoundIdStr).firstOrNull;
+            if (matchedHistory != null) {
+              prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
+              wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
+              betsCopy = (matchedHistory['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+            }
 
-          _hasSpunForRound = currentRoundIdStr;
-          _resultLock = true;
-          _showResultBottomSheet(
-            context,
-            winningItem,
-            prize,
-            wager,
-            roundWinners,
-            roundIdVal,
-          );
+            final resultName = outcome['name'] as String? ?? "";
+            final resultEmoji = outcome['emoji'] as String? ?? "";
+            final resultCategory = outcome['category'] as String?;
+            final int serverSectorIndex = (outcome['sectorIndex'] as num?)?.toInt() ?? 0;
+
+            final matchingSegment = segmentsMap.firstWhere(
+              (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
+              orElse: () => segmentsMap[serverSectorIndex],
+            );
+
+            final winningItem = SpinItem(
+              name: matchingSegment['name'] ?? resultName,
+              multiplier: wager > 0 ? (prize / wager).round() : 0,
+              emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
+              category: resultCategory ?? matchingSegment['category']
+            );
+
+            final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
+            final roundIdVal = outcome['roundId']?.toString() ?? currentRoundIdStr;
+
+            _hasSpunForRound = currentRoundIdStr;
+            _resultLock = true;
+            _hasPendingResult = false;
+            _hasShownResultForRound = currentRoundIdStr;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+               if (mounted) {
+                 _showResultBottomSheet(
+                   context,
+                   winningItem,
+                   prize,
+                   wager,
+                   roundWinners,
+                   roundIdVal,
+                   bets: betsCopy,
+                 );
+               }
+             });
+          }
         }
       }
     });
@@ -315,7 +703,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       setState(() {
         _currentSegment = (_currentSegment + 1) % 8;
       });
-      HapticFeedback.lightImpact();
+      // HapticFeedback.lightImpact();
       if (currentDummyTickMs > 60.0) {
         currentDummyTickMs -= 15.0; // Accelerate smoothly
       }
@@ -331,30 +719,53 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       );
       
       if (!mounted) return;
+
+      final resultRoundId = result['roundId']?.toString();
+      const serverRoundMs = 40000;
+      
+      // If the result arrives late (e.g., cold start delay), we no longer discard it.
+      // _startSpin will see the round mismatch and execute a quick 600ms spin to show the result.
       
       _tickTimer?.cancel(); // Stop dummy spin
+      GameRecoveryService().clearBetState();
       _startSpin(result);
 
     } catch (e) {
       _tickTimer?.cancel();
       _spinCompleted = false;
       if (mounted) {
+        final hadBet = _currentBets.values.fold(0, (sum, val) => sum + val) > 0;
         setState(() {
-          _gameState = SpinGameState.betting;
           _isSpinning = false;
-          _isBetLocked = false;
+          if (hadBet) {
+            // Failure happened during bet submission. Clear bet input so user becomes spectator,
+            // and clear hasSpun/hasStartedFallback flags so spectator periodic-tick can retry.
+            _gameState = SpinGameState.spinning;
+            _isBetLocked = true;
+            _currentBets = {};
+            _betClickCounts = {};
+            _hasSpunForRound = null;
+            _hasStartedFallbackCall = false;
+            GameRecoveryService().clearBetState();
+          } else {
+            _gameState = SpinGameState.betting;
+            _isBetLocked = false;
+          }
         });
         
-        String errorMessage = "Failed to spin. Please try again.";
-        final errorStr = e.toString();
-        if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
-          errorMessage = "Betting phase closed. Please wait for the next round.";
-        } else if (e is FirebaseFunctionsException) {
-          errorMessage = e.message ?? errorMessage;
-        } else {
-          errorMessage = "Error: ${errorStr.split('\\n').first}";
+        // ONLY SHOW SNACKBAR TO ACTIVE PLAYERS!
+        if (hadBet) {
+          String errorMessage = "Failed to spin. Please try again.";
+          final errorStr = e.toString();
+          if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
+            errorMessage = "Betting phase closed. Please wait for the next round.";
+          } else if (e is FirebaseFunctionsException) {
+            errorMessage = e.message ?? errorMessage;
+          } else {
+            errorMessage = "Error: ${errorStr.split('\\n').first}";
+          }
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
       }
     }
   }
@@ -384,14 +795,24 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final int targetIdx = serverSectorIndex;
     final int startIdx = _currentSegment;
     
-    // Calculate dynamic deceleration to finish exactly at 35000ms into the cycle
+    // Calculate dynamic deceleration to finish exactly before results phase
     final now = _synchronizedTimeMs;
-    const totalCycle = 40000;
-    final msIntoCycle = now % totalCycle;
-    final msRemainingInSpinPhase = (35000 - msIntoCycle).toDouble();
-    
-    // Bound the duration in case of extreme lag
-    final double targetSpinDuration = msRemainingInSpinPhase.clamp(500.0, 5000.0);
+    const serverRoundMs = 40000;
+    final outcomeRoundId = outcome['roundId']?.toString();
+    final currentRoundIdStr = (now ~/ serverRoundMs).toString();
+    final msIntoCycle = now % serverRoundMs;
+
+    double targetSpinDuration;
+    if (outcomeRoundId != null && outcomeRoundId != currentRoundIdStr) {
+      // Outcome is for a past round, spin quickly
+      targetSpinDuration = 600.0;
+    } else if (msIntoCycle >= 35000) {
+      // Past the spin phase of the current round, spin quickly
+      targetSpinDuration = 600.0;
+    } else {
+      // Normal case: finish exactly at the end of the spin phase
+      targetSpinDuration = (35000 - msIntoCycle).toDouble().clamp(600.0, 5000.0);
+    }
     
     int distanceToTarget = (targetIdx - startIdx + 8) % 8;
     int fullRotations = (targetSpinDuration ~/ 1200).clamp(1, 4); 
@@ -445,7 +866,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _currentSegment = _tickCurrentIndex;
         });
         
-        HapticFeedback.lightImpact();
+        // HapticFeedback.lightImpact();
         
         _currentTickIndex++;
       }
@@ -454,24 +875,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _tickTimer?.cancel();
 
         final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-
-        setState(() {
-          _spinCompleted = true;
-          _currentSegment = targetIdx;
-          _gameState = SpinGameState.results;
-          if (totalBet > 0) {
-            _todayProfits += (prize - totalBet);
-          }
-          _isSpinning = false;
-          _currentBets = {};
-          _betClickCounts = {};
-        });
-
-        _playPhaseSound(SpinGameState.results);
-
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(userGameHistoryProvider);
-        ref.invalidate(luckySpinStatsProvider);
+        final betsCopy = Map<String, int>.from(_currentBets);
 
         final resultName = outcome['name'] as String? ?? "";
         final resultEmoji = outcome['emoji'] as String? ?? "";
@@ -492,15 +896,35 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
         final roundId = outcome['roundId']?.toString() ?? "";
 
-        _resultLock = true;
-        _showResultBottomSheet(
-          context,
-          winningItem,
-          prize,
-          totalBet,
-          roundWinners,
-          roundId,
-        );
+        setState(() {
+          _spinCompleted = true;
+          _currentSegment = targetIdx;
+          if (totalBet > 0) {
+            _todayProfits += (prize - totalBet);
+          }
+          _isSpinning = false;
+          _currentBets = {};
+          _betClickCounts = {};
+          _storedWinItem = winningItem;
+          _storedPrize = prize;
+          _storedWager = totalBet;
+          _storedWinners = roundWinners;
+          _storedRoundId = roundId;
+          _storedBets = betsCopy;
+          _resultLock = true;
+        });
+
+        _playPhaseSound(SpinGameState.results);
+
+        ref.invalidate(walletBalanceProvider);
+        ref.invalidate(userGameHistoryProvider);
+        ref.invalidate(luckySpinStatsProvider);
+
+        // Show immediately since the spin animation has finished
+        if (_hasShownResultForRound != roundId) {
+          _hasShownResultForRound = roundId;
+          _showStoredResult();
+        }
         return;
       }
     }
@@ -543,29 +967,108 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     }
   }
 
-  void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings, int wager, List<dynamic> winners, String roundId) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      isDismissible: true,
-      enableDrag: true,
-      barrierColor: Colors.black.withOpacity(0.7),
-      builder: (context) => _ResultBottomSheet(
-        item: item,
-        winnings: winnings,
-        wager: wager,
-        winners: winners,
-        roundId: roundId,
-      ),
-    ).then((_) {
+  void _showStoredResult() {
+    if (_storedWinItem != null && mounted) {
+      final item = _storedWinItem!;
+      final prize = _storedPrize;
+      final wager = _storedWager;
+      final winners = _storedWinners;
+      final roundId = _storedRoundId;
+      final bets = _storedBets;
+      _clearStoredResult();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showResultBottomSheet(
+            context,
+            item,
+            prize,
+            wager,
+            winners,
+            roundId,
+            bets: bets,
+          );
+        }
+      });
+    }
+  }
+
+  void _clearStoredResult() {
+    _storedWinItem = null;
+    _storedPrize = 0;
+    _storedWager = 0;
+    _storedWinners = [];
+    _storedRoundId = '';
+    _storedBets = null;
+  }
+
+  void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings, int wager, List<dynamic> winners, String roundId, {Map<String, int>? bets}) {
+    if (!mounted) return;
+
+    // Dismiss any currently open result sheet safely using removeRoute to avoid double-pop crashes
+    if (_isBottomSheetOpen && _bottomSheetRoute != null) {
+      _isBottomSheetOpen = false;
+      final route = _bottomSheetRoute;
+      _bottomSheetRoute = null;
+      _bottomSheetContext = null;
+      try {
+        if (route != null && route.isActive) {
+          Navigator.of(context).removeRoute(route);
+        }
+      } catch (e) {
+        debugPrint("⚠️ SpinWheel: Error removing bottom sheet: $e");
+      }
+    }
+
+    _isBottomSheetOpen = true;
+    _bottomSheetOpenTime = DateTime.now();
+    try {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        isDismissible: true,
+        enableDrag: true,
+        barrierColor: Colors.black.withOpacity(0.7),
+        builder: (sheetContext) {
+          _bottomSheetContext = sheetContext;
+          _bottomSheetRoute = ModalRoute.of(sheetContext);
+          return _ResultBottomSheet(
+            item: item,
+            winnings: winnings,
+            wager: wager,
+            winners: winners,
+            roundId: roundId,
+            bets: bets,
+          );
+        },
+      ).then((_) {
+        _isBottomSheetOpen = false;
+        _bottomSheetContext = null;
+        _bottomSheetRoute = null;
+        if (mounted) {
+          setState(() {
+            _resultLock = false;
+            _spinCompleted = false;
+          });
+          _clearStoredResult();
+          ref.invalidate(luckySpinStatsProvider);
+          ref.invalidate(userGameHistoryProvider);
+          ref.invalidate(walletBalanceProvider);
+        }
+      });
+    } catch (e) {
+      debugPrint("❌ SpinWheel: Exception showing result bottom sheet: $e");
+      _isBottomSheetOpen = false;
+      _bottomSheetContext = null;
+      _bottomSheetRoute = null;
       if (mounted) {
         setState(() {
           _resultLock = false;
           _spinCompleted = false;
         });
+        _clearStoredResult();
       }
-    });
+    }
   }
 
   Widget _buildResultRow(String label, Widget value) {
@@ -647,12 +1150,37 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    WakelockService().release();
     _offsetSubscription?.cancel();
+    _connectivitySub?.cancel();
+    _platformConnectivitySub?.cancel();
+    _debounceTimer?.cancel();
     _timer?.cancel();
     _tickTimer?.cancel();
     _idleController.dispose();
     _audioPlayer.dispose();
+    _effectPlayer.dispose();
+    GameRecoveryService().clearBetState();
     super.dispose();
+  }
+
+  void _updateOfflineState({bool? rtdbConnected, bool? platformOnline}) {
+    if (rtdbConnected != null) _rtdbConnected = rtdbConnected;
+    if (platformOnline != null) _platformHasNetwork = platformOnline;
+
+    final effectiveRtdb = _rtdbConnected ?? true;
+    final effectivePlatform = _platformHasNetwork;
+
+    // Only show offline when BOTH Firebase RTDB AND platform say disconnected
+    final wasOffline = _isOffline;
+    _isOffline = !effectiveRtdb && !effectivePlatform;
+
+    if (_isOffline != wasOffline) {
+      debugPrint('[SPIN_WHEEL] Offline state changed: $_isOffline '
+          '(rtdb=$effectiveRtdb, platform=$effectivePlatform)');
+      if (mounted) setState(() {});
+    }
   }
 
   @override
@@ -676,6 +1204,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             emoji: s['emoji'],
             category: s['category']
           )).toList();
+
+          final saladItem = items.firstWhere(
+            (item) => item.name.toLowerCase().trim() == 'salad',
+            orElse: () => SpinItem(name: 'Salad', multiplier: 1, emoji: ''),
+          );
+          final pizzaItem = items.firstWhere(
+            (item) => item.name.toLowerCase().trim() == 'pizza',
+            orElse: () => SpinItem(name: 'Pizza', multiplier: 1, emoji: ''),
+          );
 
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -725,12 +1262,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                             Positioned(
                               bottom: -29 * scale,
                               left: 30 * scale,
-                              child: _buildJackpotTab("Salad", "🥗", scale),
+                              child: GestureDetector(
+                                onTap: _isBetLocked ? null : () => _placeBet("Salad", items),
+                                child: _buildJackpotTab("Salad", "🥗", scale, _currentBets[saladItem.name] ?? 0),
+                              ),
                             ),
                             Positioned(
                               bottom: -29 * scale,
                               right: 30 * scale,
-                              child: _buildJackpotTab("Pizza", "🍕", scale),
+                              child: GestureDetector(
+                                onTap: _isBetLocked ? null : () => _placeBet("Pizza", items),
+                                child: _buildJackpotTab("Pizza", "🍕", scale, _currentBets[pizzaItem.name] ?? 0),
+                              ),
                             ),
                             
                             // Interactive Betting Pods (Shifted center to 180, 210)
@@ -748,25 +1291,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                 top: (210 * scale) + podY - (40 * scale),
                                 child: GestureDetector(
                                   behavior: HitTestBehavior.opaque,
-                                  onTap: _isBetLocked ? null : () {
-                                    final wallet = ref.read(walletBalanceProvider).value;
-                                    final diamonds = wallet?['diamonds'] ?? 0;
-                                    final beans = wallet?['beans'] ?? 0;
-                                    final totalPlayingPower = diamonds + (beans * 2 / 7).floor();
-
-                                    final currentTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-                                    if (currentTotalBet + _selectedChipValue > totalPlayingPower) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text("Insufficient Diamonds & Stars"))
-                                      );
-                                      return;
-                                    }
-
-                                    setState(() {
-                                      _currentBets[name] = (_currentBets[name] ?? 0) + _selectedChipValue;
-                                      _betClickCounts[name] = (_betClickCounts[name] ?? 0) + 1;
-                                    });
-                                  },
+                                  onTap: _isBetLocked ? null : () => _placeBet(name, items),
                                   child: Container(
                                     width: 70 * scale, height: 80 * scale,
                                     color: Colors.transparent, // Hit area
@@ -776,17 +1301,31 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                         if (bet > 0)
                                           Positioned(
                                             top: 0,
-                                            child: Container(
-                                              padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
-                                              decoration: BoxDecoration(
-                                                color: Colors.amber,
-                                                borderRadius: BorderRadius.circular(10 * scale),
-                                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                                              ),
-                                              child: Text(
-                                                bet >= 1000 ? "${(bet/1000).toStringAsFixed(1)}k" : bet.toString(),
-                                                style: TextStyle(color: Colors.black, fontSize: 10 * scale, fontWeight: FontWeight.w900),
-                                              ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Container(
+                                                  padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                                                  decoration: BoxDecoration(
+                                                    color: _confirmedBets[name] == bet ? Colors.green : Colors.amber,
+                                                    borderRadius: BorderRadius.circular(10 * scale),
+                                                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize: MainAxisSize.min,
+                                                    children: [
+                                                      Text(
+                                                        bet >= 1000 ? "${(bet/1000).toStringAsFixed(1)}k" : bet.toString(),
+                                                        style: TextStyle(color: Colors.black, fontSize: 10 * scale, fontWeight: FontWeight.w900),
+                                                      ),
+                                                      if (_confirmedBets[name] == bet) ...[
+                                                        SizedBox(width: 3 * scale),
+                                                        Icon(Icons.check_circle, color: Colors.white, size: 12 * scale),
+                                                      ],
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                       ],
@@ -835,10 +1374,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                       ),
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text("Select time", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 9 * scale)),
-                                          Text("${_countdown}s", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14 * scale)),
-                                        ],
+                                          children: [
+                                            Text(_countdownLabel, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 9 * scale)),
+                                            Text("${_countdown}s", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14 * scale)),
+                                          ],
                                       ),
                                     ),
                                   ),
@@ -867,12 +1406,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                   ),
                 ),
 
-              // 5. Bottom Panel (Includes History & Balance) - Moved to TOP of Z-order
               Consumer(
                 builder: (context, ref, child) {
-                  final rawBalance = balanceAsync.value?['diamonds'] ?? 0;
+                  final balance = ref.watch(walletBalanceProvider).value?['diamonds'] ?? 0;
                   final totalLocalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-                  final displayedBalance = (rawBalance - totalLocalBet).clamp(0, rawBalance);
+                  final displayedBalance = (balance - totalLocalBet).clamp(0, balance);
+
+                  final history = ref.watch(userGameHistoryProvider).value ?? [];
+                  final stats = ref.watch(luckySpinStatsProvider).value;
 
                   // Watch Daily Leaderboard
                   final leaderboard = ref.watch(luckySpinLeaderboardProvider).value ?? [];
@@ -880,18 +1421,88 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
                   return _buildBottomPanel(
                     displayedBalance, 
-                    historyAsync.value ?? [],
-                    statsAsync.value,
+                    history,
+                    stats,
                     scale,
                     topPlayer,
                   );
                 }
               ),
               
+              if (_isOffline)
+                Positioned.fill(
+                  child: Container(
+                    color: Colors.black87,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.wifi_off_rounded, color: Colors.redAccent, size: 48),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            "Network Connection Required",
+                            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            "Please check your internet connection\nand try again.",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.white60, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
               Positioned(
                 top: 40, left: 10,
                 child: IconButton(icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 22), onPressed: () => Navigator.pop(context)),
               ),
+
+              // Round transition countdown overlay
+              if (_showRoundTransition)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      color: Colors.black54,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              "Next Round",
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18 * scale,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              "${_roundTransitionCountdown}",
+                              style: TextStyle(
+                                color: const Color(0xFFFACC15),
+                                fontSize: 72 * scale,
+                                fontWeight: FontWeight.w900,
+                                shadows: [
+                                  Shadow(color: Colors.black45, blurRadius: 12, offset: const Offset(0, 4)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 ],
               );
             },
@@ -996,19 +1607,41 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     );
   }
 
-  Widget _buildJackpotTab(String label, String emoji, double scale) {
+  Widget _buildJackpotTab(String label, String emoji, double scale, int bet) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 56 * scale, height: 56 * scale,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xFFFFD700), width: 3 * scale),
-            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8 * scale, offset: const Offset(0, 3))],
-          ),
-          child: Center(child: Text(emoji, style: TextStyle(fontSize: 32 * scale))),
+        Stack(
+          alignment: Alignment.center,
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 56 * scale, height: 56 * scale,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFFFD700), width: 3 * scale),
+                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8 * scale, offset: const Offset(0, 3))],
+              ),
+              child: Center(child: Text(emoji, style: TextStyle(fontSize: 32 * scale))),
+            ),
+            if (bet > 0)
+              Positioned(
+                top: -8 * scale,
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                  decoration: BoxDecoration(
+                    color: Colors.amber,
+                    borderRadius: BorderRadius.circular(10 * scale),
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                  ),
+                  child: Text(
+                    bet >= 1000 ? "${(bet/1000).toStringAsFixed(1)}k" : bet.toString(),
+                    style: TextStyle(color: Colors.black, fontSize: 9 * scale, fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+          ],
         ),
         Transform.translate(
           offset: Offset(0, -3 * scale),
@@ -1406,9 +2039,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     switch (name.toLowerCase().trim()) {
       case 'carrot': return '🥕';
       case 'corn': return '🌽';
-      case 'salad': return '🥗';
+      case 'cabbage': return '🥬';
       case 'tomato': return '🍅';
       case 'hotdog': return '🌭';
+      case 'kebab': return '🍢';
+      case 'chicken': return '🍗';
+      case 'steak': return '🥩';
+      case 'salad': return '🥗';
       case 'skewer': return '🍢';
       case 'meat': return '🥩';
       case 'pizza': return '🍕';
@@ -1416,13 +2053,37 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     }
   }
 
+  String _getFoodNameFromEmoji(String emoji) {
+    switch (emoji) {
+      case '🥕': return 'CARROT';
+      case '🌽': return 'CORN';
+      case '🥬': return 'CABBAGE';
+      case '🍅': return 'TOMATO';
+      case '🌭': return 'HOTDOG';
+      case '🍢': return 'KEBAB';
+      case '🍗': return 'CHICKEN';
+      case '🥩': return 'STEAK';
+      case '🥗': return 'SALAD';
+      case '🍕': return 'PIZZA';
+      default: return '';
+    }
+  }
+
   String _formatNumber(int number) {
-    if (number >= 1000000) {
+    if (number >= 1000000000) {
+      return "${(number / 1000000000).toStringAsFixed(1)}B";
+    } else if (number >= 1000000) {
       return "${(number / 1000000).toStringAsFixed(1)}M";
     } else if (number >= 1000) {
       return "${(number / 1000).toStringAsFixed(1)}K";
     }
     return number.toString();
+  }
+
+  String _formatBalance(dynamic val) {
+    if (val == null) return "0";
+    final numVal = num.tryParse(val.toString())?.toInt() ?? 0;
+    return _formatNumber(numVal);
   }
 
   String _formatTimestamp(dynamic timestamp) {
@@ -1577,15 +2238,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                             );
                                           }).toList(),
                                         ),
-                                        const SizedBox(height: 12),
+                                        const SizedBox(height: 14),
 
                                         Row(
                                           children: [
                                             const Text("Winning food: ", style: TextStyle(color: Colors.white70, fontSize: 13)),
                                             Text(h['emoji'] ?? _getFoodEmoji(h['label'] ?? h['resultType'] ?? ''), style: const TextStyle(fontSize: 15)),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              (h['label'] != null && !h['label'].toString().contains('x'))
+                                                  ? h['label'].toString().toUpperCase()
+                                                  : _getFoodNameFromEmoji(h['emoji'] ?? _getFoodEmoji(h['label'] ?? h['resultType'] ?? '')),
+                                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                            ),
                                           ],
                                         ),
-                                        const SizedBox(height: 6),
+                                        const SizedBox(height: 10),
 
                                         Row(
                                           children: [
@@ -1603,27 +2271,57 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                         ),
                                         
                                         if (h['balanceBefore'] != null && h['balanceAfter'] != null) ...[
-                                          const SizedBox(height: 6),
-                                          Row(
-                                            children: [
-                                              Expanded(
-                                                child: Text(
-                                                  "Coin Balance: ${h['balanceBefore']}->${h['balanceAfter']}",
-                                                  style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                                  overflow: TextOverflow.ellipsis,
+                                          const SizedBox(height: 10),
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 85),
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    "Coin Balance: ${_formatBalance(h['balanceBefore'])} -> ${_formatBalance(h['balanceAfter'])}",
+                                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
                                                 ),
-                                              ),
-                                              const SizedBox(width: 4),
-                                              const PremiumDiamond(size: 12),
-                                            ],
+                                                const SizedBox(width: 4),
+                                                const PremiumDiamond(size: 12),
+                                              ],
+                                            ),
                                           ),
                                         ],
 
                                         if (h['orderId'] != null) ...[
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            "Order Id: ${h['orderId']}",
-                                            style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                          const SizedBox(height: 10),
+                                          Padding(
+                                            padding: const EdgeInsets.only(right: 85),
+                                            child: Row(
+                                              children: [
+                                                Expanded(
+                                                  child: Text(
+                                                    "Order Id: ${h['orderId']}",
+                                                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                GestureDetector(
+                                                  onTap: () {
+                                                    Clipboard.setData(ClipboardData(text: h['orderId'].toString()));
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text("Order ID copied to clipboard"),
+                                                        duration: Duration(seconds: 2),
+                                                      ),
+                                                    );
+                                                  },
+                                                  child: const Icon(
+                                                    Icons.copy,
+                                                    color: Colors.white54,
+                                                    size: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
                                         ],
                                       ],
@@ -1874,6 +2572,7 @@ class _ResultBottomSheet extends ConsumerStatefulWidget {
   final int wager;
   final List<dynamic> winners;
   final String? roundId;
+  final Map<String, int>? bets;
 
   const _ResultBottomSheet({
     required this.item,
@@ -1881,6 +2580,7 @@ class _ResultBottomSheet extends ConsumerStatefulWidget {
     required this.wager,
     required this.winners,
     this.roundId,
+    this.bets,
   });
 
   @override
@@ -1916,7 +2616,7 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
 
     _mainController.forward();
 
-    // Automatically close the bottom sheet after 5 seconds
+    // Automatically close the bottom sheet after the results phase
     _autoCloseTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) {
         Navigator.of(context).pop();
@@ -1934,6 +2634,9 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final nameLower = widget.item.name.toLowerCase().trim();
+    final categoryLower = (widget.item.category ?? '').toLowerCase().trim();
+    final isSalad = nameLower == 'salad' || categoryLower == 'salad';
 
     return AnimatedBuilder(
       animation: _mainController,
@@ -2008,6 +2711,8 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildOutcomeHeader(),
+                  const SizedBox(height: 20),
                   // RESULTS ROW (Panda Mascot + Dynamic Backend Data Column)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -2055,12 +2760,15 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
                                   ),
                                 ),
                                 const SizedBox(width: 4),
-                                Text(
-                                  "${widget.item.emoji} ${widget.item.name}",
-                                  style: const TextStyle(
-                                    color: Color(0xFFFFD700), // Highly prominent Gold result name
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
+                                Flexible(
+                                  child: Text(
+                                    "${widget.item.emoji} ${widget.item.name}",
+                                    style: const TextStyle(
+                                      color: Color(0xFFFFD700), // Highly prominent Gold result name
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
                               ],
@@ -2068,20 +2776,22 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                const Text(
-                                  "This round's winnings: ",
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
+                                Flexible(
+                                  child: Text(
+                                    "This round's winnings: ",
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                                 const PremiumDiamond(size: 14),
                                 const SizedBox(width: 5),
                                 Text(
                                   "${widget.winnings}",
-                                  style: const TextStyle(
-                                    color: Colors.white,
+                                  style: TextStyle(
+                                    color: widget.winnings > 0 ? const Color(0xFF4ADE80) : Colors.white,
                                     fontSize: 15,
                                     fontWeight: FontWeight.w900,
                                   ),
@@ -2091,12 +2801,14 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                const Text(
-                                  "Your wager this round: ",
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
+                                Flexible(
+                                  child: Text(
+                                    "Your wager this round: ",
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                                 const Icon(
@@ -2121,40 +2833,79 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
                     ],
                   ),
 
-                  const SizedBox(height: 22),
-
-                  // GOLD DASHED DIVIDER ROW
-                  Row(
-                    children: [
-                      const Expanded(
-                        child: CustomDashedDivider(color: Color(0xFFFFD700)),
+                  if (isSalad) ...[
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.25), width: 1),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text(
-                          "This round's biggest winner",
-                          style: TextStyle(
-                            color: const Color(0xFFFFD700).withOpacity(0.95),
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Row(
+                            children: [
+                              Text("🥗", style: TextStyle(fontSize: 16)),
+                              SizedBox(width: 6),
+                              Text(
+                                "Salad System Breakdown (5x)",
+                                style: TextStyle(
+                                  color: Color(0xFFFFD700),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
+                          const SizedBox(height: 10),
+                          _buildSaladItemRow("🍅 Tomato", widget.bets?['tomato'] ?? 0),
+                          _buildSaladItemRow("🥬 Lettuce", widget.bets?['cabbage'] ?? 0),
+                          _buildSaladItemRow("🌽 Corn", widget.bets?['corn'] ?? 0),
+                          _buildSaladItemRow("🥕 Carrot", widget.bets?['carrot'] ?? 0),
+                        ],
                       ),
-                      const Expanded(
-                        child: CustomDashedDivider(color: Color(0xFFFFD700)),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 22),
+                    ),
+                  ],
 
                   // PODIUM ROW (Side-by-side Top 3 winners from backend data)
                   Consumer(
                     builder: (context, ref, child) {
                       final roundId = widget.roundId ?? '';
                       final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).value ?? [];
-                      return _buildWinnersPodium(liveWinners);
+                      final winnersList = liveWinners.isNotEmpty ? liveWinners : widget.winners;
+                      if (winnersList.isEmpty) return const SizedBox.shrink();
+                      return Column(
+                        children: [
+                          const SizedBox(height: 22),
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: CustomDashedDivider(color: Color(0xFFFFD700)),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  "This round's biggest winner",
+                                  style: TextStyle(
+                                    color: const Color(0xFFFFD700).withOpacity(0.95),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                              const Expanded(
+                                child: CustomDashedDivider(color: Color(0xFFFFD700)),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 22),
+                          _buildWinnersPodium(liveWinners),
+                        ],
+                      );
                     }
                   ),
                 ],
@@ -2280,10 +3031,100 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
     );
   }
 
+  Widget _buildSaladItemRow(String label, int bet) {
+    final win = bet * 5;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+          Row(
+            children: [
+              Text(
+                win >= 1000 ? "${(win / 1000).toStringAsFixed(1)}k" : win.toString(),
+                style: TextStyle(
+                  color: win > 0 ? Colors.amber : Colors.white60,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const PremiumDiamond(size: 11),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatNumber(int number) {
     if (number >= 1000000) return "${(number / 1000000).toStringAsFixed(1)}M";
     if (number >= 1000) return "${(number / 1000).toStringAsFixed(1)}K";
     return number.toString();
+  }
+
+  Widget _buildOutcomeHeader() {
+    final winnings = widget.winnings;
+    final wager = widget.wager;
+
+    final String title;
+    final Color textColor;
+    final Color glowColor;
+    final String icon;
+
+    if (wager > 0) {
+      if (winnings > 0) {
+        title = "YOU WIN!";
+        textColor = const Color(0xFF4ADE80); // Bright emerald green
+        glowColor = const Color(0xFF4ADE80).withOpacity(0.3);
+        icon = "🎉";
+      } else {
+        title = "YOU LOST";
+        textColor = const Color(0xFFF87171); // Soft red
+        glowColor = const Color(0xFFF87171).withOpacity(0.2);
+        icon = "💸";
+      }
+    } else {
+      title = "ROUND COMPLETED";
+      textColor = const Color(0xFF60A5FA); // Soft blue
+      glowColor = const Color(0xFF60A5FA).withOpacity(0.2);
+      icon = "🎰";
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B).withOpacity(0.4),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: textColor.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: glowColor,
+            blurRadius: 12,
+            spreadRadius: 1,
+          )
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: TextStyle(
+              color: textColor,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.5,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(icon, style: const TextStyle(fontSize: 16)),
+        ],
+      ),
+    );
   }
 }
 
@@ -2371,18 +3212,30 @@ class StickerEmojiWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B), // Deep slate background for sticker backing
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFD700).withOpacity(0.45),
+            blurRadius: 15,
+            spreadRadius: 2,
+          ),
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Text(
         emoji,
         style: TextStyle(
-          fontSize: size * 1.35, // Scaled slightly larger for a majestic float
-          shadows: [
-            Shadow(
-              color: Colors.black.withOpacity(0.45),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          fontSize: size,
+          height: 1.1,
         ),
       ),
     );

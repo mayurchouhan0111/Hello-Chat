@@ -46,73 +46,11 @@ class WalletNotifier extends StateNotifier<AsyncValue<void>> {
   final Ref ref;
 
   Future<void> simulateRecharge(int amount) async {
-    state = const AsyncValue.loading();
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception("User not logged in");
-
-      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-      
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final userDoc = await transaction.get(userRef);
-        if (!userDoc.exists) throw Exception("User document not found");
-
-        final currentBalance = userDoc.data()?['diamondBalance'] ?? 0;
-        transaction.update(userRef, {
-          'diamondBalance': currentBalance + amount,
-        });
-
-        // Log transaction
-        final txRef = userRef.collection('transactions').doc();
-        transaction.set(txRef, {
-          'type': 'recharge',
-          'amount': amount,
-          'description': 'Diamond Recharge',
-          'timestamp': FieldValue.serverTimestamp(),
-          'balanceAfter': currentBalance + amount,
-        });
-      });
-
-      state = const AsyncValue.data(null);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-      rethrow;
-    }
+    throw Exception("Simulated recharges are disabled. Payments must be routed through verified, production-ready payment gateways.");
   }
 
   Future<void> simulateBeansRecharge(int amount) async {
-    state = const AsyncValue.loading();
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) throw Exception("User not logged in");
-
-      final userRef = FirebaseFirestore.instance.collection('users').doc(user.uid);
-      
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final userDoc = await transaction.get(userRef);
-        if (!userDoc.exists) throw Exception("User document not found");
-
-        final currentBalance = userDoc.data()?['beansBalance'] ?? 0;
-        transaction.update(userRef, {
-          'beansBalance': currentBalance + amount,
-        });
-
-        // Log transaction
-        final txRef = userRef.collection('transactions').doc();
-        transaction.set(txRef, {
-          'type': 'beans_recharge',
-          'amount': amount,
-          'description': 'Beans Recharge',
-          'timestamp': FieldValue.serverTimestamp(),
-          'balanceAfter': currentBalance + amount,
-        });
-      });
-
-      state = const AsyncValue.data(null);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-      rethrow;
-    }
+    throw Exception("Simulated recharges are disabled. Payments must be routed through verified, production-ready payment gateways.");
   }
 }
 

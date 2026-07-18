@@ -75,13 +75,13 @@ export const MiniGamesManagement = () => {
           isActive: true, minWager: 10, maxWager: 5000, maxWinCap: 50000, dailyProfitLimit: 100000,
           segments: [
             { id: '1', name: 'hotdog', multiplier: 10, weight: 5, emoji: '🌭', category: 'standard' },
-            { id: '2', name: 'kebab', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
+            { id: '2', name: 'skewer', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
             { id: '3', name: 'chicken', multiplier: 25, weight: 3, emoji: '🍗', category: 'hot' },
-            { id: '4', name: 'steak', multiplier: 45, weight: 1, emoji: '🥩', category: 'premium' },
-            { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'standard' },
-            { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'standard' },
-            { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'standard' },
-            { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'standard' },
+            { id: '4', name: 'pizza', multiplier: 45, weight: 1, emoji: '🍕', category: 'pizza' },
+            { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'salad' },
+            { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'salad' },
+            { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'salad' },
+            { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'salad' },
           ]
         };
         setDoc(doc(db, "game_settings", "lucky_spin"), initialSpin);
@@ -201,16 +201,16 @@ export const MiniGamesManagement = () => {
                      <div className="flex items-center gap-4">
                         <button 
                            onClick={() => {
-                              const template = [
-                                 { id: '1', name: 'hotdog', multiplier: 10, weight: 5, emoji: '🌭', category: 'standard' },
-                                 { id: '2', name: 'kebab', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
-                                 { id: '3', name: 'chicken', multiplier: 25, weight: 3, emoji: '🍗', category: 'hot' },
-                                 { id: '4', name: 'steak', multiplier: 45, weight: 1, emoji: '🥩', category: 'premium' },
-                                 { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'standard' },
-                                 { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'standard' },
-                                 { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'standard' },
-                                 { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'standard' },
-                              ];
+                           const template = [
+                                  { id: '1', name: 'hotdog', multiplier: 10, weight: 5, emoji: '🌭', category: 'standard' },
+                                  { id: '2', name: 'skewer', multiplier: 5, weight: 15, emoji: '🍢', category: 'standard' },
+                                  { id: '3', name: 'chicken', multiplier: 25, weight: 3, emoji: '🍗', category: 'hot' },
+                                  { id: '4', name: 'pizza', multiplier: 45, weight: 1, emoji: '🍕', category: 'pizza' },
+                                  { id: '5', name: 'carrot', multiplier: 5, weight: 20, emoji: '🥕', category: 'salad' },
+                                  { id: '6', name: 'corn', multiplier: 5, weight: 20, emoji: '🌽', category: 'salad' },
+                                  { id: '7', name: 'cabbage', multiplier: 5, weight: 15, emoji: '🥬', category: 'salad' },
+                                  { id: '8', name: 'tomato', multiplier: 5, weight: 20, emoji: '🍅', category: 'salad' },
+                               ];
                               setSpinSettings({...spinSettings, segments: template});
                            }}
                            className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"

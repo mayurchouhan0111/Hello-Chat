@@ -1,132 +1,107 @@
-import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_vap_plugin/flutter_vap_plugin.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hello_chat/core/widgets/vap_player.dart';
+import 'package:hello_chat/core/utils/rocket_vap_config.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
+import 'package:hello_chat/core/models/user_model.dart';
 
-class RocketCompletionVapOverlay extends StatefulWidget {
+class RocketCompletionVapOverlay extends ConsumerStatefulWidget {
   final int level;
+  final String roomId;
   final VoidCallback onComplete;
 
   const RocketCompletionVapOverlay({
     super.key,
     required this.level,
+    required this.roomId,
     required this.onComplete,
   });
 
   @override
-  State<RocketCompletionVapOverlay> createState() => _RocketCompletionVapOverlayState();
+  ConsumerState<RocketCompletionVapOverlay> createState() => _RocketCompletionVapOverlayState();
 }
 
-class _RocketCompletionVapOverlayState extends State<RocketCompletionVapOverlay> {
-  final FlutterVapController _vapController = FlutterVapController();
-  bool _isInitialized = false;
-  int _currentStep = 0; // 0: Animation B, 1: Animation C
-  Completer<void>? _vapCompleter;
+class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVapOverlay> {
+  bool _showVariant2 = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        setState(() => _isInitialized = true);
-        _playSequence();
-      }
-    });
-  }
-
-  Future<void> _playSequence() async {
-    debugPrint("🚀 [VAP] Starting Sequence: B -> C");
-    
-    // Sequence: Play B, then play C
-    await _playVapAsset('b');
-    
-    if (mounted) {
-      debugPrint("🚀 [VAP] Step B Finished. Starting C.");
-      setState(() => _currentStep = 1);
-      await _playVapAsset('c');
-    }
-    
-    if (mounted) {
-      debugPrint("🚀 [VAP] Sequence Complete.");
-      widget.onComplete();
-    }
-  }
-
-  Future<void> _playVapAsset(String type) async {
-    _vapCompleter = Completer<void>();
-    final vapAssetPath = 'assets/rocket/VAP/${widget.level}-$type.mp4';
-    
-    try {
-      debugPrint("🚀 [VAP] Loading asset: $vapAssetPath");
-      final byteData = await rootBundle.load(vapAssetPath);
-      final bytes = byteData.buffer.asUint8List();
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/rocket_launch_${widget.level}_$type.mp4');
-      await tempFile.writeAsBytes(bytes, flush: true);
-
-      debugPrint("🚀 [VAP] Playing file: ${tempFile.path}");
-      _vapController.play(
-        path: tempFile.path,
-        sourceType: VapSourceType.file,
-        repeatCount: 0, 
-      );
-      
-      // Wait for onVideoFinish or timeout (safety)
-      await _vapCompleter!.future.timeout(const Duration(seconds: 12), onTimeout: () {
-        debugPrint("⚠️ [VAP] Animation $type timed out.");
-      });
-    } catch (e) {
-      debugPrint("❌ [VAP] Error ($type): $e");
-    }
+    _showVariant2 = false;
   }
 
   @override
   Widget build(BuildContext context) {
+    final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
+    final room = roomAsync.value;
+
+    UserModel? topUser;
+    if (room != null) {
+      // Prefer lastRocketResults (server-written accurate top 3) over stale rocketContributions
+      String? topUid;
+      if (room.lastRocketResults != null) {
+        final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
+        if (top3.isNotEmpty && top3[0] is Map) {
+          topUid = (top3[0] as Map)['uid'] as String?;
+        }
+      }
+      if (topUid == null || topUid.isEmpty) {
+        final contributions = room.rocketContributions ?? {};
+        final sorted = contributions.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value));
+        topUid = sorted.isNotEmpty ? sorted.first.key : null;
+      }
+      final targetUid = topUid ?? room.ownerUid;
+      final userAsync = ref.watch(userProfileProvider(targetUid));
+      topUser = userAsync.value;
+    }
+
+    final needsSequence = widget.level >= 3;
+    final variant = needsSequence ? (_showVariant2 ? 2 : 1) : 1;
+    final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: variant);
+
     return Positioned.fill(
       child: Material(
         color: Colors.transparent,
         child: Stack(
-          alignment: Alignment.center,
           children: [
-            if (_isInitialized)
-              Positioned.fill(
-                child: FlutterVapView(
-                  controller: _vapController,
-                  onVideoFinish: () {
-                    debugPrint("🚀 [VAP] Video Finished Callback");
-                    if (_vapCompleter?.isCompleted == false) {
-                      _vapCompleter?.complete();
-                    }
-                  },
-                  onFailed: (errorType, errorMsg) {
-                    debugPrint("❌ [VAP] Failed: [$errorType] $errorMsg");
-                    if (_vapCompleter?.isCompleted == false) {
-                      _vapCompleter?.complete();
-                    }
-                  },
-                ),
-              ),
-            
-            // Subtle UI indicator
+            VapAnimation(
+              key: ValueKey('completion_${widget.level}_$_showVariant2'),
+              assetPath: vapPath,
+              profileImageUrl: topUser?.profilePhotoUrl,
+              fit: BoxFit.contain,
+              loop: false,
+              onComplete: () {
+                if (needsSequence && !_showVariant2) {
+                  setState(() => _showVariant2 = true);
+                } else {
+                  Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
+                }
+              },
+            ),
+
             Positioned(
               top: MediaQuery.of(context).padding.top + 60,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: const Color(0xFF00FFFF).withOpacity(0.4)),
-                ),
-                child: Text(
-                  "LEVEL ${widget.level} ROCKET LAUNCHED!",
-                  style: const TextStyle(
-                    color: Color(0xFF00FFFF),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2,
-                    shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: const Color(0xFF00FFFF).withOpacity(0.4)),
+                  ),
+                  child: Text(
+                    "LEVEL ${widget.level + 1} ROCKET LAUNCHED!",
+                    style: const TextStyle(
+                      color: Color(0xFF00FFFF),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                    ),
                   ),
                 ),
               ),

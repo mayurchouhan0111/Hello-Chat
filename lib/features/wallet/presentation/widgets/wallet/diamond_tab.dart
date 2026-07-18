@@ -358,89 +358,25 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
         width: double.infinity,
         height: 54,
         child: ElevatedButton(
-          onPressed: () async {
-            final amount = _selectedDiamondAmount!;
-            
+          onPressed: () {
             showDialog(
               context: context,
-              barrierDismissible: false,
-              builder: (context) => AlertDialog(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 20),
-                    const CircularProgressIndicator(color: Colors.orangeAccent),
-                    const SizedBox(height: 24),
-                    const Text(
-                      "Connecting to Gateway...",
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      "Securely processing your request",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                    const SizedBox(height: 20),
-                  ],
+              builder: (ctx) => AlertDialog(
+                backgroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2196F3))),
+                content: const Text(
+                  "Diamond purchases are disabled until the payment gateway is fully integrated and certified in production.",
+                  style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text("OK", style: TextStyle(color: Color(0xFF2196F3), fontWeight: FontWeight.bold)),
+                  ),
+                ],
               ),
             );
-
-            await Future.delayed(const Duration(seconds: 2));
-
-            try {
-              await ref.read(walletActionProvider.notifier).simulateRecharge(amount);
-              
-              if (context.mounted) {
-                Navigator.pop(context);
-
-                showModalBottomSheet(
-                  context: context,
-                  backgroundColor: Colors.transparent,
-                  builder: (context) => Container(
-                    padding: const EdgeInsets.all(32),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
-                    ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.verified_rounded, color: Colors.green, size: 80),
-                        const SizedBox(height: 16),
-                        const Text(
-                          "Recharge Successful",
-                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          "◈ $amount Diamonds have been credited.",
-                          style: const TextStyle(color: Colors.grey, fontSize: 16),
-                        ),
-                        const SizedBox(height: 32),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
-                            ),
-                            child: const Text("Continue", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-            } catch (e) {
-              if (context.mounted) Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
-            }
           },
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFFFFD700),
@@ -467,37 +403,23 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
   }
 
   void _handleSimulation(int amount, String method) async {
-    // 1. Show Processing
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(color: Colors.orangeAccent),
-            const SizedBox(height: 24),
-            Text("Processing $method...", style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            const SizedBox(height: 20),
-          ],
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2196F3))),
+        content: const Text(
+          "Simulated recharges are permanently disabled. Payments must go through verified production payment gateways.",
+          style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("OK", style: TextStyle(color: Color(0xFF2196F3), fontWeight: FontWeight.bold)),
+          ),
+        ],
       ),
     );
-
-    await Future.delayed(const Duration(seconds: 2));
-
-    try {
-      await ref.read(walletActionProvider.notifier).simulateRecharge(amount);
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: Colors.green, content: Text("Added $amount diamonds via $method")),
-        );
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-    }
   }
 }

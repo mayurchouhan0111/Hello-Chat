@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/vip_tier_model.dart';
@@ -34,13 +35,14 @@ class VIPService {
   // 1. Seed Sample Tiers with High Recharge Amounts (April 5 Update)
   Future<void> feedSampleTiers() async {
     final tiers = [
-      { 'tierId': 'vip1', 'name': 'VIP 1', 'level': 1, 'monthlyPriceInDiamonds': 1000000, 'monthlyPriceInUSD': 10.0, 'benefits': ["badge", "entry_effect"], 'profileFrame': "", 'entryAnimation': "vip_entry_1", 'badgeIcon': "https://picsum.photos/101", 'backgroundImage': '', 'themeColor': '#10B981', 'entryRequirement': 'Purchase 1,000,000 Diamonds', 'priorityMicAccess': false, 'isActive': true, 'sortOrder': 1 },
-      { 'tierId': 'vip2', 'name': 'VIP 2', 'level': 2, 'monthlyPriceInDiamonds': 5000000, 'monthlyPriceInUSD': 50.0, 'benefits': ["badge", "entry_effect", "mic_ring"], 'profileFrame': "", 'entryAnimation': "vip_entry_2", 'badgeIcon': "https://picsum.photos/102", 'backgroundImage': '', 'themeColor': '#059669', 'entryRequirement': 'Purchase 5,000,000 Diamonds', 'priorityMicAccess': false, 'isActive': true, 'sortOrder': 2 },
-      { 'tierId': 'vip3', 'name': 'VIP 3', 'level': 3, 'monthlyPriceInDiamonds': 20000000, 'monthlyPriceInUSD': 200.0, 'benefits': ["badge", "entry_effect", "mic_ring", "priority_mic"], 'profileFrame': "", 'entryAnimation': "vip_entry_3", 'badgeIcon': "https://picsum.photos/103", 'backgroundImage': '', 'themeColor': '#3B82F6', 'entryRequirement': 'Purchase 20,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 3 },
-      { 'tierId': 'vip4', 'name': 'VIP 4', 'level': 4, 'monthlyPriceInDiamonds': 50000000, 'monthlyPriceInUSD': 500.0, 'benefits': ["badge", "entry_effect", "exclusive_gifts", "priority_mic"], 'profileFrame': "", 'entryAnimation': "vip_entry_4", 'badgeIcon': "https://picsum.photos/104", 'backgroundImage': '', 'themeColor': '#8B5CF6', 'entryRequirement': 'Purchase 50,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 4 },
-      { 'tierId': 'vip5', 'name': 'VIP 5', 'level': 5, 'monthlyPriceInDiamonds': 100000000, 'monthlyPriceInUSD': 1000.0, 'benefits': ["royal_frame", "badge", "custom_id", "kick_protection"], 'profileFrame': "https://picsum.photos/204", 'entryAnimation': "vip_entry_5", 'badgeIcon': "https://picsum.photos/105", 'backgroundImage': '', 'themeColor': '#F59E0B', 'entryRequirement': 'Purchase 100,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 5 },
-      { 'tierId': 'vip6', 'name': 'VIP 6', 'level': 6, 'monthlyPriceInDiamonds': 150000000, 'monthlyPriceInUSD': 1500.0, 'benefits': ["royal_frame", "badge", "custom_id", "kick_protection", "god_badge"], 'profileFrame': "https://picsum.photos/205", 'entryAnimation': "vip_entry_6", 'badgeIcon': "https://picsum.photos/106", 'backgroundImage': '', 'themeColor': '#EF4444', 'entryRequirement': 'Purchase 150,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 6 },
-      { 'tierId': 'vip7', 'name': 'VIP 7', 'level': 7, 'monthlyPriceInDiamonds': 200000000, 'monthlyPriceInUSD': 2000.0, 'benefits': ["all_access", "master_badge", "world_announce"], 'profileFrame': "https://picsum.photos/206", 'entryAnimation': "svip_entry", 'badgeIcon': "https://picsum.photos/107", 'backgroundImage': '', 'themeColor': '#FFFFFF', 'entryRequirement': 'Purchase 200,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 7 },
+      { 'tierId': 'vip1', 'name': 'VIP 1', 'level': 1, 'monthlyPriceInDiamonds': 1000000, 'monthlyPriceInUSD': 10.0, 'benefits': ["VIP 1 Badge", "VIP 1 Profile Frame", "VIP 1 Entry Effect", "10% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 1/Frame.svga", 'entryAnimation': "assets/VIP/VIP 1/Entry.svga", 'badgeIcon': "assets/VIP/VIP 1/Badge.webp", 'backgroundImage': '', 'themeColor': '#10B981', 'entryRequirement': 'Purchase 1,000,000 Diamonds', 'priorityMicAccess': false, 'isActive': true, 'sortOrder': 1 },
+      { 'tierId': 'vip2', 'name': 'VIP 2', 'level': 2, 'monthlyPriceInDiamonds': 5000000, 'monthlyPriceInUSD': 50.0, 'benefits': ["VIP 2 Badge", "VIP 2 Profile Frame", "VIP 2 Entry Effect", "Special Chat Bubble", "30% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 2/VIP 2/Frame.svga", 'entryAnimation': "assets/VIP/VIP 2/VIP 2/Entry.svga", 'badgeIcon': "assets/VIP/VIP 2/VIP 2/Badge.png", 'backgroundImage': '', 'themeColor': '#059669', 'entryRequirement': 'Purchase 5,000,000 Diamonds', 'priorityMicAccess': false, 'isActive': true, 'sortOrder': 2 },
+      { 'tierId': 'vip3', 'name': 'VIP 3', 'level': 3, 'monthlyPriceInDiamonds': 20000000, 'monthlyPriceInUSD': 200.0, 'benefits': ["VIP 3 Badge", "VIP 3 Profile Frame", "VIP 3 Entry Effect", "Priority Mic Access", "Sound Wave Ring", "100% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 3/VIP 3/Frame.svga", 'entryAnimation': "assets/VIP/VIP 3/VIP 3/Entry.svga", 'badgeIcon': "assets/VIP/VIP 3/VIP 3/Badge.webp", 'backgroundImage': '', 'themeColor': '#3B82F6', 'entryRequirement': 'Purchase 20,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 3 },
+      { 'tierId': 'vip4', 'name': 'VIP 4', 'level': 4, 'monthlyPriceInDiamonds': 50000000, 'monthlyPriceInUSD': 500.0, 'benefits': ["VIP 4 Badge", "VIP 4 Profile Frame", "VIP 4 Entry Effect", "Priority Mic Access", "Exclusive VIP Gifts", "500% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 4/VIP 4/Frame.svga", 'entryAnimation': "assets/VIP/VIP 4/VIP 4/Entry.svga", 'badgeIcon': "assets/VIP/VIP 4/VIP 4/Badge.webp", 'backgroundImage': '', 'themeColor': '#8B5CF6', 'entryRequirement': 'Purchase 50,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 4 },
+      { 'tierId': 'vip5', 'name': 'VIP 5', 'level': 5, 'monthlyPriceInDiamonds': 100000000, 'monthlyPriceInUSD': 1000.0, 'benefits': ["VIP 5 Badge", "VIP 5 Profile Frame", "VIP 5 Entry Effect", "Priority Mic Access", "Custom 6-Digit ID", "Room Kick Protection", "2,000% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 5/VIP 5/User Frame.svga", 'entryAnimation': "assets/VIP/VIP 5/VIP 5/Entry.svga", 'badgeIcon': "assets/VIP/VIP 5/VIP 5/Badge.png", 'backgroundImage': '', 'themeColor': '#F59E0B', 'entryRequirement': 'Purchase 100,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 5 },
+      { 'tierId': 'vip6', 'name': 'VIP 6', 'level': 6, 'monthlyPriceInDiamonds': 150000000, 'monthlyPriceInUSD': 1500.0, 'benefits': ["VIP 6 Badge", "VIP 6 Profile Frame", "VIP 6 Entry Effect", "Priority Mic Access", "Custom 5-Digit ID", "Room Kick Protection", "Dedicated Manager", "10,000% Daily Reward Bonus"], 'profileFrame': "assets/VIP/VIP 6/VIP 6/User Frame.svga", 'entryAnimation': "assets/VIP/VIP 6/VIP 6/VIP 6 Entry.svga", 'badgeIcon': "assets/VIP/VIP 6/VIP 6/Badge.webp", 'backgroundImage': '', 'themeColor': '#EF4444', 'entryRequirement': 'Purchase 150,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 6 },
+      { 'tierId': 'vip7', 'name': 'VIP 7', 'level': 7, 'monthlyPriceInDiamonds': 200000000, 'monthlyPriceInUSD': 2000.0, 'benefits': ["VIP 7 Badge", "VIP 7 Profile Frame", "VIP 7 Entry Effect", "Priority Mic Access", "Custom 4-Digit ID", "Kick & Ban Protection", "Global Room Announcement", "Dedicated Manager"], 'profileFrame': "assets/VIP/VIP 7/VIP 7/Frame.svga", 'entryAnimation': "assets/VIP/VIP 7/VIP 7/Entry.svga", 'badgeIcon': "assets/VIP/VIP 7/VIP 7/Badge.png", 'backgroundImage': '', 'themeColor': '#EC4899', 'entryRequirement': 'Purchase 200,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 7 },
+      { 'tierId': 'vip8', 'name': 'VIP 8', 'level': 8, 'monthlyPriceInDiamonds': 500000000, 'monthlyPriceInUSD': 5000.0, 'benefits': ["VIP 8 Badge", "VIP 8 Profile Frame", "VIP 8 Entry Effect", "Priority Mic Access", "Custom 3-Digit ID", "Full Server Admin Immunity", "Global Server Announcement", "Dedicated VIP Concierge"], 'profileFrame': "assets/VIP/VIP 8/VIP 8/User Frame.svga", 'entryAnimation': "assets/VIP/VIP 8/VIP 8/VIP 8 Entry Effect.svga", 'badgeIcon': "assets/VIP/VIP 8/VIP 8/Badge.webp", 'backgroundImage': '', 'themeColor': '#F59E0B', 'entryRequirement': 'Purchase 500,000,000 Diamonds', 'priorityMicAccess': true, 'isActive': true, 'sortOrder': 8 },
     ];
 
 
@@ -57,61 +59,11 @@ class VIPService {
   }
 
   // 2. Purchase VIP with 80/20 Split-Credit Policy (April 5 Update)
+  // Calls server-side cloud function for authoritative processing.
   Future<void> purchaseVIP(VIPTierModel tier) async {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) throw Exception("User not logged in.");
-
-    final userRef = _db.collection('users').doc(uid);
-    
-    return _db.runTransaction((transaction) async {
-      final userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) throw Exception("User not found.");
-
-      final userData = userDoc.data()!;
-      final balance = userData['diamondBalance'] ?? 0;
-      final rechargeAmount = tier.monthlyPriceInDiamonds;
-
-      if (balance < rechargeAmount) throw Exception("Insufficient diamonds for purchase.");
-
-      // Calculate Split
-      final immediateCredit = (rechargeAmount * 0.8).toInt();
-      final delayedCredit = (rechargeAmount * 0.2).toInt();
-      
-      final expiry = DateTime.now().add(const Duration(days: 30));
-      final releaseDate = DateTime.now().add(const Duration(days: 30));
-
-      // 1. Deduct full & Add 80% back IMMEDIATELY
-      transaction.update(userRef, {
-        'diamondBalance': FieldValue.increment(-rechargeAmount + immediateCredit), // Net -20% now
-        'vipTier': tier.name,
-        'vipExpiry': Timestamp.fromDate(expiry),
-        'profileFrame': tier.profileFrame,
-        'entryAnimation': tier.entryAnimation,
-        'badgeIcon': tier.badgeIcon,
-      });
-
-      // 2. Log Initial Transaction
-      final txRef = userRef.collection('transactions').doc();
-      transaction.set(txRef, {
-        'type': 'vip_subscription',
-        'amount': rechargeAmount,
-        'immediateReturn': immediateCredit,
-        'pendingReturn': delayedCredit,
-        'timestamp': FieldValue.serverTimestamp(),
-        'description': "Subscribed to ${tier.name} (80% Immediate Credit Applied)",
-      });
-
-      // 3. Schedule 20% Release (for Background Job or Manual Claim later)
-      final pendingRef = userRef.collection('pending_credits').doc();
-      transaction.set(pendingRef, {
-        'amount': delayedCredit,
-        'status': 'pending', // 'released' once processed
-        'releaseDate': Timestamp.fromDate(releaseDate),
-        'createdAt': FieldValue.serverTimestamp(),
-        'type': 'vip_cashback',
-        'tier': tier.name,
-      });
-    });
+    final functions = FirebaseFunctions.instance;
+    final callable = functions.httpsCallable('purchaseVIP');
+    await callable.call({'tierId': tier.tierId});
   }
 
   // 3. Seed Noble Tiers (Aristocracy)
@@ -176,54 +128,12 @@ class VIPService {
     });
   }
 
-  // 5. Claim Daily VIP/Noble Reward (Month 5 Final Feature)
-
+  // 5. Claim Daily VIP/Noble Reward
+  // Server-side validation via cloud function ensures VIP active & not expired.
   Future<void> claimDailyReward() async {
-    final uid = _auth.currentUser?.uid;
-    if (uid == null) throw Exception("User not logged in.");
-
-    final userRef = _db.collection('users').doc(uid);
-    
-    await _db.runTransaction((transaction) async {
-      final userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) throw Exception("User not found.");
-
-      final userData = userDoc.data()!;
-      final String vip = userData['vipTier'] ?? 'none';
-      final String lastClaimStr = userData['lastVipClaim'] ?? '';
-      
-      if (vip == 'none') throw Exception("Only VIP members can claim daily rewards!");
-
-      // Date check
-      final now = DateTime.now();
-      final todayStr = "${now.year}-${now.month}-${now.day}";
-      if (lastClaimStr == todayStr) throw Exception("Daily reward already claimed today!");
-
-      // Calculation logic
-      int beanReward = 0;
-      if (vip.contains('1')) beanReward = 10;
-      else if (vip.contains('2')) beanReward = 30;
-      else if (vip.contains('3')) beanReward = 100;
-      else if (vip.contains('4')) beanReward = 500;
-      else if (vip.contains('5')) beanReward = 2000;
-      else if (vip.contains('6')) beanReward = 10000;
-      else if (vip.toLowerCase().contains('svip')) beanReward = 50000;
-
-      transaction.update(userRef, {
-        'beanBalance': FieldValue.increment(beanReward),
-        'lastVipClaim': todayStr,
-      });
-
-      // Log Transaction
-      final txRef = userRef.collection('transactions').doc();
-      transaction.set(txRef, {
-        'type': 'reward',
-        'amount': beanReward,
-        'currency': 'beans',
-        'timestamp': FieldValue.serverTimestamp(),
-        'description': "Daily VIP Reward ($vip)",
-      });
-    });
+    final functions = FirebaseFunctions.instance;
+    final callable = functions.httpsCallable('claimVIPDailyReward');
+    await callable.call();
   }
 }
 

@@ -47,6 +47,7 @@ class RoomInviteSheet extends ConsumerWidget {
                 }
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemExtent: 70.0,
                   itemCount: uids.length,
                   itemBuilder: (context, index) => _InviteUserTile(uid: uids[index], roomId: roomId),
                 );

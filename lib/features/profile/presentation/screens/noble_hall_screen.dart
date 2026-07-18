@@ -6,6 +6,7 @@ import 'package:gap/gap.dart';
 
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/vip_provider.dart';
+import '../../../../core/models/user_model.dart';
 import '../../../../core/models/vip_tier_model.dart';
 
 // ─────────────────────────────────────────────
@@ -61,6 +62,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
   final PageController _pageController = PageController(viewportFraction: 0.82);
   int _currentPage = 0;
   int? _expandedIndex;
+  bool _isPurchasing = false;
 
   final Map<int, AnimationController> _detailControllers = {};
   final Map<int, Animation<double>> _detailAnims = {};
@@ -116,7 +118,9 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
 
   @override
   Widget build(BuildContext context) {
-    final profileAsync = ref.watch(currentUserProfileProvider);
+    final userAsync = ref.watch(currentUserProfileProvider);
+    final userTier = userAsync.value?.nobleTier ?? "Civilian";
+    final remainingDays = userAsync.value is UserModel ? userAsync.value!.nobleRemainingDays : 0;
     final nobleTiersAsync = ref.watch(nobleTiersProvider);
 
     return Scaffold(
@@ -134,11 +138,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                 _buildAppBar(),
                 Expanded(
                   child: nobleTiersAsync.when(
-                    data: (tiers) => profileAsync.when(
-                      data: (user) => _buildContent(tiers, user),
-                      loading: _buildLoader,
-                      error: (e, _) => _buildError(),
-                    ),
+                    data: (tiers) => _buildContent(tiers, userTier, remainingDays),
                     loading: _buildLoader,
                     error: (e, _) => _buildError(),
                   ),
@@ -217,7 +217,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
     );
   }
 
-  Widget _buildContent(List<VIPTierModel> tiers, dynamic user) {
+  Widget _buildContent(List<VIPTierModel> tiers, String userTier, int remainingDays) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       child: Column(
@@ -258,7 +258,6 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                 final tier = tiers[index];
                 final accent = HexColor.fromHex(tier.themeColor ?? '#D4AF37');
                 final isCenter = index == _currentPage;
-                final userTier = user?.nobleTier ?? "Civilian";
                 final isActive = userTier == tier.name;
 
                 return AnimatedScale(
@@ -272,6 +271,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                       tier: tier,
                       accent: accent,
                       isActive: isActive,
+                      remainingDays: remainingDays,
                       isExpanded: _expandedIndex == index,
                       onTap: () => _toggleExpand(index),
                     ),
@@ -412,9 +412,32 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
             child: _NobleAcceptButton(
               accent: accent,
               label: 'ACCEPT TITLE — ${tier.monthlyPriceInDiamonds} Diamonds',
+              isLoading: _isPurchasing,
               onTap: () async {
                 HapticFeedback.heavyImpact();
-                await ref.read(vipServiceProvider).purchaseNoble(tier);
+                setState(() => _isPurchasing = true);
+                try {
+                  await ref.read(vipServiceProvider).purchaseNoble(tier);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Successfully subscribed to ${tier.name}!'),
+                      backgroundColor: const Color(0xFF1A6B3A),
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Purchase failed: $e'),
+                      backgroundColor: const Color(0xFF6B1A1A),
+                      behavior: SnackBarBehavior.floating,
+                    ));
+                  }
+                } finally {
+                  if (mounted) {
+                    setState(() => _isPurchasing = false);
+                  }
+                }
               },
             ),
           ),
@@ -431,6 +454,7 @@ class _NobleCarouselCard extends StatelessWidget {
   final VIPTierModel tier;
   final Color accent;
   final bool isActive;
+  final int remainingDays;
   final bool isExpanded;
   final VoidCallback onTap;
 
@@ -438,6 +462,7 @@ class _NobleCarouselCard extends StatelessWidget {
     required this.tier,
     required this.accent,
     required this.isActive,
+    required this.remainingDays,
     required this.isExpanded,
     required this.onTap,
   });
@@ -549,6 +574,24 @@ class _NobleCarouselCard extends StatelessWidget {
                             ],
                           ),
                         ),
+                        if (isActive && remainingDays > 0) ...[
+                          const Gap(6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$remainingDays days remaining',
+                              style: const TextStyle(
+                                color: Colors.greenAccent,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -588,22 +631,53 @@ class _CircleBtn extends StatelessWidget {
 class _NobleAcceptButton extends StatelessWidget {
   final String label;
   final Color accent;
-  final VoidCallback onTap;
-  const _NobleAcceptButton({required this.label, required this.accent, required this.onTap});
+  final bool isLoading;
+  final VoidCallback? onTap;
+  const _NobleAcceptButton({
+    required this.label,
+    required this.accent,
+    this.isLoading = false,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: Container(
         height: 54,
         width: double.infinity,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(colors: [accent, accent.darker]),
-          boxShadow: [BoxShadow(color: accent.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+          gradient: LinearGradient(
+            colors: isLoading
+                ? [Colors.grey.shade800, Colors.grey.shade900]
+                : [accent, accent.darker],
+          ),
+          boxShadow: isLoading
+              ? []
+              : [BoxShadow(color: accent.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
         ),
-        child: Center(child: Text(label, style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 0.5))),
+        child: Center(
+          child: isLoading
+              ? SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    color: accent.lighter,
+                    strokeWidth: 2,
+                  ),
+                )
+              : Text(
+                  label,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 14,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+        ),
       ),
     );
   }

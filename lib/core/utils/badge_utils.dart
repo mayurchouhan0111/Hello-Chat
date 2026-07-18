@@ -27,9 +27,35 @@ List<Widget> getBadgesForUser(UserModel user) {
     icon: Icons.shield_rounded,
   ));
 
-  // 4. VIP
   if (user.vipTier != 'none') {
-    badges.add(UserBadge(label: user.vipTier.toUpperCase(), type: BadgeType.vip, icon: Icons.workspace_premium));
+    String? customBadge;
+    final level = _getVipLevel(user.vipTier);
+    if (level >= 1 && level <= 8) {
+      if (level == 1) {
+        customBadge = 'assets/VIP/VIP 1/Badge.svga';
+      } else {
+        customBadge = 'assets/VIP/VIP $level/VIP $level/Badge.svga';
+      }
+    } else if (user.badgeIcon.isNotEmpty) {
+      final lowerBadge = user.badgeIcon.toLowerCase();
+      if (lowerBadge.startsWith('http') && lowerBadge.contains('vip/')) {
+        for (int i = 1; i <= 8; i++) {
+          if (lowerBadge.contains('vip%20$i/') || lowerBadge.contains('vip $i/')) {
+            customBadge = i == 1 ? 'assets/VIP/VIP 1/Badge.svga' : 'assets/VIP/VIP $i/VIP $i/Badge.svga';
+            break;
+          }
+        }
+      }
+      if (customBadge == null && user.badgeIcon.startsWith('assets/')) {
+        customBadge = user.badgeIcon;
+      }
+    }
+    badges.add(UserBadge(
+      label: user.vipTier.toUpperCase(),
+      type: BadgeType.vip,
+      icon: customBadge == null ? Icons.workspace_premium : null,
+      customFrameAsset: customBadge,
+    ));
   }
 
   // 5. Certified Reseller
@@ -66,4 +92,14 @@ List<Widget> getBadgesForUser(UserModel user) {
   }
 
   return badges;
+}
+
+int _getVipLevel(String vipTierName) {
+  final clean = vipTierName.toLowerCase().replaceAll(' ', '');
+  if (clean.startsWith('vip')) {
+    final numStr = clean.substring(3);
+    final val = int.tryParse(numStr);
+    if (val != null) return val;
+  }
+  return 0;
 }

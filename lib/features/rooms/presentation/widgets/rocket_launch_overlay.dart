@@ -1,68 +1,61 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
-import 'vap_rocket_test_overlay.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:hello_chat/core/widgets/vap_player.dart';
+import 'package:hello_chat/core/utils/rocket_vap_config.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
 
-class RocketLaunchOverlay extends StatefulWidget {
+class RocketLaunchOverlay extends ConsumerStatefulWidget {
   final int level;
+  final String roomId;
   final VoidCallback onComplete;
-  final bool useVapTest;
 
   const RocketLaunchOverlay({
-    super.key, 
+    super.key,
     required this.level,
+    required this.roomId,
     required this.onComplete,
-    this.useVapTest = true, // Default to true for testing VAP
   });
 
   @override
-  State<RocketLaunchOverlay> createState() => _RocketLaunchOverlayState();
+  ConsumerState<RocketLaunchOverlay> createState() => _RocketLaunchOverlayState();
 }
 
-class _RocketLaunchOverlayState extends State<RocketLaunchOverlay> with TickerProviderStateMixin {
-  SVGAAnimationController? _animationController;
-
-  @override
-  void initState() {
-    super.initState();
-    if (!widget.useVapTest) {
-      _animationController = SVGAAnimationController(vsync: this);
-      _loadAnimation();
+String? _resolveTopUid(dynamic room) {
+  // 1. Try lastRocketResults (server-written, most accurate)
+  if (room?.lastRocketResults != null) {
+    final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
+    if (top3.isNotEmpty && top3[0] is Map) {
+      final uid = (top3[0] as Map)['uid'] as String?;
+      if (uid != null && uid.isNotEmpty) return uid;
     }
   }
+  // 2. Fallback to rocketContributions (may be stale/wiped but try anyway)
+  final contributions = room?.rocketContributions ?? {};
+  final sorted = contributions.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  if (sorted.isNotEmpty) return sorted.first.key;
+  // 3. Fallback to owner
+  return room?.ownerUid;
+}
 
-  void _loadAnimation() async {
-    if (widget.useVapTest) return;
-    // level is 0-indexed in the logic, so level + 1
-    final svgaPath = 'assets/rocket/rocket_set_svga/${widget.level + 1}_3.svga';
-    try {
-      final videoItem = await SVGAParser.shared.decodeFromAssets(svgaPath);
-      if (mounted) {
-        setState(() {
-          _animationController?.videoItem = videoItem;
-          _animationController?.forward().whenComplete(() {
-            Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
-          });
-        });
-      }
-    } catch (e) {
-      debugPrint("Error loading Launch SVGA: $e");
-      // Fallback to completion if animation fails
-      Future.delayed(const Duration(seconds: 3), widget.onComplete);
-    }
-  }
-
-  @override
-  void dispose() {
-    _animationController?.dispose();
-    super.dispose();
-  }
-
+class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
   @override
   Widget build(BuildContext context) {
-    if (widget.useVapTest) {
-      return VapRocketTestOverlay(onComplete: widget.onComplete);
+    final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
+    final room = roomAsync.value;
+
+    // Prefer lastRocketResults (server-written accurate data) over stale rocketContributions
+    final topUid = _resolveTopUid(room);
+
+    String? profileImageUrl;
+    if (topUid != null) {
+      final userAsync = ref.watch(userProfileProvider(topUid));
+      profileImageUrl = userAsync.value?.profilePhotoUrl;
     }
+
+    final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: 3);
 
     return Container(
       color: Colors.black54,
@@ -71,24 +64,20 @@ class _RocketLaunchOverlayState extends State<RocketLaunchOverlay> with TickerPr
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // SVGA Rocket Launch Animation
-          if (_animationController?.videoItem != null)
-            SizedBox(
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
-              child: SVGAImage(_animationController!),
-            )
-          else
-            // Fallback during load or if failed
-            const Icon(
-              Icons.rocket_launch_rounded,
-              color: Color(0xFFFFD700),
-              size: 150,
-            ).animate()
-              .moveY(begin: 500, end: -800, duration: 2500.ms, curve: Curves.easeInQuart)
-              .scale(begin: const Offset(0.5, 0.5), end: const Offset(1.5, 1.5)),
-          
-          // Announcement Text
+          SizedBox(
+            width: MediaQuery.of(context).size.width,
+            height: MediaQuery.of(context).size.height,
+            child: VapAnimation(
+              assetPath: vapPath,
+              profileImageUrl: profileImageUrl,
+              fit: BoxFit.contain,
+              loop: false,
+              onComplete: () {
+                Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
+              },
+            ),
+          ),
+
           Positioned(
             bottom: 100,
             child: Column(

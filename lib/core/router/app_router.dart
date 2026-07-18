@@ -30,12 +30,18 @@ import '../../features/profile/presentation/screens/agency/svip_privileges_scree
 import '../../features/profile/presentation/screens/invite_get_coins_screen.dart';
 import '../../features/profile/presentation/screens/love_house_screen.dart';
 import '../../features/profile/presentation/screens/cp_level_screen.dart';
+import '../../features/profile/presentation/screens/friend_list_screen.dart';
+import '../../features/profile/presentation/screens/friend_requests_screen.dart';
+import '../../features/profile/presentation/screens/friendship_portal_screen.dart';
+import '../../features/profile/presentation/screens/relationship_ranking_screen.dart';
 import '../../features/profile/presentation/screens/prop_warehouse_screen.dart';
 import '../../features/profile/presentation/screens/family/family_portal_screen.dart';
 import '../../features/profile/presentation/screens/family/create_family_screen.dart';
 import '../../features/profile/presentation/screens/family/family_list_screen.dart';
 import '../../features/profile/presentation/screens/family/join_requests_screen.dart';
 import '../../features/profile/presentation/screens/family/family_battle_screen.dart';
+import '../../features/profile/presentation/screens/family/family_members_screen.dart';
+import '../../features/profile/presentation/screens/family/family_detail_screen.dart';
 import '../../features/profile/presentation/screens/settings_screen.dart';
 import '../../features/chats/presentation/screens/private_chat_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
@@ -55,6 +61,10 @@ import '../providers/auth_provider.dart';
 import '../../features/wallet/presentation/screens/withdrawal_history_screen.dart';
 import '../../features/wallet/presentation/screens/withdraw_beans_screen.dart';
 import '../../features/profile/presentation/screens/verification_screen.dart';
+import '../../features/rooms/presentation/screens/room_support_screen.dart';
+import '../../features/inbox/presentation/screens/inbox_screen.dart';
+import '../../features/vip/presentation/screens/vip_rewards_screen.dart';
+import '../../features/recharge_event/presentation/screens/recharge_event_detail_screen.dart';
 
 class AppRoutes {
   // Auth
@@ -97,6 +107,8 @@ class AppRoutes {
   static const familyList       = '/family-list';
   static const joinRequests     = '/join-requests';
   static const familyBattle     = '/family-battle';
+  static const familyMembers    = '/family-members';
+  static const familyDetail     = '/family-detail';
   static const settings         = '/settings';
   static const chatDetail       = '/chat-detail';
   static const pkBattle         = '/pk-battle';
@@ -105,6 +117,14 @@ class AppRoutes {
   static const verification     = '/verification';
   static const withdrawalHistory = '/withdrawal-history';
   static const withdrawBeans     = '/withdraw-beans';
+  static const roomSupport       = '/room-support';
+  static const inbox             = '/inbox';
+  static const vipRewards        = '/vip-rewards';
+  static const rechargeEventDetail = '/recharge-event-detail';
+  static const friendList         = '/friend-list';
+  static const friendRequests     = '/friend-requests';
+  static const friendshipPortal   = '/friendship-portal';
+  static const relationshipRanking = '/relationship-ranking';
 }
 
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -124,11 +144,15 @@ class GoRouterRefreshStream extends ChangeNotifier {
   }
 }
 
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final routerProvider = Provider<GoRouter>((ref) {
   // Use a listenable to refresh the router on auth state changes
   final authStream = ref.watch(authServiceProvider).user;
+  User? _lastKnownUser;
 
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: AppRoutes.splash,
     refreshListenable: GoRouterRefreshStream(authStream),
     redirect: (context, state) async {
@@ -147,8 +171,22 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (user == null) {
         // 🔒 Unauthenticated: only allow auth routes
+        // Guard against transient null — if user was previously authenticated,
+        // Firebase Auth may be still restoring the session (e.g. after app resume).
+        // Wait briefly and recheck before redirecting to login.
+        if (_lastKnownUser != null && !isAuthRoute) {
+          await Future.delayed(const Duration(seconds: 1));
+          final recheckUser = ref.read(authServiceProvider).currentUser;
+          if (recheckUser != null) {
+            _lastKnownUser = recheckUser;
+            return null;
+          }
+        }
+        _lastKnownUser = null;
         return isAuthRoute ? null : AppRoutes.login;
       }
+
+      _lastKnownUser = user;
 
       // 🏠 Authenticated: If on login/splash/profile setup, force Home
       if (isAuthRoute || state.matchedLocation == AppRoutes.profileSetup) {
@@ -335,6 +373,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: AppRoutes.familyMembers,
+        builder: (context, state) {
+          final familyId = state.extra as String;
+          return FamilyMembersScreen(familyId: familyId);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.familyDetail,
+        builder: (context, state) {
+          final familyId = state.extra as String;
+          return FamilyDetailScreen(familyId: familyId);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.settings,
         builder: (context, state) => const SettingsScreen(),
       ),
@@ -378,6 +430,41 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.withdrawBeans,
         builder: (context, state) => const WithdrawBeansScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.roomSupport,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return RoomSupportScreen(roomId: extra?['roomId'] as String?);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.inbox,
+        builder: (context, state) => const InboxScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.vipRewards,
+        builder: (context, state) => const VIPRewardsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.rechargeEventDetail,
+        builder: (context, state) => const RechargeEventDetailScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.friendList,
+        builder: (context, state) => const FriendListScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.friendRequests,
+        builder: (context, state) => const FriendRequestsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.friendshipPortal,
+        builder: (context, state) => const FriendshipPortalScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.relationshipRanking,
+        builder: (context, state) => const RelationshipRankingScreen(),
       ),
     ],
   );

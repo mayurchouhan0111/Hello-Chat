@@ -1,10 +1,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:dio/dio.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import '../core/constants/agora_config.dart';
 import 'voice_service.dart';
 import '../core/services/base_firebase_service.dart';
@@ -17,16 +16,37 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   bool _isVideoEnabled = false;
   
   final _speakingController = StreamController<bool>.broadcast();
+  final _speakingUidsController = StreamController<List<int>>.broadcast();
   final _remoteUsersController = StreamController<List<int>>.broadcast();
   final List<int> _remoteUids = [];
   String? _currentRoomId;
+  String? _currentUserId;
   bool _isRetrying = false;
+  int _reconnectAttempts = 0;
+  Timer? _reconnectTimer;
+  ClientRoleType _currentRole = ClientRoleType.clientRoleAudience;
+
+  Timer? _healthTimer;
+  DateTime? _lastAudioTimestamp;
+  DateTime? _lastHealthCheck;
+  bool _isInChannel = false;
+
+  static const Duration _healthCheckInterval = Duration(seconds: 10);
+  static const Duration _audioStaleThreshold = Duration(seconds: 20);
+
+  int getAgoraUid(String uid) {
+    if (uid.isEmpty) return 0;
+    return uid.hashCode & 0xFFFFFFFF;
+  }
 
   @override
   bool get isMuted => _isMuted;
 
   @override
   Stream<bool> get isSpeakingStream => _speakingController.stream;
+
+  @override
+  Stream<List<int>> get speakingUidsStream => _speakingUidsController.stream;
 
   Stream<List<int>> get remoteUsersStream => _remoteUsersController.stream;
 
@@ -46,8 +66,11 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       await _engine!.initialize(const RtcEngineContext(
         appId: AgoraConfig.appId,
         channelProfile: ChannelProfileType.channelProfileLiveBroadcasting,
-        audioScenario: AudioScenarioType.audioScenarioChorus,
+        audioScenario: AudioScenarioType.audioScenarioGameStreaming,
       ));
+
+      // Force default audio route to speakerphone
+      await _engine!.setDefaultAudioRouteToSpeakerphone(true);
 
       // Set audio profile for professional music/singing quality
       await _engine!.setAudioProfile(
@@ -59,6 +82,10 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
           onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
             try {
               debugPrint("✅ Joined Agora channel: ${connection.channelId}");
+              _isInChannel = true;
+              _reconnectAttempts = 0;
+              _lastAudioTimestamp = DateTime.now();
+              _startHealthTimer();
             } catch (e) {
               debugPrint("⚠️ Error in onJoinChannelSuccess: $e");
             }
@@ -86,8 +113,24 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
           },
           onAudioVolumeIndication: (RtcConnection connection, List<AudioVolumeInfo> speakers, int speakerNumber, int totalVolume) {
             try {
-              bool speaking = speakers.any((s) => s.uid == 0 && (s.volume ?? 0) > 15);
-              _speakingController.add(speaking);
+              _lastAudioTimestamp = DateTime.now();
+              if (_reconnectAttempts > 0) {
+                _reconnectAttempts = 0;
+                debugPrint("✅ Audio flowing again — reset reconnect attempts");
+              }
+              final localAgoraUid = getAgoraUid(_currentUserId ?? '');
+              final List<int> speakingUids = [];
+              for (final speaker in speakers) {
+                if ((speaker.volume ?? 0) > 15) {
+                  if (speaker.uid == 0 || speaker.uid == localAgoraUid) {
+                    speakingUids.add(localAgoraUid);
+                  } else if (speaker.uid != null) {
+                    speakingUids.add(speaker.uid!);
+                  }
+                }
+              }
+              _speakingUidsController.add(speakingUids);
+              _speakingController.add(speakingUids.contains(localAgoraUid));
             } catch (e) {
               debugPrint("⚠️ Error in onAudioVolumeIndication: $e");
             }
@@ -113,8 +156,58 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
               _remoteUsersController.add([]);
               _currentRoomId = null;
               _isRetrying = false;
+              _isInChannel = false;
+              _stopHealthTimer();
+              _lastAudioTimestamp = null;
             } catch (e) {
               debugPrint("⚠️ Error in onLeaveChannel callback: $e");
+            }
+            return;
+          },
+          onAudioRoutingChanged: (int routing) {
+            try {
+              debugPrint("🔊 Agora Audio Routing changed: $routing");
+            } catch (e) {
+              debugPrint("⚠️ Error in onAudioRoutingChanged: $e");
+            }
+            return;
+          },
+          onClientRoleChanged: (RtcConnection connection, ClientRoleType oldRole, ClientRoleType newRole, ClientRoleOptions newRoleOptions) {
+            try {
+              debugPrint("👥 Agora Client Role changed from $oldRole to $newRole");
+              _engine?.setEnableSpeakerphone(true);
+            } catch (e) {
+              debugPrint("⚠️ Error in onClientRoleChanged: $e");
+            }
+            return;
+          },
+          onClientRoleChangeFailed: (RtcConnection connection, ClientRoleChangeFailedReason reason, ClientRoleType role) {
+            try {
+              debugPrint("❌ Agora Client Role change failed to $role. Reason: $reason");
+            } catch (e) {
+              debugPrint("⚠️ Error in onClientRoleChangeFailed: $e");
+            }
+            return;
+          },
+          onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
+            try {
+              debugPrint("🔌 Agora Connection State Changed: state=$state, reason=$reason");
+              if (state == ConnectionStateType.connectionStateConnected) {
+                _reconnectAttempts = 0;
+                _lastAudioTimestamp = DateTime.now();
+                _isInChannel = true;
+                _startHealthTimer();
+                debugPrint("✅ Agora reconnection successful");
+              } else if (state == ConnectionStateType.connectionStateFailed) {
+                debugPrint("⚠️ Agora connection failed - attempting reconnect...");
+                _attemptReconnect();
+              } else if (state == ConnectionStateType.connectionStateDisconnected) {
+                debugPrint("👋 Agora disconnected");
+                _isInChannel = false;
+                _stopHealthTimer();
+              }
+            } catch (e) {
+              debugPrint("⚠️ Error in onConnectionStateChanged: $e");
             }
             return;
           },
@@ -143,12 +236,32 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   @override
   Future<void> joinRoom(String roomId, String userId) async {
+    _currentUserId = userId;
+    final bool wasJustInitialized = !_isInitialized;
     if (!_isInitialized) await initialize();
     if (_engine == null) return;
 
+    if (wasJustInitialized) {
+      // Give native Agora thread a short delay to settle its scenario settings
+      await Future.delayed(const Duration(milliseconds: 250));
+    }
+
+    // Clean up any previous health/reconnect state before switching rooms
+    final isSwitchingRoom = _isInChannel && _currentRoomId != null && _currentRoomId != roomId;
+    _stopHealthTimer();
+    _reconnectTimer?.cancel();
+    _reconnectAttempts = 0;
+    _isRetrying = false;
+
     try {
-      await _engine!.leaveChannel();
-      
+      // Leave previous channel if switching rooms
+      if (isSwitchingRoom) {
+        debugPrint("🔄 Switching from room $_currentRoomId to $roomId");
+        await _engine!.leaveChannel();
+        _remoteUids.clear();
+        _remoteUsersController.add([]);
+      }
+
       String? finalToken;
 
       // UX Improvement: If a manual tempToken is provided in AgoraConfig, use it for testing
@@ -180,29 +293,103 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       }
       
       _currentRoomId = roomId;
+      _currentRole = ClientRoleType.clientRoleAudience;
       
       // Ensure we are not already in a channel from a previous failed attempt
-      await _engine?.leaveChannel();
-      
       await _engine!.joinChannel(
         token: finalToken ?? "",
         channelId: roomId,
-        uid: 0,
-        options: const ChannelMediaOptions(
+        uid: getAgoraUid(userId),
+        options: ChannelMediaOptions(
           autoSubscribeAudio: true,
           publishMicrophoneTrack: false,
           publishCameraTrack: false,
           clientRoleType: ClientRoleType.clientRoleAudience,
         ),
       );
+      
+      // Force speakerphone routing on channel entry
+      await _engine!.setDefaultAudioRouteToSpeakerphone(true);
+      await _engine!.setEnableSpeakerphone(true);
     } catch (e) {
       debugPrint("🛑 AGORA JOIN ERROR: $e");
       rethrow;
     }
   }
 
+  void _startHealthTimer() {
+    _healthTimer?.cancel();
+    _healthTimer = Timer.periodic(_healthCheckInterval, (_) {
+      if (!_isInChannel || _currentRoomId == null) {
+        _stopHealthTimer();
+        return;
+      }
+      if (_lastAudioTimestamp == null) return;
+      final elapsed = DateTime.now().difference(_lastAudioTimestamp!);
+      if (elapsed > _audioStaleThreshold) {
+        debugPrint("⚠️ No audio for ${elapsed.inSeconds}s — triggering health reconnect...");
+        _attemptReconnect();
+      }
+    });
+  }
+
+  void _stopHealthTimer() {
+    _healthTimer?.cancel();
+    _healthTimer = null;
+  }
+
+  void _attemptReconnect() {
+    if (_isRetrying) return;
+    if (_reconnectAttempts >= 3) {
+      debugPrint("❌ Agora max reconnection attempts reached");
+      _isRetrying = false;
+      return;
+    }
+
+    _isRetrying = true;
+    _reconnectAttempts++;
+    final delay = Duration(seconds: _reconnectAttempts * 2);
+
+    debugPrint("🔄 Agora reconnection attempt $_reconnectAttempts/3 in ${delay.inSeconds}s...");
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () async {
+      if (_engine == null || _currentRoomId == null || _currentUserId == null) {
+        _isRetrying = false;
+        return;
+      }
+
+      try {
+        await _engine!.leaveChannel();
+        await _engine!.joinChannel(
+          token: "",
+          channelId: _currentRoomId!,
+          uid: getAgoraUid(_currentUserId!),
+          options: ChannelMediaOptions(
+            autoSubscribeAudio: true,
+            publishMicrophoneTrack: _currentRole == ClientRoleType.clientRoleBroadcaster && !_isMuted,
+            publishCameraTrack: false,
+            clientRoleType: _currentRole,
+          ),
+        );
+        debugPrint("✅ Agora reconnected to channel $_currentRoomId");
+        _isRetrying = false;
+      } catch (e) {
+        debugPrint("⚠️ Agora reconnect attempt $_reconnectAttempts failed: $e");
+        _isRetrying = false;
+        _attemptReconnect();
+      }
+    });
+  }
+
   @override
   Future<void> leaveRoom() async {
+    _reconnectTimer?.cancel();
+    _reconnectAttempts = 0;
+    _isRetrying = false;
+    _isInChannel = false;
+    _stopHealthTimer();
+    _lastAudioTimestamp = null;
     if (_engine != null) {
       try {
         await _engine!.leaveChannel();
@@ -239,10 +426,13 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   Future<void> setBroadcasterRole() async {
     if (_engine != null) {
       try {
+        _currentRole = ClientRoleType.clientRoleBroadcaster;
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           publishMicrophoneTrack: !_isMuted,
+          autoSubscribeAudio: true,
         ));
+        await _engine!.setEnableSpeakerphone(true);
       } catch (e) {
         debugPrint("⚠️ AGORA SET BROADCASTER ERROR: $e");
       }
@@ -253,12 +443,62 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   Future<void> setAudienceRole() async {
     if (_engine != null) {
       try {
+        _currentRole = ClientRoleType.clientRoleAudience;
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           clientRoleType: ClientRoleType.clientRoleAudience,
           publishMicrophoneTrack: false,
+          autoSubscribeAudio: true,
         ));
+        await _engine!.setEnableSpeakerphone(true);
       } catch (e) {
         debugPrint("⚠️ AGORA SET AUDIENCE ERROR: $e");
+      }
+    }
+  }
+
+  @override
+  Future<void> onAppPaused() async {
+    debugPrint("📱 App paused — muting mic, keeping channel alive");
+    if (_isInChannel && _engine != null) {
+      try {
+        await _engine!.muteLocalAudioStream(true);
+      } catch (e) {
+        debugPrint("⚠️ Error muting audio on pause: $e");
+      }
+    }
+  }
+
+  @override
+  Future<void> onAppResumed() async {
+    debugPrint("📱 App resumed — checking connection health");
+    if (!_isInChannel && _currentRoomId != null && _currentUserId != null) {
+      debugPrint("🔄 Was disconnected — rejoining channel...");
+      try {
+        await _engine!.leaveChannel();
+        await _engine!.joinChannel(
+          token: "",
+          channelId: _currentRoomId!,
+          uid: getAgoraUid(_currentUserId!),
+          options: ChannelMediaOptions(
+            autoSubscribeAudio: true,
+            publishMicrophoneTrack: _currentRole == ClientRoleType.clientRoleBroadcaster && !_isMuted,
+            publishCameraTrack: false,
+            clientRoleType: _currentRole,
+          ),
+        );
+        _isInChannel = true;
+        _lastAudioTimestamp = DateTime.now();
+        _startHealthTimer();
+        debugPrint("✅ Rejoined channel after resume");
+      } catch (e) {
+        debugPrint("⚠️ Error rejoining channel on resume: $e");
+      }
+    } else if (_isInChannel && _engine != null) {
+      try {
+        await _engine!.muteLocalAudioStream(_isMuted);
+        await _engine!.setEnableSpeakerphone(true);
+      } catch (e) {
+        debugPrint("⚠️ Error restoring audio on resume: $e");
       }
     }
   }
@@ -357,11 +597,14 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
+    _stopHealthTimer();
     if (_engine != null) {
       _engine!.release();
       _engine = null;
     }
     _speakingController.close();
+    _speakingUidsController.close();
     _remoteUsersController.close();
   }
 }

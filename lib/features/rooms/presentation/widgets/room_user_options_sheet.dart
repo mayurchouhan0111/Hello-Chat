@@ -1,30 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
-import '../../../../core/constants/app_colors.dart';
+import '../../../../core/widgets/user_profile_card.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
-import 'package:hello_chat/core/services/profile_service.dart';
-import 'package:hello_chat/utils/level_utils.dart';
 import '../widgets/gift_panel.dart';
 import 'mixer_sheet.dart';
-import 'dart:ui';
-import 'package:flutter/services.dart';
 
 class RoomUserOptionsSheet extends ConsumerStatefulWidget {
   final Participant participant;
   final String roomId;
   final bool isHost;
   final bool isAdmin;
+  final bool isModerator;
 
   const RoomUserOptionsSheet({
     super.key,
@@ -32,6 +29,7 @@ class RoomUserOptionsSheet extends ConsumerStatefulWidget {
     required this.roomId,
     required this.isHost,
     required this.isAdmin,
+    this.isModerator = false,
   });
 
   @override
@@ -54,20 +52,25 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
         final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
         final badges = getBadgesForUser(u);
         
+        final vipLevel = _getVipLevel(u.vipTier);
+        debugPrint('--- [VIP CROWN] vipTier="${u.vipTier}" parsedLevel=$vipLevel crownPath=${_getVipCrownPath(vipLevel)} ---');
+        final hasVipBg = vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+        final textColor = hasVipBg ? Colors.white : Colors.black87;
+        final subTextColor = hasVipBg ? Colors.white70 : Colors.black38;
+        final iconColor = hasVipBg ? Colors.white70 : Colors.black54;
+        
         return Stack(
           clipBehavior: Clip.none,
           alignment: Alignment.topCenter,
           children: [
             // Main Bottom Sheet Card
-            Container(
+            UserProfileCard(
+              user: u,
               padding: EdgeInsets.only(top: 60, bottom: 16 + MediaQuery.of(context).padding.bottom),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-                boxShadow: [
-                  BoxShadow(color: Colors.black12, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
-                ],
-              ),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              boxShadow: const [
+                BoxShadow(color: Colors.black12, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
+              ],
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -78,7 +81,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     children: [
                       Text(
                         u.displayName,
-                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.black87),
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
                       ),
                       const Gap(6),
                       // Verified/Teal icon
@@ -122,7 +125,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     },
                     child: Text(
                       "ID:${u.helloId ?? '...'}", 
-                      style: const TextStyle(color: Colors.black38, fontSize: 13, fontWeight: FontWeight.w600)
+                      style: TextStyle(color: subTextColor, fontSize: 13, fontWeight: FontWeight.w600)
                     ),
                   ),
                   
@@ -156,8 +159,8 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildStatColumn(_formatNumber(u.followerCount), "Fans"),
-                        _buildStatColumn(_formatNumber(u.followingCount), "Following"),
+                        _buildStatColumn(_formatNumber(u.followerCount), "Fans", textColor, subTextColor),
+                        _buildStatColumn(_formatNumber(u.followingCount), "Following", textColor, subTextColor),
                       ],
                     ),
                   ),
@@ -271,6 +274,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                             icon: Icons.tune_rounded,
                             label: "Mixing",
                             color: const Color(0xFF00E5FF),
+                            labelColor: subTextColor,
                             onTap: () {
                               Navigator.pop(context);
                               showModalBottomSheet(
@@ -287,7 +291,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                   ],
 
                   // Admin Control Bar (Optional)
-                  if ((widget.isAdmin || widget.isHost) && u.uid != currentUid) ...[
+                  if ((widget.isAdmin || widget.isHost || widget.isModerator) && u.uid != currentUid) ...[
                     const Gap(16),
                     const Divider(height: 1, color: Color(0xFFF3F4F6), thickness: 1),
                     Container(
@@ -300,7 +304,8 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                             _buildControlBtn(
                               icon: widget.participant.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                               label: "Mute",
-                              color: widget.participant.isMuted ? Colors.redAccent : Colors.black54,
+                              color: widget.participant.isMuted ? Colors.redAccent : iconColor,
+                              labelColor: subTextColor,
                               onTap: () async {
                                 await ref.read(roomServiceProvider).muteUser(widget.roomId, u.uid, !widget.participant.isMuted);
                               }
@@ -309,7 +314,8 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                             _buildControlBtn(
                               icon: widget.participant.isSinger ? Icons.music_note_rounded : Icons.music_off_rounded,
                               label: widget.participant.isSinger ? "Remove Singer" : "Set Singer",
-                              color: widget.participant.isSinger ? const Color(0xFF00E5FF) : Colors.black54,
+                              color: widget.participant.isSinger ? const Color(0xFF00E5FF) : iconColor,
+                              labelColor: subTextColor,
                               onTap: () async {
                                 Navigator.pop(context);
                                 await ref.read(roomServiceProvider).setSingerRole(widget.roomId, u.uid, !widget.participant.isSinger);
@@ -317,17 +323,38 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               }
                             ),
                             const Gap(16),
-                            _buildControlBtn(icon: Icons.headphones_rounded, label: "Listen", onTap: () {}),
+                            _buildControlBtn(icon: Icons.headset_mic_rounded, label: "Invite to Call", color: iconColor, labelColor: subTextColor, onTap: () async {
+                              Navigator.pop(context);
+                              await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'invite');
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Audio call invitation sent!"), behavior: SnackBarBehavior.floating),
+                                );
+                              }
+                            }),
                             const Gap(16),
-                            _buildControlBtn(icon: Icons.lock_open_rounded, label: "Lock", onTap: () {}),
+                            _buildControlBtn(icon: Icons.call_made_rounded, label: "Bring to Call", color: iconColor, labelColor: subTextColor, onTap: () async {
+                              Navigator.pop(context);
+                              await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'bring');
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text("Bring to call invitation sent!"), behavior: SnackBarBehavior.floating),
+                                );
+                              }
+                            }),
+                            const Gap(16),
+                            _buildControlBtn(icon: Icons.headphones_rounded, label: "Listen", color: iconColor, labelColor: subTextColor, onTap: () {}),
+                            const Gap(16),
+                            _buildControlBtn(icon: Icons.lock_open_rounded, label: "Lock", color: iconColor, labelColor: subTextColor, onTap: () {}),
                             const Gap(16),
                             _buildControlBtn(
                               icon: Icons.logout_rounded, 
                               label: "Kick Out", 
-                              color: Colors.black54,
+                              color: iconColor,
+                              labelColor: subTextColor,
                               onTap: () async {
                                 Navigator.pop(context);
-                                await ref.read(roomServiceProvider).kickUser(widget.roomId, u.uid);
+                                _showKickDialog(context, u.uid);
                               }
                             ),
                           ],
@@ -379,6 +406,25 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
               ),
             ),
             
+            // VIP Crown on the curved border of the bottom sheet (behind avatar)
+            if (vipLevel >= 1 && vipLevel <= 8 && _getVipCrownPath(vipLevel) != null)
+              Positioned(
+                top: -10,
+                left: 0,
+                right: 0,
+                child: SizedBox(
+                  height: 110,
+                  child: Image.asset(
+                    _getVipCrownPath(vipLevel)!,
+                    width: double.infinity,
+                    fit: BoxFit.fitWidth,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ),
+              ),
+
             // Centered Overlapping Avatar (Premium Frame)
             Positioned(
               top: -84,
@@ -406,6 +452,81 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     );
   }
 
+  void _showKickDialog(BuildContext context, String targetUid) {
+    int selectedDuration = 0;
+    final reasonController = TextEditingController();
+    final durations = [
+      (0, 'Permanent'),
+      (5, '5 min'),
+      (15, '15 min'),
+      (30, '30 min'),
+      (60, '1 hour'),
+      (360, '6 hours'),
+      (1440, '24 hours'),
+      (10080, '7 days'),
+    ];
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Kick User', style: TextStyle(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Ban Duration:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const Gap(8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: durations.map((d) {
+                    final (mins, label) = d;
+                    final isSelected = selectedDuration == mins;
+                    return ChoiceChip(
+                      label: Text(label, style: TextStyle(fontSize: 12, color: isSelected ? Colors.white : Colors.black87)),
+                      selected: isSelected,
+                      selectedColor: Colors.red,
+                      onSelected: (val) => setDialogState(() => selectedDuration = mins),
+                    );
+                  }).toList(),
+                ),
+                const Gap(16),
+                const Text('Reason (optional):', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                const Gap(8),
+                TextField(
+                  controller: reasonController,
+                  decoration: const InputDecoration(
+                    hintText: 'e.g. Spam, Harassment...',
+                    border: OutlineInputBorder(),
+                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  maxLines: 2,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                await ref.read(roomServiceProvider).kickUser(
+                  widget.roomId, targetUid,
+                  durationMinutes: selectedDuration > 0 ? selectedDuration : null,
+                  reason: reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null,
+                );
+              },
+              child: const Text('Kick', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String _formatNumber(int num) {
     if (num >= 1000) {
       return '${(num / 1000).toStringAsFixed(2)}k';
@@ -413,27 +534,50 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     return num.toString();
   }
 
-  Widget _buildStatColumn(String value, String label) {
+  Widget _buildStatColumn(String value, String label, Color textColor, Color subTextColor) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: Colors.black87)),
+        Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: textColor)),
         const Gap(4),
-        Text(label, style: const TextStyle(fontSize: 11, color: Colors.black38, fontWeight: FontWeight.bold)),
+        Text(label, style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.bold)),
       ],
     );
   }
 
-  Widget _buildControlBtn({required IconData icon, required String label, Color color = Colors.black54, required VoidCallback onTap}) {
+  Widget _buildControlBtn({
+    required IconData icon,
+    required String label,
+    Color color = Colors.black54,
+    Color labelColor = Colors.black38,
+    required VoidCallback onTap,
+  }) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
           Icon(icon, color: color, size: 28),
           const Gap(6),
-          Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: Colors.black38)),
+          Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: labelColor)),
         ],
       ),
     );
+  }
+
+  int _getVipLevel(String vipTierName) {
+    final clean = vipTierName.toLowerCase().replaceAll(' ', '');
+    if (clean.startsWith('vip')) {
+      final numStr = clean.substring(3);
+      final val = int.tryParse(numStr);
+      if (val != null) return val;
+    }
+    return 0;
+  }
+
+  String? _getVipCrownPath(int level) {
+    if (level < 1 || level > 8) return null;
+    if (level == 1) return 'assets/VIP/VIP 1/Crown 2.webp';
+    if (level == 5) return 'assets/VIP/VIP 5/VIP 5/5.webp';
+    return 'assets/VIP/VIP $level/VIP $level/Crown 2.webp';
   }
 }

@@ -55,7 +55,7 @@ class ResellerDashboardScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 8),
-                  _buildPremiumBalanceCard(user.walletBalance, user.diamondBalance),
+                  _buildPremiumBalanceCard(user.walletBalance, user.diamondStock),
                   const SizedBox(height: 20),
                   const Padding(
                     padding: EdgeInsets.only(left: 4),

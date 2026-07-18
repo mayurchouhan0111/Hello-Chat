@@ -7,9 +7,9 @@ import 'package:hello_chat/core/providers/family_provider.dart';
 import 'package:hello_chat/core/constants/app_colors.dart';
 import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import 'package:hello_chat/core/models/family_join_request_model.dart';
+import 'package:hello_chat/core/models/user_model.dart';
 import 'package:go_router/go_router.dart';
 
 class FamilyListScreen extends ConsumerStatefulWidget {
@@ -19,83 +19,29 @@ class FamilyListScreen extends ConsumerStatefulWidget {
   ConsumerState<FamilyListScreen> createState() => _FamilyListScreenState();
 }
 
-class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
   bool _isJoining = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: AppColors.familyBg,
       appBar: AppBar(
-        title: const Text('CLAN RANKINGS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-        backgroundColor: AppColors.background,
+        title: const Text('CLAN RANKINGS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.familyText)),
+        backgroundColor: AppColors.familyBg,
         elevation: 0,
       ),
-      body: Column(
-        children: [
-          const Gap(8),
-          _buildTabBar(),
-          const Gap(8),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildRankingView('Prestige'),
-                _buildRankingView('Combat'),
-              ],
-            ),
-          ),
-        ],
-      ),
+      body: _buildRankingView(),
     );
   }
 
-  Widget _buildTabBar() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: TabBar(
-        controller: _tabController,
-        indicator: RoundUnderlineTabIndicator(
-          borderSide: BorderSide(width: 4, color: AppColors.primary),
-          width: 30,
-        ),
-        labelColor: Colors.black,
-        unselectedLabelColor: Colors.black38,
-        dividerColor: Colors.transparent,
-        labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-        tabs: const [
-          Tab(text: 'PRESTIGE'),
-          Tab(text: 'COMBAT'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRankingView(String type) {
+  Widget _buildRankingView() {
     final familiesAsync = ref.watch(allFamiliesProvider);
 
     return familiesAsync.when(
       data: (families) {
         final sorted = List<FamilyModel>.from(families);
-        if (type == 'Prestige') {
-          sorted.sort((a, b) => b.totalBattlePoints.compareTo(a.totalBattlePoints));
-        } else {
-          sorted.sort((a, b) => b.totalCombatPoints.compareTo(a.totalCombatPoints));
-        }
+        sorted.sort((a, b) => b.totalCombatPoints.compareTo(a.totalCombatPoints));
 
         if (sorted.isEmpty) return const Center(child: Text("No Families yet"));
 
@@ -105,15 +51,15 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            _buildPodium(topThree, type),
+            _buildPodium(topThree),
             const Gap(32),
             
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('GLOBAL ROSTER', 
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: Colors.black, letterSpacing: 1)),
-                Text('${sorted.length} CLANS', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: Colors.black38)),
+                Text('GLOBAL ROSTER', 
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: AppColors.familyText, letterSpacing: 1)),
+                Text('${sorted.length} CLANS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: AppColors.familyTextSecondary)),
               ],
             ),
             const Gap(16),
@@ -125,8 +71,7 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
               separatorBuilder: (_, __) => const Gap(12),
               itemBuilder: (context, i) {
                 final family = others[i];
-                final pts = type == 'Prestige' ? family.totalBattlePoints : family.totalCombatPoints;
-                return _buildCompactFamilyTile(family, i + 4, pts);
+                return _buildCompactFamilyTile(family, i + 4, family.totalCombatPoints);
               },
             ),
             const Gap(40),
@@ -138,21 +83,21 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
     );
   }
 
-  Widget _buildPodium(List<FamilyModel> top, String type) {
+  Widget _buildPodium(List<FamilyModel> top) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        if (top.length > 1) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[1], 2, const Color(0xFF94A3B8), type)),
-        if (top.isNotEmpty) _buildPodiumItem(top[0], 1, const Color(0xFFFACC15), type),
-        if (top.length > 2) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[2], 3, const Color(0xFFD97706), type)),
+        if (top.length > 1) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[1], 2, const Color(0xFF94A3B8))),
+        if (top.isNotEmpty) _buildPodiumItem(top[0], 1, const Color(0xFFFACC15)),
+        if (top.length > 2) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[2], 3, const Color(0xFFD97706))),
       ],
     );
   }
 
-  Widget _buildPodiumItem(FamilyModel family, int rank, Color color, String type) {
+  Widget _buildPodiumItem(FamilyModel family, int rank, Color color) {
     double size = rank == 1 ? 100 : 80;
-    final pts = type == 'Prestige' ? family.totalBattlePoints : family.totalCombatPoints;
+    final pts = family.totalCombatPoints;
     final userData = ref.watch(userProfileProvider(ref.watch(authStateProvider).value?.uid ?? '')).value;
 
     return GestureDetector(
@@ -319,7 +264,7 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _buildModalStat('Members', '${family.memberUids.length}', Icons.people_rounded),
-                _buildModalStat('Points', '${family.totalBattlePoints}', Icons.bolt_rounded),
+                _buildModalStat('Points', '${family.totalCombatPoints}', Icons.bolt_rounded),
                 _buildModalStat('Level', '${family.level}', Icons.trending_up_rounded),
               ],
             ),
@@ -342,65 +287,95 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
               ),
             ),
             const Spacer(),
-            
-            // Action Button
-            Padding(
-              padding: const EdgeInsets.all(32),
-              child: Consumer(
-                builder: (context, ref, _) {
-                  final user = ref.watch(userProfileProvider(ref.watch(authStateProvider).value?.uid ?? '')).value;
-                  final isAlreadyInFamily = user?.familyId != null;
-                  final isMyFamily = user?.familyId == family.id;
 
-                  if (isMyFamily) {
-                    return SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 18),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          side: const BorderSide(color: AppColors.primary, width: 2),
-                        ),
-                        child: const Text('YOUR CLAN', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.primary)),
-                      ),
-                    );
-                  }
-
-                  final appStatusAsync = ref.watch(userApplicationStatusProvider((userId: user?.uid ?? '', familyId: family.id)));
-
-                  return appStatusAsync.when(
-                    data: (status) {
-                      final isRequested = status == JoinRequestStatus.pending;
-                      
-                      return SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: (isAlreadyInFamily || _isJoining || isRequested) ? null : () => _handleJoinClan(family),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isRequested ? Colors.orange : Colors.black,
-                            padding: const EdgeInsets.symmetric(vertical: 18),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                            elevation: 0,
+            Consumer(
+              builder: (context, ref, _) {
+                final user = ref.watch(userProfileProvider(ref.watch(authStateProvider).value?.uid ?? '')).value;
+                final canChallenge = user?.familyId != null && user?.familyId != family.id;
+                return Column(
+                  children: [
+                    if (canChallenge)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(context);
+                              context.push(AppRoutes.familyBattle, extra: user!.familyId);
+                            },
+                            icon: const Icon(Icons.sports_kabaddi_rounded, size: 18, color: Colors.white),
+                            label: const Text('CHALLENGE', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              elevation: 0,
+                            ),
                           ),
-                          child: _isJoining 
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : Text(
-                                isRequested ? 'REQUESTED' : (isAlreadyInFamily ? 'ALREADY IN A CLAN' : 'SEND JOIN REQUEST'),
-                                style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16),
-                              ),
                         ),
-                      );
-                    },
-                    loading: () => const Center(child: CircularProgressIndicator()),
-                    error: (_, __) => const Text("Error checking status"),
-                  );
-                },
-              ),
+                      ),
+                    if (canChallenge) const Gap(8),
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(32, 0, 32, canChallenge ? 0 : 32),
+                      child: _buildJoinButton(family, user),
+                    ),
+                  ],
+                );
+              },
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildJoinButton(FamilyModel family, UserModel? user) {
+    final isAlreadyInFamily = user?.familyId != null;
+    final isMyFamily = user?.familyId == family.id;
+
+    if (isMyFamily) {
+      return SizedBox(
+        width: double.infinity,
+        child: OutlinedButton(
+          onPressed: () => Navigator.pop(context),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            side: const BorderSide(color: AppColors.primary, width: 2),
+          ),
+          child: const Text('YOUR CLAN', style: TextStyle(fontWeight: FontWeight.w900, color: AppColors.primary)),
+        ),
+      );
+    }
+
+    final appStatusAsync = ref.watch(userApplicationStatusProvider((userId: user?.uid ?? '', familyId: family.id)));
+
+    return appStatusAsync.when(
+      data: (status) {
+        final isRequested = status == JoinRequestStatus.pending;
+
+        return SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: (isAlreadyInFamily || _isJoining || isRequested) ? null : () => _handleJoinClan(family),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isRequested ? Colors.orange : Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 18),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              elevation: 0,
+            ),
+            child: _isJoining
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Text(
+                    isRequested ? 'REQUESTED' : (isAlreadyInFamily ? 'ALREADY IN A CLAN' : 'SEND JOIN REQUEST'),
+                    style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.white, fontSize: 16),
+                  ),
+          ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (_, __) => const Text("Error checking status"),
     );
   }
 
@@ -456,39 +431,4 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> with Single
   }
 }
 
-// CUSTOM ROUNDED INDICATOR
-class RoundUnderlineTabIndicator extends Decoration {
-  final BorderSide borderSide;
-  final double width;
 
-  const RoundUnderlineTabIndicator({
-    this.borderSide = const BorderSide(width: 4.0, color: Colors.black87),
-    this.width = 24.0,
-  });
-
-  @override
-  BoxPainter createBoxPainter([VoidCallback? onChanged]) {
-    return _RoundUnderlinePainter(this, onChanged);
-  }
-}
-
-class _RoundUnderlinePainter extends BoxPainter {
-  final RoundUnderlineTabIndicator decoration;
-
-  _RoundUnderlinePainter(this.decoration, VoidCallback? onChanged) : super(onChanged);
-
-  @override
-  void paint(Canvas canvas, Offset offset, ImageConfiguration configuration) {
-    final Rect rect = offset & configuration.size!;
-    final Paint paint = decoration.borderSide.toPaint()..strokeCap = StrokeCap.round;
-    
-    // Position it at the bottom middle of the label
-    final double xPos = rect.left + (rect.width / 2);
-    final double yPos = rect.bottom - (decoration.borderSide.width / 2);
-    canvas.drawLine(
-      Offset(xPos - (decoration.width / 2), yPos),
-      Offset(xPos + (decoration.width / 2), yPos),
-      paint,
-    );
-  }
-}

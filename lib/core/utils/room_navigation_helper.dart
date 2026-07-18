@@ -31,9 +31,7 @@ class RoomNavigationHelper {
 
     // Allow entry if no password
     if (!hasPassword) {
-      if (context.mounted) {
-        context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
-      }
+      ref.read(routerProvider).pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
       return;
     }
 
@@ -171,8 +169,8 @@ class RoomNavigationHelper {
         },
       );
 
-      if (result == true && context.mounted) {
-        context.pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
+      if (result == true) {
+        ref.read(routerProvider).pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
       }
     }
   }

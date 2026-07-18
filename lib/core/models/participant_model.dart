@@ -20,6 +20,7 @@ class Participant {
   final bool isSinger;
   final int diamondsSent;
   final int diamondsReceived;
+  final int? helloId;
 
   Participant({
     required this.uid,
@@ -41,6 +42,7 @@ class Participant {
     this.isSinger = false,
     this.diamondsSent = 0,
     this.diamondsReceived = 0,
+    this.helloId,
   });
 
   Map<String, dynamic> toMap() {
@@ -64,6 +66,7 @@ class Participant {
       'isSinger': isSinger,
       'diamondsSent': diamondsSent,
       'diamondsReceived': diamondsReceived,
+      'helloId': helloId,
     };
   }
 
@@ -99,6 +102,7 @@ class Participant {
       isSinger: map['isSinger'] ?? false,
       diamondsSent: map['diamondsSent'] ?? 0,
       diamondsReceived: map['diamondsReceived'] ?? 0,
+      helloId: map['helloId'] as int?,
     );
   }
 }

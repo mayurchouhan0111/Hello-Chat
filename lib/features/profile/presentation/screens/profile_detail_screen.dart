@@ -31,6 +31,10 @@ import '../../../../core/providers/vip_provider.dart';
 import '../../../../core/providers/chat_provider.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
+import '../../../../core/widgets/user_profile_card.dart';
+import '../../../../core/providers/relationship_provider.dart';
+import '../../../../core/services/relationship_service.dart';
+import '../../../../core/models/relationship_model.dart';
 
 class ProfileDetailScreen extends ConsumerStatefulWidget {
   final String userId;
@@ -44,6 +48,9 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   late TabController _tabController;
   bool _hasRecordedVisit = false;
   bool _isActionLoading = false;
+  bool _isSendingFriendReq = false;
+  bool _isSendingCPReq = false;
+  final Set<String> _sentFriendReqs = {};
 
   void _showCuteSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -56,9 +63,6 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           ],
         ),
         backgroundColor: isError ? Colors.redAccent : AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        margin: const EdgeInsets.all(16),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -91,6 +95,11 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       data: (userData) {
         if (userData == null) return const Scaffold(body: Center(child: Text("User not found")));
         
+        final vipLevel = _getVipLevel(userData.vipTier);
+        final hasVipBg = vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+        final textColor = hasVipBg ? Colors.white : Colors.black87;
+        final subTextColor = hasVipBg ? Colors.white70 : Colors.black45;
+        
         // Dynamic Visit Tracking (Run once per screen view)
         if (!_hasRecordedVisit) {
           Future.microtask(() async {
@@ -114,39 +123,51 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
 
                 const SizedBox(height: 12),
 
-                // 2. Identity & Badges Row (Optimized for right-side empty space)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
+                UserProfileCard(
+                  user: userData,
+                  borderRadius: BorderRadius.zero,
+                  boxShadow: const [],
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Left Side: Identity & Stats
-                      Expanded(
-                        child: Column(
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildIdentity(context, userData),
-                            const SizedBox(height: 12),
-                            _buildStats(context, userData),
+                            // Left Side: Identity & Stats
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildIdentity(context, userData, textColor, subTextColor),
+                                  const SizedBox(height: 12),
+                                  _buildStats(context, userData, textColor, subTextColor),
+                                ],
+                              ),
+                            ),
+                            
+                            // Right Side: Premium Badges & Level Shield
+                            _buildRightSideBadges(userData, textColor),
                           ],
                         ),
                       ),
-                      
-                      // Right Side: Premium Badges & Level Shield
-                      _buildRightSideBadges(userData),
+
+                      const SizedBox(height: 12),
+
+                      // 3. Badge/Achievement Chips (Restored)
+                      _buildBadgeChips(context, userData),
+
+                      const SizedBox(height: 12),
+
+                      // 4. Info Cards Horizontal Scroll (Family, Battle, Agency, Contribution)
+                      _buildInfoCardsScrollable(context, userData),
+
+                      const SizedBox(height: 16),
                     ],
                   ),
                 ),
-
-                const SizedBox(height: 12),
-
-                // 3. Badge/Achievement Chips (Restored)
-                _buildBadgeChips(context, userData),
-
-                const SizedBox(height: 12),
-
-                // 4. Info Cards Horizontal Scroll (Family, Battle, Agency, Contribution)
-                _buildInfoCardsScrollable(context, userData),
 
                 const SizedBox(height: 12),
 
@@ -183,12 +204,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
 
     final followingAsync = ref.watch(followingStreamProvider(currentUid));
     final followersAsync = ref.watch(followersStreamProvider(currentUid));
+    final currentUserAsync = ref.watch(currentUserProfileProvider);
     
     return followingAsync.when(
       data: (followingList) {
         final isFollowing = followingList.contains(userData.uid);
         final isFollower = followersAsync.value?.contains(userData.uid) ?? false;
         final isFriends = isFollowing && isFollower;
+        final isPartner = currentUserAsync.valueOrNull?.partnerUid == userData.uid;
+        final friendReqSent = _sentFriendReqs.contains(userData.uid);
         
         final buttonLabel = isFriends ? "Friends" : (isFollowing ? "Following" : "Follow");
         final bgColor = (isFollowing || isFriends) ? Colors.grey[200] : AppColors.primary;
@@ -200,68 +224,142 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             color: Colors.white,
             boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
           ),
-          child: Row(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                flex: 2,
-                child: ElevatedButton(
-                  onPressed: _isActionLoading ? null : () async {
-                    setState(() => _isActionLoading = true);
-                    try {
-                      if (isFollowing) {
-                        await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
-                        _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
-                      } else {
-                        await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
-                        _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
-                      }
-                    } catch (e) {
-                      _showCuteSnackBar("Oops! $e", isError: true);
-                    } finally {
-                      if (mounted) setState(() => _isActionLoading = false);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: bgColor,
-                    foregroundColor: fgColor,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    elevation: (isFollowing || isFriends) ? 0 : 2,
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: ElevatedButton(
+                      onPressed: _isActionLoading ? null : () async {
+                        setState(() => _isActionLoading = true);
+                        try {
+                          if (isFollowing) {
+                            await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
+                            _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
+                          } else {
+                            await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
+                            _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
+                          }
+                        } catch (e) {
+                          _showCuteSnackBar("Oops! $e", isError: true);
+                        } finally {
+                          if (mounted) setState(() => _isActionLoading = false);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: bgColor,
+                        foregroundColor: fgColor,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: (isFollowing || isFriends) ? 0 : 2,
+                      ),
+                      child: _isActionLoading 
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Text(buttonLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    ),
                   ),
-                  child: _isActionLoading 
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : Text(buttonLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    flex: 1,
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        try {
+                          final chatService = ref.read(chatServiceProvider);
+                          final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
+                          if (context.mounted) {
+                             Navigator.push(
+                              context, 
+                              MaterialPageRoute(
+                                builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid)
+                              )
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
+                          }
+                        }
+                      },
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        side: const BorderSide(color: AppColors.primary),
+                      ),
+                      child: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primary),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 1,
-                child: OutlinedButton(
-                  onPressed: () async {
-                    try {
-                      final chatService = ref.read(chatServiceProvider);
-                      final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
-                      if (context.mounted) {
-                         Navigator.push(
-                          context, 
-                          MaterialPageRoute(
-                            builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid)
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: friendReqSent
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.amber.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.hourglass_bottom, color: Colors.amber, size: 16),
+                                SizedBox(width: 6),
+                                Text("Requested", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
                           )
-                        );
-                      }
-                    } catch (e) {
-                      if (context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
-                      }
-                    }
-                  },
-                  style: OutlinedButton.styleFrom(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    side: const BorderSide(color: AppColors.primary),
+                        : ElevatedButton(
+                            onPressed: _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue.withOpacity(0.1),
+                              foregroundColor: Colors.blue,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              elevation: 0,
+                              disabledBackgroundColor: Colors.blue.withOpacity(0.05),
+                              disabledForegroundColor: Colors.blue.withOpacity(0.4),
+                            ),
+                            child: _isSendingFriendReq
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue))
+                                : const Text("🤝 Friendship", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          ),
                   ),
-                  child: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primary),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: isPartner
+                        ? Container(
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            decoration: BoxDecoration(
+                              color: Colors.pink.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(15),
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.favorite, color: Colors.pink, size: 16),
+                                SizedBox(width: 6),
+                                Text("CP ❤️", style: TextStyle(color: Colors.pink, fontWeight: FontWeight.bold, fontSize: 12)),
+                              ],
+                            ),
+                          )
+                        : OutlinedButton(
+                            onPressed: _isSendingCPReq ? null : () => _sendCPRequest(userData.uid),
+                            style: OutlinedButton.styleFrom(
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              side: BorderSide(color: _isSendingCPReq ? Colors.pink.withOpacity(0.2) : Colors.pink.withOpacity(0.4)),
+                              foregroundColor: _isSendingCPReq ? Colors.pink.withOpacity(0.4) : Colors.pink,
+                            ),
+                            child: _isSendingCPReq
+                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.pink))
+                                : const Text("💕 CP Request", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                          ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -270,6 +368,29 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       loading: () => const SizedBox.shrink(),
       error: (_, __) => const SizedBox.shrink(),
     );
+  }
+
+  Future<void> _sendFriendRequest(String targetUid) async {
+    setState(() => _isSendingFriendReq = true);
+    try {
+      await ref.read(relationshipServiceProvider).sendFriendRequest(targetUid);
+      setState(() => _sentFriendReqs.add(targetUid));
+      _showCuteSnackBar("Friend request sent! 💌");
+    } catch (e) {
+      _showCuteSnackBar("$e", isError: true);
+    }
+    if (mounted) setState(() => _isSendingFriendReq = false);
+  }
+
+  Future<void> _sendCPRequest(String targetUid) async {
+    setState(() => _isSendingCPReq = true);
+    try {
+      await ref.read(relationshipServiceProvider).sendCPInvite(targetUid);
+      _showCuteSnackBar("CP invite sent! 💕");
+    } catch (e) {
+      _showCuteSnackBar("$e", isError: true);
+    }
+    if (mounted) setState(() => _isSendingCPReq = false);
   }
 
   Widget _buildCoverPhoto(BuildContext context, UserModel userData) {
@@ -385,14 +506,16 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildIdentity(BuildContext context, UserModel userData) {
+  Widget _buildIdentity(BuildContext context, UserModel userData, Color textColor, Color subTextColor) {
+    final vipLevel = _getVipLevel(userData.vipTier);
+    final hasVipBg = vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               const Text("🌹 ", style: TextStyle(fontSize: 16)),
-              Text(userData.displayName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(userData.displayName, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
               const Text(" 🔥", style: TextStyle(fontSize: 16)),
               const Gap(6),
               Icon(
@@ -435,7 +558,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                   decoration: BoxDecoration(
-                    color: Colors.grey[100],
+                    color: hasVipBg ? Colors.white.withOpacity(0.12) : Colors.grey[100],
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Row(
@@ -443,10 +566,10 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                     children: [
                       Text(
                         "ID: ${userData.displayId}", 
-                        style: const TextStyle(fontSize: 11, color: Colors.black38, fontWeight: FontWeight.w900)
+                        style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.w900)
                       ),
                       const SizedBox(width: 4),
-                      const Icon(Icons.copy_rounded, color: Colors.black38, size: 12),
+                      Icon(Icons.copy_rounded, color: subTextColor, size: 12),
                     ],
                   ),
                 ),
@@ -457,10 +580,46 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           const SizedBox(height: 2),
           Row(
             children: [
-              Text(userData.country.isEmpty ? 'India' : userData.country, style: const TextStyle(color: Colors.black45, fontSize: 12, fontWeight: FontWeight.w500)),
-              const Icon(Icons.chevron_right_rounded, color: Colors.black26, size: 14),
+              Text(userData.country.isEmpty ? 'India' : userData.country, style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+              Icon(Icons.chevron_right_rounded, color: subTextColor, size: 14),
             ],
           ),
+          if (userData.partnerUid != null && userData.partnerName != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFFE91E63), Color(0xFF9C27B0)]),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.favorite, color: Colors.white, size: 12),
+                  const SizedBox(width: 4),
+                  Text("❤️ CP: ${userData.partnerName}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
+          if (userData.bestFriendName != null) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFF00BCD4)]),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.people_alt_rounded, color: Colors.white, size: 12),
+                  const SizedBox(width: 4),
+                  Text("🤝 Bestie: ${userData.bestFriendName}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ],
         ],
       );
   }
@@ -517,20 +676,20 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildStats(BuildContext context, UserModel userData) {
+  Widget _buildStats(BuildContext context, UserModel userData, Color textColor, Color subTextColor) {
     return IntrinsicHeight(
         child: Row(
           children: [
             _buildStatClickableItem(
-              context, userData.followerCount, "Fans", 
+              context, userData.followerCount, "Fans", textColor, subTextColor,
               onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Followers', 'targetUid': userData.uid})
             ),
-            const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
+            VerticalDivider(color: textColor.withOpacity(0.2), thickness: 1, indent: 4, endIndent: 4, width: 20),
             _buildStatClickableItem(
-              context, userData.followingCount, "Following",
+              context, userData.followingCount, "Following", textColor, subTextColor,
               onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Following', 'targetUid': userData.uid})
             ),
-            const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
+            VerticalDivider(color: textColor.withOpacity(0.2), thickness: 1, indent: 4, endIndent: 4, width: 20),
             // _buildStatClickableItem(context, userData.beansBalance, "Beans"),
             // const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
             // _buildStatClickableItem(context, userData.diamondBalance, "Diamonds"),
@@ -539,15 +698,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildStatClickableItem(BuildContext context, num count, String label, {VoidCallback? onTap}) {
+  Widget _buildStatClickableItem(BuildContext context, num count, String label, Color textColor, Color subTextColor, {VoidCallback? onTap}) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(formatCount(count), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
-          Text(label, style: const TextStyle(fontSize: 10, color: Colors.black45, fontWeight: FontWeight.w500)),
+          Text(formatCount(count), style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: textColor)),
+          Text(label, style: TextStyle(fontSize: 10, color: subTextColor, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -583,17 +742,17 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildRightSideBadges(UserModel user) {
+  Widget _buildRightSideBadges(UserModel user, Color textColor) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         // Large Level Shield only
-        _buildLevelShield(user),
+        _buildLevelShield(user, textColor),
       ],
     );
   }
 
-  Widget _buildLevelShield(UserModel user) {
+  Widget _buildLevelShield(UserModel user, [Color textColor = Colors.black87]) {
     int level = LevelUtils.calculateLevel(user.xp);
     int index = 0;
     if (level >= 80) index = 5;
@@ -619,7 +778,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           Text(
             "Lv.$level",
             style: GoogleFonts.cinzel(
-              color: Colors.black87,
+              color: textColor,
               fontSize: 11,
               fontWeight: FontWeight.w900,
               shadows: const [
@@ -632,6 +791,16 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
+
+  int _getVipLevel(String vipTierName) {
+    final clean = vipTierName.toLowerCase().replaceAll(' ', '');
+    if (clean.startsWith('vip')) {
+      final numStr = clean.substring(3);
+      final val = int.tryParse(numStr);
+      if (val != null) return val;
+    }
+    return 0;
+  }
 
   Widget _buildChipIcon(IconData icon, Color color) {
     return Container(
@@ -658,14 +827,16 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       physics: const BouncingScrollPhysics(),
       child: Row(
         children: [
-          // 1. Battle Card
-          SizedBox(
-            width: 160,
-            child: _buildBattleCard(userData),
-          ),
-          const SizedBox(width: 8),
+          // 0. Family Badge Card (if user is in a family)
+          if (userData.familyId != null) ...[
+            SizedBox(
+              width: 180,
+              child: _buildFamilyBadgeCard(userData),
+            ),
+            const SizedBox(width: 8),
+          ],
 
-          // 2. Contribution Card (Top List)
+          // 1. Contribution Card (Top List)
           SizedBox(
             width: 160,
             child: _buildContributionCard(userData),
@@ -786,49 +957,122 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildBattleCard(UserModel userData) {
-    final hasFamily = userData.familyId != null;
-    
-    return GestureDetector(
-      onTap: () => context.push(hasFamily ? AppRoutes.familyList : AppRoutes.familyPortal),
-      child: Container(
+  Widget _buildFamilyBadgeCard(UserModel userData) {
+    if (userData.familyId == null) return const SizedBox.shrink();
+    final familyAsync = ref.watch(familyStreamProvider(userData.familyId!));
+    final isOwner = userData.uid == FirebaseAuth.instance.currentUser?.uid;
+
+    return familyAsync.when(
+      data: (family) {
+        if (family == null) return const SizedBox.shrink();
+        final themeIdx = FamilyModel.themeIndexForLevel(family.level);
+        final badgeColor = _themeBadgeColor(themeIdx);
+
+        return GestureDetector(
+          onTap: () => context.push(isOwner ? AppRoutes.familyPortal : AppRoutes.familyDetail, extra: isOwner ? null : family.id),
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E1E),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: badgeColor.withOpacity(0.3), width: 1),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    ClipOval(
+                      child: CachedNetworkImage(
+                        imageUrl: family.avatarUrl ?? '',
+                        width: 32,
+                        height: 32,
+                        fit: BoxFit.cover,
+                        errorWidget: (_, __, ___) => Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
+                          child: const Icon(Icons.shield, color: Colors.white, size: 16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            family.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: badgeColor,
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Text(
+                                  'Lv${family.level}',
+                                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                family.rankName,
+                                style: TextStyle(color: badgeColor, fontSize: 9, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '${_formatNumber(family.totalCombatPoints)} CP',
+                      style: const TextStyle(color: Color(0xFFD4A843), fontSize: 11, fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.chevron_right_rounded, color: Colors.white24, size: 14),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      loading: () => Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: hasFamily ? const Color(0xFFFEF2F2) : const Color(0xFFF8FAFC),
+          color: const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: hasFamily ? Colors.red.withOpacity(0.1) : Colors.black.withOpacity(0.04)),
         ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(6), 
-              decoration: BoxDecoration(
-                color: hasFamily ? Colors.red.withOpacity(0.1) : Colors.grey.withOpacity(0.1), 
-                borderRadius: BorderRadius.circular(6)
-              ), 
-              child: Icon(
-                hasFamily ? Icons.local_fire_department_rounded : Icons.bolt_rounded, 
-                color: hasFamily ? Colors.red : Colors.grey, 
-                size: 20
-              )
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text("FAMILY BATTLE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
-                  Text(
-                    hasFamily ? "Ranked: #12" : "Join to compete", 
-                    style: TextStyle(color: hasFamily ? Colors.redAccent : Colors.black45, fontSize: 9, fontWeight: hasFamily ? FontWeight.bold : FontWeight.normal)
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        child: const SizedBox(width: 36, height: 36, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4A843))),
       ),
+      error: (_, __) => const SizedBox.shrink(),
     );
+  }
+
+  Color _themeBadgeColor(int idx) {
+    switch (idx) {
+      case 1: return AppColors.familyThemeBBadge;
+      case 2: return AppColors.familyThemeCBadge;
+      case 3: return AppColors.familyThemeDBadge;
+      default: return AppColors.familyThemeABadge;
+    }
+  }
+
+  String _formatNumber(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(0)}K';
+    return n.toString();
   }
 
   Widget _buildTabs(BuildContext context) {

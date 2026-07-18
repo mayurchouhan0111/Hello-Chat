@@ -22,6 +22,15 @@ class ChatService {
     });
   }
 
+  Future<void> sendImageMessage(String roomId, String uid, String imageUrl) async {
+    await _db.collection('rooms').doc(roomId).collection('messages').add({
+      'uid': uid,
+      'text': imageUrl,
+      'type': 'image',
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> sendStickerMessage(String roomId, String uid, String stickerPath) async {
     await _db.collection('rooms').doc(roomId).collection('messages').add({
       'uid': uid,

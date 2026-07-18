@@ -81,10 +81,22 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
     setState(() => _isLoading = true);
     try {
       final searchList = await _yt.search.getVideos(query);
-      setState(() {
-        _videos = searchList.toList();
-        _isLoading = false;
-      });
+      final List<dynamic> validVideos = [];
+      for (final v in searchList) {
+        try {
+          // Force evaluate each video to catch malformed entries (e.g. "Streamed" parsed as number)
+          final id = v.id.value;
+          if (id.isNotEmpty) validVideos.add(v);
+        } catch (_) {
+          debugPrint("Skipping malformed YouTube video entry");
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _videos = validVideos;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       debugPrint("YouTube Search Error: $e");
       // Retry once after delay if rate-limited
@@ -95,9 +107,15 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
         await Future.delayed(const Duration(seconds: 2));
         try {
           final retryList = await _yt.search.getVideos(query);
+          final List<dynamic> validVideos = [];
+          for (final v in retryList) {
+            try {
+              if (v.id.value.isNotEmpty) validVideos.add(v);
+            } catch (_) {}
+          }
           if (mounted) {
             setState(() {
-              _videos = retryList.toList();
+              _videos = validVideos;
               _isLoading = false;
             });
           }

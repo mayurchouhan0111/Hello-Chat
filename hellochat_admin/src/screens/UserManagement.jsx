@@ -231,21 +231,86 @@ const UserEditModal = ({ user, onClose, onUpdate }) => {
     username: user.username || '',
     diamondBalance: user.diamondBalance || 0,
     beansBalance: user.beansBalance || 0,
+    walletBalance: user.walletBalance || 0.0,
     level: user.level || 1,
     vipTier: user.vipTier || 'none',
     nobleTier: user.nobleTier || 'none',
     isBanned: user.isBanned || false,
-    tags: user.tags || []
+    email: user.email || '',
+    phoneNumber: user.phoneNumber || '',
+    country: user.country || '',
+    gender: user.gender || 'male',
+    isReseller: user.isReseller || false,
+    isAgencyOwner: user.isAgencyOwner || false,
+    isVerified: user.isVerified || false,
+    verificationStatus: user.verificationStatus || 'none',
+    idPhotoUrl: user.idPhotoUrl || '',
+    referralCode: user.referralCode || '',
+    referredBy: user.referredBy || '',
+    totalReferralEarnings: user.totalReferralEarnings || 0.0,
+    agencyId: user.agencyId || ''
   });
+  
+  const [tagsInput, setTagsInput] = useState((user.tags || []).join(', '));
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const handleResellerToggle = (checked) => {
+    let updatedTags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    if (checked) {
+      if (!updatedTags.includes('Reseller')) updatedTags.push('Reseller');
+    } else {
+      updatedTags = updatedTags.filter(t => t !== 'Reseller');
+    }
+    setTagsInput(updatedTags.join(', '));
+    setFormData({
+      ...formData,
+      isReseller: checked
+    });
+  };
+
+  const handleAgencyToggle = (checked) => {
+    let updatedTags = tagsInput.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    if (checked) {
+      if (!updatedTags.includes('Agency')) updatedTags.push('Agency');
+    } else {
+      updatedTags = updatedTags.filter(t => t !== 'Agency');
+    }
+    setTagsInput(updatedTags.join(', '));
+    setFormData({
+      ...formData,
+      isAgencyOwner: checked
+    });
+  };
+
+  const handleVerificationStatusChange = (status) => {
+    setFormData({
+      ...formData,
+      verificationStatus: status,
+      isVerified: status === 'verified'
+    });
+  };
+
+  const handleIsVerifiedToggle = (checked) => {
+    setFormData({
+      ...formData,
+      isVerified: checked,
+      verificationStatus: checked ? 'verified' : 'none'
+    });
+  };
 
   const handleUpdate = async (e) => {
     e.preventDefault();
     setIsProcessing(true);
     try {
       const userRef = doc(db, "users", user.id || user.uid);
+      const finalTags = tagsInput
+        .split(',')
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+        
       await updateDoc(userRef, {
         ...formData,
+        tags: finalTags,
         updatedAt: serverTimestamp()
       });
       
@@ -261,10 +326,10 @@ const UserEditModal = ({ user, onClose, onUpdate }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-      <div className="bg-[#09090B] border border-white/10 w-full max-w-2xl rounded-[40px] p-10 shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-10">
+      <div className="bg-[#09090B] border border-white/10 w-full max-w-4xl rounded-[40px] p-10 shadow-2xl max-h-[90vh] overflow-y-auto animate-fade-in">
+        <div className="flex justify-between items-center mb-8">
           <div className="flex items-center gap-4">
-            <div className="p-4 bg-indigo-500/20 text-indigo-400 rounded-2xl">
+            <div className="p-4 bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/10">
               <RefreshCw size={28} />
             </div>
             <div>
@@ -279,89 +344,295 @@ const UserEditModal = ({ user, onClose, onUpdate }) => {
           </button>
         </div>
 
-        <form onSubmit={handleUpdate} className="grid grid-cols-2 gap-8">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Display Name</label>
-            <input 
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
-              value={formData.displayName}
-              onChange={(e) => setFormData({...formData, displayName: e.target.value})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Username (@)</label>
-            <input 
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
-              value={formData.username}
-              onChange={(e) => setFormData({...formData, username: e.target.value})}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Diamond Ledger</label>
-            <input 
-              type="number"
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
-              value={formData.diamondBalance}
-              onChange={(e) => setFormData({...formData, diamondBalance: parseInt(e.target.value)})}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Beans Balance</label>
-            <input 
-              type="number"
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-amber-500 font-black"
-              value={formData.beansBalance}
-              onChange={(e) => setFormData({...formData, beansBalance: parseInt(e.target.value)})}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">VIP Membership</label>
-            <select 
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
-              value={formData.vipTier}
-              onChange={(e) => setFormData({...formData, vipTier: e.target.value})}
-            >
-              <option value="none">NONE</option>
-              {['VIP 1', 'VIP 2', 'VIP 3', 'VIP 4', 'VIP 5', 'VIP 6', 'VIP 7'].map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Noble Title</label>
-            <select 
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
-              value={formData.nobleTier}
-              onChange={(e) => setFormData({...formData, nobleTier: e.target.value})}
-            >
-              <option value="none">NONE</option>
-              {['Knight', 'Viscount', 'Earl', 'Marquis', 'Duke', 'King', 'Emperor'].map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Prestige Level</label>
-            <input 
-              type="number"
-              className="w-full bg-black border border-white/10 rounded-2xl p-4 text-indigo-400 font-black"
-              value={formData.level}
-              onChange={(e) => setFormData({...formData, level: parseInt(e.target.value)})}
-            />
-          </div>
+        <form onSubmit={handleUpdate} className="space-y-8 text-left">
           
-          <div className="flex items-center gap-4 px-6 bg-red-500/5 rounded-2xl border border-red-500/10">
-             <input 
-                type="checkbox"
-                className="w-5 h-5 rounded bg-black border-white/10 text-red-500"
-                checked={formData.isBanned}
-                onChange={(e) => setFormData({...formData, isBanned: e.target.checked})}
-             />
-             <label className="text-xs font-black text-red-500 uppercase">Restrict Account (Ban)</label>
+          {/* SECTION 1: Core Profile */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">Core Profile</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Display Name</label>
+                <input 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.displayName}
+                  onChange={(e) => setFormData({...formData, displayName: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Username (@)</label>
+                <input 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.username}
+                  onChange={(e) => setFormData({...formData, username: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Prestige Level</label>
+                <input 
+                  type="number"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-indigo-400 font-black"
+                  value={formData.level}
+                  onChange={(e) => setFormData({...formData, level: parseInt(e.target.value) || 1})}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 2: Contact & Identity */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">Contact & Identity</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Email Address</label>
+                <input 
+                  type="email"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.email}
+                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  placeholder="name@domain.com"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Phone Number</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.phoneNumber}
+                  onChange={(e) => setFormData({...formData, phoneNumber: e.target.value})}
+                  placeholder="+123456789"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Country Code</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.country}
+                  onChange={(e) => setFormData({...formData, country: e.target.value.toUpperCase()})}
+                  placeholder="US"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Gender</label>
+                <select 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+                  value={formData.gender}
+                  onChange={(e) => setFormData({...formData, gender: e.target.value})}
+                >
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 3: Economic Ledgers */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">Economic Ledgers</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Diamond Balance</label>
+                <input 
+                  type="number"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
+                  value={formData.diamondBalance}
+                  onChange={(e) => setFormData({...formData, diamondBalance: parseInt(e.target.value) || 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Beans Balance</label>
+                <input 
+                  type="number"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-amber-500 font-black"
+                  value={formData.beansBalance}
+                  onChange={(e) => setFormData({...formData, beansBalance: parseInt(e.target.value) || 0})}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Wallet Balance ($ USD)</label>
+                <input 
+                  type="number"
+                  step="0.01"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
+                  value={formData.walletBalance}
+                  onChange={(e) => setFormData({...formData, walletBalance: parseFloat(e.target.value) || 0.0})}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 4: Memberships & Affiliations */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">Memberships & Affiliations</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">VIP Membership</label>
+                <select 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+                  value={formData.vipTier}
+                  onChange={(e) => setFormData({...formData, vipTier: e.target.value})}
+                >
+                  <option value="none">NONE</option>
+                  {['VIP 1', 'VIP 2', 'VIP 3', 'VIP 4', 'VIP 5', 'VIP 6', 'VIP 7'].map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Noble Title</label>
+                <select 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+                  value={formData.nobleTier}
+                  onChange={(e) => setFormData({...formData, nobleTier: e.target.value})}
+                >
+                  <option value="none">NONE</option>
+                  {['Knight', 'Viscount', 'Earl', 'Marquis', 'Duke', 'King', 'Emperor'].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Agency ID</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.agencyId}
+                  onChange={(e) => setFormData({...formData, agencyId: e.target.value})}
+                  placeholder="Enter Agency ID"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 5: KYC Verification */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">KYC Identity Verification</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Verification Status</label>
+                <select 
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black outline-none"
+                  value={formData.verificationStatus}
+                  onChange={(e) => handleVerificationStatusChange(e.target.value)}
+                >
+                  <option value="none">None / Unsubmitted</option>
+                  <option value="pending">Pending Review</option>
+                  <option value="verified">Verified / Approved</option>
+                  <option value="rejected">Rejected / Denied</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">ID Document Photo URL</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.idPhotoUrl}
+                  onChange={(e) => setFormData({...formData, idPhotoUrl: e.target.value})}
+                  placeholder="https://bucket/photo.jpg"
+                />
+              </div>
+              <div className="flex items-center gap-4 px-6 bg-[#B4E0A2]/5 rounded-2xl border border-[#B4E0A2]/10 h-[60px] self-end mb-1">
+                 <input 
+                    type="checkbox"
+                    id="edit-isVerified"
+                    className="w-5 h-5 rounded bg-black border-white/10 text-indigo-500 focus:ring-0 cursor-pointer"
+                    checked={formData.isVerified}
+                    onChange={(e) => handleIsVerifiedToggle(e.target.checked)}
+                 />
+                 <label htmlFor="edit-isVerified" className="text-xs font-black text-[#B4E0A2] uppercase cursor-pointer">Account Verified</label>
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 6: Referral Program */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">Referral & Rewards</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Personal Referral Code</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.referralCode}
+                  onChange={(e) => setFormData({...formData, referralCode: e.target.value.toUpperCase()})}
+                  placeholder="REFCODE"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Referred By Code</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={formData.referredBy}
+                  onChange={(e) => setFormData({...formData, referredBy: e.target.value})}
+                  placeholder="SPONSOR"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Referral Earnings ($ USD)</label>
+                <input 
+                  type="number"
+                  step="0.01"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
+                  value={formData.totalReferralEarnings}
+                  onChange={(e) => setFormData({...formData, totalReferralEarnings: parseFloat(e.target.value) || 0.0})}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* SECTION 7: System Access & Tags */}
+          <div>
+            <h3 className="text-xs font-black text-indigo-400 uppercase tracking-wider mb-4 pb-2 border-b border-white/5">System Privileges & Security</h3>
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Administrative & Role Tags (comma separated)</label>
+                <input 
+                  type="text"
+                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-white font-black"
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                  placeholder="e.g. Admin, SuperAdmin, Reseller, Agency"
+                />
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="flex items-center gap-4 px-6 bg-[#B4E0A2]/5 rounded-2xl border border-[#B4E0A2]/10 h-[60px] cursor-pointer">
+                   <input 
+                      type="checkbox"
+                      id="edit-isReseller"
+                      className="w-5 h-5 rounded bg-black border-white/10 text-[#B4E0A2] focus:ring-0 cursor-pointer"
+                      checked={formData.isReseller}
+                      onChange={(e) => handleResellerToggle(e.target.checked)}
+                   />
+                   <label htmlFor="edit-isReseller" className="text-xs font-black text-slate-300 uppercase cursor-pointer">Appoint Reseller</label>
+                </div>
+                <div className="flex items-center gap-4 px-6 bg-indigo-500/5 rounded-2xl border border-indigo-500/10 h-[60px] cursor-pointer">
+                   <input 
+                      type="checkbox"
+                      id="edit-isAgencyOwner"
+                      className="w-5 h-5 rounded bg-black border-white/10 text-indigo-500 focus:ring-0 cursor-pointer"
+                      checked={formData.isAgencyOwner}
+                      onChange={(e) => handleAgencyToggle(e.target.checked)}
+                   />
+                   <label htmlFor="edit-isAgencyOwner" className="text-xs font-black text-slate-300 uppercase cursor-pointer">Appoint Agency Owner</label>
+                </div>
+                <div className="flex items-center gap-4 px-6 bg-red-500/5 rounded-2xl border border-red-500/10 h-[60px] cursor-pointer">
+                   <input 
+                      type="checkbox"
+                      id="edit-isBanned"
+                      className="w-5 h-5 rounded bg-black border-white/10 text-red-500 focus:ring-0 cursor-pointer"
+                      checked={formData.isBanned}
+                      onChange={(e) => setFormData({...formData, isBanned: e.target.checked})}
+                   />
+                   <label htmlFor="edit-isBanned" className="text-xs font-black text-red-500 uppercase cursor-pointer">Restrict Account (Ban)</label>
+                </div>
+              </div>
+            </div>
           </div>
 
           <button 
             disabled={isProcessing}
-            className="col-span-full flex items-center justify-center gap-2 p-6 bg-indigo-600 text-white font-black text-sm uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition-all disabled:opacity-50 mt-4"
+            className="w-full flex items-center justify-center gap-2 p-6 bg-indigo-600 text-white font-black text-sm uppercase tracking-widest rounded-2xl hover:bg-indigo-700 transition-all disabled:opacity-50 mt-8"
           >
             {isProcessing ? 'Synchronizing Universe...' : 'Apply Master Updates'}
           </button>
@@ -828,6 +1099,10 @@ export const UserManagement = () => {
                        <div className="flex items-center gap-1.5 pt-1" title="Total Diamonds Spent (SVIP Points)">
                           <Zap size={10} className="text-emerald-400" />
                           <span className="text-[10px] font-black text-emerald-400">{user.svipPoints || 0}</span>
+                       </div>
+                       <div className="flex items-center gap-1.5 pt-1" title="Wallet Balance">
+                          <Coins size={10} className="text-emerald-400" />
+                          <span className="text-[10px] font-black text-emerald-400">${(user.walletBalance || 0).toFixed(2)}</span>
                        </div>
                        {user.agencyId && (
                          <div className="flex items-center gap-1.5 pt-1">

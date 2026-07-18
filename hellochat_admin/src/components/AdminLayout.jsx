@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Gift,
   Crown,
+  HeartHandshake,
   Building2,
   History,
   Gamepad2,
@@ -22,7 +23,8 @@ import {
   ArrowRightLeft,
   ShoppingBag,
   Store,
-  Image
+  Image,
+  Swords,
 } from 'lucide-react';
 import logo from '../assets/logo.webp';
 
@@ -52,6 +54,10 @@ const Sidebar = () => {
     { name: 'Moments', icon: Image, path: '/moments' },
     { name: 'Moderation', icon: Flag, path: '/moderation' },
     { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
+    { name: 'Family Battle', icon: Swords, path: '/family-battle-config' },
+    { name: 'Room Support', icon: HeartHandshake, path: '/room-support' },
+    { name: 'Recharge Event', icon: Coins, path: '/recharge-event' },
+    { name: 'Relationships', icon: HeartHandshake, path: '/relationships' },
     { name: 'Settings', icon: Settings, path: '/settings' },
     { name: 'Audit Trail', icon: History, path: '/logs' },
     { name: 'Withdrawals', icon: ArrowRightLeft, path: '/withdrawals' },

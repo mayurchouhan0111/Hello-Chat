@@ -13,6 +13,7 @@ import '../../../../core/utils/badge_utils.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class ChatWidget extends ConsumerStatefulWidget {
   final List<RoomMessage> messages;
@@ -176,7 +177,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   @override
   Widget build(BuildContext context) {
     final currentUid = ref.watch(authStateProvider).value?.uid;
-    final myProfileAsync = ref.watch(userProfileProvider(currentUid ?? ''));
+    final myProfileAsync = ref.watch(cachedUserProfileProvider(currentUid ?? ''));
 
     final blocked = myProfileAsync.maybeWhen(
       data: (myProfile) => (myProfile != null && myProfile is UserModel)
@@ -238,6 +239,12 @@ class RoomMessageTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return RepaintBoundary(
+      child: _buildTileContent(context, ref),
+    );
+  }
+
+  Widget _buildTileContent(BuildContext context, WidgetRef ref) {
     if (msg.type == 'gift') {
       return GestureDetector(
         onTap: () {
@@ -254,16 +261,16 @@ class RoomMessageTile extends ConsumerWidget {
         child: _buildRichSystemMessage(ref, msg),
       );
     }
-    if (msg.type == 'sticker') {
+    if (msg.type == 'image') {
       return GestureDetector(
         onTap: () {
           if (msg.uid.isNotEmpty) onUserTap?.call(msg.uid);
         },
-        child: _buildStickerMessage(ref, msg),
+        child: _buildImageMessage(context, ref, msg),
       );
     }
 
-    final userAsync = ref.watch(userProfileProvider(msg.uid));
+    final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
 
     return GestureDetector(
       onTap: () {
@@ -284,14 +291,25 @@ class RoomMessageTile extends ConsumerWidget {
             return false;
           }).toList();
 
+          final level = _getVipLevel(u.vipTier);
+          final String? bubbleAsset = (level >= 1 && level <= 8) 
+              ? (level == 1 ? 'assets/VIP/VIP 1/Chat Bubble.png' : 'assets/VIP/VIP $level/VIP $level/Chat Bubble.png')
+              : null;
           return Align(
             alignment: Alignment.centerLeft,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.35),
-                borderRadius: BorderRadius.circular(18),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: bubbleAsset != null 
+                ? BoxDecoration(
+                    image: DecorationImage(
+                      image: AssetImage(bubbleAsset),
+                      fit: BoxFit.fill,
+                    ),
+                  )
+                : BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -375,8 +393,99 @@ class RoomMessageTile extends ConsumerWidget {
     );
   }
 
+  Widget _buildImageMessage(BuildContext context, WidgetRef ref, RoomMessage msg) {
+    final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: userAsync.when(
+        data: (user) {
+          if (user == null) return const SizedBox.shrink();
+          final u = user as UserModel;
+
+          return Align(
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppAvatar(
+                  imageUrl: u.profilePhotoUrl,
+                  radius: 13,
+                  vipTier: u.vipTier,
+                  frameUrl: u.profileFrame,
+                  userLevel: u.level,
+                  tags: u.tags,
+                  frameMultiplier: 2.0,
+                ),
+                const Gap(8),
+                GestureDetector(
+                  onTap: () => _showFullImageDialog(context, msg.text),
+                  child: Container(
+                    constraints: const BoxConstraints(
+                      maxWidth: 140,
+                      maxHeight: 140,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: CachedNetworkImage(
+                        imageUrl: msg.text,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => const SizedBox(
+                          width: 80, height: 80,
+                          child: Center(
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF00E5FF)),
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 40),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+        loading: () => const SizedBox.shrink(),
+        error: (_, __) => const SizedBox.shrink(),
+      ),
+    );
+  }
+
+  void _showFullImageDialog(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.9),
+      builder: (context) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: InteractiveViewer(
+            panEnabled: true,
+            boundaryMargin: const EdgeInsets.all(20),
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: Hero(
+              tag: imageUrl,
+              child: CachedNetworkImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.contain,
+                placeholder: (context, url) => const CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white, size: 64),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStickerMessage(WidgetRef ref, RoomMessage msg) {
-    final userAsync = ref.watch(userProfileProvider(msg.uid));
+    final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -468,11 +577,11 @@ class RoomMessageTile extends ConsumerWidget {
           ),
           const SizedBox(width: 6),
           if (msg.animationUrl != null && msg.animationUrl!.isNotEmpty)
-            Image.network(
-              msg.animationUrl!,
+            CachedNetworkImage(
+              imageUrl: msg.animationUrl!,
               width: 22,
               height: 22,
-              errorBuilder: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 18),
+              errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 18),
             )
           else
             const Icon(Icons.card_giftcard, color: Colors.amber, size: 18),
@@ -496,7 +605,7 @@ class RoomMessageTile extends ConsumerWidget {
       return _buildSimpleSystemMessage(msg.text);
     }
 
-    final userAsync = ref.watch(userProfileProvider(msg.uid));
+    final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
@@ -616,3 +725,14 @@ class RoomMessageTile extends ConsumerWidget {
     );
   }
 }
+
+int _getVipLevel(String vipTierName) {
+  final clean = vipTierName.toLowerCase().replaceAll(' ', '');
+  if (clean.startsWith('vip')) {
+    final numStr = clean.substring(3);
+    final val = int.tryParse(numStr);
+    if (val != null) return val;
+  }
+  return 0;
+}
+

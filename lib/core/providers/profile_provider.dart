@@ -15,6 +15,21 @@ final userProfileProvider = StreamProvider.family<UserModel?, String>((ref, uid)
   return ref.watch(profileServiceProvider).getProfileStream(uid);
 });
 
+final userProfileCacheProvider = StateProvider<Map<String, UserModel>>((ref) => {});
+
+final cachedUserProfileProvider = FutureProvider.family<UserModel?, String>((ref, uid) async {
+  if (uid.isEmpty) return null;
+  final cache = ref.read(userProfileCacheProvider);
+  if (cache.containsKey(uid)) return cache[uid];
+
+  final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+  if (!doc.exists) return null;
+
+  final user = UserModel.fromMap(Map<String, dynamic>.from(doc.data()!));
+  ref.read(userProfileCacheProvider.notifier).update((state) => {...state, uid: user});
+  return user;
+});
+
 final currentUserProfileProvider = StreamProvider<UserModel?>((ref) {
   final authState = ref.watch(authStateProvider);
   final uid = authState.value?.uid;
@@ -119,25 +134,76 @@ final warehouseItemsProvider = StreamProvider.family<List<Map<String, dynamic>>,
       'type': 'Standard',
       'imageUrl': 'https://i.ibb.co/vz6G3H1/vip1-frame.png', 
       'category': category,
-      'isEquipped': category == 'frame' ? user.profileFrame.isEmpty : 
-                    (category == 'bubble' ? user.chatBubble.isEmpty : 
-                    (category == 'mount' ? user.entryAnimation.isEmpty : false)),
+      'isEquipped': category == 'frame' ? (user.profileFrame.isEmpty || user.profileFrame == 'none') : 
+                    (category == 'bubble' ? (user.chatBubble.isEmpty || user.chatBubble == 'none') : 
+                    (category == 'mount' ? (user.entryAnimation.isEmpty || user.entryAnimation == 'none') : false)),
       'expiryDate': 'Permanent'
     });
 
-    // 2. Inject VIP Frame if category is 'frame'
-    if (category == 'frame' && user.vipTier != 'none') {
-      final tiers = vipTiersAsync.value;
-      final myTier = tiers?.where((t) => t.tierId == user.vipTier || t.name == user.vipTier).firstOrNull;
-      if (myTier != null && myTier.profileFrame.isNotEmpty) {
+    // 2. Inject VIP Packages if applicable
+    final bool isVipActive = user.vipTier != null && user.vipTier != 'none' && user.vipExpiry != null && user.vipExpiry!.isAfter(DateTime.now());
+    final String vipExpiryStr = isVipActive 
+        ? '${user.vipExpiry!.difference(DateTime.now()).inDays.clamp(1, 30)} Days' 
+        : '30 Days';
+
+    if (category == 'frame') {
+      for (int i = 1; i <= 8; i++) {
+        String frameUrl = '';
+        if (i == 1) frameUrl = 'assets/VIP/VIP 1/Frame.svga';
+        else if (i == 2) frameUrl = 'assets/VIP/VIP 2/VIP 2/Frame.svga';
+        else if (i == 3) frameUrl = 'assets/VIP/VIP 3/VIP 3/Frame.svga';
+        else if (i == 4) frameUrl = 'assets/VIP/VIP 4/VIP 4/Frame.svga';
+        else if (i == 5) frameUrl = 'assets/VIP/VIP 5/VIP 5/User Frame.svga';
+        else if (i == 6) frameUrl = 'assets/VIP/VIP 6/VIP 6/User Frame.svga';
+        else if (i == 7) frameUrl = 'assets/VIP/VIP 7/VIP 7/Frame.svga';
+        else if (i == 8) frameUrl = 'assets/VIP/VIP 8/VIP 8/User Frame.svga';
+
         specialItems.add({
-          'id': 'vip_reward_frame', 
-          'name': '${myTier.name} VIP Frame',
-          'type': 'VIP Reward',
-          'imageUrl': myTier.profileFrame,
+          'id': 'vip_frame_$i',
+          'name': 'VIP $i Frame',
+          'type': 'VIP Package',
+          'imageUrl': frameUrl,
           'category': 'frame',
-          'isEquipped': user.profileFrame.isEmpty || user.profileFrame == myTier.profileFrame,
-          'expiryDate': 'While VIP'
+          'isEquipped': user.profileFrame == frameUrl,
+          'expiryDate': vipExpiryStr,
+        });
+      }
+    } else if (category == 'mount') {
+      for (int i = 1; i <= 8; i++) {
+        String entryUrl = '';
+        if (i == 1) entryUrl = 'assets/VIP/VIP 1/Entry.svga';
+        else if (i == 2) entryUrl = 'assets/VIP/VIP 2/VIP 2/Entry.svga';
+        else if (i == 3) entryUrl = 'assets/VIP/VIP 3/VIP 3/Entry.svga';
+        else if (i == 4) entryUrl = 'assets/VIP/VIP 4/VIP 4/Entry.svga';
+        else if (i == 5) entryUrl = 'assets/VIP/VIP 5/VIP 5/Entry.svga';
+        else if (i == 6) entryUrl = 'assets/VIP/VIP 6/VIP 6/VIP 6 Entry.svga';
+        else if (i == 7) entryUrl = 'assets/VIP/VIP 7/VIP 7/Entry.svga';
+        else if (i == 8) entryUrl = 'assets/VIP/VIP 8/VIP 8/VIP 8 Entry Effect.svga';
+
+        specialItems.add({
+          'id': 'vip_entry_$i',
+          'name': 'VIP $i Entry',
+          'type': 'VIP Package',
+          'imageUrl': entryUrl,
+          'category': 'mount',
+          'isEquipped': user.entryAnimation == entryUrl,
+          'expiryDate': vipExpiryStr,
+        });
+      }
+    } else if (category == 'bubble') {
+      for (int i = 1; i <= 8; i++) {
+        String bubbleUrl = i == 1 
+            ? 'assets/VIP/VIP 1/Chat Bubble.png' 
+            : 'assets/VIP/VIP $i/VIP $i/Chat Bubble.png';
+
+        specialItems.add({
+          'id': 'vip_bubble_$i',
+          'name': 'VIP $i Bubble',
+          'type': 'VIP Package',
+          'imageUrl': bubbleUrl,
+          'category': 'bubble',
+          'isEquipped': user.chatBubble == bubbleUrl,
+          'expiryDate': vipExpiryStr,
         });
       }
     }

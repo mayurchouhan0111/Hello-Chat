@@ -21,6 +21,10 @@ import { FamilyManagement } from './screens/FamilyManagement';
 import { ResellerManagement } from './screens/ResellerManagement';
 import { MomentsManagement } from './screens/MomentsManagement';
 import { KYCManagement } from './screens/KYCManagement';
+import { RoomSupportManagement } from './screens/RoomSupportManagement';
+import { FamilyBattleConfig } from './screens/FamilyBattleConfig';
+import { RechargeEventManagement } from './screens/RechargeEventManagement';
+import { RelationshipManagement } from './screens/RelationshipManagement';
 
 function App() {
   return (
@@ -122,6 +126,26 @@ function App() {
           <Route path="/moments" element={
             <AdminLayout>
               <MomentsManagement />
+            </AdminLayout>
+          } />
+          <Route path="/room-support" element={
+            <AdminLayout>
+              <RoomSupportManagement />
+            </AdminLayout>
+          } />
+          <Route path="/family-battle-config" element={
+            <AdminLayout>
+              <FamilyBattleConfig />
+            </AdminLayout>
+          } />
+          <Route path="/recharge-event" element={
+            <AdminLayout>
+              <RechargeEventManagement />
+            </AdminLayout>
+          } />
+          <Route path="/relationships" element={
+            <AdminLayout>
+              <RelationshipManagement />
             </AdminLayout>
           } />
         </Routes>

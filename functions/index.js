@@ -130,12 +130,14 @@ exports.secureAgoraToken = functions.https.onCall(async (data, context) => {
 const ROCKET_SYSTEM = {
     targets: [1000000, 2000000, 3000000, 5000000, 10000000],
     rewards: [
-        { king: 30000, t2: 15000, t3: 7500, xp: 2000, frame: "rocket_frame_1" },
-        { king: 60000, t2: 40000, t3: 30000, xp: 3000, frame: "rocket_frame_2" },
-        { king: 200000, t2: 150000, t3: 100000, xp: 5000, frame: "rocket_frame_3" },
-        { king: 500000, t2: 300000, t3: 250000, xp: 10000, frame: "rocket_frame_4" },
-        { king: 800000, t2: 500000, t3: 350000, xp: 15000, frame: "rocket_frame_5" },
-    ]
+        { king: 30000, t2: 15000, t3: 7500, xp: 2000 },
+        { king: 60000, t2: 40000, t3: 30000, xp: 3000 },
+        { king: 200000, t2: 150000, t3: 100000, xp: 5000 },
+        { king: 500000, t2: 300000, t3: 250000, xp: 10000 },
+        { king: 800000, t2: 500000, t3: 350000, xp: 15000 },
+    ],
+    frameAsset: "assets/rocket/rocket_frame.svga",
+    frameValidityMs: [24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 24 * 60 * 60 * 1000, 72 * 60 * 60 * 1000]
 };
 
 async function processRocketLaunch(transaction, roomId, level, roomData, senderUid, totalCost) {
@@ -152,6 +154,11 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     if (!rewards) return;
 
     // 1. Distribute rewards to Top 3
+    const nowMs = Date.now();
+    const frameValidityMs = ROCKET_SYSTEM.frameValidityMs[level] || 24 * 60 * 60 * 1000;
+    const frameAsset = ROCKET_SYSTEM.frameAsset;
+    const frameExpiresAt = admin.firestore.Timestamp.fromMillis(nowMs + frameValidityMs);
+
     const rewardWinners = [
         { uid: sortedContributors[0]?.[0], rebate: rewards.king },
         { uid: sortedContributors[1]?.[0], rebate: rewards.t2 },
@@ -164,9 +171,32 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
             transaction.update(userRef, {
                 diamondBalance: admin.firestore.FieldValue.increment(winner.rebate),
                 xp: admin.firestore.FieldValue.increment(rewards.xp),
-                profileFrame: rewards.frame
+                profileFrame: frameAsset
             });
-            
+
+            // Un-equip other frame vault items
+            const vaultOthers = await userRef.collection("vault")
+                .where("category", "==", "frame")
+                .where("isEquipped", "==", true)
+                .get();
+            vaultOthers.forEach(doc => transaction.update(doc.ref, { isEquipped: false }));
+
+            // Write vault entry for rocket frame
+            const vaultRef = userRef.collection("vault").doc();
+            transaction.set(vaultRef, {
+                frameId: "rocket",
+                name: "Rocket Frame",
+                type: "Rocket Event",
+                imageUrl: frameAsset,
+                category: "frame",
+                earnedFrom: "rocket_event",
+                rocketLevel: level + 1,
+                awardedAt: admin.firestore.FieldValue.serverTimestamp(),
+                expiresAt: frameExpiresAt,
+                isEquipped: true,
+                isActive: true
+            });
+
             // Log reward
             const logRef = db.collection("reward_logs").doc();
             transaction.set(logRef, {
@@ -175,6 +205,8 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
                 level: level + 1,
                 rebate: winner.rebate,
                 xp: rewards.xp,
+                frameAsset: frameAsset,
+                frameExpiresAt: frameExpiresAt,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
         }
@@ -195,7 +227,12 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     const roomUpdate = {
         rocketLevel: admin.firestore.FieldValue.increment(1),
         rocketFuel: 0,
-        rocketContributions: {} // Reset for next rocket
+        rocketContributions: {}, // Reset for next rocket
+        lastRocketResults: {
+            top3: sortedContributors.map(([uid, amount]) => ({ uid, amount })),
+            level: level + 1,
+            rewardedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }
     };
 
     // 🚀 If we just finished Level 5 (level was 4), set 5-minute cooldown
@@ -216,6 +253,14 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
  */
 
 exports.onUserWrite = functions.firestore.document("users/{uid}").onWrite(async (change, context) => {
+    // Exit early if this is an update and helloId is already a valid number
+    if (change.before.exists) {
+        const beforeData = change.before.data() || {};
+        if (beforeData.helloId && typeof beforeData.helloId === "number") {
+            return null;
+        }
+    }
+
     const after = change.after.data();
     if (!after) return null; // Deleted
 
@@ -477,12 +522,12 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
     const biWeeklyPayoutDate = getNextBiWeeklyDate();
 
     for (const lv of newlyReachedLevels) {
-        // 1. Host Payout (60%)
+        // 1. Host Payout (60%) - Stored in USD by applying 0.01 exchange rate
         const hostPayoutRef = db.collection("salaryPayouts").doc();
         transaction.set(hostPayoutRef, {
             id: hostPayoutRef.id,
             uid: hostUid,
-            amount: lv.target * 0.6,
+            amount: lv.target * 0.6 * 0.01,
             type: "host",
             level: lv.level,
             scheduledDate: admin.firestore.Timestamp.fromDate(hostPayoutDate),
@@ -490,7 +535,7 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // 2. Agency Payout (30%)
+        // 2. Agency Payout (30%) - Kept in Beans (agency balance updates increment in Beans)
         if (userData.agencyId) {
             const agencyPayoutRef = db.collection("salaryPayouts").doc();
             transaction.set(agencyPayoutRef, {
@@ -506,12 +551,12 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
             });
         }
 
-        // 3. Admin Payout (10%)
+        // 3. Admin Payout (10%) - Stored in USD by applying 0.01 exchange rate
         const adminPayoutRef = db.collection("salaryPayouts").doc();
         transaction.set(adminPayoutRef, {
             id: adminPayoutRef.id,
             uid: "SYSTEM_ADMIN",
-            amount: lv.target * 0.1,
+            amount: lv.target * 0.1 * 0.01,
             type: "admin",
             level: lv.level,
             scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
@@ -588,6 +633,7 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         country: "",
         profilePhotoUrl: photoURL || "",
         diamondBalance: 0,
+        diamondStock: 0,
         beansBalance: 0,
         xp: 0,
         dailyXP: 0,
@@ -611,6 +657,8 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         recentVisitors: [],
         profileFrame: "",
         entryAnimation: "",
+        chatBubble: "",
+        badgeIcon: "",
         tags: [],
         vipTier: "none",
         isBanned: false,
@@ -730,7 +778,7 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
 
     const { targetUid, amount, reason } = data;
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const userRef = db.collection("users").doc(targetUid);
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new Error("User not found");
@@ -738,7 +786,16 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
         const currentBalance = userDoc.data().diamondBalance || 0;
         transaction.update(userRef, { diamondBalance: currentBalance + amount });
 
-        // Log action
+        const inboxRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
+        transaction.set(inboxRef, {
+            type: "reward",
+            title: "Diamond Balance Adjusted 💎",
+            body: `Your diamond balance has been adjusted by ${amount >= 0 ? "+" : ""}${amount.toLocaleString()} diamonds.`,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: { reason: reason || "Manual Adjustment", route: "/wallet" }
+        });
+
         const logRef = db.collection("admin_logs").doc();
         transaction.set(logRef, {
             adminUid: context.auth.uid,
@@ -751,6 +808,8 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
 
         return { success: true, newBalance: currentBalance + amount };
     });
+
+    return result;
 });
 
 /**
@@ -767,13 +826,23 @@ exports.adminAdjustBeans = functions.https.onCall(async (data, context) => {
 
     const { targetUid, amount, reason } = data;
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const userRef = db.collection("users").doc(targetUid);
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new Error("User not found");
 
         const currentBalance = userDoc.data().beansBalance || 0;
         transaction.update(userRef, { beansBalance: currentBalance + amount });
+
+        const inboxRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
+        transaction.set(inboxRef, {
+            type: "reward",
+            title: "Beans Balance Adjusted 🫘",
+            body: `Your beans balance has been adjusted by ${amount >= 0 ? "+" : ""}${amount.toLocaleString()} beans.`,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: { reason: reason || "Manual Earnings Adjustment", route: "/wallet" }
+        });
 
         // Log action in history
         const txRef = userRef.collection("transactions").doc();
@@ -797,6 +866,8 @@ exports.adminAdjustBeans = functions.https.onCall(async (data, context) => {
 
         return { success: true, newBalance: currentBalance + amount };
     });
+
+    return result;
 });
 
 /**
@@ -844,6 +915,16 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
     for (const doc of usersSnap.docs) {
         batch.update(doc.ref, {
             diamondBalance: admin.firestore.FieldValue.increment(amount)
+        });
+
+        const inboxRef = db.collection("users").doc(doc.id).collection("inbox_messages").doc();
+        batch.set(inboxRef, {
+            type: "reward",
+            title: "Global Reward Distribution 🎉",
+            body: `You received ${amount.toLocaleString()} diamonds as a global reward!`,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: { route: "/wallet" }
         });
 
         count++;
@@ -1035,7 +1116,26 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
 
         const roomData = roomDoc.data();
         if (roomData.status !== "active") throw new functions.https.HttpsError("failed-precondition", "Room has ended.");
-        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
+        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) {
+            // Check if ban has expired
+            const banExpiries = roomData.banExpiries || {};
+            const banExpiry = banExpiries[uid];
+            if (banExpiry && banExpiry.toDate) {
+                if (banExpiry.toDate() <= new Date()) {
+                    // Ban expired — allow join, auto-remove from banned list
+                    const banExpiryDelete = {};
+                    banExpiryDelete["banExpiries." + uid] = admin.firestore.FieldValue.delete();
+                    transaction.update(roomRef, {
+                        bannedUids: admin.firestore.FieldValue.arrayRemove([uid]),
+                        ...banExpiryDelete
+                    });
+                } else {
+                    throw new functions.https.HttpsError("permission-denied", "You are banned until " + banExpiry.toDate().toISOString());
+                }
+            } else {
+                throw new functions.https.HttpsError("permission-denied", "You are banned.");
+            }
+        }
 
         // Check if already in
         if (participantDoc.exists) return { success: true, message: "Already in room" };
@@ -1247,7 +1347,26 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
 
         const roomData = roomDoc.data();
         if (roomData.status !== "active") throw new functions.https.HttpsError("failed-precondition", "Room has ended.");
-        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) throw new functions.https.HttpsError("permission-denied", "You are banned.");
+        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) {
+            // Check if ban has expired
+            const banExpiries = roomData.banExpiries || {};
+            const banExpiry = banExpiries[uid];
+            if (banExpiry && banExpiry.toDate) {
+                if (banExpiry.toDate() <= new Date()) {
+                    // Ban expired — allow join
+                    const banExpiryDelete = {};
+                    banExpiryDelete["banExpiries." + uid] = admin.firestore.FieldValue.delete();
+                    transaction.update(roomRef, {
+                        bannedUids: admin.firestore.FieldValue.arrayRemove([uid]),
+                        ...banExpiryDelete
+                    });
+                } else {
+                    throw new functions.https.HttpsError("permission-denied", "You are banned until " + banExpiry.toDate().toISOString());
+                }
+            } else {
+                throw new functions.https.HttpsError("permission-denied", "You are banned.");
+            }
+        }
 
         // Strict Server-Side Validation: Password Check
         const isAdmin = roomData.ownerUid === uid || (roomData.admins || []).includes(uid);
@@ -1502,6 +1621,62 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     }
                 }
 
+                // 🏠 FAMILY BATTLE SCORE UPDATE (Diamond-based)
+                // When a user sends gifts, their diamond spending contributes to their family's active battle score
+                try {
+                    const senderUserDoc = await transaction.get(db.collection("users").doc(senderUid));
+                    if (senderUserDoc.exists) {
+                        const senderFamilyId = senderUserDoc.data().familyId;
+                        if (senderFamilyId) {
+                            // Check for active battle in this family
+                            const activeBattles = await db.collection("families").doc(senderFamilyId)
+                                .collection("battles")
+                                .where("status", "==", "active")
+                                .limit(1)
+                                .get();
+                            
+                            if (!activeBattles.empty) {
+                                const battleDoc = activeBattles.docs[0];
+                                const battleData = battleDoc.data();
+                                const battleId = battleDoc.id;
+                                
+                                // Determine if sender's family is familyA or familyB
+                                const isA = senderFamilyId === battleData.familyAId;
+                                const scoreField = isA ? "familyAPoints" : "familyBPoints";
+                                const opponentFamilyId = isA ? battleData.familyBId : battleData.familyAId;
+                                
+                                // Add diamond value to family's battle score
+                                const battleRef = db.collection("families").doc(senderFamilyId)
+                                    .collection("battles").doc(battleId);
+                                transaction.update(battleRef, {
+                                    [scoreField]: admin.firestore.FieldValue.increment(totalCost)
+                                });
+                                
+                                // Mirror update to opponent's battle copy
+                                const oppBattleRef = db.collection("families").doc(opponentFamilyId)
+                                    .collection("battles").doc(battleId);
+                                transaction.update(oppBattleRef, {
+                                    [scoreField]: admin.firestore.FieldValue.increment(totalCost)
+                                });
+                                
+                                // Update member's contribution
+                                const memberRef = db.collection("families").doc(senderFamilyId)
+                                    .collection("members").doc(senderUid);
+                                transaction.update(memberRef, {
+                                    combatPoints: admin.firestore.FieldValue.increment(totalCost),
+                                    contribution: admin.firestore.FieldValue.increment(totalCost),
+                                    memberXP: admin.firestore.FieldValue.increment(Math.floor(totalCost / 500)),
+                                });
+                                
+                                console.log(`[FAMILY_BATTLE] User ${senderUid} contributed ${totalCost} diamonds to family ${senderFamilyId} battle score`);
+                            }
+                        }
+                    }
+                } catch (familyErr) {
+                    // Don't fail the gift if family battle update fails
+                    console.warn(`[FAMILY_BATTLE] Error updating family battle score:`, familyErr.message);
+                }
+
                 // 🚀 8. Rocket Fuel Logic (Integrated)
                 if (!isMoment) {
                     const roomData = roomDoc.data();
@@ -1549,6 +1724,13 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     }
                 }
             }
+
+            // 🏆 Room Support: Accumulate weekly coins for room reward cycle
+            const supportCycleRef = db.collection("room_support_cycles").doc(roomId);
+            transaction.set(supportCycleRef, {
+                totalCoins: admin.firestore.FieldValue.increment(totalCost),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
 
             return { success: true, newBalance: currentBalance - totalCost };
         });
@@ -1902,13 +2084,30 @@ exports.onCreateRoom = functions.firestore.document("rooms/{roomId}").onCreate(a
     const ownerUid = roomData.ownerUid;
 
     // Auto-add owner as host participant
-    return db.collection("rooms").doc(roomId).collection("participants").doc(ownerUid).set({
+    await db.collection("rooms").doc(roomId).collection("participants").doc(ownerUid).set({
         joinedAt: admin.firestore.FieldValue.serverTimestamp(),
         lastActive: admin.firestore.FieldValue.serverTimestamp(),
         seatIndex: 0,
         isMuted: false,
         role: "host",
     });
+
+    // Auto-create room_support_cycles document for new rooms
+    const now = new Date();
+    const daysUntilSunday = (7 - now.getUTCDay()) % 7;
+    const nextSunday = new Date(now);
+    nextSunday.setUTCDate(now.getUTCDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
+    nextSunday.setUTCHours(23, 59, 59, 0);
+    const weekEnd = admin.firestore.Timestamp.fromDate(nextSunday);
+
+    await db.collection("room_support_cycles").doc(roomId).set({
+        totalCoins: 0,
+        level: 1,
+        status: "accumulating",
+        weekStart: admin.firestore.FieldValue.serverTimestamp(),
+        weekEnd: weekEnd,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
 });
 
 exports.onParticipantChange = functions.firestore.document("rooms/{roomId}/participants/{uid}").onWrite(async (change, context) => {
@@ -2001,13 +2200,202 @@ exports.feedSampleVIPTiers = functions.https.onRequest(async (req, res) => {
     // Admin check skipped for local seeding
 
     const tiers = [
-        { tierId: 'vip1', name: 'VIP 1', level: 1, monthlyPriceInDiamonds: 500, monthlyPriceInUSD: 5, benefits: ["special_frame", "badge"], profileFrame: "assets/frames/vip1.png", entryAnimation: "vip_entry_1", badgeIcon: "assets/badges/vip1.png", priorityMicAccess: false, isActive: true, sortOrder: 1 },
-        { tierId: 'vip2', name: 'VIP 2', level: 2, monthlyPriceInDiamonds: 1500, monthlyPriceInUSD: 15, benefits: ["special_frame", "badge", "entry_effect"], profileFrame: "assets/frames/vip2.png", entryAnimation: "vip_entry_2", badgeIcon: "assets/badges/vip2.png", priorityMicAccess: false, isActive: true, sortOrder: 2 },
-        { tierId: 'vip3', name: 'VIP 3', level: 3, monthlyPriceInDiamonds: 5000, monthlyPriceInUSD: 50, benefits: ["special_frame", "badge", "entry_effect", "priority_mic"], profileFrame: "assets/frames/vip3.png", entryAnimation: "vip_entry_3", badgeIcon: "assets/badges/vip3.png", priorityMicAccess: true, isActive: true, sortOrder: 3 },
-        { tierId: 'vip4', name: 'VIP 4', level: 4, monthlyPriceInDiamonds: 15000, monthlyPriceInUSD: 150, benefits: ["special_frame", "badge", "entry_effect", "priority_mic", "exclusive_gifts"], profileFrame: "assets/frames/vip4.png", entryAnimation: "vip_entry_4", badgeIcon: "assets/badges/vip4.png", priorityMicAccess: true, isActive: true, sortOrder: 4 },
-        { tierId: 'vip5', name: 'VIP 5', level: 5, monthlyPriceInDiamonds: 50000, monthlyPriceInUSD: 500, benefits: ["special_frame", "badge", "entry_effect", "priority_mic", "exclusive_gifts", "custom_id"], profileFrame: "assets/frames/vip5.png", entryAnimation: "vip_entry_5", badgeIcon: "assets/badges/vip5.png", priorityMicAccess: true, isActive: true, sortOrder: 5 },
-        { tierId: 'vip6', name: 'VIP 6', level: 6, monthlyPriceInDiamonds: 150000, monthlyPriceInUSD: 1500, benefits: ["special_frame", "badge", "entry_effect", "priority_mic", "exclusive_gifts", "manager"], profileFrame: "assets/frames/vip6.png", entryAnimation: "vip_entry_6", badgeIcon: "assets/badges/vip6.png", priorityMicAccess: true, isActive: true, sortOrder: 6 },
-        { tierId: 'svip', name: 'SVIP', level: 7, monthlyPriceInDiamonds: 500000, monthlyPriceInUSD: 5000, benefits: ["all_access", "god_badge", "world_frame"], profileFrame: "assets/frames/svip.png", entryAnimation: "svip_entry", badgeIcon: "assets/badges/svip.png", priorityMicAccess: true, isActive: true, sortOrder: 7 },
+        {
+            tierId: 'vip1',
+            name: 'VIP 1',
+            level: 1,
+            monthlyPriceInDiamonds: 1000000,
+            monthlyPriceInUSD: 10.0,
+            benefits: [
+                "VIP 1 Badge",
+                "VIP 1 Profile Frame",
+                "VIP 1 Entry Effect",
+                "10% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 1/Frame.svga",
+            entryAnimation: "assets/VIP/VIP 1/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 1/Badge.webp",
+            backgroundImage: '',
+            themeColor: '#10B981',
+            entryRequirement: 'Purchase 1,000,000 Diamonds',
+            priorityMicAccess: false,
+            isActive: true,
+            sortOrder: 1
+        },
+        {
+            tierId: 'vip2',
+            name: 'VIP 2',
+            level: 2,
+            monthlyPriceInDiamonds: 5000000,
+            monthlyPriceInUSD: 50.0,
+            benefits: [
+                "VIP 2 Badge",
+                "VIP 2 Profile Frame",
+                "VIP 2 Entry Effect",
+                "Special Chat Bubble",
+                "30% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 2/VIP 2/Frame.svga",
+            entryAnimation: "assets/VIP/VIP 2/VIP 2/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 2/VIP 2/Badge.png",
+            backgroundImage: '',
+            themeColor: '#059669',
+            entryRequirement: 'Purchase 5,000,000 Diamonds',
+            priorityMicAccess: false,
+            isActive: true,
+            sortOrder: 2
+        },
+        {
+            tierId: 'vip3',
+            name: 'VIP 3',
+            level: 3,
+            monthlyPriceInDiamonds: 20000000,
+            monthlyPriceInUSD: 200.0,
+            benefits: [
+                "VIP 3 Badge",
+                "VIP 3 Profile Frame",
+                "VIP 3 Entry Effect",
+                "Priority Mic Access",
+                "Sound Wave Ring",
+                "100% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 3/VIP 3/Frame.svga",
+            entryAnimation: "assets/VIP/VIP 3/VIP 3/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 3/VIP 3/Badge.webp",
+            backgroundImage: '',
+            themeColor: '#3B82F6',
+            entryRequirement: 'Purchase 20,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 3
+        },
+        {
+            tierId: 'vip4',
+            name: 'VIP 4',
+            level: 4,
+            monthlyPriceInDiamonds: 50000000,
+            monthlyPriceInUSD: 500.0,
+            benefits: [
+                "VIP 4 Badge",
+                "VIP 4 Profile Frame",
+                "VIP 4 Entry Effect",
+                "Priority Mic Access",
+                "Exclusive VIP Gifts",
+                "500% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 4/VIP 4/Frame.svga",
+            entryAnimation: "assets/VIP/VIP 4/VIP 4/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 4/VIP 4/Badge.webp",
+            backgroundImage: '',
+            themeColor: '#8B5CF6',
+            entryRequirement: 'Purchase 50,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 4
+        },
+        {
+            tierId: 'vip5',
+            name: 'VIP 5',
+            level: 5,
+            monthlyPriceInDiamonds: 100000000,
+            monthlyPriceInUSD: 1000.0,
+            benefits: [
+                "VIP 5 Badge",
+                "VIP 5 Profile Frame",
+                "VIP 5 Entry Effect",
+                "Priority Mic Access",
+                "Custom 6-Digit ID",
+                "Room Kick Protection",
+                "2,000% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 5/VIP 5/User Frame.svga",
+            entryAnimation: "assets/VIP/VIP 5/VIP 5/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 5/VIP 5/Badge.png",
+            backgroundImage: '',
+            themeColor: '#F59E0B',
+            entryRequirement: 'Purchase 100,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 5
+        },
+        {
+            tierId: 'vip6',
+            name: 'VIP 6',
+            level: 6,
+            monthlyPriceInDiamonds: 150000000,
+            monthlyPriceInUSD: 1500.0,
+            benefits: [
+                "VIP 6 Badge",
+                "VIP 6 Profile Frame",
+                "VIP 6 Entry Effect",
+                "Priority Mic Access",
+                "Custom 5-Digit ID",
+                "Room Kick Protection",
+                "Dedicated Manager",
+                "10,000% Daily Reward Bonus"
+            ],
+            profileFrame: "assets/VIP/VIP 6/VIP 6/User Frame.svga",
+            entryAnimation: "assets/VIP/VIP 6/VIP 6/VIP 6 Entry.svga",
+            badgeIcon: "assets/VIP/VIP 6/VIP 6/Badge.webp",
+            backgroundImage: '',
+            themeColor: '#EF4444',
+            entryRequirement: 'Purchase 150,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 6
+        },
+        {
+            tierId: 'vip7',
+            name: 'VIP 7',
+            level: 7,
+            monthlyPriceInDiamonds: 200000000,
+            monthlyPriceInUSD: 2000.0,
+            benefits: [
+                "VIP 7 Badge",
+                "VIP 7 Profile Frame",
+                "VIP 7 Entry Effect",
+                "Priority Mic Access",
+                "Custom 4-Digit ID",
+                "Kick & Ban Protection",
+                "Global Room Announcement",
+                "Dedicated Manager"
+            ],
+            profileFrame: "assets/VIP/VIP 7/VIP 7/Frame.svga",
+            entryAnimation: "assets/VIP/VIP 7/VIP 7/Entry.svga",
+            badgeIcon: "assets/VIP/VIP 7/VIP 7/Badge.png",
+            backgroundImage: '',
+            themeColor: '#EC4899',
+            entryRequirement: 'Purchase 200,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 7
+        },
+        {
+            tierId: 'vip8',
+            name: 'VIP 8',
+            level: 8,
+            monthlyPriceInDiamonds: 500000000,
+            monthlyPriceInUSD: 5000.0,
+            benefits: [
+                "VIP 8 Badge",
+                "VIP 8 Profile Frame",
+                "VIP 8 Entry Effect",
+                "Priority Mic Access",
+                "Custom 3-Digit ID",
+                "Full Server Admin Immunity",
+                "Global Server Announcement",
+                "Dedicated VIP Concierge"
+            ],
+            profileFrame: "assets/VIP/VIP 8/VIP 8/User Frame.svga",
+            entryAnimation: "assets/VIP/VIP 8/VIP 8/VIP 8 Entry Effect.svga",
+            badgeIcon: "assets/VIP/VIP 8/VIP 8/Badge.webp",
+            backgroundImage: '',
+            themeColor: '#F59E0B',
+            entryRequirement: 'Purchase 500,000,000 Diamonds',
+            priorityMicAccess: true,
+            isActive: true,
+            sortOrder: 8
+        }
     ];
 
     const batch = db.batch();
@@ -2034,68 +2422,94 @@ exports.feedSampleVIPTiers = functions.https.onRequest(async (req, res) => {
 
 
 /**
- * 16. Purchase VIP (Dynamic)
+ * Helper: Get the custom ID digit count for a given VIP tier name.
+ * VIP 4 → 8 digits, VIP 5 → 8, VIP 6 → 6, VIP 7 → 6, VIP 8 → 4.
+ */
+function getVipIdDigitCount(tierName) {
+    const clean = tierName.toLowerCase().replace(/\s+/g, "");
+    if (clean === "vip8") return 4;
+    if (clean === "vip6" || clean === "vip7") return 6;
+    if (clean === "vip4" || clean === "vip5") return 8;
+    return 0;
+}
+
+/**
+ * Helper: Generate a unique short ID for a VIP user within the tier's digit range.
+ */
+async function assignVipHelloId(uid, tierName) {
+    const digits = getVipIdDigitCount(tierName);
+    if (digits === 0) return null;
+    const min = Math.pow(10, digits - 1);
+    const max = Math.pow(10, digits) - 1;
+    const counterRef = db.collection("system_configs").doc("helloIdCounter");
+    const counterKey = "vip" + digits + "digit";
+    const result = await db.runTransaction(async (tx) => {
+        const counterDoc = await tx.get(counterRef);
+        let current = 1;
+        if (counterDoc.exists) current = (counterDoc.data()[counterKey] || 0) + 1;
+        tx.set(counterRef, { [counterKey]: current }, { merge: true });
+        return current;
+    });
+    return min + (result % (max - min + 1));
+}
+
+/**
+ * 16. Purchase VIP (Dynamic) + Custom Short ID
+ * Authoritative server-side. VIP cosmetics are OPTIONAL per policy.
  */
 exports.purchaseVIP = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
     const uid = context.auth.uid;
     const { tierId } = data;
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const tierRef = db.collection("vip_tiers").doc(tierId);
         const userRef = db.collection("users").doc(uid);
-
         const [tierDoc, userDoc] = await Promise.all([
-            transaction.get(tierRef),
-            transaction.get(userRef)
+            transaction.get(tierRef), transaction.get(userRef)
         ]);
-
         if (!tierDoc.exists) throw new functions.https.HttpsError("not-found", "VIP Tier not found.");
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
         const userData = userDoc.data();
         const tierData = tierDoc.data();
         const price = tierData.monthlyPriceInDiamonds;
-
         if ((userData.diamondBalance || 0) < price) {
             throw new functions.https.HttpsError("failed-precondition", "Insufficient diamonds.");
         }
 
-        // 80/20 Split Logic
         const immediateCredit = Math.floor(price * 0.8);
         const delayedCredit = price - immediateCredit;
-
-        // Calculate expiry (30 days)
         const expiry = new Date();
         expiry.setDate(expiry.getDate() + 30);
-
-        // Calculate Release Date (30 days)
         const releaseDate = new Date();
         releaseDate.setDate(releaseDate.getDate() + 30);
 
-        // 1. Deduct full price, give 80% back, set Tier
         transaction.update(userRef, {
             diamondBalance: admin.firestore.FieldValue.increment(-price + immediateCredit),
             vipTier: tierData.name,
             vipExpiry: admin.firestore.Timestamp.fromDate(expiry),
-            profileFrame: tierData.profileFrame || "",
-            entryAnimation: tierData.entryAnimation || "",
-            badgeIcon: tierData.badgeIcon || ""
+            vipSnapshot: {
+                originalTier: userData.vipTier || "none",
+                originalExpiry: userData.vipExpiry || null,
+                originalProfileFrame: userData.profileFrame || "",
+                originalEntryAnimation: userData.entryAnimation || "",
+                originalBadgeIcon: userData.badgeIcon || "",
+                originalHelloId: userData.helloId || null,
+                purchasedAt: admin.firestore.Timestamp.now(),
+                tier: tierData.name
+            }
         });
 
-        // 2. Schedule 20% release
         const pendingRef = userRef.collection("pending_credits").doc();
         transaction.set(pendingRef, {
             amount: delayedCredit,
             releaseDate: admin.firestore.Timestamp.fromDate(releaseDate),
-            status: "pending",
-            type: "vip_retention_bonus",
+            status: "pending", type: "vip_retention_bonus",
             description: `20% Retention Bonus for ${tierData.name}`,
             createdAt: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        // 3. Log main transaction
         const txRef = userRef.collection("transactions").doc();
         transaction.set(txRef, {
             type: "purchase",
@@ -2106,10 +2520,36 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
             description: `Purchased ${tierData.name} Monthly Subscription (80/20 Split)`
         });
 
-        return { success: true, immediate: immediateCredit, delayed: delayedCredit };
+        return { userData, tierData, immediateCredit, delayedCredit };
     });
-});
 
+    // ---- Post-purchase: Assign custom short ID if applicable ----
+    try {
+        const vipId = await assignVipHelloId(uid, result.tierData.name);
+        if (vipId !== null) {
+            await db.collection("users").doc(uid).update({ helloId: vipId });
+        }
+    } catch (idErr) {
+        console.error(`[VIP_PURCHASE] Failed to assign custom ID for user ${uid}:`, idErr);
+        // Non-critical — purchase already succeeded
+    }
+
+    const inboxRef = db.collection("users").doc(uid).collection("inbox_messages").doc();
+    await inboxRef.set({
+        type: "reward",
+        title: `VIP Activated — ${result.tierData.name} 👑`,
+        body: `Welcome to ${result.tierData.name}! You received an instant ${result.immediateCredit.toLocaleString()} diamond credit.`,
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+        data: { tier: result.tierData.name, route: "/wallet" }
+    });
+
+    return {
+        success: true,
+        immediate: result.immediateCredit,
+        delayed: result.delayedCredit
+    };
+});
 
 /**
  * 17. Distribute Weekly Salary
@@ -2119,7 +2559,7 @@ exports.distributeWeeklySalary = functions.https.onCall(async (data, context) =>
 
     const { roomId } = data;
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const roomRef = db.collection("rooms").doc(roomId);
         const roomDoc = await transaction.get(roomRef);
 
@@ -2164,51 +2604,175 @@ exports.distributeWeeklySalary = functions.https.onCall(async (data, context) =>
             agencyId: agencyId || null
         });
 
-        return { success: true, amount: hostShare };
+        return { success: true, amount: hostShare, ownerUid };
     });
+
+    const inboxRef = db.collection("users").doc(result.ownerUid).collection("inbox_messages").doc();
+    await inboxRef.set({
+        type: "reward",
+        title: "Weekly Salary Paid 💰",
+        body: `Your weekly salary of ${result.amount.toLocaleString()} diamonds has been deposited.`,
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+        data: { route: "/wallet" }
+    });
+
+    return { success: true, amount: result.amount };
 });
 
 /**
- * 20. Global Push Notification Trigger
- * Sends a real FCM push notification to all users when an admin creates a global announcement with isPush: true.
+ * 20. Global Push Notification & Inbox Trigger
+ * Sends targeted FCM pushes & writes to users' official inbox.
  */
-exports.sendGlobalPush = functions.firestore.document("global_announcements/{id}").onCreate(async (snapshot, context) => {
-    const data = snapshot.data();
-    if (!data.isPush) return null;
+async function deliverBroadcast(announcementId, title, message, filters = {}, imageUrl = null, isPush = false) {
+    let query = db.collection("users");
+    const usersSnap = await query.get();
+    let users = usersSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
 
-    const message = data.message;
-    const title = data.title || "Hello Chat Admin";
+    // Apply audience filters in-memory
+    if (filters.vipsOnly) {
+        users = users.filter(u => u.vipTier && u.vipTier !== "none");
+    }
+    if (filters.minLevel) {
+        users = users.filter(u => (u.level || 0) >= filters.minLevel);
+    }
+    if (filters.countries && filters.countries.length > 0) {
+        const countriesUpper = filters.countries.map(c => c.toUpperCase());
+        users = users.filter(u => u.country && countriesUpper.includes(u.country.toUpperCase()));
+    }
+    if (filters.families && filters.families.length > 0) {
+        users = users.filter(u => u.familyId && filters.families.includes(u.familyId));
+    }
 
-    // 1. Fetch all users with fcmTokens
-    // Note: This is an example of a simple broadcast for 500 users.
-    const usersSnap = await db.collection("users")
-        .where("fcmToken", "!=", null)
-        .limit(500)
-        .get();
+    if (users.length === 0) return { successCount: 0 };
 
-    const tokens = usersSnap.docs.map(d => d.data().fcmToken).filter(t => !!t);
-    if (tokens.length === 0) return null;
+    const tokens = users.map(u => u.fcmToken).filter(t => !!t);
 
-    const pushMessage = {
-        notification: {
-            title: title,
-            body: message,
-            image: data.imageUrl || null,
-        },
-        tokens: tokens, // Multicast
+    // 1. Send FCM Push if enabled
+    let successCount = 0;
+    if (isPush && tokens.length > 0) {
+        for (let i = 0; i < tokens.length; i += 500) {
+            const chunk = tokens.slice(i, i + 500);
+            const pushMessage = {
+                notification: {
+                    title: title,
+                    body: message,
+                },
+                data: {
+                    route: "/inbox"
+                },
+                tokens: chunk,
+            };
+            if (imageUrl) {
+                pushMessage.notification.image = imageUrl;
+            }
+            try {
+                const response = await admin.messaging().sendEachForMulticast(pushMessage);
+                successCount += response.successCount;
+            } catch (err) {
+                console.error("FCM Multicast Error: ", err);
+            }
+        }
+    }
+
+    // 2. Write to users' inbox_messages
+    const inboxData = {
+        type: "broadcast",
+        title: title,
+        body: message,
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+        data: {
+            announcementId: announcementId
+        }
     };
 
+    let batch = db.batch();
+    let count = 0;
+    for (const user of users) {
+        const inboxRef = db.collection("users").doc(user.uid).collection("inbox_messages").doc();
+        batch.set(inboxRef, inboxData);
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) {
+        await batch.commit();
+    }
+
+    return { successCount };
+}
+
+exports.sendGlobalPush = functions.firestore.document("global_announcements/{id}").onCreate(async (snapshot, context) => {
+    const data = snapshot.data();
+    
+    // If scheduling is enabled and scheduledAt is in the future, save as scheduled
+    if (data.scheduledAt) {
+        const scheduledTime = data.scheduledAt.toMillis();
+        const now = Date.now();
+        if (scheduledTime > now) {
+            return snapshot.ref.update({
+                pushStatus: "scheduled"
+            });
+        }
+    }
+
+    const filters = data.filters || {};
+    const title = data.title || "Hello Chat Admin";
+    const message = data.message;
+    const imageUrl = data.imageUrl || null;
+    const isPush = data.isPush || false;
+
     try {
-        const response = await admin.messaging().sendEachForMulticast(pushMessage);
-        console.log(`Push sent: ${response.successCount} success.`);
-        return db.collection("global_announcements").doc(context.params.id).update({
+        const result = await deliverBroadcast(context.params.id, title, message, filters, imageUrl, isPush);
+        return snapshot.ref.update({
             pushStatus: "sent",
-            successCount: response.successCount
+            successCount: result.successCount,
+            sentAt: admin.firestore.Timestamp.now()
         });
     } catch (err) {
-        console.error("Push Error:", err);
-        return null;
+        console.error("Broadcast Delivery Error:", err);
+        return snapshot.ref.update({
+            pushStatus: "failed",
+            error: err.message
+        });
     }
+});
+
+exports.processScheduledBroadcasts = functions.pubsub.schedule("every 5 minutes").onRun(async (context) => {
+    const now = admin.firestore.Timestamp.now();
+    const scheduledSnap = await db.collection("global_announcements")
+        .where("pushStatus", "==", "scheduled")
+        .where("scheduledAt", "<=", now)
+        .get();
+
+    for (const doc of scheduledSnap.docs) {
+        const data = doc.data();
+        const title = data.title || "Hello Chat Admin";
+        const message = data.message;
+        const filters = data.filters || {};
+        const imageUrl = data.imageUrl || null;
+        const isPush = data.isPush || false;
+
+        try {
+            const result = await deliverBroadcast(doc.id, title, message, filters, imageUrl, isPush);
+            await doc.ref.update({
+                pushStatus: "sent",
+                successCount: result.successCount,
+                sentAt: admin.firestore.Timestamp.now()
+            });
+        } catch (err) {
+            console.error(`Scheduled broadcast ${doc.id} delivery failed:`, err);
+            await doc.ref.update({
+                pushStatus: "failed",
+                error: err.message
+            });
+        }
+    }
+    return null;
 });
 
 /**
@@ -2304,7 +2868,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             if (roll < 1 && pizzaHits < 1) {
                 resultType = "pizza";
                 pizzaHits++;
-            } else if (roll < 5 && saladHits < 4) {
+            } else if (roll < 5 && saladHits < 1) {
                 resultType = "salad";
                 saladHits++;
             }
@@ -2326,19 +2890,28 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             } else {
                 // For Salad/Pizza, we just pick one segment from that category as the "visual anchor"
                 const categorySegments = segments.filter(s => s.category === resultType);
-                winnerSegment = categorySegments.length > 0 
-                    ? categorySegments[getRandomInt(categorySegments.length)] 
-                    : segments[0];
+                if (categorySegments.length > 0) {
+                    winnerSegment = categorySegments[getRandomInt(categorySegments.length)];
+                } else {
+                    // Fallback to virtual segment if not defined in segments
+                    winnerSegment = {
+                        name: resultType,
+                        emoji: resultType === "pizza" ? "🍕" : "🥗",
+                        multiplier: resultType === "pizza" ? 45 : 5,
+                        category: resultType
+                    };
+                }
             }
 
             // Find the index of winnerSegment in the segments array
             const winnerIndex = segments.findIndex(s => s.name === winnerSegment.name && s.multiplier === winnerSegment.multiplier);
+            const displayIndex = winnerIndex >= 0 ? winnerIndex : 0;
             
             // Calculate exact stop angle (in degrees) - each segment is 45 degrees (360/8)
             // Segment 0 is at top (0 degrees), going clockwise
             // To bring segment to top: angle = 360 - (index * 45) + random micro-offset for realism
-            const stepAngle = 360 / segments.length;
-            const exactStopAngle = (360 - (winnerIndex * stepAngle)) + (Math.random() * 10 - 5); // ±5 degrees randomness
+            const stepAngle = 360 / (segments.length || 8);
+            const exactStopAngle = (360 - (displayIndex * stepAngle)) + (Math.random() * 10 - 5); // ±5 degrees randomness
             
             // === FULLY BACKEND-CONTROLLED SPIN PHYSICS ===
             const totalRotations = 7 + Math.floor(Math.random() * 3); // 7-9 rotations
@@ -2414,15 +2987,91 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         // --- WIN CALCULATION ---
         let totalPrize = 0;
         
-        if (roundResult.type === "standard") {
-            const betOnWinner = Number(bets[roundResult.name] || bets[roundResult.label]) || 0;
-            totalPrize = Math.floor(betOnWinner * roundResult.multiplier);
-        } else {
-            // Category Win: Pay out all bets in that category
+        // Normalize bets keys to lowercase and trimmed for case-insensitive robust matching
+        const normalizedBets = {};
+        if (bets) {
+            for (const key of Object.keys(bets)) {
+                if (key) {
+                    normalizedBets[key.toLowerCase().trim()] = Number(bets[key]) || 0;
+                }
+            }
+        }
+
+        const winnerName = (roundResult.name || "").toLowerCase().trim();
+        const winnerLabel = (roundResult.label || "").toLowerCase().trim();
+        const winnerCategory = (roundResult.category || roundResult.type || "").toLowerCase().trim();
+
+        // Keep track of which bet keys we have already paid out to avoid double counting
+        const paidKeys = new Set();
+
+        const saladItems = ["tomato", "cabbage", "corn", "carrot", "salad"];
+        const pizzaItems = ["pizza", "steak"];
+
+        const isWinningSaladItem = saladItems.includes(winnerName) || winnerCategory === "salad";
+        const isWinningPizzaItem = pizzaItems.includes(winnerName) || winnerCategory === "pizza";
+
+        // 1. Category Payouts
+        // Pay Salad category bet if ANY salad item wins
+        if (isWinningSaladItem) {
+            const betOnSalad = normalizedBets["salad"] || 0;
+            if (betOnSalad > 0 && !paidKeys.has("salad")) {
+                totalPrize += Math.floor(betOnSalad * 5);
+                paidKeys.add("salad");
+            }
+        }
+
+        // Pay Pizza category bet if ANY pizza item wins
+        if (isWinningPizzaItem) {
+            const betOnPizza = normalizedBets["pizza"] || 0;
+            if (betOnPizza > 0 && !paidKeys.has("pizza")) {
+                totalPrize += Math.floor(betOnPizza * 45);
+                paidKeys.add("pizza");
+            }
+        }
+
+        // 2. Special Celebration Round Payouts (pays all items in the category)
+        if (roundResult.type === "salad") {
+            for (const item of ["tomato", "cabbage", "corn", "carrot"]) {
+                if (!paidKeys.has(item)) {
+                    const betOnItem = normalizedBets[item] || 0;
+                    if (betOnItem > 0) {
+                        totalPrize += Math.floor(betOnItem * 5);
+                        paidKeys.add(item);
+                    }
+                }
+            }
+        } else if (roundResult.type === "pizza") {
+            for (const item of ["pizza", "steak"]) {
+                if (!paidKeys.has(item)) {
+                    const betOnItem = normalizedBets[item] || 0;
+                    if (betOnItem > 0) {
+                        totalPrize += Math.floor(betOnItem * 45);
+                        paidKeys.add(item);
+                    }
+                }
+            }
+        }
+
+        // 3. Pay exact segment bet (if not already paid as category or special round item)
+        if (!paidKeys.has(winnerName)) {
+            const betOnWinner = normalizedBets[winnerName] || normalizedBets[winnerLabel] || 0;
+            totalPrize += Math.floor(betOnWinner * (Number(roundResult.multiplier) || 0));
+            paidKeys.add(winnerName);
+        }
+
+        // 4. Fallback for other category items if a special round of another type occurred
+        if (roundResult.type !== "standard" && roundResult.type !== "salad" && roundResult.type !== "pizza") {
+            const specialCategory = roundResult.type.toLowerCase().trim();
             for (const s of segments) {
-                if (s.category === roundResult.type) {
-                    const betOnItem = Number(bets[s.name] || bets[`${s.multiplier}x`]) || 0;
-                    totalPrize += Math.floor(betOnItem * (Number(s.multiplier) || 1));
+                const sCategory = (s.category || "").toLowerCase().trim();
+                if (sCategory === specialCategory) {
+                    const sName = (s.name || "").toLowerCase().trim();
+                    if (!paidKeys.has(sName)) {
+                        const sLabel = `${s.multiplier}x`.toLowerCase().trim();
+                        const betOnItem = normalizedBets[sName] || normalizedBets[sLabel] || 0;
+                        totalPrize += Math.floor(betOnItem * (Number(s.multiplier) || 0));
+                        paidKeys.add(sName);
+                    }
                 }
             }
         }
@@ -2517,24 +3166,26 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             });
         }
 
-        // Log History
-        const orderId = `NLOT_${roundId}_${uid.substring(0, 5)}_${now}_${Math.floor(1000 + Math.random() * 9000)}`;
-        const logRef = userRef.collection("game_history").doc();
-        transaction.set(logRef, {
-            game: "spin_wheel",
-            roundId: roundId,
-            bets: bets,
-            totalBet: totalBet,
-            prize: totalPrize,
-            resultType: roundResult.type,
-            label: roundResult.label,
-            multiplier: roundResult.multiplier,
-            emoji: roundResult.emoji,
-            balanceBefore: Math.max(0, balance - totalBet),
-            balanceAfter: Math.max(0, balance + netChange),
-            orderId: orderId,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
-        });
+        // Log History (Only if the user actually placed a bet)
+        if (totalBet > 0) {
+            const orderId = `NLOT_${roundId}_${uid.substring(0, 5)}_${now}_${Math.floor(1000 + Math.random() * 9000)}`;
+            const logRef = userRef.collection("game_history").doc();
+            transaction.set(logRef, {
+                game: "spin_wheel",
+                roundId: roundId,
+                bets: bets,
+                totalBet: totalBet,
+                prize: totalPrize,
+                resultType: roundResult.type,
+                label: roundResult.label,
+                multiplier: roundResult.multiplier,
+                emoji: roundResult.emoji,
+                balanceBefore: Math.max(0, balance - totalBet),
+                balanceAfter: Math.max(0, balance + netChange),
+                orderId: orderId,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
 
         let roundWinners = todayWinners || currentStats.todayWinners || [];
 
@@ -3401,7 +4052,23 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
 
         transaction.delete(inviteRef);
 
-        return { success: true };
+        const relationshipId = `${senderDoc.id}_${targetDoc.id}`;
+        const relationshipRef = db.collection("relationships").doc(relationshipId);
+        transaction.set(relationshipRef, {
+            participants: [senderDoc.id, targetDoc.id],
+            type: "cp",
+            status: "active",
+            intimacy: 0,
+            level: 1,
+            startedAt: admin.firestore.Timestamp.now(),
+            lastActivityAt: admin.firestore.Timestamp.now(),
+            intimacyBreakdown: { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }
+        });
+
+        // Notify sender
+        sendPush(inviteData.senderUid, "CP Accepted 💕", `${targetDoc.data().displayName} accepted your CP invite! You are now a couple.`, { type: "CP_ACCEPTED", relationshipId });
+
+        return { success: true, relationshipId };
     });
 });
 
@@ -3462,9 +4129,32 @@ exports.equipItem = functions.https.onCall(async (data, context) => {
         if (!userSnap.exists) throw new functions.https.HttpsError("not-found", "User not found");
         
         // --- UN-EQUIP / DEFAULT CASE ---
-        if (itemId === 'none' || itemId === 'vip_reward_frame') {
+        if (itemId === 'none') {
             const field = category === 'bubble' ? 'chatBubble' : (category === 'mount' ? 'entryAnimation' : 'profileFrame');
-            transaction.update(userRef, { [field]: "" });
+            transaction.update(userRef, { [field]: "none" }); // Explicitly store 'none' to distinguish from default empty string
+            
+            // Also un-equip items in vault for this category
+            const others = await userRef.collection("vault").where("category", "==", category).get();
+            others.forEach(doc => transaction.update(doc.ref, { isEquipped: false }));
+            
+            return { success: true };
+        }
+
+        // --- SPECIAL CASE: VIP Reward Frame ---
+        if (itemId === 'vip_reward_frame') {
+            const userData = userSnap.data();
+            const vipTierName = userData.vipTier || 'none';
+            if (vipTierName === 'none') throw new functions.https.HttpsError("failed-precondition", "You do not have an active VIP tier.");
+            
+            // Fetch the VIP tier details to resolve its profile frame URL
+            const vipTiersSnap = await transaction.get(db.collection("vip_tiers").where("name", "==", vipTierName));
+            if (vipTiersSnap.empty) throw new functions.https.HttpsError("not-found", "VIP tier details not found.");
+            
+            const tierData = vipTiersSnap.docs[0].data();
+            const frameUrl = tierData.profileFrame || "";
+            
+            // Update User Doc with the actual VIP frame URL
+            transaction.update(userRef, { profileFrame: frameUrl });
             
             // Also un-equip items in vault for this category
             const others = await userRef.collection("vault").where("category", "==", category).get();
@@ -3510,6 +4200,14 @@ exports.equipItem = functions.https.onCall(async (data, context) => {
 
         if (!vaultSnap.exists) throw new functions.https.HttpsError("not-found", "Item Not Owned");
         const item = vaultSnap.data();
+
+        // --- EXPIRY CHECK: Reject equipping expired items ---
+        if (item.expiresAt) {
+            const expiresAt = item.expiresAt.toDate ? item.expiresAt.toDate() : new Date(item.expiresAt);
+            if (expiresAt < new Date()) {
+                throw new functions.https.HttpsError("failed-precondition", "This item has expired.");
+            }
+        }
 
         // 1. Un-equip others in same category (Use the item's own category)
         const itemCategory = item.category || category;
@@ -3589,12 +4287,12 @@ exports.getAgoraToken = onCall({
 exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes").onRun(async (context) => {
     const now = Date.now();
     
-    // 1. Threshold for ROOM cleanup (90 seconds - more aggressive)
-    const roomThreshold = admin.firestore.Timestamp.fromMillis(now - 90 * 1000);
+    // 1. Threshold for ROOM cleanup (5 minutes - generous to prevent false disconnections)
+    const roomThreshold = admin.firestore.Timestamp.fromMillis(now - 5 * 60 * 1000);
     // 2. Threshold for GLOBAL OFFLINE (5 minutes)
     const globalThreshold = admin.firestore.Timestamp.fromMillis(now - 5 * 60 * 1000);
-    // 3. Threshold for HOST transfer (3 minutes)
-    const hostTransferThreshold = admin.firestore.Timestamp.fromMillis(now - 3 * 60 * 1000);
+    // 3. Threshold for HOST transfer (10 minutes - hosts should stay unless truly gone)
+    const hostTransferThreshold = admin.firestore.Timestamp.fromMillis(now - 10 * 60 * 1000);
 
     console.log(`[PRESENCE] Starting Global & Room Cleanup. Time: ${new Date(now).toISOString()}`);
 
@@ -3618,15 +4316,19 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
         
         participants.docs.forEach(pDoc => {
             const pData = pDoc.data();
-            const lastActive = pData.lastActive.toMillis();
+            const lastActiveTs = pData.lastActive;
+            if (!lastActiveTs) return;
+            const lastActive = lastActiveTs.toMillis();
             const isHost = pData.role === 'host' || pData.role === 'owner';
 
             if (isHost) {
-                if (now - lastActive > 3 * 60 * 1000) { // 3 min host grace
+                if (now - lastActive > 10 * 60 * 1000) { // 10 min host grace
+                    console.log(`[PRESENCE] Removing inactive host ${pDoc.id} from room ${roomDoc.id} (lastActive: ${new Date(lastActive).toISOString()})`);
                     batch.delete(pDoc.ref);
                     hostDeleted = true;
                 }
-            } else if (now - lastActive > 90 * 1000) { // 90s listener grace
+            } else if (now - lastActive > 5 * 60 * 1000) { // 5 min listener grace
+                console.log(`[PRESENCE] Removing inactive participant ${pDoc.id} from room ${roomDoc.id} (lastActive: ${new Date(lastActive).toISOString()})`);
                 batch.delete(pDoc.ref);
             }
         });
@@ -3977,7 +4679,7 @@ exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
         }
         transaction.update(resellerRef, {
             walletBalance: currentWallet - pkgData.price,
-            diamondBalance: admin.firestore.FieldValue.increment(pkgData.diamonds)
+            diamondStock: admin.firestore.FieldValue.increment(pkgData.diamonds)
         });
         const txRef = db.collection("transactions").doc();
         transaction.set(txRef, {
@@ -4011,16 +4713,16 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     const targetUid = targetDoc.id;
     const targetName = targetDoc.data().displayName || "User";
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const targetRef = db.collection("users").doc(targetUid);
         const resellerDoc = await transaction.get(resellerRef);
-        const currentStock = resellerDoc.data().diamondBalance || 0;
+        const currentStock = resellerDoc.data().diamondStock || 0;
         
         if (currentStock < amount) {
             throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond stock.");
         }
 
-        transaction.update(resellerRef, { diamondBalance: currentStock - amount });
+        transaction.update(resellerRef, { diamondStock: currentStock - amount });
         transaction.update(targetRef, { diamondBalance: admin.firestore.FieldValue.increment(amount) });
         
         const txRef = db.collection("transactions").doc();
@@ -4037,6 +4739,43 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
         
         return { success: true, targetName: targetName };
     });
+
+    try {
+        const targetData = targetDoc.data();
+        
+        // Write to official inbox
+        const inboxRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
+        await inboxRef.set({
+            type: "reward",
+            title: "Diamonds Received! 💎",
+            body: `You have received ${amount.toLocaleString()} diamonds in your wallet.`,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: {
+                route: "/wallet"
+            }
+        });
+
+        // Send FCM Notification
+        const fcmToken = targetData.fcmToken;
+        if (fcmToken) {
+            const pushMessage = {
+                notification: {
+                    title: "Diamonds Received! 💎",
+                    body: `You received ${amount.toLocaleString()} diamonds. Tap to view your wallet.`,
+                },
+                data: {
+                    route: "/wallet"
+                },
+                token: fcmToken,
+            };
+            await admin.messaging().send(pushMessage);
+        }
+    } catch (fcmErr) {
+        console.error("[RESELLER_TRANSFER_NOTIFICATION_ERROR]", fcmErr);
+    }
+
+    return result;
 });
 
 exports.updateDiamondPackage = functions.https.onCall(async (data, context) => {
@@ -4314,4 +5053,1929 @@ exports.processSalaryPayouts = functions.pubsub.schedule('0 0 * * *')
         console.log(`[PAYOUT] Finished processing up to 100 pending payouts.`);
         return null;
     });
+
+/**
+ * --- SECURE TRANSACTION FOR WALLET DIAMOND PURCHASE ---
+ * Bypasses client-side database writes to prevent balance manipulation exploits.
+ */
+exports.purchaseDiamondsWithWallet = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    
+    const uid = context.auth.uid;
+    const { diamonds, price } = data; // price in USD, diamonds is package amount
+
+    if (!diamonds || !price || price <= 0 || diamonds <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid package specifications.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+        const currentWallet = Number(userDoc.data().walletBalance || 0.0);
+        const currentDiamonds = Number(userDoc.data().diamondBalance || 0);
+
+        if (currentWallet < price) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient wallet balance.");
+        }
+
+        // Deduct wallet balance and add diamonds
+        transaction.update(userRef, {
+            walletBalance: currentWallet - price,
+            diamondBalance: currentDiamonds + diamonds
+        });
+
+        // Log transaction
+        const txRef = userRef.collection("transactions").doc();
+        transaction.set(txRef, {
+            type: "purchase",
+            amount: -diamonds,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: `Paid \$${price.toFixed(2)} from Wallet for ${diamonds} Diamonds`,
+        });
+
+        return {
+            success: true,
+            newWalletBalance: currentWallet - price,
+            newDiamondBalance: currentDiamonds + diamonds
+        };
+    });
+});
+
+/**
+ * --- SECURE TRANSACTION FOR SIMULATED WALLET TOP-UP ---
+ * Restricts direct client writes of wallet balance.
+ */
+exports.simulateWalletTopUp = functions.region("us-central1").https.onCall(async (data, context) => {
+    throw new functions.https.HttpsError("failed-precondition", "Simulated wallet top-up is permanently disabled. Payments must be routed through verified, production-ready payment gateways.");
+});
+
+/**
+ * --- FAMILY MONTHLY TARGET RESET ---
+ * Runs on the 1st of every month to reset family monthly points.
+ */
+exports.resetMonthlyFamilyTargets = functions.pubsub.schedule('0 0 1 * *').onRun(async (context) => {
+    const families = await db.collection('families').get();
+    const batch = db.batch();
+    families.forEach(doc => {
+        batch.update(doc.ref, { currentMonthPoints: 0 });
+    });
+    await batch.commit();
+    console.log(`Reset monthly targets for ${families.size} families`);
+});
+
+/**
+ * --- FAMILY COMBAT POINTS CALCULATION ---
+ * Triggered when a gift is sent to add combat points to sender/receiver.
+ */
+exports.calculateFamilyCombatPoints = functions.firestore
+    .document('gifts/{giftId}')
+    .onCreate(async (snap, context) => {
+        const gift = snap.data();
+        const recipientUid = gift.recipientUid;
+        const senderUid = gift.senderUid;
+        const diamondAmount = gift.diamondAmount || gift.amount || 0;
+        const beanAmount = gift.beanAmount || 0;
+
+        // Calculate combat points: 1 diamond = 1 point for sender, 1 bean = 1 point for receiver
+        const senderCombat = diamondAmount;
+        const receiverCombat = beanAmount;
+
+        // Update sender's family combat points
+        if (senderUid && senderCombat > 0) {
+            const senderUser = await db.collection('users').doc(senderUid).get();
+            if (senderUser.exists) {
+                const familyId = senderUser.data().familyId;
+                if (familyId) {
+                    const memberRef = db.collection('families').doc(familyId).collection('members').doc(senderUid);
+                    await memberRef.update({
+                        combatPoints: admin.firestore.FieldValue.increment(senderCombat),
+                        memberXP: admin.firestore.FieldValue.increment(senderCombat),
+                    }).catch(() => {});
+                    await db.collection('families').doc(familyId).update({
+                        totalCombatPoints: admin.firestore.FieldValue.increment(senderCombat),
+                        currentMonthPoints: admin.firestore.FieldValue.increment(senderCombat),
+                    }).catch(() => {});
+                }
+            }
+        }
+
+        // Update receiver's family combat points
+        if (recipientUid && receiverCombat > 0) {
+            const receiverUser = await db.collection('users').doc(recipientUid).get();
+            if (receiverUser.exists) {
+                const familyId = receiverUser.data().familyId;
+                if (familyId) {
+                    const memberRef = db.collection('families').doc(familyId).collection('members').doc(recipientUid);
+                    await memberRef.update({
+                        combatPoints: admin.firestore.FieldValue.increment(receiverCombat),
+                        memberXP: admin.firestore.FieldValue.increment(receiverCombat),
+                    }).catch(() => {});
+                    await db.collection('families').doc(familyId).update({
+                        totalCombatPoints: admin.firestore.FieldValue.increment(receiverCombat),
+                        currentMonthPoints: admin.firestore.FieldValue.increment(receiverCombat),
+                    }).catch(() => {});
+                }
+            }
+        }
+    });
+
+/**
+ * --- FAMILY TRANSFER OWNERSHIP ---
+ * Allows current owner to transfer ownership to another family member.
+ */
+exports.transferFamilyOwnership = functions.https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'You must be logged in.');
+    }
+    const { familyId, newOwnerUid } = data;
+    if (!familyId || !newOwnerUid) {
+        throw new functions.https.HttpsError('invalid-argument', 'Family ID and new owner UID required.');
+    }
+
+    const familyDoc = await db.collection('families').doc(familyId).get();
+    if (!familyDoc.exists) {
+        throw new functions.https.HttpsError('not-found', 'Family not found.');
+    }
+
+    const family = familyDoc.data();
+    if (family.ownerId !== context.auth.uid) {
+        throw new functions.https.HttpsError('permission-denied', 'Only the current owner can transfer ownership.');
+    }
+
+    if (!family.memberUids.includes(newOwnerUid)) {
+        throw new functions.https.HttpsError('not-found', 'New owner must be a member of the family.');
+    }
+
+    const batch = db.batch();
+    batch.update(familyDoc.ref, { ownerId: newOwnerUid });
+    batch.update(db.collection('users').doc(context.auth.uid), { isFamilyOwner: false });
+    batch.update(db.collection('users').doc(newOwnerUid), { isFamilyOwner: true });
+    await db.collection('families').doc(familyId).collection('members').doc(context.auth.uid).update({ role: 'admin' });
+    await db.collection('families').doc(familyId).collection('members').doc(newOwnerUid).update({ role: 'owner' });
+    await batch.commit();
+
+    return { success: true };
+});
+
+// ─── FAMILY BATTLE PARTICIPANT CAPS ──────────────────────────────
+const BATTLE_PARTICIPANT_CAPS = [
+    { maxLevel: 2, cap: 100 },
+    { maxLevel: 4, cap: 150 },
+    { maxLevel: 6, cap: 200 },
+    { maxLevel: 8, cap: 300 },
+    { maxLevel: 9, cap: 500 },
+    { maxLevel: 10, cap: 1000 },
+];
+
+function getParticipantCap(familyLevel) {
+    for (const entry of BATTLE_PARTICIPANT_CAPS) {
+        if (familyLevel <= entry.maxLevel) return entry.cap;
+    }
+    return 1000;
+}
+
+/**
+ * --- ACCEPT FAMILY BATTLE (SERVER-SIDE) ---
+ * Validates: request exists & pending, no active battle for either family,
+ * participant capacity, per-user active battle limit.
+ * Creates mirrored battle docs, logs transaction, updates user tracking.
+ */
+exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+
+    const { requestId } = data;
+    if (!requestId) throw new functions.https.HttpsError('invalid-argument', 'requestId required.');
+
+    // Read request doc
+    const reqDoc = await db.collection('familyBattleRequests').doc(requestId).get();
+    if (!reqDoc.exists) throw new functions.https.HttpsError('not-found', 'Battle request not found.');
+    const req = reqDoc.data();
+    if (req.status !== 'pending') throw new functions.https.HttpsError('failed-precondition', 'Battle request is no longer pending.');
+
+    const challengerFamilyId = req.challengerFamilyId;
+    const opponentFamilyId = req.opponentFamilyId;
+
+    // Validate caller is opponent family owner or admin
+    const callerUser = await db.collection('users').doc(context.auth.uid).get();
+    const callerFamilyId = callerUser.data()?.familyId;
+    if (callerFamilyId !== opponentFamilyId) {
+        throw new functions.https.HttpsError('permission-denied', 'Only the opponent family owner can accept battles.');
+    }
+    const callerMemberDoc = await db.collection('families').doc(opponentFamilyId).collection('members').doc(context.auth.uid).get();
+    const callerRole = callerMemberDoc.data()?.role;
+    if (callerRole !== 'owner') {
+        throw new functions.https.HttpsError('permission-denied', 'Only the family owner can accept battles.');
+    }
+
+    // Check for existing active battles (race-condition safe)
+    const [challengerActives, opponentActives] = await Promise.all([
+        db.collection('families').doc(challengerFamilyId).collection('battles')
+            .where('status', '==', 'active').limit(1).get(),
+        db.collection('families').doc(opponentFamilyId).collection('battles')
+            .where('status', '==', 'active').limit(1).get(),
+    ]);
+    if (!challengerActives.empty) {
+        throw new functions.https.HttpsError('failed-precondition', 'Challenger family already has an active battle.');
+    }
+    if (!opponentActives.empty) {
+        throw new functions.https.HttpsError('failed-precondition', 'Opponent family already has an active battle.');
+    }
+
+    // Read family docs for capacity
+    const [challengerFamilyDoc, opponentFamilyDoc] = await Promise.all([
+        db.collection('families').doc(challengerFamilyId).get(),
+        db.collection('families').doc(opponentFamilyId).get(),
+    ]);
+    if (!challengerFamilyDoc.exists || !opponentFamilyDoc.exists) {
+        throw new functions.https.HttpsError('not-found', 'One or both families not found.');
+    }
+    const challengerFamily = challengerFamilyDoc.data();
+    const opponentFamily = opponentFamilyDoc.data();
+
+    // Check participant capacity per family level
+    const challengerCap = getParticipantCap(challengerFamily.level || 1);
+    const opponentCap = getParticipantCap(opponentFamily.level || 1);
+    const challengerMemberCount = (challengerFamily.memberUids || []).length;
+    const opponentMemberCount = (opponentFamily.memberUids || []).length;
+    if (challengerMemberCount > challengerCap) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Challenger family member count exceeds battle participant limit.');
+    }
+    if (opponentMemberCount > opponentCap) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Opponent family member count exceeds battle participant limit.');
+    }
+
+    // Check per-user active battle participation
+    const allMemberUids = [...(challengerFamily.memberUids || []), ...(opponentFamily.memberUids || [])];
+    const userChunks = [];
+    for (let i = 0; i < allMemberUids.length; i += 30) {
+        userChunks.push(allMemberUids.slice(i, i + 30));
+    }
+    for (const chunk of userChunks) {
+        const usersSnap = await db.collection('users')
+            .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+            .where('currentActiveBattleId', '!=', null)
+            .limit(1)
+            .get();
+        if (!usersSnap.empty) {
+            const conflictUser = usersSnap.docs[0].data();
+            throw new functions.https.HttpsError(
+                'failed-precondition',
+                `User ${conflictUser.displayName || conflictUser.uid} is already participating in an active Family Battle. Please complete your current battle before joining another battle.`
+            );
+        }
+    }
+
+    // All validations passed — create battle in transaction
+    const battleId = db.collection('families').doc(challengerFamilyId).collection('battles').doc().id;
+    const now = admin.firestore.Timestamp.now();
+    const durationSeconds = 180;
+
+    await db.runTransaction(async (transaction) => {
+        const battleData = {
+            familyAId: challengerFamilyId,
+            familyBId: opponentFamilyId,
+            familyAName: challengerFamily.name || '',
+            familyBName: opponentFamily.name || '',
+            familyAAvatar: challengerFamily.avatarUrl || null,
+            familyBAvatar: opponentFamily.avatarUrl || null,
+            imageUrl: req.imageUrl || null,
+            familyAPoints: 0,
+            familyBPoints: 0,
+            startedAt: now,
+            durationSeconds: durationSeconds,
+            status: 'active',
+            winnerId: null,
+        };
+
+        // Create mirrored battle docs
+        const battleRefA = db.collection('families').doc(challengerFamilyId).collection('battles').doc(battleId);
+        const battleRefB = db.collection('families').doc(opponentFamilyId).collection('battles').doc(battleId);
+        transaction.set(battleRefA, { ...battleData, id: battleId });
+        transaction.set(battleRefB, { ...battleData, id: battleId });
+
+        // Update request status
+        transaction.update(reqDoc.ref, { status: 'accepted' });
+
+        // Set currentActiveBattleId on all members
+        for (const uid of allMemberUids) {
+            transaction.update(db.collection('users').doc(uid), {
+                currentActiveBattleId: battleId,
+            });
+        }
+
+        // Log transaction
+        const logRef = db.collection('family_battle_transactions').doc();
+        transaction.set(logRef, {
+            type: 'battle_created',
+            battleId: battleId,
+            challengerFamilyId: challengerFamilyId,
+            opponentFamilyId: opponentFamilyId,
+            challengerName: challengerFamily.name || '',
+            opponentName: opponentFamily.name || '',
+            createdBy: context.auth.uid,
+            participantCount: allMemberUids.length,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    });
+
+    console.log(`[FAMILY_BATTLE] Battle ${battleId} created: ${challengerFamily.name} vs ${opponentFamily.name}`);
+    return { success: true, battleId: battleId };
+});
+
+/**
+ * --- SCORE BATTLE TAP (SERVER-SIDE) ---
+ * Validates active battle, user participation, rate-limits per-user.
+ * Increments points server-side and updates member contribution.
+ */
+exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+
+    const { battleId, familyId, points } = data;
+    if (!battleId || !familyId) {
+        throw new functions.https.HttpsError('invalid-argument', 'battleId and familyId required.');
+    }
+    const tapPoints = (typeof points === 'number' && points > 0) ? Math.min(points, 10) : 1;
+
+    const uid = context.auth.uid;
+
+    await db.runTransaction(async (transaction) => {
+        // Read battle doc from caller's family subcollection
+        const battleRef = db.collection('families').doc(familyId).collection('battles').doc(battleId);
+        const battleDoc = await transaction.get(battleRef);
+        if (!battleDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'Battle not found.');
+        }
+        const battle = battleDoc.data();
+        if (battle.status !== 'active') {
+            throw new functions.https.HttpsError('failed-precondition', 'Battle is not active.');
+        }
+
+        // Verify user belongs to one of the battling families
+        const userDoc = await transaction.get(db.collection('users').doc(uid));
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError('not-found', 'User not found.');
+        }
+        const userFamilyId = userDoc.data().familyId;
+        if (userFamilyId !== battle.familyAId && userFamilyId !== battle.familyBId) {
+            throw new functions.https.HttpsError('permission-denied', 'You are not a participant in this battle.');
+        }
+
+        // Rate limit: 300ms cooldown per user
+        const userMemberRef = db.collection('families').doc(familyId).collection('members').doc(uid);
+        const memberDoc = await transaction.get(userMemberRef);
+        const lastTap = memberDoc.data()?.lastTapAt;
+        if (lastTap) {
+            const lastTapMillis = lastTap.toMillis ? lastTap.toMillis() : lastTap;
+            const cooldown = 300;
+            if (Date.now() - lastTapMillis < cooldown) {
+                throw new functions.https.HttpsError('resource-exhausted', 'Tap too fast. Wait before tapping again.');
+            }
+        }
+
+        // Determine which side to increment
+        const isA = userFamilyId === battle.familyAId;
+        const field = isA ? 'familyAPoints' : 'familyBPoints';
+
+        // Update battle points (both copies)
+        const oppFamilyId = isA ? battle.familyBId : battle.familyAId;
+        const oppBattleRef = db.collection('families').doc(oppFamilyId).collection('battles').doc(battleId);
+
+        transaction.update(battleRef, { [field]: admin.firestore.FieldValue.increment(tapPoints) });
+        const oppDoc = await transaction.get(oppBattleRef);
+        if (oppDoc.exists) {
+            transaction.update(oppBattleRef, { [field]: admin.firestore.FieldValue.increment(tapPoints) });
+        }
+
+        // Update member combatPoints, contribution, lastTapAt
+        transaction.update(userMemberRef, {
+            combatPoints: admin.firestore.FieldValue.increment(tapPoints),
+            contribution: admin.firestore.FieldValue.increment(tapPoints),
+            memberXP: admin.firestore.FieldValue.increment(Math.floor(tapPoints / 500)),
+            lastTapAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+    });
+
+    return { success: true };
+});
+
+/**
+ * --- AUTO LEVEL UP FAMILY ---
+ * Firestore trigger: when totalBattlePoints changes, recalculates and
+ * updates the family level field.
+ */
+exports.autoLevelUpFamily = functions.firestore
+    .document('families/{familyId}')
+    .onUpdate(async (change, context) => {
+        const before = change.before.data();
+        const after = change.after.data();
+        if (!before || !after) return null;
+        if (before.totalBattlePoints === after.totalBattlePoints) return null;
+
+        const thresholds = [0, 5000000, 10000000, 25000000, 50000000,
+                            100000000, 200000000, 400000000, 600000000, 800000000];
+        let newLevel = 1;
+        for (let i = thresholds.length - 1; i >= 0; i--) {
+            if ((after.totalBattlePoints || 0) >= thresholds[i]) {
+                newLevel = i + 1;
+                break;
+            }
+        }
+
+        if (newLevel !== after.level) {
+            await change.after.ref.update({ level: newLevel });
+            console.log(`[FAMILY_LEVEL] Family ${context.params.familyId} leveled up to ${newLevel}`);
+        }
+        return null;
+    });
+
+/**
+ * --- AUTO-END FAMILY BATTLES ---
+ * Runs every 60 seconds to end expired family battles.
+ * Also clears currentActiveBattleId from all participants.
+ */
+exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRun(async (context) => {
+    const now = admin.firestore.Timestamp.now();
+    const battlesSnap = await db.collectionGroup('battles')
+        .where('status', '==', 'active')
+        .get();
+
+    if (battlesSnap.empty) return null;
+
+    const seen = new Set();
+    let endedCount = 0;
+
+    for (const doc of battlesSnap.docs) {
+        const battleId = doc.id;
+        if (seen.has(battleId)) continue;
+        seen.add(battleId);
+
+        const data = doc.data();
+        const startedAt = data.startedAt;
+        const duration = data.durationSeconds || 180;
+
+        if (!startedAt) continue;
+
+        const expiresAt = new admin.firestore.Timestamp(
+            startedAt.seconds + duration,
+            startedAt.nanoseconds
+        );
+
+        if (expiresAt.toMillis() > now.toMillis()) continue;
+
+        const familyAId = data.familyAId;
+        const familyBId = data.familyBId;
+        if (!familyAId || !familyBId) continue;
+
+        const aPts = data.familyAPoints || 0;
+        const bPts = data.familyBPoints || 0;
+
+        let winnerId = null;
+        if (aPts > bPts) winnerId = familyAId;
+        else if (bPts > aPts) winnerId = familyBId;
+
+        try {
+            const batch = db.batch();
+            batch.update(db.collection('families').doc(familyAId).collection('battles').doc(battleId), {
+                status: 'completed',
+                winnerId: winnerId,
+            });
+            batch.update(db.collection('families').doc(familyBId).collection('battles').doc(battleId), {
+                status: 'completed',
+                winnerId: winnerId,
+            });
+            if (winnerId) {
+                batch.update(db.collection('families').doc(winnerId), {
+                    totalBattlePoints: admin.firestore.FieldValue.increment(500),
+                });
+            }
+
+            // Clear currentActiveBattleId from all participants
+            const [familyADoc, familyBDoc] = await Promise.all([
+                db.collection('families').doc(familyAId).get(),
+                db.collection('families').doc(familyBId).get(),
+            ]);
+            const allUids = [
+                ...(familyADoc.data()?.memberUids || []),
+                ...(familyBDoc.data()?.memberUids || []),
+            ];
+            for (const uid of allUids) {
+                batch.update(db.collection('users').doc(uid), {
+                    currentActiveBattleId: admin.firestore.FieldValue.delete(),
+                });
+            }
+
+            // Log battle end transaction
+            const logRef = db.collection('family_battle_transactions').doc();
+            batch.set(logRef, {
+                type: 'battle_ended',
+                battleId: battleId,
+                familyAId,
+                familyBId,
+                familyAPoints: aPts,
+                familyBPoints: bPts,
+                winnerId,
+                totalPoints: aPts + bPts,
+                participantCount: allUids.length,
+                endedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+
+            await batch.commit();
+            endedCount++;
+            console.log(`[FAMILY_BATTLE_AUTO_END] Battle ${battleId} ended. Winner: ${winnerId || 'draw'}. Cleared ${allUids.length} user battle IDs.`);
+        } catch (err) {
+            console.error(`[FAMILY_BATTLE_AUTO_END] Error ending battle ${battleId}:`, err);
+        }
+    }
+
+    console.log(`[FAMILY_BATTLE_AUTO_END] Ended ${endedCount} expired battles.`);
+    return null;
+});
+
+/**
+ * --- CREATE FAMILY (SERVER-SIDE) ---
+ * Validates uniqueness, creates family + member docs, updates user.
+ */
+exports.createFamily = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+    const { name, tag, description, notice, avatarUrl, country, joinMode, levelRequirement } = data;
+    if (!name || name.length < 4) throw new functions.https.HttpsError('invalid-argument', 'Name must be 4+ chars.');
+
+    const existing = await db.collection('families').where('name', '==', name).limit(1).get();
+    if (!existing.empty) throw new functions.https.HttpsError('already-exists', 'Family name already taken.');
+
+    const uid = context.auth.uid;
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    if (userData?.familyId) throw new functions.https.HttpsError('failed-precondition', 'You are already in a family.');
+
+    const familyRef = db.collection('families').doc();
+    const batch = db.batch();
+
+    batch.set(familyRef, {
+        name, tag: (tag || '').toUpperCase(), description: description || '', notice: notice || '',
+        ownerId: uid, avatarUrl: avatarUrl || null, bannerUrl: null,
+        memberUids: [uid], level: 1, totalBattlePoints: 0, totalCombatPoints: 0,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        category: 'Social', rank: 0, joinMode: joinMode || 'free',
+        levelRequirement: levelRequirement || 0, country: country || '',
+        monthlyTarget: 3000000, currentMonthPoints: 0,
+        memberLimit: 100, rankName: 'Bronze',
+    });
+
+    batch.set(familyRef.collection('members').doc(uid), {
+        familyId: familyRef.id, userId: uid, role: 'owner',
+        memberLevel: 1, memberXP: 0, combatPoints: 0, contribution: 0,
+        joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    batch.update(db.collection('users').doc(uid), { familyId: familyRef.id, isFamilyOwner: true });
+
+    await batch.commit();
+    return { familyId: familyRef.id };
+});
+
+/**
+ * --- APPROVE JOIN REQUEST (SERVER-SIDE) ---
+ * Validates capacity, approves request, adds member, updates user.
+ */
+exports.approveJoinRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+    const { requestId, familyId, userId } = data;
+    if (!requestId || !familyId || !userId) throw new functions.https.HttpsError('invalid-argument', 'Missing fields.');
+
+    const familyDoc = await db.collection('families').doc(familyId).get();
+    if (!familyDoc.exists) throw new functions.https.HttpsError('not-found', 'Family not found.');
+    const family = familyDoc.data();
+
+    if (family.ownerId !== context.auth.uid && !(await isUserAdmin(context.auth.uid))) {
+        throw new functions.https.HttpsError('permission-denied', 'Only the owner can approve requests.');
+    }
+
+    const memberUids = family.memberUids || [];
+    const memberLimit = family.memberLimit || 100;
+    if (memberUids.length >= memberLimit) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Family is full.');
+    }
+
+    const batch = db.batch();
+    batch.update(db.collection('familyJoinRequests').doc(requestId), { status: 'accepted' });
+    batch.update(familyDoc.ref, { memberUids: admin.firestore.FieldValue.arrayUnion([userId]) });
+    batch.set(familyDoc.ref.collection('members').doc(userId), {
+        familyId, userId, role: 'member', memberLevel: 1, memberXP: 0,
+        combatPoints: 0, contribution: 0, joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    batch.update(db.collection('users').doc(userId), { familyId, isFamilyOwner: false });
+
+    await batch.commit();
+    return { success: true };
+});
+
+/**
+ * --- KICK MEMBER (SERVER-SIDE) ---
+ * Owner removes a member from the family.
+ */
+exports.kickMember = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+    const { familyId, userId } = data;
+    if (!familyId || !userId) throw new functions.https.HttpsError('invalid-argument', 'Missing fields.');
+
+    const familyDoc = await db.collection('families').doc(familyId).get();
+    if (!familyDoc.exists) throw new functions.https.HttpsError('not-found', 'Family not found.');
+    const family = familyDoc.data();
+
+    if (family.ownerId !== context.auth.uid && !(await isUserAdmin(context.auth.uid))) {
+        throw new functions.https.HttpsError('permission-denied', 'Only the owner can kick members.');
+    }
+    if (userId === family.ownerId) {
+        throw new functions.https.HttpsError('permission-denied', 'Cannot kick the owner.');
+    }
+
+    const batch = db.batch();
+    batch.update(familyDoc.ref, { memberUids: admin.firestore.FieldValue.arrayRemove([userId]) });
+    batch.delete(familyDoc.ref.collection('members').doc(userId));
+    batch.update(db.collection('users').doc(userId), { familyId: null, isFamilyOwner: false });
+
+    await batch.commit();
+    return { success: true };
+});
+
+// ─── RANKING RESET FUNCTIONS ────────────────────────────────────
+
+async function calculateAndStoreRankings(period) {
+    const familiesSnap = await db.collection('families')
+        .orderBy('totalCombatPoints', 'desc')
+        .limit(100)
+        .get();
+
+    const batch = db.batch();
+    const rankingsRef = db.collection('familyRankings');
+
+    const existing = await rankingsRef.where('period', '==', period).get();
+    existing.forEach(doc => batch.delete(doc.ref));
+
+    let rank = 1;
+    familiesSnap.forEach(doc => {
+        const data = doc.data();
+        const rankingRef = rankingsRef.doc(`${period}_${doc.id}`);
+        batch.set(rankingRef, {
+            familyId: doc.id,
+            familyName: data.name || '',
+            familyAvatar: data.avatarUrl || null,
+            points: data.totalCombatPoints || 0,
+            rank: rank,
+            level: data.level || 1,
+            period: period,
+            calculatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        rank++;
+    });
+
+    await batch.commit();
+    console.log(`[RANKINGS] ${period} rankings calculated for ${familiesSnap.size} families.`);
+}
+
+exports.resetDailyRankings = functions.pubsub.schedule('0 0 * * *').onRun(async (context) => {
+    await calculateAndStoreRankings('daily');
+});
+
+exports.resetWeeklyRankings = functions.pubsub.schedule('0 0 * * 1').onRun(async (context) => {
+    await calculateAndStoreRankings('weekly');
+});
+
+exports.resetMonthlyRankings = functions.pubsub.schedule('0 0 1 * *').onRun(async (context) => {
+    await calculateAndStoreRankings('monthly');
+});
+
+/**
+ * --- ROOM SUPPORT SYSTEM ---
+ */
+
+const ROOM_SUPPORT = {
+    levels: [
+        { level: 1, coinsTarget: 500000, partnerSlots: 4, ownerReward: 25000, partnerReward: 5000, totalReward: 45000 },
+        { level: 2, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 50000, partnerReward: 10000, totalReward: 90000 },
+        { level: 3, coinsTarget: 3000000, partnerSlots: 6, ownerReward: 150000, partnerReward: 25000, totalReward: 225000 },
+        { level: 4, coinsTarget: 5000000, partnerSlots: 7, ownerReward: 250000, partnerReward: 50000, totalReward: 450000 },
+        { level: 5, coinsTarget: 10000000, partnerSlots: 7, ownerReward: 500000, partnerReward: 100000, totalReward: 900000 },
+        { level: 6, coinsTarget: 20000000, partnerSlots: 7, ownerReward: 1000000, partnerReward: 200000, totalReward: 1800000 },
+        { level: 7, coinsTarget: 50000000, partnerSlots: 7, ownerReward: 2500000, partnerReward: 500000, totalReward: 4500000 },
+    ]
+};
+
+/** Seed default room support configs */
+exports.seedRoomSupportConfigs = functions.https.onRequest(async (req, res) => {
+    const configRef = db.collection("room_support_configs").doc("settings");
+    await configRef.set({
+        levels: ROOM_SUPPORT.levels,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    res.status(200).send({ success: true, message: "Room support configs seeded." });
+});
+
+/** Assign a salary partner (owner only, Mon-Tue only) */
+exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { roomId, partnerUid } = data;
+    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid required.");
+
+    return db.runTransaction(async (transaction) => {
+        const roomRef = db.collection("rooms").doc(roomId);
+        const roomSnap = await transaction.get(roomRef);
+        if (!roomSnap.exists) throw new HttpsError("not-found", "Room not found.");
+        const room = roomSnap.data();
+        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only room owner can assign partners.");
+
+        // Check day of week (Mon=1, Tue=2)
+        const dow = new Date().getDay();
+        if (dow !== 1 && dow !== 2) throw new HttpsError("failed-precondition", "Partner assignment only available Monday-Tuesday.");
+
+        // Load cycle to check level
+        const cycleRef = db.collection("room_support_cycles").doc(roomId);
+        const cycleSnap = await transaction.get(cycleRef);
+        const cycle = cycleSnap.exists ? cycleSnap.data() : { level: 1, totalCoins: 0, status: "accumulating" };
+        if (cycle.status !== "accumulating") throw new HttpsError("failed-precondition", "Cannot assign partners outside accumulation period.");
+
+        const levelConfig = ROOM_SUPPORT.levels[cycle.level - 1] || ROOM_SUPPORT.levels[0];
+        const maxSlots = levelConfig.partnerSlots;
+
+        // Count current partners
+        const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
+        const currentSlots = partnersSnap.size;
+        if (currentSlots >= maxSlots) throw new HttpsError("failed-precondition", `Max ${maxSlots} partners allowed at Level ${cycle.level}.`);
+
+        // Check partner not already assigned
+        const existingRef = db.collection("room_support_cycles").doc(roomId).collection("partners").doc(partnerUid);
+        const existingSnap = await transaction.get(existingRef);
+        if (existingSnap.exists) throw new HttpsError("already-exists", "User is already a partner.");
+
+        // Assign partner
+        transaction.set(existingRef, {
+            uid: partnerUid,
+            assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+            share: levelConfig.partnerReward
+        });
+
+        return { success: true, slot: currentSlots + 1, maxSlots };
+    });
+});
+
+/** Remove a salary partner */
+exports.removeRoomPartner = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { roomId, partnerUid } = data;
+    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid required.");
+
+    return db.runTransaction(async (transaction) => {
+        const roomRef = db.collection("rooms").doc(roomId);
+        const roomSnap = await transaction.get(roomRef);
+        if (!roomSnap.exists) throw new HttpsError("not-found", "Room not found.");
+        const room = roomSnap.data();
+        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only room owner can remove partners.");
+
+        const partnerRef = db.collection("room_support_cycles").doc(roomId).collection("partners").doc(partnerUid);
+        const partnerSnap = await transaction.get(partnerRef);
+        if (!partnerSnap.exists) throw new HttpsError("not-found", "Partner not found.");
+
+        transaction.delete(partnerRef);
+        return { success: true };
+    });
+});
+
+/** Weekly cycle lock (Sunday 23:59 UTC) — locks current week, calculates level achieved */
+exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').onRun(async (context) => {
+    const cyclesSnap = await db.collection("room_support_cycles").where("status", "==", "accumulating").get();
+    const now = Date.now();
+    const weekEnd = admin.firestore.Timestamp.fromMillis(now);
+    const weekStart = admin.firestore.Timestamp.fromMillis(now - 7 * 24 * 60 * 60 * 1000);
+    const roomNamesCache = {};
+
+    for (const doc of cyclesSnap.docs) {
+        const roomId = doc.id;
+        const data = doc.data();
+        let achievedLevel = 0;
+        const totalCoins = data.totalCoins || 0;
+
+        for (const lvl of ROOM_SUPPORT.levels) {
+            if (totalCoins >= lvl.coinsTarget) achievedLevel = lvl.level;
+        }
+
+        const ownerReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].ownerReward : 0;
+        const partnerReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].partnerReward : 0;
+        const totalReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].totalReward : 0;
+
+        try {
+            await db.runTransaction(async (transaction) => {
+                // 1. Write history entry
+                const historyRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc();
+                transaction.set(historyRef, {
+                    weekStart, weekEnd, totalCoins, achievedLevel,
+                    ownerReward, partnerReward, totalReward,
+                    distributionStatus: "pending", status: "closed"
+                });
+
+                // 2. Update cycle to closed
+                transaction.update(doc.ref, {
+                    status: "closed", achievedLevel, weekEnd,
+                    closedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 3. Clear partners for new cycle (owner must re-assign Mon-Tue)
+                const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
+                partnersSnap.forEach(pDoc => transaction.delete(pDoc.ref));
+
+                // 4. Update rankings
+                const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
+                const roomName = roomSnap.exists ? (roomSnap.data().name || "Room") : "Room";
+                const rankingRef = db.collection("room_support_rankings").doc("rankings").collection("rooms").doc(roomId);
+                transaction.set(rankingRef, {
+                    roomId, roomName, totalCoins,
+                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                });
+            });
+            console.log(`[ROOM_SUPPORT] Locked room ${roomId}: ${totalCoins} coins → Level ${achievedLevel}`);
+        } catch (err) {
+            console.error(`[ROOM_SUPPORT] Error locking room ${roomId}:`, err);
+        }
+    }
+
+    console.log(`[ROOM_SUPPORT] Locked ${cyclesSnap.size} weekly cycles.`);
+});
+
+/** Auto distribute rewards (Wednesday 00:00 UTC) */
+exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 0 * * 3').onRun(async (context) => {
+    const historiesSnap = await db.collectionGroup("weeks").where("distributionStatus", "==", "pending").get();
+    console.log(`[ROOM_SUPPORT] Found ${historiesSnap.size} pending distributions.`);
+
+    // Group by roomId
+    const byRoom = {};
+    for (const doc of historiesSnap.docs) {
+        const roomId = doc.ref.parent.parent?.id;
+        if (!roomId) continue;
+        if (!byRoom[roomId]) byRoom[roomId] = [];
+        byRoom[roomId].push({ id: doc.id, ref: doc.ref, data: doc.data() });
+    }
+
+    for (const [roomId, weeks] of Object.entries(byRoom)) {
+        try {
+            await db.runTransaction(async (transaction) => {
+                for (const week of weeks) {
+                    const data = week.data;
+                    if (!data.achievedLevel || data.achievedLevel === 0) {
+                        transaction.update(week.ref, { distributionStatus: "no_target_met" });
+                        continue;
+                    }
+
+                    const levelConfig = ROOM_SUPPORT.levels[data.achievedLevel - 1];
+                    if (!levelConfig) {
+                        transaction.update(week.ref, { distributionStatus: "invalid_level" });
+                        continue;
+                    }
+
+                    // Credit owner
+                    const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
+                    if (roomSnap.exists) {
+                        const ownerUid = roomSnap.data().ownerUid;
+                        if (ownerUid) {
+                            const ownerRef = db.collection("users").doc(ownerUid);
+                            transaction.update(ownerRef, {
+                                diamondBalance: admin.firestore.FieldValue.increment(levelConfig.ownerReward)
+                            });
+                        }
+                    }
+
+                    // Credit partners
+                    const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
+                    for (const partnerDoc of partnersSnap.docs) {
+                        const partnerUid = partnerDoc.data().uid;
+                        if (partnerUid) {
+                            const partnerRef = db.collection("users").doc(partnerUid);
+                            transaction.update(partnerRef, {
+                                diamondBalance: admin.firestore.FieldValue.increment(levelConfig.partnerReward)
+                            });
+                        }
+                    }
+
+                    // Mark distributed
+                    transaction.update(week.ref, {
+                        distributionStatus: "distributed",
+                        distributedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Reset cycle for new accumulation
+                    const cycleRef = db.collection("room_support_cycles").doc(roomId);
+                    transaction.set(cycleRef, {
+                        totalCoins: 0,
+                        level: 1,
+                        status: "accumulating",
+                        weekStart: admin.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                }
+            });
+            console.log(`[ROOM_SUPPORT] Distributed rewards for room ${roomId}.`);
+        } catch (e) {
+            console.error(`[ROOM_SUPPORT] Error distributing for room ${roomId}:`, e);
+        }
+    }
+});
+
+/**
+ * Server time endpoint for countdown sync — returns server timestamp to avoid clock drift.
+ */
+exports.getServerTime = functions.https.onCall(async (data, context) => {
+    const now = admin.firestore.Timestamp.now();
+    return { serverTime: now.toMillis() };
+});
+
+/**
+ * 999. Scheduled: VIP Expiry Check & Auto-Demotion
+ * Runs daily to demote expired VIP users and restore original state.
+ */
+exports.scheduledVIPExpiryCheck = functions.pubsub.schedule('0 0 * * *').onRun(async (context) => {
+    console.log("[VIP_EXPIRY_CRON] Checking for expired VIP users...");
+    const now = admin.firestore.Timestamp.now();
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const snapshot = await db.collection("users")
+        .where("vipTier", "!=", "none")
+        .where("vipExpiry", "<=", now)
+        .limit(500)
+        .get();
+
+    if (snapshot.empty) {
+        console.log("[VIP_EXPIRY_CRON] No expired VIP users found.");
+        return null;
+    }
+
+    console.log(`[VIP_EXPIRY_CRON] Found ${snapshot.size} expired VIP users to demote.`);
+    const results = [];
+
+    for (const doc of snapshot.docs) {
+        const userData = doc.data();
+        const userRef = db.collection("users").doc(doc.id);
+        const snapshotData = userData.vipSnapshot || {};
+
+        try {
+            const updates = {
+                vipTier: "none",
+                vipExpiry: admin.firestore.FieldValue.delete(),
+                vipSnapshot: admin.firestore.FieldValue.delete(),
+                profileFrame: snapshotData.originalProfileFrame || userData.profileFrame || "",
+                entryAnimation: snapshotData.originalEntryAnimation || userData.entryAnimation || "",
+                badgeIcon: snapshotData.originalBadgeIcon || userData.badgeIcon || ""
+            };
+
+            // Restore original helloId if it was changed for VIP
+            if (snapshotData.originalHelloId && userData.helloId !== snapshotData.originalHelloId) {
+                updates.helloId = snapshotData.originalHelloId;
+            }
+
+            await userRef.update(updates);
+
+            // Log expiry transaction
+            await userRef.collection("transactions").add({
+                type: "vip_expiry",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: `VIP ${userData.vipTier || ""} expired, account restored to normal state.`
+            });
+
+            results.push({ uid: doc.id, status: "demoted" });
+            console.log(`[VIP_EXPIRY_CRON] Demoted user ${doc.id} (was ${userData.vipTier})`);
+        } catch (err) {
+            console.error(`[VIP_EXPIRY_CRON] Error demoting user ${doc.id}:`, err);
+            results.push({ uid: doc.id, status: "error", error: err.message });
+        }
+    }
+
+    return { processed: results.length, details: results };
+});
+
+/**
+ * 1000. Claim VIP Daily Reward (Server-side)
+ * Validates VIP status, expiry, and claim state before crediting.
+ */
+exports.claimVIPDailyReward = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+
+    return db.runTransaction(async (transaction) => {
+        const userRef = db.collection("users").doc(uid);
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+        const userData = userDoc.data();
+        const vipTier = userData.vipTier || "none";
+        const vipExpiry = userData.vipExpiry;
+
+        // 1. Validate VIP active
+        if (vipTier === "none") {
+            throw new functions.https.HttpsError("failed-precondition", "Only VIP members can claim daily rewards.");
+        }
+
+        // 2. Validate VIP not expired
+        if (!vipExpiry) {
+            throw new functions.https.HttpsError("failed-precondition", "VIP has no expiry date set.");
+        }
+        const expiryDate = vipExpiry.toDate ? vipExpiry.toDate() : new Date(vipExpiry);
+        if (expiryDate < new Date()) {
+            throw new functions.https.HttpsError("failed-precondition", "VIP has expired. Renew to continue claiming rewards.");
+        }
+
+        // 3. Check not already claimed today (ISO format)
+        const now = new Date();
+        const todayStr = now.getFullYear() + "-" +
+            String(now.getMonth() + 1).padStart(2, "0") + "-" +
+            String(now.getDate()).padStart(2, "0");
+        const lastClaim = userData.lastVipClaim || "";
+        if (lastClaim === todayStr) {
+            throw new functions.https.HttpsError("already-exists", "Daily reward already claimed today!");
+        }
+
+        // 4. Exact tier matching for reward
+        let beanReward = 0;
+        const tierName = vipTier.toLowerCase().replace(/\s+/g, "");
+        if (tierName === "vip1") beanReward = 10;
+        else if (tierName === "vip2") beanReward = 30;
+        else if (tierName === "vip3") beanReward = 100;
+        else if (tierName === "vip4") beanReward = 500;
+        else if (tierName === "vip5") beanReward = 2000;
+        else if (tierName === "vip6") beanReward = 10000;
+        else if (tierName === "vip7") beanReward = 50000;
+        else if (tierName === "vip8") beanReward = 200000;
+        else if (tierName.includes("svip")) beanReward = 50000;
+        else throw new functions.https.HttpsError("failed-precondition", "Unknown VIP tier: " + vipTier);
+
+        // 5. Credit reward
+        transaction.update(userRef, {
+            beansBalance: admin.firestore.FieldValue.increment(beanReward),
+            lastVipClaim: todayStr
+        });
+
+        // 6. Log transaction
+        const txRef = userRef.collection("transactions").doc();
+        transaction.set(txRef, {
+            type: "reward",
+            amount: beanReward,
+            currency: "beans",
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: "Daily VIP Reward (" + vipTier + ")"
+        });
+
+        return { success: true, reward: beanReward, tier: vipTier };
+    });
+});
+
+/**
+ * 1001. Room Kick User with VIP Protection
+ * Checks target user's VIP status — VIP 7+ cannot be kicked.
+ */
+exports.roomKickUser = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = context.auth.uid;
+    const { roomId, targetUid, duration, reason } = data;
+
+    if (!roomId || !targetUid) {
+        throw new functions.https.HttpsError("invalid-argument", "roomId and targetUid are required.");
+    }
+
+    return db.runTransaction(async (transaction) => {
+        const roomRef = db.collection("rooms").doc(roomId);
+        const targetUserRef = db.collection("users").doc(targetUid);
+        const requesterParticipantRef = roomRef.collection("participants").doc(requesterUid);
+
+        const [roomDoc, targetUserDoc, requesterParticipantDoc] = await Promise.all([
+            transaction.get(roomRef),
+            transaction.get(targetUserRef),
+            transaction.get(requesterParticipantRef)
+        ]);
+
+        if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+        const roomData = roomDoc.data();
+
+        // Check requester is owner, admin, or moderator
+        const isOwner = roomData.ownerUid === requesterUid;
+        const isAdmin = roomData.admins && roomData.admins.includes(requesterUid);
+        const isModerator = roomData.moderators && roomData.moderators.includes(requesterUid);
+        const requesterTags = requesterParticipantDoc.exists ? (requesterParticipantDoc.data().tags || []) : [];
+        const isSuperAdmin = requesterTags.includes("SuperAdmin");
+
+        if (!isOwner && !isAdmin && !isModerator && !isSuperAdmin) {
+            throw new functions.https.HttpsError("permission-denied", "Only room owner, admins, or moderators can kick users.");
+        }
+
+        // VIP 7+ Kick Protection
+        if (targetUserDoc.exists) {
+            const targetData = targetUserDoc.data();
+            const targetVipTier = targetData.vipTier || "none";
+            const targetVipExpiry = targetData.vipExpiry;
+
+            const isVip7OrAbove = targetVipTier === "VIP 7" || targetVipTier === "VIP 8";
+            const isVipActive = targetVipExpiry !== null && targetVipExpiry !== undefined;
+
+            if (isVip7OrAbove && isVipActive) {
+                let stillActive = false;
+                if (targetVipExpiry.toDate) {
+                    stillActive = targetVipExpiry.toDate() > new Date();
+                } else {
+                    stillActive = new Date(targetVipExpiry) > new Date();
+                }
+
+                if (stillActive) {
+                    throw new functions.https.HttpsError(
+                        "permission-denied",
+                        targetVipTier + " users have kick protection and cannot be removed from rooms."
+                    );
+                }
+            }
+        }
+
+        // Compute ban expiry
+        let banExpiry = null;
+        const banDuration = typeof duration === 'number' && duration > 0 ? duration : null;
+        if (banDuration) {
+            banExpiry = admin.firestore.Timestamp.fromDate(new Date(Date.now() + banDuration * 60 * 1000));
+        }
+
+        // Perform kick
+        const participantRef = roomRef.collection("participants").doc(targetUid);
+        const banExpiriesUpdate = {};
+        banExpiriesUpdate[targetUid] = banExpiry;
+        transaction.update(roomRef, {
+            bannedUids: admin.firestore.FieldValue.arrayUnion([targetUid]),
+            banExpiries: banExpiriesUpdate
+        });
+        transaction.delete(participantRef);
+
+        // Log system message
+        const msgRef = roomRef.collection("messages").doc();
+        const targetParticipantDoc = await transaction.get(participantRef);
+        const targetName = targetParticipantDoc.exists
+            ? (targetParticipantDoc.data().displayName || "User")
+            : "User";
+        let msgText = targetName + " was removed from the room.";
+        if (reason) msgText += " Reason: " + reason;
+        if (banDuration) {
+            msgText += " (Banned for " + banDuration + " min)";
+        }
+        transaction.set(msgRef, {
+            uid: requesterUid,
+            text: msgText,
+            type: "system",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Log to room_kick_logs subcollection
+        const logRef = roomRef.collection("room_kick_logs").doc();
+        transaction.set(logRef, {
+            targetUid: targetUid,
+            targetName: targetName,
+            moderatorUid: requesterUid,
+            action: banDuration ? "ban" : "kick",
+            reason: reason || "",
+            banDuration: banDuration,
+            banExpiry: banExpiry,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true };
+    });
+});
+
+/**
+ * 1002. Room Unban User
+ * Removes a user from the room's banned list.
+ */
+exports.roomUnbanUser = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = context.auth.uid;
+    const { roomId, targetUid } = data;
+
+    if (!roomId || !targetUid) {
+        throw new functions.https.HttpsError("invalid-argument", "roomId and targetUid are required.");
+    }
+
+    const roomDoc = await db.collection("rooms").doc(roomId).get();
+    if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+    const roomData = roomDoc.data();
+
+    const isOwner = roomData.ownerUid === requesterUid;
+    const isAdmin = roomData.admins && roomData.admins.includes(requesterUid);
+    const requesterUserDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterTags = requesterUserDoc.exists ? (requesterUserDoc.data().tags || []) : [];
+    const isSuperAdmin = requesterTags.includes("SuperAdmin");
+
+    if (!isOwner && !isAdmin && !isSuperAdmin) {
+        throw new functions.https.HttpsError("permission-denied", "Only room owner or admins can unban users.");
+    }
+
+    const banExpiryDelete = {};
+    banExpiryDelete["banExpiries." + targetUid] = admin.firestore.FieldValue.delete();
+
+    await db.collection("rooms").doc(roomId).update({
+        bannedUids: admin.firestore.FieldValue.arrayRemove([targetUid]),
+        ...banExpiryDelete
+    });
+
+    return { success: true };
+});
+
+/**
+ * 1003. Auto-Unban Expired Bans (Cron)
+ * Runs every 5 minutes, checks all rooms with active bans,
+ * removes any where banExpiry has passed.
+ */
+exports.autoUnbanExpiredBans = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
+    console.log("[AUTO_UNBAN_CRON] Checking for expired bans...");
+    const now = admin.firestore.Timestamp.now();
+    let processed = 0;
+
+    const roomsSnapshot = await db.collection("rooms")
+        .where("bannedUids", "!=", [])
+        .limit(200)
+        .get();
+
+    if (roomsSnapshot.empty) {
+        console.log("[AUTO_UNBAN_CRON] No rooms with bans found.");
+        return null;
+    }
+
+    for (const roomDoc of roomsSnapshot.docs) {
+        const roomData = roomDoc.data();
+        const banExpiries = roomData.banExpiries || {};
+        const uidsToRemove = [];
+
+        for (const [uid, expiry] of Object.entries(banExpiries)) {
+            if (expiry && expiry.toDate) {
+                if (expiry.toDate() <= now.toDate()) {
+                    uidsToRemove.push(uid);
+                }
+            }
+        }
+
+        if (uidsToRemove.length > 0) {
+            try {
+                const roomRef = db.collection("rooms").doc(roomDoc.id);
+                const deleteFields = {};
+                for (const uid of uidsToRemove) {
+                    deleteFields["banExpiries." + uid] = admin.firestore.FieldValue.delete();
+                }
+                await roomRef.update({
+                    ...deleteFields,
+                    bannedUids: admin.firestore.FieldValue.arrayRemove(uidsToRemove)
+                });
+                processed += uidsToRemove.length;
+                console.log("[AUTO_UNBAN_CRON] Room " + roomDoc.id + ": unbanned " + uidsToRemove.length + " user(s)");
+            } catch (err) {
+                console.error("[AUTO_UNBAN_CRON] Error processing room " + roomDoc.id + ":", err);
+            }
+        }
+    }
+
+    console.log("[AUTO_UNBAN_CRON] Complete. Processed " + processed + " expired bans.");
+    return { processed: processed };
+});
+
+/**
+ * 1004. Claim VIP Daily Reward
+ * Checks user's VIP membership and credits diamonds and XP in a transaction.
+ */
+exports.claimVipDailyReward = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+        const userData = userDoc.data();
+        const vipTier = userData.vipTier || "none";
+        const vipExpiry = userData.vipExpiry;
+
+        // Verify active VIP
+        const now = new Date();
+        if (vipTier === "none" || !vipExpiry || vipExpiry.toDate() < now) {
+            throw new functions.https.HttpsError("failed-precondition", "Active VIP membership required.");
+        }
+
+        // Check lastDailyClaim date
+        const lastDailyClaim = userData.lastDailyClaim;
+        if (lastDailyClaim) {
+            const lastClaimDate = lastDailyClaim.toDate();
+            const lastClaimDay = Date.UTC(lastClaimDate.getFullYear(), lastClaimDate.getMonth(), lastClaimDate.getDate());
+            const currentDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+            if (lastClaimDay === currentDay) {
+                throw new functions.https.HttpsError("already-exists", "Daily reward already claimed today.");
+            }
+        }
+
+        // Calculate reward amounts
+        let diamonds = 50;
+        let xp = 10;
+        const tierName = vipTier.toLowerCase();
+        if (tierName.includes("vip 1") || tierName.includes("vip1")) {
+            diamonds = 100; xp = 10;
+        } else if (tierName.includes("vip 2") || tierName.includes("vip2")) {
+            diamonds = 300; xp = 25;
+        } else if (tierName.includes("vip 3") || tierName.includes("vip3")) {
+            diamonds = 800; xp = 50;
+        } else if (tierName.includes("vip 4") || tierName.includes("vip4")) {
+            diamonds = 2000; xp = 100;
+        } else if (tierName.includes("vip 5") || tierName.includes("vip5")) {
+            diamonds = 5000; xp = 200;
+        } else if (tierName.includes("vip 6") || tierName.includes("vip6")) {
+            diamonds = 10000; xp = 400;
+        } else if (tierName.includes("vip 7") || tierName.includes("vip7")) {
+            diamonds = 25000; xp = 1000;
+        }
+
+        transaction.update(userRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(diamonds),
+            xp: admin.firestore.FieldValue.increment(xp),
+            lastDailyClaim: admin.firestore.Timestamp.fromDate(now)
+        });
+
+        // Add a transaction record
+        const txRef = userRef.collection("transactions").doc();
+        transaction.set(txRef, {
+            type: "reward",
+            amount: diamonds,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: `Daily VIP Reward Claimed (${vipTier})`
+        });
+
+        return { success: true, diamonds, xp };
+    });
+});
+
+/**
+ * 1005. Refund VIP Subscriptions (Admin only)
+ * Calculates prorated amount, revokes membership, and reverts custom cosmetics.
+ */
+exports.refundVip = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const adminUid = context.auth.uid;
+    const adminDoc = await db.collection("users").doc(adminUid).get();
+    const tags = adminDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin permissions required.");
+    }
+
+    const { targetHelloId, reason } = data;
+    if (!targetHelloId) throw new functions.https.HttpsError("invalid-argument", "Target Hello ID required.");
+
+    const targetSnap = await db.collection("users").where("helloId", "==", parseInt(targetHelloId)).get();
+    if (targetSnap.empty) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+    const targetDoc = targetSnap.docs[0];
+    const targetUid = targetDoc.id;
+    const targetData = targetDoc.data();
+
+    const vipTier = targetData.vipTier || "none";
+    const vipExpiry = targetData.vipExpiry;
+    if (vipTier === "none" || !vipExpiry) {
+        throw new functions.https.HttpsError("failed-precondition", "Target user does not have an active VIP membership.");
+    }
+
+    // Calculate remaining days
+    const now = new Date();
+    const expiryDate = vipExpiry.toDate();
+    const diffTime = expiryDate.getTime() - now.getTime();
+    const remainingDays = Math.max(0, Math.min(30, Math.ceil(diffTime / (1000 * 60 * 60 * 24))));
+
+    if (remainingDays <= 0) {
+        throw new functions.https.HttpsError("failed-precondition", "VIP subscription has already expired.");
+    }
+
+    // Query vip_tiers to get original price
+    const tiersSnap = await db.collection("vip_tiers").where("name", "==", vipTier).get();
+    let originalPrice = 10000; // fallback
+    if (!tiersSnap.empty) {
+        originalPrice = tiersSnap.docs[0].data().monthlyPriceInDiamonds || 10000;
+    }
+
+    // 20% Net Cost was paid (80% credited immediately)
+    const netCostPaid = Math.floor(originalPrice * 0.20);
+    const refundAmount = Math.floor((netCostPaid * remainingDays) / 30);
+
+    return db.runTransaction(async (transaction) => {
+        const userRef = db.collection("users").doc(targetUid);
+
+        // Cancel any pending retention credits
+        const pendingSnap = await userRef.collection("pending_credits")
+            .where("type", "==", "vip_retention_bonus")
+            .where("status", "==", "pending")
+            .get();
+
+        pendingSnap.forEach((doc) => {
+            transaction.update(doc.ref, { status: "cancelled", cancelledAt: admin.firestore.Timestamp.fromDate(now) });
+        });
+
+        // Revert cosmetics from snapshot if available
+        const snapshot = targetData.vipSnapshot || {};
+        transaction.update(userRef, {
+            vipTier: snapshot.originalTier || "none",
+            vipExpiry: snapshot.originalExpiry || null,
+            profileFrame: snapshot.originalProfileFrame || "",
+            entryAnimation: snapshot.originalEntryAnimation || "",
+            badgeIcon: snapshot.originalBadgeIcon || "",
+            helloId: snapshot.originalHelloId || targetData.helloId,
+            vipSnapshot: null, // clear snapshot
+            diamondBalance: admin.firestore.FieldValue.increment(refundAmount)
+        });
+
+        // Log transaction
+        const txRef = userRef.collection("transactions").doc();
+        transaction.set(txRef, {
+            type: "refund",
+            amount: refundAmount,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: `Revoked ${vipTier} subscription. Pro-rated refund of ${refundAmount} diamonds credited (${remainingDays} days remaining).`
+        });
+
+        return { success: true, refundAmount, remainingDays, originalTier: snapshot.originalTier || "none" };
+    });
+});
+
+/**
+ * 🔍 Search Users by username or displayName
+ */
+exports.searchUsers = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const { query: searchQuery } = data;
+    if (!searchQuery || searchQuery.trim().length < 2) {
+        throw new functions.https.HttpsError("invalid-argument", "Search query must be at least 2 characters.");
+    }
+
+    const q = searchQuery.trim().toLowerCase();
+
+    const usernameSnap = await db.collection("users")
+        .where("username_lowercase", ">=", q)
+        .where("username_lowercase", "<=", q + "\uf8ff")
+        .limit(10)
+        .get();
+
+    const displayNameSnap = await db.collection("users")
+        .where("displayName_lowercase", ">=", q)
+        .where("displayName_lowercase", "<=", q + "\uf8ff")
+        .limit(5)
+        .get();
+
+    const seenUids = new Set();
+    const results = [];
+
+    for (const doc of [...usernameSnap.docs, ...displayNameSnap.docs]) {
+        if (seenUids.has(doc.id)) continue;
+        seenUids.add(doc.id);
+        const d = doc.data();
+        results.push({
+            uid: doc.id,
+            username: d.username || "",
+            displayName: d.displayName || "",
+            profilePhotoUrl: d.profilePhotoUrl || "",
+            gender: d.gender || "",
+            level: d.level || 0,
+        });
+    }
+
+    return { users: results.slice(0, 15) };
+});
+
+/**
+ * 👥 Send Friend Request
+ */
+exports.sendFriendRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const senderUid = context.auth.uid;
+    const { targetUid } = data;
+
+    if (!targetUid || targetUid === senderUid) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid target user.");
+    }
+
+    const targetDoc = await db.collection("users").doc(targetUid).get();
+    if (!targetDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+    const blocked = targetDoc.data().blockedUids || [];
+    if (blocked.includes(senderUid)) {
+        throw new functions.https.HttpsError("permission-denied", "You cannot send a request to this user.");
+    }
+
+    const requestId = `${senderUid}_${targetUid}`;
+    const existingReq = await db.collection("relationship_requests").doc(requestId).get();
+    if (existingReq.exists) {
+        throw new functions.https.HttpsError("already-exists", "Friend request already sent.");
+    }
+
+    const existingRelationship = await db.collection("relationships")
+        .where("participants", "array-contains", senderUid)
+        .where("status", "==", "active")
+        .where("type", "==", "friendship")
+        .get();
+
+    for (const doc of existingRelationship.docs) {
+        const parts = doc.data().participants || [];
+        if (parts.includes(targetUid)) {
+            throw new functions.https.HttpsError("already-exists", "Already friends with this user.");
+        }
+    }
+
+    const senderDoc = await db.collection("users").doc(senderUid).get();
+    const senderData = senderDoc.data();
+
+    await db.collection("relationship_requests").doc(requestId).set({
+        senderUid,
+        targetUid,
+        type: "friendship",
+        status: "pending",
+        senderName: senderData?.displayName || "Unknown",
+        senderAvatar: senderData?.profilePhotoUrl || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    try { await sendPush(targetUid, "Friend Request 👋", `${senderData?.displayName || "Someone"} wants to be your friend!`, { type: "FRIEND_REQUEST", requestId }); } catch (_) {}
+
+    return { success: true, requestId };
+});
+
+/**
+ * 👥 Accept Friend Request
+ */
+exports.acceptFriendRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const { requestId } = data;
+    const requestRef = db.collection("relationship_requests").doc(requestId);
+
+    return db.runTransaction(async (transaction) => {
+        const reqDoc = await transaction.get(requestRef);
+        if (!reqDoc.exists) throw new functions.https.HttpsError("not-found", "Request not found.");
+        const reqData = reqDoc.data();
+        const isAdmin = await isUserAdmin(context.auth.uid);
+        if (reqData.targetUid !== context.auth.uid && !isAdmin) {
+            throw new functions.https.HttpsError("permission-denied", "Only target can accept.");
+        }
+        if (reqData.status !== "pending") {
+            throw new functions.https.HttpsError("failed-precondition", "Request already processed.");
+        }
+
+        const senderRef = db.collection("users").doc(reqData.senderUid);
+        const targetRef = db.collection("users").doc(reqData.targetUid);
+
+        transaction.update(senderRef, { friendsCount: admin.firestore.FieldValue.increment(1) });
+        transaction.update(targetRef, { friendsCount: admin.firestore.FieldValue.increment(1) });
+
+        const relationshipId = `${reqData.senderUid}_${reqData.targetUid}`;
+        transaction.set(db.collection("relationships").doc(relationshipId), {
+            participants: [reqData.senderUid, reqData.targetUid],
+            type: "friendship",
+            status: "active",
+            intimacy: 0,
+            level: 1,
+            startedAt: admin.firestore.Timestamp.now(),
+            lastActivityAt: admin.firestore.Timestamp.now(),
+            intimacyBreakdown: { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }
+        });
+
+        transaction.update(requestRef, { status: "accepted" });
+
+        // Notify sender
+        const targetDoc = await db.collection("users").doc(reqData.targetUid).get();
+        const targetName = targetDoc.data()?.displayName || "Someone";
+        sendPush(reqData.senderUid, "Friend Request Accepted ✅", `${targetName} accepted your friend request!`, { type: "FRIEND_REQUEST_ACCEPTED", relationshipId });
+
+        return { success: true, relationshipId };
+    });
+});
+
+/**
+ * 👥 Reject Friend Request
+ */
+exports.rejectFriendRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const { requestId } = data;
+    const requestRef = db.collection("relationship_requests").doc(requestId);
+
+    return db.runTransaction(async (transaction) => {
+        const reqDoc = await transaction.get(requestRef);
+        if (!reqDoc.exists) throw new functions.https.HttpsError("not-found", "Request not found.");
+        const isAdmin = await isUserAdmin(context.auth.uid);
+        if (reqDoc.data().targetUid !== context.auth.uid && !isAdmin) {
+            throw new functions.https.HttpsError("permission-denied", "Only target can reject.");
+        }
+        transaction.update(requestRef, { status: "rejected" });
+
+        // Notify sender
+        const targetDoc = await db.collection("users").doc(reqDoc.data().targetUid).get();
+        const targetName = targetDoc.data()?.displayName || "Someone";
+        sendPush(reqDoc.data().senderUid, "Friend Request Rejected 💔", `${targetName} rejected your friend request.`, { type: "FRIEND_REQUEST_REJECTED" });
+
+        return { success: true };
+    });
+});
+
+/**
+ * 👥 Remove Friend
+ */
+exports.removeFriend = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { relationshipId } = data;
+
+    if (!relationshipId) throw new functions.https.HttpsError("invalid-argument", "relationshipId required.");
+
+    return db.runTransaction(async (transaction) => {
+        const relRef = db.collection("relationships").doc(relationshipId);
+        const relDoc = await transaction.get(relRef);
+        if (!relDoc.exists) throw new functions.https.HttpsError("not-found", "Relationship not found.");
+
+        const relData = relDoc.data();
+        const participants = relData.participants || [];
+        if (!participants.includes(uid)) {
+            throw new functions.https.HttpsError("permission-denied", "Not part of this relationship.");
+        }
+
+        transaction.update(relRef, { status: "ended", endedAt: admin.firestore.Timestamp.now() });
+
+        const otherUid = participants.find(p => p !== uid);
+        if (otherUid) {
+            transaction.update(db.collection("users").doc(uid), { friendsCount: admin.firestore.FieldValue.increment(-1) });
+            transaction.update(db.collection("users").doc(otherUid), { friendsCount: admin.firestore.FieldValue.increment(-1) });
+        }
+
+        return { success: true };
+    });
+});
+
+/**
+ * 💔 Dissolve CP Partnership
+ */
+exports.dissolveCP = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { relationshipId } = data;
+
+    if (!relationshipId) throw new functions.https.HttpsError("invalid-argument", "relationshipId required.");
+
+    return db.runTransaction(async (transaction) => {
+        const relRef = db.collection("relationships").doc(relationshipId);
+        const relDoc = await transaction.get(relRef);
+        if (!relDoc.exists) throw new functions.https.HttpsError("not-found", "Relationship not found.");
+
+        const relData = relDoc.data();
+        const participants = relData.participants || [];
+        if (!participants.includes(uid)) {
+            throw new functions.https.HttpsError("permission-denied", "Not part of this relationship.");
+        }
+
+        transaction.update(relRef, { status: "ended", endedAt: admin.firestore.Timestamp.now() });
+
+        for (const pUid of participants) {
+            transaction.update(db.collection("users").doc(pUid), {
+                partnerUid: admin.firestore.FieldValue.delete(),
+                partnerName: admin.firestore.FieldValue.delete(),
+                partnerAvatar: admin.firestore.FieldValue.delete(),
+                cpLevel: 0,
+                cpPoints: 0
+            });
+        }
+
+        // Notify partner about dissolution
+        const otherUid = participants.find(u => u !== uid);
+        if (otherUid) {
+            const actorDoc = await db.collection("users").doc(uid).get();
+            const actorName = actorDoc.data()?.displayName || "Your partner";
+            sendPush(otherUid, "Relationship Ended 💔", `${actorName} has dissolved the relationship.`, { type: "RELATIONSHIP_ENDED", relationshipId });
+        }
+
+        return { success: true };
+    });
+});
+
+/**
+ * 💕 Update Relationship Intimacy
+ */
+exports.updateIntimacy = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { relationshipId, source, points } = data;
+
+    if (!relationshipId || points == null || points <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "relationshipId and positive points required.");
+    }
+
+    const validSources = ["gift", "diamond", "activity"];
+    if (!validSources.includes(source)) {
+        throw new functions.https.HttpsError("invalid-argument", "Source must be gift, diamond, or activity.");
+    }
+
+    // Read dynamic level configs
+    const levelsSnap = await db.collection("relationship_levels").orderBy("level", "asc").get();
+    const levels = levelsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const levelThresholds = levels.map(l => l.minIntimacy || 0);
+    if (levelThresholds.length === 0) {
+        // Fallback defaults
+        levelThresholds.push(0, 1000, 5000, 20000);
+    }
+
+    return db.runTransaction(async (transaction) => {
+        const relRef = db.collection("relationships").doc(relationshipId);
+        const relDoc = await transaction.get(relRef);
+        if (!relDoc.exists) throw new functions.https.HttpsError("not-found", "Relationship not found.");
+
+        const relData = relDoc.data();
+        const participants = relData.participants || [];
+        if (!participants.includes(uid)) {
+            throw new functions.https.HttpsError("permission-denied", "Not part of this relationship.");
+        }
+        if (relData.status !== "active") {
+            throw new functions.https.HttpsError("failed-precondition", "Relationship is not active.");
+        }
+
+        const oldLevel = relData.level || 1;
+        const newIntimacy = (relData.intimacy || 0) + points;
+        let newLevel = 1;
+        for (let i = levelThresholds.length - 1; i >= 0; i--) {
+            if (newIntimacy >= levelThresholds[i]) { newLevel = i + 1; break; }
+        }
+        const newBreakdown = { ...(relData.intimacyBreakdown || { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }) };
+        newBreakdown[`${source}Points`] = (newBreakdown[`${source}Points`] || 0) + points;
+
+        transaction.update(relRef, {
+            intimacy: newIntimacy,
+            level: newLevel,
+            lastActivityAt: admin.firestore.Timestamp.now(),
+            intimacyBreakdown: newBreakdown
+        });
+
+        // Auto-grant rewards on level up
+        const rewardsGranted = relData.rewardsGranted || [];
+        const newlyGranted = [];
+        for (const lvl of levels) {
+            if (lvl.level <= newLevel && !rewardsGranted.includes(lvl.level)) {
+                newlyGranted.push(lvl.level);
+            }
+        }
+        if (newlyGranted.length > 0) {
+            transaction.update(relRef, {
+                rewardsGranted: admin.firestore.FieldValue.arrayUnion(newlyGranted)
+            });
+        }
+
+        for (const pUid of participants) {
+            if (relData.type === "cp") {
+                transaction.update(db.collection("users").doc(pUid), { cpPoints: newIntimacy, cpLevel: newLevel });
+            }
+        }
+
+        // Send level up notification
+        const levelChanged = newLevel > oldLevel && newlyGranted.length > 0;
+        if (levelChanged) {
+            const levelName = levels.find(l => l.level === newLevel)?.name || `Level ${newLevel}`;
+            for (const pUid of participants) {
+                const targetUid = participants.find(u => u !== pUid);
+                if (targetUid) {
+                    const partnerDoc = await db.collection("users").doc(targetUid).get();
+                    const partnerName = partnerDoc.data()?.displayName || "Your partner";
+                    const msg = relData.type === "cp"
+                        ? `💕 ${partnerName} — Your CP relationship reached ${levelName}!`
+                        : `👫 ${partnerName} — Your friendship reached ${levelName}!`;
+                    sendPush(pUid, "Relationship Level Up! 🎉", msg, { type: "RELATIONSHIP_LEVEL_UP", relationshipId, level: newLevel });
+                }
+            }
+        }
+
+        return { success: true, newIntimacy, newLevel, rewardsGranted: newlyGranted };
+    });
+});
+
+/**
+ * 🏆 Calculate Relationship Rankings (Admin callable)
+ */
+exports.calculateRelationshipRankings = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { period } = data;
+    const validPeriods = ["daily", "weekly", "monthly", "all_time"];
+    if (!validPeriods.includes(period)) {
+        throw new functions.https.HttpsError("invalid-argument", "Period must be daily, weekly, monthly, or all_time.");
+    }
+
+    const relationshipsSnap = await db.collection("relationships")
+        .where("status", "==", "active")
+        .get();
+
+    const ranked = relationshipsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => (b.intimacy || 0) - (a.intimacy || 0))
+        .slice(0, 100);
+
+    const batch = db.batch();
+
+    const existingRankings = await db.collection("relationship_rankings")
+        .where("period", "==", period)
+        .get();
+    for (const doc of existingRankings.docs) {
+        batch.delete(doc.ref);
+    }
+
+    ranked.forEach((rel, index) => {
+        const rankRef = db.collection("relationship_rankings").doc(`${period}_${rel.id}`);
+        batch.set(rankRef, {
+            relationshipId: rel.id,
+            participants: rel.participants || [],
+            intimacy: rel.intimacy || 0,
+            level: rel.level || 1,
+            period: period,
+            rank: index + 1,
+            calculatedAt: admin.firestore.Timestamp.now()
+        });
+    });
+
+    await batch.commit();
+    return { success: true, count: ranked.length, period };
+});
+
+/**
+ * ⏰ Scheduled: Calculate Daily Rankings (runs at midnight UTC)
+ */
+exports.resetDailyRelationshipRankings = functions.pubsub.schedule("0 0 * * *").onRun(async (context) => {
+    const relationshipsSnap = await db.collection("relationships")
+        .where("status", "==", "active")
+        .get();
+
+    const ranked = relationshipsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => (b.intimacy || 0) - (a.intimacy || 0))
+        .slice(0, 100);
+
+    const allRankings = await db.collection("relationship_rankings")
+        .where("period", "in", ["daily", "weekly", "monthly", "all_time"])
+        .get();
+
+    const batch = db.batch();
+    for (const doc of allRankings.docs) {
+        batch.delete(doc.ref);
+    }
+
+    for (const period of ["daily", "weekly", "monthly", "all_time"]) {
+        ranked.forEach((rel, index) => {
+            const rankRef = db.collection("relationship_rankings").doc(`${period}_${rel.id}`);
+            batch.set(rankRef, {
+                relationshipId: rel.id,
+                participants: rel.participants || [],
+                intimacy: rel.intimacy || 0,
+                level: rel.level || 1,
+                period: period,
+                rank: index + 1,
+                calculatedAt: admin.firestore.Timestamp.now()
+            });
+        });
+    }
+
+    await batch.commit();
+    console.log(`[RANKINGS] Daily rankings calculated for ${ranked.length} relationships.`);
+});
+
+/**
+ * 🌱 Seed Default Relationship Levels (Admin only)
+ */
+exports.seedRelationshipLevels = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data().tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    }
+
+    const levels = [
+        { level: 1, name: "Acquaintance", minIntimacy: 0, maxIntimacy: 999, badgeIcon: "handshake", rewards: [{ type: "badge", name: "Acquaintance Badge" }] },
+        { level: 2, name: "Friend", minIntimacy: 1000, maxIntimacy: 4999, badgeIcon: "star", rewards: [{ type: "badge", name: "Friend Badge" }] },
+        { level: 3, name: "Close Friend", minIntimacy: 5000, maxIntimacy: 19999, badgeIcon: "heart", rewards: [{ type: "badge", name: "Close Friend Badge" }, { type: "chat_bubble", name: "Friendship Bubble" }] },
+        { level: 4, name: "Best Friend", minIntimacy: 20000, maxIntimacy: 49999, badgeIcon: "sparkles", rewards: [{ type: "badge", name: "Best Friend Badge" }, { type: "frame", name: "Best Friend Frame" }] },
+        { level: 5, name: "Soulmate", minIntimacy: 50000, maxIntimacy: 999999, badgeIcon: "crown", rewards: [{ type: "badge", name: "Soulmate Badge" }, { type: "frame", name: "Soulmate Frame" }, { type: "entrance_effect", name: "Soulmate Entrance" }] },
+    ];
+
+    const batch = db.batch();
+    for (const lvl of levels) {
+        const ref = db.collection("relationship_levels").doc(`level_${lvl.level}`);
+        batch.set(ref, lvl);
+    }
+    await batch.commit();
+
+    return { success: true, count: levels.length };
+});
 

@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../../core/models/room_model.dart';
-import '../../../../core/services/room_service.dart';
+import 'package:hello_chat/core/models/room_model.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
 
 /// State class representing the PK battle.
 class PkBattleState {

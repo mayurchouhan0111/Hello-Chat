@@ -38,11 +38,13 @@ dependencies:
   # ── Animations & UI ─────────────────────────────────────
   lottie: ^3.1.0                    # Lottie animations for gifts/effects
   svgaplayer_flutter: ^2.1.0         # SVGA animation player
-  flutter_vap_plugin: ^0.1.6         # VAP animation player for high-end gifts
   flutter_animate: ^4.5.0           # Declarative animation toolkit
+  tancent_vap: ^1.0.0+1                # VAP animation player (Tencent VAP)
 
   # ── Images & Media ──────────────────────────────────────
   cached_network_image: ^3.3.1      # Image caching with placeholder
+  flutter_cache_manager: ^3.4.1     # Disk caching for animations
+  archive: ^3.6.1                   # Zip/ZLib compression for SVGA parser
   image_picker: ^1.0.7              # Profile photo / room cover upload
   # image_cropper: ^5.0.1             # Crop profile photos
 
@@ -55,7 +57,7 @@ dependencies:
 
   # ── Networking & Utils ───────────────────────────────────
   dio: ^5.4.3+1                     # HTTP client (for Agora token server)
-  # connectivity_plus: ^6.0.2         # Network connectivity status
+  connectivity_plus: ^6.0.2         # Network connectivity status
   # internet_connection_checker: ^1.0.0+1
 
   # ── Notifications ───────────────────────────────────────
@@ -81,6 +83,7 @@ dependencies:
   youtube_player_iframe: ^5.1.2
   youtube_explode_dart: ^2.2.2
   file_picker: ^8.0.7
+  url_launcher: ^6.2.6
 
 dev_dependencies:
   flutter_test:
@@ -124,8 +127,18 @@ flutter:
     - assets/animations/lottie/
     - assets/rocket/
     - assets/rocket/rocket_set_svga/
+    - assets/rocket/Rocket set SVGA/
     - assets/rocket/VAP/
+    - assets/animations/VAP/
     - assets/fonts/
     - assets/stickers/HotCherry-1779517555688/
     - assets/stickers/UtyaDuck-1779516899467/
     - assets/svga/
+    - assets/VIP/VIP 1/
+    - assets/VIP/VIP 2/VIP 2/
+    - assets/VIP/VIP 3/VIP 3/
+    - assets/VIP/VIP 4/VIP 4/
+    - assets/VIP/VIP 5/VIP 5/
+    - assets/VIP/VIP 6/VIP 6/
+    - assets/VIP/VIP 7/VIP 7/
+    - assets/VIP/VIP 8/VIP 8/

@@ -6,6 +6,8 @@ import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/models/vip_tier_model.dart';
 import 'package:hello_chat/core/providers/vip_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/services/gift_service.dart';
+import 'package:go_router/go_router.dart';
 
 // ── Color palette ──────────────────────────────────────────────────────────
 const _bg        = Color(0xFF080808);
@@ -98,7 +100,7 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
                   }).toList();
 
                   if (filtered.isEmpty) {
-                    const isAdmin = true;
+                    const isAdmin = false;
                     return SliverFillRemaining(
                       child: Center(
                         child: Column(
@@ -106,21 +108,21 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
                           children: [
                             const Text('No VIP Tiers available.',
                                 style: TextStyle(color: Colors.white38)),
-                            if (isAdmin) ...[
-                              const SizedBox(height: 16),
-                              _GoldButton(
-                                label: 'Seed VIP Tiers (Admin)',
-                                onTap: () async {
-                                  try {
-                                    await ref
-                                        .read(vipServiceProvider)
-                                        .feedSampleTiers();
-                                  } catch (e) {
-                                    debugPrint('Seed Error: $e');
-                                  }
-                                },
-                              ),
-                            ],
+                            // if (isAdmin) ...[
+                            //   const SizedBox(height: 16),
+                            //   _GoldButton(
+                            //     label: 'Seed VIP Tiers (Admin)',
+                            //     onTap: () async {
+                            //       try {
+                            //         await ref
+                            //             .read(vipServiceProvider)
+                            //             .feedSampleTiers();
+                            //       } catch (e) {
+                            //         debugPrint('Seed Error: $e');
+                            //       }
+                            //     },
+                            //   ),
+                            // ],
                           ],
                         ),
                       ),
@@ -129,6 +131,7 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
 
                   final userData = profileAsync.value;
                   final currentVip = (userData is UserModel) ? userData.vipTier : 'none';
+                  final remainingDays = (userData is UserModel) ? userData.vipRemainingDays : 0;
 
                   return SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 120),
@@ -141,6 +144,7 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
                             tier: tier,
                             index: index,
                             isActive: isActive,
+                            remainingDays: remainingDays,
                             onTap: () => _showPurchaseSheet(context, tier),
                           );
                         },
@@ -165,17 +169,167 @@ class _VIPShopScreenState extends ConsumerState<VIPShopScreen>
           ),
         ],
       ),
+      // floatingActionButton: FloatingActionButton.extended(
+      //   onPressed: () => _showDevSeedDialog(context),
+      //   backgroundColor: Colors.tealAccent,
+      //   icon: const Icon(Icons.science_rounded, color: Colors.black),
+      //   label: const Text("DEV SEED", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+      // ),
     );
   }
 
   void _showPurchaseSheet(BuildContext context, VIPTierModel tier) {
+    final profileAsync = ref.read(currentUserProfileProvider);
+    final userData = profileAsync.value;
+    final isActive = userData is UserModel && userData.vipTier.toLowerCase() == tier.name.toLowerCase();
+    final remainingDays = (userData is UserModel) ? userData.vipRemainingDays : 0;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => _VipPurchaseSheet(tier: tier),
+      builder: (_) => _VipPurchaseSheet(tier: tier, isActive: isActive, remainingDays: remainingDays),
     );
   }
+
+  // void _showDevSeedDialog(BuildContext context) {
+  //   showDialog(
+  //     context: context,
+  //     builder: (context) => AlertDialog(
+  //       backgroundColor: const Color(0xFF161616),
+  //       shape: RoundedRectangleBorder(
+  //         borderRadius: BorderRadius.circular(20),
+  //         side: const BorderSide(color: Colors.tealAccent, width: 0.5),
+  //       ),
+  //       title: const Row(
+  //         children: [
+  //           Icon(Icons.science_rounded, color: Colors.tealAccent),
+  //           SizedBox(width: 8),
+  //           Text("Admin Seeding Panel", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+  //         ],
+  //       ),
+  //       content: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         crossAxisAlignment: CrossAxisAlignment.stretch,
+  //         children: [
+  //           const Text("Populate Firebase Firestore with default system catalog items:", style: TextStyle(color: Colors.white70, fontSize: 13)),
+  //           const SizedBox(height: 16),
+  //           ElevatedButton.icon(
+  //             icon: const Icon(Icons.workspace_premium, color: Colors.black),
+  //             label: const Text("Seed VIP Tiers"),
+  //             onPressed: () async {
+  //               Navigator.pop(context);
+  //               try {
+  //                 await ref.read(vipServiceProvider).feedSampleTiers();
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("VIP Tiers Seeded!")));
+  //                 }
+  //               } catch (e) {
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+  //                 }
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+  //           ),
+  //           const SizedBox(height: 8),
+  //           ElevatedButton.icon(
+  //             icon: const Icon(Icons.military_tech, color: Colors.black),
+  //             label: const Text("Seed Noble Tiers"),
+  //             onPressed: () async {
+  //               Navigator.pop(context);
+  //               try {
+  //                 await ref.read(vipServiceProvider).feedNobleTiers();
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Noble Tiers Seeded!")));
+  //                 }
+  //               } catch (e) {
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+  //                 }
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+  //           ),
+  //           const SizedBox(height: 8),
+  //           ElevatedButton.icon(
+  //             icon: const Icon(Icons.storefront, color: Colors.black),
+  //             label: const Text("Seed Prestige Boutique"),
+  //             onPressed: () async {
+  //               Navigator.pop(context);
+  //               try {
+  //                 await ref.read(profileServiceProvider).feedPrestigeItems();
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Prestige Boutique Seeded!")));
+  //                 }
+  //               } catch (e) {
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+  //                 }
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+  //           ),
+  //           const SizedBox(height: 8),
+  //           ElevatedButton.icon(
+  //             icon: const Icon(Icons.card_giftcard, color: Colors.black),
+  //             label: const Text("Seed Sample Gifts"),
+  //             onPressed: () async {
+  //               Navigator.pop(context);
+  //               try {
+  //                 await ref.read(giftServiceProvider).feedSampleGifts();
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sample Gifts Seeded!")));
+  //                 }
+  //               } catch (e) {
+  //                 if (context.mounted) {
+  //                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+  //                 }
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent, foregroundColor: Colors.black),
+  //           ),
+  //           const SizedBox(height: 16),
+  //           const Divider(color: Colors.white24),
+  //           const SizedBox(height: 8),
+  //           ElevatedButton.icon(
+  //             icon: const Icon(Icons.done_all, color: Colors.white),
+  //             label: const Text("SEED ALL SYSTEM DATA"),
+  //             onPressed: () async {
+  //               Navigator.pop(context);
+  //               showDialog(
+  //                 context: context,
+  //                 barrierDismissible: false,
+  //                 builder: (context) => const Center(child: CircularProgressIndicator(color: Colors.tealAccent)),
+  //               );
+  //               try {
+  //                 await ref.read(vipServiceProvider).feedSampleTiers();
+  //                 await ref.read(vipServiceProvider).feedNobleTiers();
+  //                 await ref.read(profileServiceProvider).feedPrestigeItems();
+  //                 await ref.read(giftServiceProvider).feedSampleGifts();
+  //                 if (context.mounted) {
+  //                   Navigator.pop(context); // close loader
+  //                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Successfully seeded all system data!")));
+  //                 }
+  //               } catch (e) {
+  //                 if (context.mounted) {
+  //                   Navigator.pop(context); // close loader
+  //                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Failed seeding: $e")));
+  //                 }
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, foregroundColor: Colors.white),
+  //           ),
+  //         ],
+  //       ),
+  //       actions: [
+  //         TextButton(
+  //           onPressed: () => Navigator.pop(context),
+  //           child: const Text("CLOSE", style: TextStyle(color: Colors.white38)),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 }
 
 // ── Ambient Background ───────────────────────────────────────────────────────
@@ -456,6 +610,64 @@ class _HeroSection extends StatelessWidget {
                     _PerkPill(icon: Icons.star_rounded, label: 'Prestige'),
                   ],
                 ),
+                const SizedBox(height: 24),
+                Container(height: 0.5, color: Colors.white10),
+                const SizedBox(height: 16),
+                InkWell(
+                  onTap: () {
+                    context.push('/vip-rewards');
+                  },
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFE2A200), Color(0xFF9E6B00)],
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.stars_rounded, color: Colors.white, size: 24),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                "DAILY VIP REWARDS",
+                                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                              ),
+                              SizedBox(height: 2),
+                              Text(
+                                "Claim daily diamonds & XP bonuses",
+                                style: TextStyle(color: Colors.white70, fontSize: 10),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black26,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                "CLAIM",
+                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
+                              ),
+                              SizedBox(width: 4),
+                              Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 10),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -587,11 +799,13 @@ class _AnimatedVipCard extends StatefulWidget {
   final VIPTierModel tier;
   final int index;
   final bool isActive;
+  final int remainingDays;
   final VoidCallback onTap;
   const _AnimatedVipCard({
     required this.tier,
     required this.index,
     required this.isActive,
+    required this.remainingDays,
     required this.onTap,
   });
 
@@ -633,7 +847,7 @@ class _AnimatedVipCardState extends State<_AnimatedVipCard>
       opacity: _fade,
       child: SlideTransition(
         position: _slide,
-        child: VipCard(tier: widget.tier, onTap: widget.onTap, isActive: widget.isActive),
+        child: VipCard(tier: widget.tier, onTap: widget.onTap, isActive: widget.isActive, remainingDays: widget.remainingDays),
       ),
     );
   }
@@ -643,8 +857,9 @@ class _AnimatedVipCardState extends State<_AnimatedVipCard>
 class VipCard extends StatefulWidget {
   final VIPTierModel tier;
   final bool isActive;
+  final int remainingDays;
   final VoidCallback onTap;
-  const VipCard({super.key, required this.tier, required this.onTap, required this.isActive});
+  const VipCard({super.key, required this.tier, required this.onTap, required this.isActive, required this.remainingDays});
 
   @override
   State<VipCard> createState() => _VipCardState();
@@ -832,6 +1047,25 @@ class _VipCardState extends State<VipCard> with SingleTickerProviderStateMixin {
                               ),
                             ],
                           ),
+                          if (widget.isActive && widget.remainingDays > 0) ...[
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(6),
+                                color: Colors.green.withOpacity(0.15),
+                              ),
+                              child: Text(
+                                '${widget.remainingDays}d left',
+                                style: TextStyle(
+                                  color: Colors.green.shade400,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 10),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -874,6 +1108,21 @@ class _LevelBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String resolvedBadge = badgeIcon;
+    if (level >= 1 && level <= 8) {
+      resolvedBadge = _getVipBadgePath(level);
+    } else if (resolvedBadge.isNotEmpty) {
+      final lowerBadge = resolvedBadge.toLowerCase();
+      if (lowerBadge.startsWith('http') && lowerBadge.contains('vip/')) {
+        for (int i = 1; i <= 8; i++) {
+          if (lowerBadge.contains('vip%20$i/') || lowerBadge.contains('vip $i/')) {
+            resolvedBadge = _getVipBadgePath(i);
+            break;
+          }
+        }
+      }
+    }
+
     return Container(
       width: 52,
       height: 52,
@@ -885,15 +1134,23 @@ class _LevelBadge extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (badgeIcon.isNotEmpty)
+          if (resolvedBadge.isNotEmpty)
             ClipOval(
-              child: Image.network(
-                badgeIcon,
-                width: 40,
-                height: 40,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
-              ),
+              child: resolvedBadge.startsWith('http')
+                  ? Image.network(
+                      resolvedBadge,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
+                    )
+                  : Image.asset(
+                      resolvedBadge,
+                      width: 40,
+                      height: 40,
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
+                    ),
             )
           else
             Icon(Icons.workspace_premium_rounded, color: tint, size: 26),
@@ -965,7 +1222,9 @@ class _GoldSpinner extends StatelessWidget {
 // ── Purchase Sheet ────────────────────────────────────────────────────────────
 class _VipPurchaseSheet extends ConsumerStatefulWidget {
   final VIPTierModel tier;
-  const _VipPurchaseSheet({required this.tier});
+  final bool isActive;
+  final int remainingDays;
+  const _VipPurchaseSheet({required this.tier, this.isActive = false, this.remainingDays = 0});
 
   @override
   ConsumerState<_VipPurchaseSheet> createState() => _VipPurchaseSheetState();
@@ -1012,12 +1271,33 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
                   color: _gold.withOpacity(0.08),
                   border: Border.all(color: _gold.withOpacity(0.25)),
                 ),
-                child: widget.tier.badgeIcon.isNotEmpty 
-                    ? Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Image.network(widget.tier.badgeIcon, fit: BoxFit.contain),
-                      )
-                    : const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40),
+                child: () {
+                  String resolvedBadge = widget.tier.badgeIcon;
+                  final level = widget.tier.level;
+                  if (level >= 1 && level <= 8) {
+                    resolvedBadge = _getVipBadgePath(level);
+                  } else if (resolvedBadge.isNotEmpty) {
+                    final lowerBadge = resolvedBadge.toLowerCase();
+                    if (lowerBadge.startsWith('http') && lowerBadge.contains('vip/')) {
+                      for (int i = 1; i <= 8; i++) {
+                        if (lowerBadge.contains('vip%20$i/') || lowerBadge.contains('vip $i/')) {
+                          resolvedBadge = _getVipBadgePath(i);
+                          break;
+                        }
+                      }
+                    }
+                  }
+
+                  if (resolvedBadge.isNotEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: resolvedBadge.startsWith('http')
+                          ? Image.network(resolvedBadge, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40))
+                          : Image.asset(resolvedBadge, fit: BoxFit.contain, errorBuilder: (_, __, ___) => const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40)),
+                    );
+                  }
+                  return const Icon(Icons.workspace_premium_rounded, color: _gold, size: 40);
+                }(),
               ),
 
               const SizedBox(height: 16),
@@ -1042,6 +1322,44 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
                   letterSpacing: 0.5,
                 ),
               ),
+              if (widget.isActive && widget.remainingDays > 0) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.green.withOpacity(0.12),
+                    border: Border.all(color: Colors.green.withOpacity(0.2)),
+                  ),
+                  child: Text(
+                    '${widget.remainingDays} days remaining',
+                    style: const TextStyle(
+                      color: Colors.greenAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+              if (widget.isActive && widget.remainingDays <= 0) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    color: Colors.red.withOpacity(0.12),
+                    border: Border.all(color: Colors.red.withOpacity(0.2)),
+                  ),
+                  child: const Text(
+                    'Expired - Renew Now',
+                    style: TextStyle(
+                      color: Colors.redAccent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
 
               const SizedBox(height: 28),
 
@@ -1151,7 +1469,7 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                       )
                     : Text(
                         'Unlock Membership  ◈ ${widget.tier.monthlyPriceInDiamonds}',
@@ -1208,4 +1526,16 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
       }
     }
   }
+}
+
+String _getVipBadgePath(int level) {
+  if (level == 1) return 'assets/VIP/VIP 1/Badge.webp';
+  if (level == 2) return 'assets/VIP/VIP 2/VIP 2/Badge.png';
+  if (level == 3) return 'assets/VIP/VIP 3/VIP 3/Badge.webp';
+  if (level == 4) return 'assets/VIP/VIP 4/VIP 4/Badge.webp';
+  if (level == 5) return 'assets/VIP/VIP 5/VIP 5/Badge.png';
+  if (level == 6) return 'assets/VIP/VIP 6/VIP 6/Badge.webp';
+  if (level == 7) return 'assets/VIP/VIP 7/VIP 7/Badge.png';
+  if (level == 8) return 'assets/VIP/VIP 8/VIP 8/Badge.webp';
+  return '';
 }

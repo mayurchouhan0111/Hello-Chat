@@ -7,12 +7,12 @@
 const segments = [
     { "name": "hotdog", "multiplier": 10, "emoji": "🌭", "weight": 5, "category": "standard" },
     { "name": "skewer", "multiplier": 5, "emoji": "🍢", "weight": 10, "category": "standard" },
-    { "name": "meat", "multiplier": 25, "emoji": "🥩", "weight": 3, "category": "standard" },
+    { "name": "chicken", "multiplier": 25, "emoji": "🍗", "weight": 3, "category": "hot" },
     { "name": "pizza", "multiplier": 45, "emoji": "🍕", "weight": 1, "category": "pizza" },
-    { "name": "carrot", "multiplier": 5, "emoji": "🥕", "weight": 20, "category": "standard" },
-    { "name": "corn", "multiplier": 5, "emoji": "🌽", "weight": 20, "category": "standard" },
-    { "name": "salad", "multiplier": 5, "emoji": "🥗", "weight": 10, "category": "salad" },
-    { "name": "tomato", "multiplier": 5, "emoji": "🍅", "weight": 20, "category": "standard" }
+    { "name": "carrot", "multiplier": 5, "emoji": "🥕", "weight": 20, "category": "salad" },
+    { "name": "corn", "multiplier": 5, "emoji": "🌽", "weight": 20, "category": "salad" },
+    { "name": "cabbage", "multiplier": 5, "emoji": "🥬", "weight": 15, "category": "salad" },
+    { "name": "tomato", "multiplier": 5, "emoji": "🍅", "weight": 20, "category": "salad" }
 ];
 
 console.log("--- START OF JSON ---");

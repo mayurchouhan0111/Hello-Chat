@@ -8,7 +8,8 @@ import '../../../../core/providers/room_provider.dart';
 
 class AdminSearchScreen extends ConsumerStatefulWidget {
   final RoomModel room;
-  const AdminSearchScreen({super.key, required this.room});
+  final String initialRole; // "admin" or "moderator"
+  const AdminSearchScreen({super.key, required this.room, this.initialRole = 'admin'});
 
   @override
   ConsumerState<AdminSearchScreen> createState() => _AdminSearchScreenState();
@@ -62,20 +63,29 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
   void _addAdmin() async {
     if (_searchedUser == null) return;
 
-    if (widget.room.admins.length >= 12) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("A maximum of 12 administrators can be added")));
+    final isAdminRole = widget.initialRole == 'admin';
+    final list = isAdminRole ? widget.room.admins : widget.room.moderators;
+    final maxLimit = isAdminRole ? 12 : 999;
+
+    if (list.length >= maxLimit) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isAdminRole ? "Maximum 12 administrators" : "Maximum moderators reached")));
       return;
     }
 
-    if (widget.room.admins.contains(_searchedUser!.uid)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User is already an administrator")));
+    if (list.contains(_searchedUser!.uid)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is already a${isAdminRole ? 'n administrator' : ' moderator'}")));
       return;
     }
 
-    await ref.read(roomServiceProvider).addModerator(widget.room.roomId, _searchedUser!.uid);
+    if (isAdminRole) {
+      await ref.read(roomServiceProvider).addModerator(widget.room.roomId, _searchedUser!.uid);
+    } else {
+      await ref.read(roomServiceProvider).addRoomModerator(widget.room.roomId, _searchedUser!.uid);
+    }
+
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Administrator added successfully")));
-      Navigator.pop(context); // Go back
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isAdminRole ? "Administrator added" : "Moderator added")));
+      Navigator.pop(context);
     }
   }
 
@@ -173,7 +183,7 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
                           borderRadius: BorderRadius.circular(24),
                         ),
                         alignment: Alignment.center,
-                        child: const Text("Add", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: Text(widget.initialRole == 'admin' ? "Add Admin" : "Add Moderator", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                       ),
                     ),
                     const Gap(20),

@@ -35,7 +35,9 @@ android {
         multiDexEnabled = true
     }
 
-
+    aaptOptions {
+        noCompress("svga")
+    }
 
     buildTypes {
         release {

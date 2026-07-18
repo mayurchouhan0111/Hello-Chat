@@ -5,9 +5,13 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/providers/relationship_provider.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/models/relationship_model.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../../core/services/relationship_service.dart';
 
 class LoveHouseScreen extends ConsumerStatefulWidget {
   const LoveHouseScreen({super.key});
@@ -17,30 +21,127 @@ class LoveHouseScreen extends ConsumerStatefulWidget {
 }
 
 class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
-  final TextEditingController _uidController = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+
+  Future<void> _searchUsers(String query) async {
+    if (query.trim().length < 2) {
+      setState(() { _searchResults = []; _isSearching = false; });
+      return;
+    }
+    setState(() => _isSearching = true);
+    try {
+      final result = await ref.read(relationshipServiceProvider).searchUsers(query.trim());
+      setState(() => _searchResults = List<Map<String, dynamic>>.from(result['users'] as List? ?? []));
+    } catch (_) {
+      setState(() => _searchResults = []);
+    }
+    setState(() => _isSearching = false);
+  }
 
   void _showInviteDialog() {
+    _searchCtrl.clear();
+    _searchResults = [];
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1F1D2B),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text("INVITE PARTNER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
-        content: TextField(
-          controller: _uidController,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(hintText: "Enter UID", hintStyle: TextStyle(color: Colors.white24)),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("CANCEL")),
-          ElevatedButton(
-            onPressed: () async {
-              await ref.read(profileServiceProvider).sendCPInvite(_uidController.text.trim());
-              if (context.mounted) Navigator.pop(context);
-            },
-            child: const Text("SEND"),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: const Color(0xFF1F1D2B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text("INVITE PARTNER", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: _searchCtrl,
+                  onChanged: (v) async {
+                    if (v.trim().length < 2) {
+                      setDialogState(() => _searchResults = []);
+                      return;
+                    }
+                    try {
+                      final result = await ref.read(relationshipServiceProvider).searchUsers(v.trim());
+                      setDialogState(() => _searchResults = List<Map<String, dynamic>>.from(result['users'] as List? ?? []));
+                    } catch (_) {
+                      setDialogState(() => _searchResults = []);
+                    }
+                  },
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: "Search by username...",
+                    hintStyle: TextStyle(color: Colors.white24),
+                  ),
+                ),
+                if (_searchResults.isNotEmpty) ...[
+                  const Gap(12),
+                  SizedBox(
+                    height: 180,
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _searchResults.length,
+                      separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1),
+                      itemBuilder: (_, i) {
+                        final u = _searchResults[i];
+                        final isSelf = u['uid'] == ref.read(authStateProvider).value?.uid;
+                        return ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundImage: (u['profilePhotoUrl'] as String? ?? '').isNotEmpty
+                                ? CachedNetworkImageProvider(u['profilePhotoUrl'] as String)
+                                : null,
+                            child: (u['profilePhotoUrl'] as String? ?? '').isEmpty
+                                ? const Icon(Icons.person, color: Colors.white38, size: 16)
+                                : null,
+                          ),
+                          title: Text(u['displayName'] as String? ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                          subtitle: Text('@${u['username'] as String? ?? ''}', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                          trailing: isSelf
+                              ? const Text("You", style: TextStyle(color: Colors.white24, fontSize: 10))
+                              : SizedBox(
+                                  height: 28,
+                                  child: ElevatedButton(
+                                    onPressed: () async {
+                                      try {
+                                        await ref.read(relationshipServiceProvider).sendCPInvite(u['uid'] as String);
+                                        if (ctx.mounted) {
+                                          Navigator.pop(ctx);
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(content: Text("CP Invite sent!"), backgroundColor: Colors.green),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (ctx.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                                          );
+                                        }
+                                      }
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.pinkAccent,
+                                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                      elevation: 0,
+                                    ),
+                                    child: const Text("Invite", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 9)),
+                                  ),
+                                ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ],
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL")),
+          ],
+        ),
       ),
     );
   }
@@ -91,7 +192,10 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
                             _buildMiniMissionGrid(),
                             const Gap(24),
                             _buildPerkRow(),
-                            if (!isPaired) ...[
+                            if (isPaired) ...[
+                              const Gap(20),
+                              _buildDestructiveBtn("DISSOLVE PARTNERSHIP", () => _showDissolveDialog(user)),
+                            ] else ...[
                                const Gap(30),
                                _buildGoldActionBtn("SEARCH PARTNER", _showInviteDialog),
                             ],
@@ -176,7 +280,7 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
           CircleAvatar(backgroundColor: Colors.white10, backgroundImage: inv['senderAvatar'] != null ? CachedNetworkImageProvider(inv['senderAvatar']) : null, radius: 14, child: inv['senderAvatar'] == null ? const Icon(Icons.person, size: 14, color: Colors.white30) : null),
           const Gap(10),
           Expanded(child: Text("${inv['senderName'] ?? 'Someone'} is inviting you!", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11))),
-          GestureDetector(onTap: () => ref.read(profileServiceProvider).acceptCPInvite(inv['id']), child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.pinkAccent, borderRadius: BorderRadius.circular(8)), child: const Text("ACCEPT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 9)))),
+          GestureDetector(onTap: () => ref.read(relationshipServiceProvider).acceptCPInvite(inv['id']), child: Container(padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), decoration: BoxDecoration(color: Colors.pinkAccent, borderRadius: BorderRadius.circular(8)), child: const Text("ACCEPT", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 9)))),
         ],
       ),
     ).animate().fadeIn().slideY(begin: -0.2);
@@ -295,6 +399,60 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
 
   Widget _miniPerk(IconData icon, String label) {
     return Expanded(child: Container(height: 48, decoration: BoxDecoration(color: const Color(0xFF111111), borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(icon, color: Colors.pinkAccent, size: 14), const Gap(10), Text(label, style: const TextStyle(color: Colors.white54, fontWeight: FontWeight.w900, fontSize: 9))])));
+  }
+
+  void _showDissolveDialog(UserModel user) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1F1D2B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text("Dissolve Partnership?", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+        content: const Text("This will end your CP relationship. All shared progress and bonuses will be lost. This action cannot be undone.", style: TextStyle(color: Colors.white60, fontSize: 13)),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("CANCEL")),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              try {
+                final rels = await ref.read(relationshipServiceProvider).streamUserRelationships(user.uid, type: RelationshipType.cp).first;
+                if (rels.isNotEmpty) {
+                  await ref.read(relationshipServiceProvider).dissolveCP(rels.first.id);
+                }
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text("Partnership dissolved."), backgroundColor: Colors.orange),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                  );
+                }
+              }
+            },
+            child: const Text("DISSOLVE"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDestructiveBtn(String label, VoidCallback onTap) {
+    return SizedBox(
+      width: double.infinity, height: 50,
+      child: OutlinedButton(
+        onPressed: onTap,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.redAccent,
+          side: const BorderSide(color: Colors.redAccent, width: 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        ),
+        child: Text(label, style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 1.5)),
+      ),
+    );
   }
 
   Widget _buildGoldActionBtn(String label, VoidCallback onTap) {

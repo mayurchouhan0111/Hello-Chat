@@ -1,8 +1,6 @@
-import 'dart:async';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_vap_plugin/flutter_vap_plugin.dart';
+import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
+import 'package:hello_chat/core/utils/svga_parser_util.dart';
 
 class VapRocketTestOverlay extends StatefulWidget {
   final VoidCallback onComplete;
@@ -16,47 +14,41 @@ class VapRocketTestOverlay extends StatefulWidget {
   State<VapRocketTestOverlay> createState() => _VapRocketTestOverlayState();
 }
 
-class _VapRocketTestOverlayState extends State<VapRocketTestOverlay> {
-  // Initialize the controller
-  final FlutterVapController _vapController = FlutterVapController();
-  bool _isInitialized = false;
+class _VapRocketTestOverlayState extends State<VapRocketTestOverlay> with SingleTickerProviderStateMixin {
+  SVGAAnimationController? _controller;
+  bool _isLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        setState(() => _isInitialized = true);
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) _startPlayback();
-        });
-      }
-    });
+    _controller = SVGAAnimationController(vsync: this);
+    _loadAndPlay();
   }
 
-  Future<void> _startPlayback() async {
-    const vapPath = 'assets/rocket/VAP/1-c.mp4';
+  Future<void> _loadAndPlay() async {
     try {
-      // Copy to temp file to avoid native asset loading issues
-      final byteData = await DefaultAssetBundle.of(context).load(vapPath);
-      final bytes = byteData.buffer.asUint8List();
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/temp_test_vap.mp4');
-      await tempFile.writeAsBytes(bytes);
-
-      debugPrint("Test VAP copied to: ${tempFile.path}");
-
-      await _vapController.play(
-        path: tempFile.path,
-        sourceType: VapSourceType.file,
-        repeatCount: 1,
-      );
-    } catch (e) {
-      debugPrint("VAP Playback Error: $e");
+      final videoItem = await SvgaParserUtil.decodeSafeFromAssets('assets/rocket/Rocket set SVGA/1.3.svga');
       if (mounted) {
-        widget.onComplete();
+        setState(() {
+          _controller?.videoItem = videoItem;
+          _isLoaded = true;
+        });
+        _controller?.forward().whenComplete(() {
+          if (mounted) {
+            Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
+          }
+        });
       }
+    } catch (e) {
+      debugPrint("Test SVGA Error: $e");
+      if (mounted) widget.onComplete();
     }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
   }
 
   @override
@@ -68,30 +60,22 @@ class _VapRocketTestOverlayState extends State<VapRocketTestOverlay> {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          if (_isInitialized)
-            FlutterVapView(
-              controller: _vapController,
-              onVideoFinish: () {
-                debugPrint("VAP Animation Finished");
-                if (mounted) {
-                  Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
-                }
-              },
-              onFailed: (errorType, errorMsg) {
-                debugPrint("VAP Animation Failed: [$errorType] $errorMsg");
-                if (mounted) {
-                  widget.onComplete();
-                }
-              },
+          if (_isLoaded && _controller?.videoItem != null)
+            SizedBox(
+              width: MediaQuery.of(context).size.width,
+              height: MediaQuery.of(context).size.height,
+              child: SVGAImage(_controller!),
             ),
-          
+
           Positioned(
             bottom: 50,
             child: Row(
               children: [
                 ElevatedButton(
-                  onPressed: _startPlayback,
-                  child: const Text("Replay VAP"),
+                  onPressed: () {
+                    _controller?.forward(from: 0);
+                  },
+                  child: const Text("Replay SVGA"),
                 ),
                 const SizedBox(width: 20),
                 ElevatedButton(
@@ -105,7 +89,7 @@ class _VapRocketTestOverlayState extends State<VapRocketTestOverlay> {
           const Positioned(
             top: 100,
             child: Text(
-              "VAP ANIMATION TEST MODE",
+              "SVGA ANIMATION TEST MODE",
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 24,

@@ -16,6 +16,7 @@ import '../../../../providers/wallet_provider.dart';
 import '../../../../core/models/transaction_model.dart';
 import '../../../../core/models/user_model.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 
 class WalletScreen extends ConsumerStatefulWidget {
   const WalletScreen({super.key});
@@ -29,11 +30,23 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
   bool _isWalletExpanded = true;
 
   void _showWalletTopUpSheet(UserModel user) {
-    showModalBottomSheet(
+    showDialog(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _WalletTopUpSheet(user: user),
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFF97316))),
+        content: const Text(
+          "Direct wallet deposits are disabled until the payment gateway is fully integrated and certified in production.",
+          style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("OK", style: TextStyle(color: Color(0xFFF97316), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -88,33 +101,27 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
 
     if (confirmed != true) return;
 
-    final uid = user.uid;
-    final newWalletBalance = user.walletBalance - price;
-    final newDiamondBalance = user.diamondBalance + diamonds;
-
     try {
-      await ref.read(profileServiceProvider).updateProfileFields(uid, {
-        'walletBalance': newWalletBalance,
-        'diamondBalance': newDiamondBalance,
-      });
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFFF97316))),
+      );
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('transactions')
-          .add({
-        'type': 'purchase',
-        'amount': -diamonds,
-        'timestamp': FieldValue.serverTimestamp(),
-        'description': 'Paid \$${price.toStringAsFixed(2)} from Wallet for $diamonds Diamonds',
+      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('purchaseDiamondsWithWallet');
+      await callable.call({
+        'diamonds': diamonds,
+        'price': price,
       });
 
       if (mounted) {
+        Navigator.pop(context); // Close loading indicator
         _showSuccessDialog(diamonds);
         ref.refresh(currentUserProfileProvider);
       }
     } catch (e) {
       if (mounted) {
+        Navigator.pop(context); // Close loading indicator
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent));
       }
     }
@@ -740,25 +747,12 @@ class _WalletTopUpSheetState extends ConsumerState<_WalletTopUpSheet> {
     }
 
     setState(() => _isProcessing = true);
-    await Future.delayed(const Duration(seconds: 2));
 
     try {
-      final uid = widget.user.uid;
-      final newWalletBalance = widget.user.walletBalance + depositAmount;
-
-      await ref.read(profileServiceProvider).updateProfileFields(uid, {
-        'walletBalance': newWalletBalance,
-      });
-
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('transactions')
-          .add({
-        'type': 'recharge',
-        'amount': depositAmount.toInt(),
-        'timestamp': FieldValue.serverTimestamp(),
-        'description': 'Wallet Deposit: +\$${depositAmount.toStringAsFixed(2)} via $_paymentMethod',
+      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('simulateWalletTopUp');
+      await callable.call({
+        'amount': depositAmount,
+        'paymentMethod': _paymentMethod,
       });
 
       if (mounted) {

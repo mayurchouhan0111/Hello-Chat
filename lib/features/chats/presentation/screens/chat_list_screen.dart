@@ -5,6 +5,7 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/providers/chat_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
@@ -44,14 +45,15 @@ class ChatListScreen extends ConsumerWidget {
       ),
       body: chatsAsync.when(
         data: (chats) {
-          if (chats.isEmpty) return _buildEmptyState();
-
           return ListView.separated(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), // Standardized padding
-            itemCount: chats.length,
+            itemCount: chats.length + 1,
             separatorBuilder: (context, index) => const Gap(8), // Spacing instead of divider
             itemBuilder: (context, index) {
-              final chat = chats[index];
+              if (index == 0) {
+                return const _OfficialInboxRow();
+              }
+              final chat = chats[index - 1];
               final participants = chat['participants'] as List<dynamic>;
               final otherUid = participants.firstWhere((id) => id != currentUid);
               
@@ -248,6 +250,137 @@ class _ChatListItem extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _OfficialInboxRow extends ConsumerWidget {
+  const _OfficialInboxRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const SizedBox.shrink();
+
+    debugPrint("[INBOX_DEBUG] _OfficialInboxRow: UID=$uid, query=users/$uid/inbox_messages");
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('inbox_messages')
+          .orderBy('createdAt', descending: true)
+          .limit(1)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          debugPrint("[INBOX_DEBUG] _OfficialInboxRow stream error: ${snapshot.error}");
+          return const SizedBox.shrink();
+        }
+        final docs = snapshot.data?.docs ?? [];
+        final unreadCount = docs.where((d) => !(d.data()['read'] as bool? ?? false)).length;
+        final latestDoc = docs.firstOrNull;
+        
+        String latestText = "No new notifications";
+        DateTime latestTime = DateTime.now();
+        if (latestDoc != null) {
+          final data = latestDoc.data();
+          latestText = data['body'] ?? '';
+          final dynamic rawTime = data['createdAt'];
+          if (rawTime is Timestamp) latestTime = rawTime.toDate();
+        }
+
+        return InkWell(
+          onTap: () {
+            context.push('/inbox');
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                // 1. Icon Avatar (Special system badge/megaphone)
+                Container(
+                  width: 48, height: 48,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFE040FB), Color(0xFF00E5FF)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFE040FB).withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.campaign_rounded, color: Colors.white, size: 24),
+                ),
+                const Gap(14),
+                // 2. Content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "Official Messages",
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: Colors.black87),
+                      ),
+                      const Gap(4),
+                      Text(
+                        latestText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: unreadCount > 0 ? Colors.black87 : Colors.grey[500],
+                          fontWeight: unreadCount > 0 ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Gap(12),
+                // 3. Stats
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (latestDoc != null)
+                      Text(
+                        timeago.format(latestTime, locale: 'en_short'), 
+                        style: TextStyle(color: Colors.grey[400], fontSize: 10, fontWeight: FontWeight.w500)
+                      )
+                    else
+                      const SizedBox.shrink(),
+                    const Gap(6),
+                    if (unreadCount > 0)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE24B4A),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          "$unreadCount", 
+                          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)
+                        ),
+                      )
+                    else
+                      const SizedBox(height: 16),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

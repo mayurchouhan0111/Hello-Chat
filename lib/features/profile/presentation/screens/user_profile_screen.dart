@@ -43,7 +43,7 @@ class UserProfileScreen extends ConsumerWidget {
                       Text("@${userData.username}", style: TextStyle(color: Colors.grey[500], fontSize: 14)),
                       const Gap(16),
                       
-                      _buildUserBadges(userData),
+                      _buildUserBadges(context, userData),
                       const Gap(24),
                       
                       // Stats
@@ -158,7 +158,7 @@ class UserProfileScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildUserBadges(UserModel userData) {
+  Widget _buildUserBadges(BuildContext context, UserModel userData) {
     final rawBadges = getBadgesForUser(userData);
     if (rawBadges.isEmpty) return const SizedBox.shrink();
 

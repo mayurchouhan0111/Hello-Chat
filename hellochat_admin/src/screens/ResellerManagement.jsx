@@ -329,7 +329,7 @@ export const ResellerManagement = () => {
                                                 <td className="px-8 py-6">
                                                     <div className="flex items-center gap-2">
                                                         <Diamond size={14} className="text-indigo-400" />
-                                                        <p className="font-black text-slate-300 uppercase tracking-widest">{reseller.diamondBalance || 0}</p>
+                                                        <p className="font-black text-slate-300 uppercase tracking-widest">{reseller.diamondStock || 0}</p>
                                                     </div>
                                                 </td>
                                                 <td className="px-8 py-6">

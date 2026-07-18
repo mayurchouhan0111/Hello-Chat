@@ -5,10 +5,12 @@ import 'package:gap/gap.dart';
 import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import 'package:audioplayers/audioplayers.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/providers/game_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
+import '../../../../core/utils/app_persistent_cache.dart';
 
 class LuckyDrawScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -27,6 +29,8 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   
   // For sphere animation
   late AnimationController _sphereController;
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  final Map<String, String> _localSoundPaths = {};
 
   @override
   void initState() {
@@ -35,19 +39,62 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       vsync: this,
       duration: const Duration(seconds: 10),
     )..repeat();
+    _precacheSounds();
+  }
+
+  void _precacheSounds() async {
+    try {
+      final urls = [
+        "https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav",
+        "https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav",
+        "https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav",
+        "https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav"
+      ];
+      for (final url in urls) {
+        final file = await AppPersistentCache.getFile(url);
+        _localSoundPaths[url] = file.path;
+      }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _sphereController.dispose();
+    _audioPlayer.dispose();
     super.dispose();
+  }
+
+  void _playSound(String url) async {
+    try {
+      await _audioPlayer.stop();
+      final cachedPath = _localSoundPaths[url];
+      if (cachedPath != null) {
+        await _audioPlayer.play(DeviceFileSource(cachedPath));
+      } else {
+        final file = await AppPersistentCache.getFile(url);
+        _localSoundPaths[url] = file.path;
+        await _audioPlayer.play(DeviceFileSource(file.path));
+      }
+    } catch (_) {}
   }
 
   void _play() async {
     if (_isDrawing) return;
 
+    final balance = ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
+    final cost = _selectedTickets * 100;
+    if (balance < cost) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Insufficient Diamonds")),
+      );
+      return;
+    }
+
     setState(() => _isDrawing = true);
-    HapticFeedback.heavyImpact();
+    // HapticFeedback.heavyImpact();
+
+    // Play rolling suspense sound
+    _playSound("https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav");
 
     try {
       // Simulate real draw delay for drama
@@ -59,12 +106,20 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       if (result == null) throw Exception("No result from server");
 
       if (mounted) {
+        // Play result sound
+        if (result.multiplier > 0) {
+          _playSound("https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav"); // Win/Jackpot
+        } else {
+          _playSound("https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav"); // Loss/Consolation
+        }
+
         _showResult(result);
         setState(() => _isDrawing = false);
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isDrawing = false);
+        _audioPlayer.stop(); // Stop audio if error occurs
         
         String errorMessage = "An error occurred. Please try again.";
         final errorStr = e.toString();
@@ -79,6 +134,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   }
 
   void _showResult(dynamic result) {
+    bool dialogOpen = true;
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -133,12 +189,27 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
           ),
         );
       },
-    );
+    ).then((_) {
+      dialogOpen = false;
+    });
+
+    // Automatically close the dialog after 5 seconds
+    Future.delayed(const Duration(seconds: 5), () {
+      if (dialogOpen && mounted) {
+        Navigator.of(context).pop();
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final balance = ref.watch(currentUserProfileProvider).value?.diamondBalance ?? 0;
+    final balance = ref.watch(currentUserProfileProvider.select((u) => u.value?.diamondBalance ?? 0));
+    final luckyDrawSettingsAsync = ref.watch(luckyDrawSettingsProvider);
+    final livePrizePool = luckyDrawSettingsAsync.when(
+      data: (settings) => (settings['currentPrizePool'] as num?)?.toDouble() ?? 1250450.0,
+      loading: () => 1250450.0,
+      error: (_, __) => 1250450.0,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0F1C),
@@ -235,7 +306,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                             const Icon(Icons.diamond, color: Color(0xFFFFD700), size: 30),
                             const Gap(12),
                             Text(
-                              _prizePool.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},'),
+                              livePrizePool.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},'),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 44,
@@ -379,21 +450,34 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   Widget _buildTicketChip(int count) {
     bool isSelected = _selectedTickets == count;
     return GestureDetector(
-      onTap: () {
-        HapticFeedback.selectionClick();
+      onTap: _isDrawing ? null : () {
+        // HapticFeedback.selectionClick();
+        _playSound("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
         setState(() => _selectedTickets = count);
       },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.05),
+          color: isSelected 
+              ? const Color(0xFF00E5FF) 
+              : (_isDrawing ? Colors.white.withOpacity(0.02) : Colors.white.withOpacity(0.05)),
           borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: isSelected ? Colors.white38 : Colors.white10),
+          border: Border.all(
+            color: isSelected 
+                ? Colors.white38 
+                : (_isDrawing ? Colors.white.withOpacity(0.02) : Colors.white10),
+          ),
         ),
         child: Text(
           "x$count",
-          style: TextStyle(color: isSelected ? Colors.white : Colors.white54, fontWeight: FontWeight.bold, fontSize: 16),
+          style: TextStyle(
+            color: isSelected 
+                ? Colors.white 
+                : (_isDrawing ? Colors.white24 : Colors.white54),
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
         ),
       ),
     );
