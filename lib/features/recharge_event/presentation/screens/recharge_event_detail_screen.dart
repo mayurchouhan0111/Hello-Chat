@@ -4,8 +4,10 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../../../core/providers/recharge_event_provider.dart';
+import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/router/app_router.dart';
 
 class RechargeEventDetailScreen extends ConsumerStatefulWidget {
@@ -18,6 +20,9 @@ class RechargeEventDetailScreen extends ConsumerStatefulWidget {
 class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailScreen> {
   late final WebViewController _controller;
   bool _isInitialized = false;
+  bool _pageLoaded = false;
+  int _lastRecharge = -1;
+  List<Map<String, dynamic>> _lastPackages = [];
 
   @override
   void initState() {
@@ -29,6 +34,10 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
     _controller.setNavigationDelegate(NavigationDelegate(
       onNavigationRequest: (nav) {
         return NavigationDecision.navigate;
+      },
+      onPageFinished: (url) {
+        setState(() => _pageLoaded = true);
+        _injectData();
       },
     ));
 
@@ -45,7 +54,14 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
     );
   }
 
-  void _loadUrl(String eventId, String? customWebUrl) {
+  void _injectData() {
+    if (!_pageLoaded) return;
+    final pkgsJson = jsonEncode(_lastPackages);
+    _controller.runJavaScript("window.setUserData({ recharge: $_lastRecharge });");
+    _controller.runJavaScript("window.setEventPackages($pkgsJson);");
+  }
+
+  void _loadUrl(String eventId, String? customWebUrl, int userRecharge) {
     if (_isInitialized) return;
     _isInitialized = true;
 
@@ -54,7 +70,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
       final uri = Uri.parse(customWebUrl);
       final queryParams = Map<String, String>.from(uri.queryParameters);
       queryParams['eventId'] = eventId;
-      queryParams['recharge'] = '45'; // Hook user progress dynamics
+      queryParams['recharge'] = userRecharge.toString(); // Hook user progress dynamics
       finalUrl = uri.replace(queryParameters: queryParams).toString();
     } else {
       // Local development fallback to Vite dev server port 5173
@@ -62,7 +78,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
       if (!kIsWeb && Platform.isAndroid) {
         baseUrl = 'http://10.0.2.2:5173/premium_event/';
       }
-      finalUrl = '$baseUrl?eventId=$eventId&recharge=45';
+      finalUrl = '$baseUrl?eventId=$eventId&recharge=$userRecharge';
     }
 
     _controller.loadRequest(Uri.parse(finalUrl));
@@ -71,6 +87,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   @override
   Widget build(BuildContext context) {
     final eventAsync = ref.watch(activeRechargeEventProvider);
+    final userProfileAsync = ref.watch(currentUserProfileProvider);
 
     return Scaffold(
       backgroundColor: const Color(0xFF120C06),
@@ -92,7 +109,23 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
             }
             final eventId = event['id'] as String;
             final customWebUrl = event['webUrl'] as String?;
-            _loadUrl(eventId, customWebUrl);
+            
+            final userRecharge = userProfileAsync.value?.monthlyRecharge ?? 0;
+            
+            // Watch active event packages dynamically
+            final packagesAsync = ref.watch(rechargeEventPackagesProvider(eventId));
+            final packages = packagesAsync.value ?? [];
+
+            // Update cached states and inject if changed
+            if (userRecharge != _lastRecharge || !listEquals(packages, _lastPackages)) {
+              _lastRecharge = userRecharge;
+              _lastPackages = packages;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _injectData();
+              });
+            }
+            
+            _loadUrl(eventId, customWebUrl, userRecharge);
 
             return Stack(
               children: [

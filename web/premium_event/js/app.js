@@ -203,3 +203,32 @@ class PremiumRechargeEventApp {
 // Instantiate and start
 const app = new PremiumRechargeEventApp();
 window.addEventListener('DOMContentLoaded', () => app.init());
+
+// Real-time integration hooks from Flutter WebView
+window.setEventPackages = (packages) => {
+  if (!packages || !Array.isArray(packages)) return;
+  const mapped = packages.map(pkg => ({
+    rechargeAmount: pkg.rechargeAmount,
+    baseCoins: (pkg.baseCoins || 0).toLocaleString(),
+    bonusCoins: (pkg.bonusCoins || 0).toLocaleString(),
+    totalCoins: (pkg.totalCoins || 0).toLocaleString()
+  }));
+  if (app) {
+    if (!app.configData) app.configData = {};
+    app.configData.packages = mapped;
+    app.bindPackagesTable();
+  }
+};
+
+window.setUserData = (data) => {
+  if (!data) return;
+  if (app) {
+    if (!app.configData) app.configData = {};
+    if (!app.configData.userProgress) app.configData.userProgress = {};
+    
+    if (data.recharge !== undefined) {
+      app.configData.userProgress.currentRecharge = parseFloat(data.recharge);
+      app.bindProgressTracker();
+    }
+  }
+};
