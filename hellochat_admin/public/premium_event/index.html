@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Premium Recharge Rebate Event</title>
+  <title>Premium Recharge Rebate Event</title><!-- v1.0.2 -->
   
   <!-- Premium Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -14,6 +14,29 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/animations.css">
   <link rel="stylesheet" href="css/responsive.css">
+
+  <!-- Interactive WebView & IFrame Navigation Bridge -->
+  <script>
+    function handleRechargeClick() {
+      if (typeof FlutterApp !== 'undefined') {
+        FlutterApp.postMessage('recharge');
+      } else if (window.parent && window.parent !== window) {
+        window.parent.postMessage('recharge', '*');
+      } else {
+        alert('Redirecting to wallet...');
+      }
+    }
+    
+    function handleBackClick() {
+      if (typeof FlutterApp !== 'undefined') {
+        FlutterApp.postMessage('back');
+      } else if (window.parent && window.parent !== window) {
+        window.parent.postMessage('back', '*');
+      } else {
+        alert('Back clicked');
+      }
+    }
+  </script>
 </head>
 <body>
 
@@ -22,7 +45,7 @@
     
     <!-- Header Navigation bar with return link -->
     <header class="top-navigation">
-      <div class="back-btn" onclick="if(window.parent) window.parent.postMessage('back', '*'); else alert('Back clicked');">
+      <div class="back-btn" onclick="handleBackClick();">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M15 19L8 12L15 5" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
@@ -51,7 +74,7 @@
         </div>
 
         <!-- Call to action button with gloss reflection -->
-        <button class="recharge-btn" onclick="if(window.parent) window.parent.postMessage('recharge', '*'); else alert('Redirecting to wallet...');">
+        <button class="recharge-btn" onclick="handleRechargeClick();">
           Go to recharge
         </button>
 
@@ -324,7 +347,7 @@
         <span class="footer-label">Current Offer</span>
         <span class="footer-value" id="footer-ratio-val">1 $ = 3M Coins</span>
       </div>
-      <button class="footer-btn" onclick="if(window.parent) window.parent.postMessage('recharge', '*'); else alert('Redirecting to wallet...');">
+      <button class="footer-btn" onclick="handleRechargeClick();">
         Recharge Now
       </button>
     </footer>
