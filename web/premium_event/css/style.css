@@ -467,7 +467,9 @@ body {
   width: 100%;
   margin-top: 15px;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid #4a331a;
   box-shadow: 0 4px 10px rgba(0,0,0,0.4);
 }

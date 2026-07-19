@@ -1,7 +1,21 @@
 /* RESPONSIVE.CSS - MOBILE-FIRST MEDIA QUERIES */
 
-/* For smaller screen viewports (phones under 360px wide) */
-@media screen and (max-width: 360px) {
+/* For mobile screen viewports (phones under 480px wide) */
+@media screen and (max-width: 480px) {
+  body {
+    display: block;
+    padding: 0;
+    min-height: 100vh;
+  }
+
+  .app-viewport {
+    border: none;
+    border-radius: 0;
+    min-height: 100vh;
+    box-shadow: none;
+    padding-bottom: 80px; /* space for footer */
+  }
+
   .event-title {
     font-size: 28px;
     margin-top: 10px;
