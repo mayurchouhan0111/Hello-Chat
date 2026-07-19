@@ -468,6 +468,18 @@ export const SystemSettings = () => {
                                value={banner.imageUrl} onChange={e => updateBanner(banner.id, 'imageUrl', e.target.value)}
                              />
                           </div>
+                          <div className="relative">
+                             <input 
+                               placeholder="BANNER TITLE (optional overlay)" className="glass-input-sm w-full pl-3" 
+                               value={banner.title || ''} onChange={e => updateBanner(banner.id, 'title', e.target.value)}
+                             />
+                          </div>
+                          <div className="relative">
+                             <input 
+                               placeholder="BUTTON TEXT (leave empty to hide)" className="glass-input-sm w-full pl-3" 
+                               value={banner.buttonText || ''} onChange={e => updateBanner(banner.id, 'buttonText', e.target.value)}
+                             />
+                          </div>
                            <div className="relative">
                               <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-700" size={14} />
                               <input 
