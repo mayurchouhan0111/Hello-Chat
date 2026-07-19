@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/providers/recharge_event_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/router/app_router.dart';
@@ -25,10 +26,16 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   // Local cache states to detect changes
   int _lastRecharge = -1;
   List<Map<String, dynamic>> _lastPackages = [];
+  String _lastTitle = '';
+  String _lastDescription = '';
+  String _lastEndDateStr = '';
   
   // Track actual injected values to prevent redundant loops & OOM crashes
   int _lastInjectedRecharge = -1;
   String _lastInjectedPackagesJson = '';
+  String _lastInjectedTitle = '';
+  String _lastInjectedDescription = '';
+  String _lastInjectedEndDateStr = '';
 
   @override
   void initState() {
@@ -74,6 +81,23 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
     if (pkgsJson != _lastInjectedPackagesJson) {
       _lastInjectedPackagesJson = pkgsJson;
       _controller.runJavaScript("if (window.setEventPackages) window.setEventPackages($pkgsJson);");
+    }
+
+    // 3. Inject event meta data dynamically (Title, Description, EndDate) from active Firestore document
+    if (_lastTitle != _lastInjectedTitle || 
+        _lastDescription != _lastInjectedDescription || 
+        _lastEndDateStr != _lastInjectedEndDateStr) {
+      _lastInjectedTitle = _lastTitle;
+      _lastInjectedDescription = _lastDescription;
+      _lastInjectedEndDateStr = _lastEndDateStr;
+      
+      final metaData = {
+        'title': _lastTitle,
+        'description': _lastDescription,
+        'endDate': _lastEndDateStr
+      };
+      final metaJson = jsonEncode(metaData);
+      _controller.runJavaScript("if (window.setEventMetaData) window.setEventMetaData($metaJson);");
     }
   }
 
@@ -132,6 +156,17 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
             final packagesAsync = ref.watch(rechargeEventPackagesProvider(eventId));
             final packages = packagesAsync.value ?? [];
 
+            final title = event['title'] as String? ?? '';
+            final description = event['description'] as String? ?? '';
+            
+            String endDateStr = '';
+            final endDateVal = event['endDate'];
+            if (endDateVal is Timestamp) {
+              endDateStr = endDateVal.toDate().toUtc().toIso8601String();
+            } else if (endDateVal is String) {
+              endDateStr = endDateVal;
+            }
+
             // Detect actual deep content updates
             bool hasChanged = false;
             if (userRecharge != _lastRecharge) {
@@ -143,6 +178,13 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
             final lastPkgsJson = jsonEncode(_lastPackages);
             if (pkgsJson != lastPkgsJson) {
               _lastPackages = packages;
+              hasChanged = true;
+            }
+
+            if (title != _lastTitle || description != _lastDescription || endDateStr != _lastEndDateStr) {
+              _lastTitle = title;
+              _lastDescription = description;
+              _lastEndDateStr = endDateStr;
               hasChanged = true;
             }
 

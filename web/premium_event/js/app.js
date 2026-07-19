@@ -157,7 +157,14 @@ class PremiumRechargeEventApp {
 
   initializeCountdown() {
     if (!this.configData || !this.configData.endDate) return;
-    new LiveCountdownTimer(this.configData.endDate);
+    this.countdown = new LiveCountdownTimer(this.configData.endDate);
+  }
+
+  updateTargetDate(dateStr) {
+    if (this.countdown) {
+      this.countdown.stop();
+    }
+    this.countdown = new LiveCountdownTimer(dateStr);
   }
 
   bindMockDefaults() {
@@ -229,6 +236,26 @@ window.setUserData = (data) => {
     if (data.recharge !== undefined) {
       app.configData.userProgress.currentRecharge = parseFloat(data.recharge);
       app.bindProgressTracker();
+    }
+  }
+};
+
+window.setEventMetaData = (data) => {
+  if (!data) return;
+  if (app) {
+    if (!app.configData) app.configData = {};
+    
+    if (data.title) {
+      app.configData.title = data.title;
+      app.bindHeroDetails();
+    }
+    if (data.description) {
+      app.configData.detailsText = data.description;
+      app.bindEventDetails();
+    }
+    if (data.endDate) {
+      app.configData.endDate = data.endDate;
+      app.updateTargetDate(data.endDate);
     }
   }
 };
