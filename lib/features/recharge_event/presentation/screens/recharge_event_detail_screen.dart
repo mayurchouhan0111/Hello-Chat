@@ -21,8 +21,14 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   late final WebViewController _controller;
   bool _isInitialized = false;
   bool _pageLoaded = false;
+  
+  // Local cache states to detect changes
   int _lastRecharge = -1;
   List<Map<String, dynamic>> _lastPackages = [];
+  
+  // Track actual injected values to prevent redundant loops & OOM crashes
+  int _lastInjectedRecharge = -1;
+  String _lastInjectedPackagesJson = '';
 
   @override
   void initState() {
@@ -56,9 +62,19 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
 
   void _injectData() {
     if (!_pageLoaded) return;
+
+    // 1. Only inject user progress if it actually changed or hasn't been injected yet
+    if (_lastRecharge != _lastInjectedRecharge) {
+      _lastInjectedRecharge = _lastRecharge;
+      _controller.runJavaScript("if (window.setUserData) window.setUserData({ recharge: $_lastRecharge });");
+    }
+
+    // 2. Only inject packages list if JSON representation is different to avoid infinite OOM loops
     final pkgsJson = jsonEncode(_lastPackages);
-    _controller.runJavaScript("window.setUserData({ recharge: $_lastRecharge });");
-    _controller.runJavaScript("window.setEventPackages($pkgsJson);");
+    if (pkgsJson != _lastInjectedPackagesJson) {
+      _lastInjectedPackagesJson = pkgsJson;
+      _controller.runJavaScript("if (window.setEventPackages) window.setEventPackages($pkgsJson);");
+    }
   }
 
   void _loadUrl(String eventId, String? customWebUrl, int userRecharge) {
@@ -116,10 +132,21 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
             final packagesAsync = ref.watch(rechargeEventPackagesProvider(eventId));
             final packages = packagesAsync.value ?? [];
 
-            // Update cached states and inject if changed
-            if (userRecharge != _lastRecharge || !listEquals(packages, _lastPackages)) {
+            // Detect actual deep content updates
+            bool hasChanged = false;
+            if (userRecharge != _lastRecharge) {
               _lastRecharge = userRecharge;
+              hasChanged = true;
+            }
+            
+            final pkgsJson = jsonEncode(packages);
+            final lastPkgsJson = jsonEncode(_lastPackages);
+            if (pkgsJson != lastPkgsJson) {
               _lastPackages = packages;
+              hasChanged = true;
+            }
+
+            if (hasChanged) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _injectData();
               });
