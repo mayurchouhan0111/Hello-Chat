@@ -18,8 +18,8 @@
   <!-- Interactive WebView & IFrame Navigation Bridge -->
   <script>
     function handleRechargeClick() {
-      if (window.FlutterApp) {
-        window.FlutterApp.postMessage('recharge');
+      if (typeof FlutterApp !== 'undefined') {
+        FlutterApp.postMessage('recharge');
       } else if (window.parent && window.parent !== window) {
         window.parent.postMessage('recharge', '*');
       } else {
@@ -28,8 +28,8 @@
     }
     
     function handleBackClick() {
-      if (window.FlutterApp) {
-        window.FlutterApp.postMessage('back');
+      if (typeof FlutterApp !== 'undefined') {
+        FlutterApp.postMessage('back');
       } else if (window.parent && window.parent !== window) {
         window.parent.postMessage('back', '*');
       } else {
