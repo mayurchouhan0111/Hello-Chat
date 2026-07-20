@@ -68,7 +68,7 @@ class PremiumRechargeEventApp {
   }
 
   bindPackagesTable() {
-    const pkgs = this.injectedPackages || (this.configData && this.configData.packages);
+    const pkgs = (this.injectedPackages && this.injectedPackages.length > 0) ? this.injectedPackages : (this.configData && this.configData.packages);
     if (!pkgs || !Array.isArray(pkgs)) return;
     
     const tableTextEl = document.getElementById('table-desc-text');
