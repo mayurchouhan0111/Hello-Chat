@@ -68,24 +68,29 @@ class PremiumRechargeEventApp {
   }
 
   bindPackagesTable() {
-    if (!this.configData || !this.configData.packages) return;
+    const pkgs = this.injectedPackages || (this.configData && this.configData.packages);
+    if (!pkgs || !Array.isArray(pkgs)) return;
     
     const tableTextEl = document.getElementById('table-desc-text');
-    if (tableTextEl) tableTextEl.textContent = this.configData.tableText || '';
+    if (tableTextEl) tableTextEl.textContent = (this.configData && this.configData.tableText) || '';
     
     const tableNoteEl = document.getElementById('table-note-text');
-    if (tableNoteEl) tableNoteEl.textContent = this.configData.tableNote || '';
+    if (tableNoteEl) tableNoteEl.textContent = (this.configData && this.configData.tableNote) || '';
 
     const tbody = document.getElementById('recharge-table-body');
     if (tbody) {
       tbody.innerHTML = '';
-      this.configData.packages.forEach(pkg => {
+      pkgs.forEach(pkg => {
+        const baseNum = typeof pkg.baseCoins === 'string' ? parseFloat(pkg.baseCoins.replace(/,/g, '')) : (Number(pkg.baseCoins) || 0);
+        const bonusNum = typeof pkg.bonusCoins === 'string' ? parseFloat(pkg.bonusCoins.replace(/,/g, '')) : (Number(pkg.bonusCoins) || 0);
+        const totalNum = pkg.totalCoins ? (typeof pkg.totalCoins === 'string' ? parseFloat(pkg.totalCoins.replace(/,/g, '')) : Number(pkg.totalCoins)) : (baseNum + bonusNum);
+        
         const row = document.createElement('tr');
         row.innerHTML = `
           <td class="text-val-usd">${pkg.rechargeAmount}</td>
-          <td class="text-val-basic">${pkg.baseCoins}</td>
-          <td class="text-val-bonus">${pkg.bonusCoins}</td>
-          <td class="text-val-total">${pkg.totalCoins}</td>
+          <td class="text-val-basic">${baseNum.toLocaleString()}</td>
+          <td class="text-val-bonus">${bonusNum.toLocaleString()}</td>
+          <td class="text-val-total">${totalNum.toLocaleString()}</td>
         `;
         tbody.appendChild(row);
       });
@@ -214,15 +219,8 @@ window.addEventListener('DOMContentLoaded', () => app.init());
 // Real-time integration hooks from Flutter WebView
 window.setEventPackages = (packages) => {
   if (!packages || !Array.isArray(packages)) return;
-  const mapped = packages.map(pkg => ({
-    rechargeAmount: pkg.rechargeAmount,
-    baseCoins: (pkg.baseCoins || 0).toLocaleString(),
-    bonusCoins: (pkg.bonusCoins || 0).toLocaleString(),
-    totalCoins: (pkg.totalCoins || 0).toLocaleString()
-  }));
   if (app) {
-    if (!app.configData) app.configData = {};
-    app.configData.packages = mapped;
+    app.injectedPackages = packages;
     app.bindPackagesTable();
   }
 };
