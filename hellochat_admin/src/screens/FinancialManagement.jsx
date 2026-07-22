@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { auth, db } from '../firebase';
+import { auth, db, functions } from '../firebase';
 import { collection, query, getDocs, doc, updateDoc, where, orderBy, limit, addDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
 import { 
   Coins, 
   TrendingUp, 
@@ -12,7 +13,10 @@ import {
   Download,
   AlertCircle,
   Smartphone,
-  Zap
+  Zap,
+  Settings,
+  DollarSign,
+  Diamond
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAdmin } from '../context/AdminContext';
@@ -20,9 +24,18 @@ import { useAdmin } from '../context/AdminContext';
 export const FinancialManagement = () => {
   const { isAdmin } = useAdmin();
   const [recharges, setRecharges] = useState([]);
+  const [withdrawals, setWithdrawals] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [savingPolicy, setSavingPolicy] = useState(false);
+  const [policyMessage, setPolicyMessage] = useState('');
+
+  // Policy Form State
+  const [agencyRate, setAgencyRate] = useState(0.30);
+  const [adminRate, setAdminRate] = useState(0.10);
+  const [conversionRate, setConversionRate] = useState(1000000);
+
   const [financeStats, setFinanceStats] = useState({
     totalRevenue: 0,
     activeCirculation: 0
@@ -31,8 +44,42 @@ export const FinancialManagement = () => {
   useEffect(() => {
     if (isAdmin) {
       fetchFinancialData();
+      fetchPolicies();
     }
   }, [isAdmin]);
+
+  const fetchPolicies = async () => {
+    try {
+      const getPol = httpsCallable(functions, 'getFinancialPolicies');
+      const res = await getPol();
+      if (res.data) {
+        if (res.data.agencyCommissionRate !== undefined) setAgencyRate(res.data.agencyCommissionRate);
+        if (res.data.adminCommissionRate !== undefined) setAdminRate(res.data.adminCommissionRate);
+        if (res.data.usdToDiamondRate !== undefined) setConversionRate(res.data.usdToDiamondRate);
+      }
+    } catch (e) {
+      console.error("Error fetching financial policies:", e);
+    }
+  };
+
+  const handleSavePolicies = async (e) => {
+    e.preventDefault();
+    setSavingPolicy(true);
+    setPolicyMessage('');
+    try {
+      const updatePol = httpsCallable(functions, 'updateFinancialPolicies');
+      await updatePol({
+        agencyCommissionRate: parseFloat(agencyRate),
+        adminCommissionRate: parseFloat(adminRate),
+        usdToDiamondRate: parseInt(conversionRate),
+      });
+      setPolicyMessage('✅ Financial policies saved successfully!');
+    } catch (e) {
+      setPolicyMessage('❌ Error: ' + e.message);
+    } finally {
+      setSavingPolicy(false);
+    }
+  };
 
   const fetchFinancialData = async () => {
     setLoading(true);
@@ -43,16 +90,20 @@ export const FinancialManagement = () => {
       const rSnap = await getDocs(rq);
       setRecharges(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 2. Fetch global transactions
+      // 2. Fetch pending USD commission withdrawals
+      const wq = query(collection(db, "commission_withdrawals"), orderBy("createdAt", "desc"), limit(50));
+      const wSnap = await getDocs(wq);
+      setWithdrawals(wSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      // 3. Fetch global transactions
       const tq = query(collection(db, "admin_logs"), where("action", "==", "ADJUST_BALANCE"), orderBy("timestamp", "desc"), limit(20));
       const tSnap = await getDocs(tq);
       setTransactions(tSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 3. Calculate Stats
+      // 4. Calculate Stats
       const allApprovedSnap = await getDocs(query(collection(db, "recharges"), where("status", "==", "approved")));
       let rev = 0;
       allApprovedSnap.docs.forEach(d => {
-        // Assume 100 diamonds = $1 for now if currency is not specified, or use the 'price' field if it exists
         const data = d.data();
         rev += data.price || (data.amount / 100); 
       });
@@ -77,6 +128,25 @@ export const FinancialManagement = () => {
     }
   };
 
+  const handleReviewWithdrawal = async (reqId, action) => {
+    let notes = '';
+    if (action === 'reject') {
+      notes = prompt('Enter rejection reason for this withdrawal:');
+      if (!notes) return;
+    } else {
+      if (!window.confirm(`Approve and mark withdrawal request as PAID?`)) return;
+    }
+
+    try {
+      const reviewFn = httpsCallable(functions, 'reviewCommissionWithdrawal');
+      await reviewFn({ requestId: reqId, action, notes });
+      alert(`Withdrawal successfully ${action}d!`);
+      fetchFinancialData();
+    } catch (e) {
+      alert("Withdrawal Review Error: " + e.message);
+    }
+  };
+
   const handleApproveRecharge = async (recharge) => {
     if (!window.confirm("Approve this recharge? Diamonds will be added immediately.")) return;
     try {
@@ -84,7 +154,6 @@ export const FinancialManagement = () => {
       await updateDoc(userRef, { diamondBalance: increment(recharge.amount) });
       await updateDoc(doc(db, "recharges", recharge.id), { status: 'approved', processedAt: serverTimestamp() });
       
-      // Log it
       await addDoc(collection(db, "admin_logs"), {
         action: "RECHARGE_APPROVED",
         targetId: recharge.uid,
@@ -108,14 +177,9 @@ export const FinancialManagement = () => {
              <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-500/30">
                 <TrendingUp className="text-emerald-400" size={28} />
              </div>
-             Economic Control
+             Economic & Commission Control
           </h1>
-          <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">Monitoring platform revenue and diamond liquidity</p>
-        </div>
-        <div className="flex gap-4">
-           <button className="flex items-center gap-2 px-6 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-white/10 transition-all">
-              <Download size={16} /> Export Reports
-           </button>
+          <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">Platform revenue, commission rules, & USD withdrawal approvals</p>
         </div>
       </div>
 
@@ -123,7 +187,7 @@ export const FinancialManagement = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {[
             { label: 'Platform Revenue', val: `$${financeStats.totalRevenue.toLocaleString()}`, icon: Coins, color: 'from-emerald-600 to-teal-500' },
-            { label: 'Pending Approvals', val: recharges.length, icon: Clock, color: 'from-amber-600 to-orange-500' },
+            { label: 'Pending Withdrawals', val: withdrawals.filter(w => w.status === 'pending').length, icon: Clock, color: 'from-amber-600 to-orange-500' },
             { label: 'Active Circulation', val: financeStats.activeCirculation.toLocaleString(), icon: Zap, color: 'from-[#00E5FF] to-blue-600' }
           ].map(stat => (
            <div key={stat.label} className={`bg-gradient-to-br ${stat.color} p-8 rounded-[40px] shadow-2xl relative overflow-hidden group`}>
@@ -134,72 +198,143 @@ export const FinancialManagement = () => {
          ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-        
-        {/* Recharge Requests */}
-        <div className="card-glass bg-slate-900/40 p-0 border-white/5 overflow-hidden">
-           <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5">
-              <h4 className="text-lg font-black tracking-tight uppercase flex items-center gap-3">
-                 <AlertCircle className="text-amber-500" size={20} />
-                 Pending Recharges
-              </h4>
-              <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">{recharges.length} WAITING</span>
-           </div>
-           
-           <div className="divide-y divide-white/[0.03]">
-             {loading ? <div className="p-20 text-center animate-pulse">Scanning Ledger...</div> : 
-             recharges.length === 0 ? <div className="p-20 text-center text-slate-700 font-bold uppercase tracking-widest">No pending transactions</div> :
-             recharges.map(req => (
-               <div key={req.id} className="p-6 flex items-center justify-between group hover:bg-white/5 transition-all">
-                  <div className="flex items-center gap-4">
-                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
-                        <Smartphone size={20} className="text-slate-500" />
-                     </div>
-                     <div>
-                        <p className="text-sm font-black text-white">@{req.uid.slice(0,10)}</p>
-                        <p className="text-[10px] font-black text-emerald-400 mt-1 uppercase">+{req.amount} DIAMONDS</p>
-                     </div>
-                  </div>
-                  <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                     <button onClick={() => handleApproveRecharge(req)} className="p-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-xl border border-emerald-500/20 transition-all"><CheckCircle size={18} /></button>
-                     <button className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all"><XCircle size={18} /></button>
-                  </div>
-               </div>
-             ))}
-           </div>
+      {/* SECTION: Owner Financial Controls Panel */}
+      <div className="p-8 bg-slate-900/60 border border-white/10 rounded-[32px] shadow-2xl">
+        <div className="flex items-center gap-3 mb-6">
+          <Settings className="text-emerald-400" size={24} />
+          <div>
+            <h3 className="text-xl font-black uppercase tracking-wider">Financial Policy Configuration (Owner Exclusive)</h3>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Centralized commission rates & USD-to-Diamond conversion rate</p>
+          </div>
         </div>
 
-        {/* Global Audit Log */}
-        <div className="card-glass bg-slate-900/40 p-0 border-white/5 overflow-hidden">
-           <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5">
-              <h4 className="text-lg font-black tracking-tight uppercase flex items-center gap-3">
-                 <FileText className="text-primary-light" size={20} />
-                 Compliance Log
-              </h4>
-              <Filter className="text-slate-600" size={18} />
-           </div>
+        {policyMessage && <div className="mb-4 p-4 bg-slate-800 rounded-2xl text-xs font-bold">{policyMessage}</div>}
 
-           <div className="divide-y divide-white/[0.03]">
-              {transactions.map(t => (
-                <div key={t.id} className="p-6 flex items-center justify-between hover:bg-white/5 transition-all">
-                   <div className="flex items-center gap-4">
-                      <div className={`w-2 h-2 rounded-full ${t.action === 'ADJUST_BALANCE' ? 'bg-cyan-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-                      <div>
-                         <p className="text-xs font-black text-white">{t.action} on @{t.targetId?.slice(0,8)}</p>
-                         <p className="text-[10px] font-black text-slate-500 mt-1 uppercase">{t.timestamp?.toDate().toLocaleString() || 'Syncing...'}</p>
-                      </div>
-                   </div>
-                   <div className="text-right">
-                      <p className={`text-xs font-black ${t.amount > 0 ? 'text-emerald-400' : 'text-slate-400'}`}>
-                         {t.amount > 0 ? '+' : ''}{t.amount}
-                      </p>
-                   </div>
+        <form onSubmit={handleSavePolicies} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Agency Commission Rate</label>
+            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+              <DollarSign className="text-emerald-400 mr-2" size={18} />
+              <input 
+                type="number" step="0.01" min="0" max="1"
+                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                value={agencyRate}
+                onChange={e => setAgencyRate(e.target.value)}
+              />
+              <span className="text-xs text-slate-500 font-bold">({(agencyRate * 100).toFixed(0)}%)</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Admin Commission Rate</label>
+            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+              <DollarSign className="text-indigo-400 mr-2" size={18} />
+              <input 
+                type="number" step="0.01" min="0" max="1"
+                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                value={adminRate}
+                onChange={e => setAdminRate(e.target.value)}
+              />
+              <span className="text-xs text-slate-500 font-bold">({(adminRate * 100).toFixed(0)}%)</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">USD -> Diamond Rate (per $1 USD)</label>
+            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+              <Diamond className="text-cyan-400 mr-2" size={18} />
+              <input 
+                type="number"
+                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                value={conversionRate}
+                onChange={e => setConversionRate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="md:col-span-3 flex justify-end">
+            <button 
+              type="submit"
+              disabled={savingPolicy}
+              className="px-8 py-4 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all disabled:opacity-50"
+            >
+              {savingPolicy ? 'Saving Policies...' : 'Save Financial Rules'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* SECTION: Commission Withdrawals Approval Queue */}
+      <div className="card-glass bg-slate-900/40 p-0 border-white/5 overflow-hidden">
+        <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5">
+          <h4 className="text-lg font-black tracking-tight uppercase flex items-center gap-3">
+            <Clock className="text-amber-500" size={20} />
+            USD Commission Withdrawal Requests Queue
+          </h4>
+          <span className="text-[10px] font-black uppercase text-amber-500 tracking-widest">
+            {withdrawals.filter(w => w.status === 'pending').length} PENDING APPROVAL
+          </span>
+        </div>
+
+        <div className="divide-y divide-white/[0.03]">
+          {loading ? (
+            <div className="p-20 text-center animate-pulse">Loading Withdrawal Queue...</div>
+          ) : withdrawals.length === 0 ? (
+            <div className="p-20 text-center text-slate-600 font-bold uppercase tracking-widest">No withdrawal requests found</div>
+          ) : (
+            withdrawals.map(req => (
+              <div key={req.id} className="p-6 flex items-center justify-between group hover:bg-white/5 transition-all">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center border border-white/10">
+                    <DollarSign size={22} className="text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-black text-white">{req.displayName || req.userId}</p>
+                      <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-400 font-black text-[9px] uppercase rounded">
+                        {req.userRole || 'agency'}
+                      </span>
+                    </div>
+                    <p className="text-xs font-black text-emerald-400 mt-1 uppercase">
+                      ${req.usdAmount?.toFixed(2)} USD via {req.paymentMethod}
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      Account: {req.paymentAccountDetails}
+                    </p>
+                  </div>
                 </div>
-              ))}
-           </div>
-        </div>
 
+                <div className="flex items-center gap-4">
+                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
+                    req.status === 'paid' ? 'bg-emerald-500/20 text-emerald-400' :
+                    req.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    {req.status}
+                  </span>
+
+                  {req.status === 'pending' && (
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleReviewWithdrawal(req.id, 'approve')}
+                        className="p-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-xl border border-emerald-500/20 transition-all"
+                      >
+                        <CheckCircle size={18} />
+                      </button>
+                      <button 
+                        onClick={() => handleReviewWithdrawal(req.id, 'reject')}
+                        className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all"
+                      >
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   );
 };
+

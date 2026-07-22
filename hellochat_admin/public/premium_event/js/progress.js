@@ -4,6 +4,7 @@ class RechargeProgressTracker {
   constructor(progressData) {
     this.currentRecharge = progressData.currentRecharge || 0;
     this.milestones = progressData.milestones || [];
+    this.claimedMilestones = progressData.claimedMilestones || [];
     
     // Check URL parameters for dynamic override from Flutter WebView
     const urlParams = new URLSearchParams(window.location.search);
@@ -53,20 +54,26 @@ class RechargeProgressTracker {
       
       this.milestones.forEach((m, idx) => {
         const isReached = this.currentRecharge >= m.threshold;
+        const isClaimed = this.claimedMilestones.includes(m.threshold) || this.claimedMilestones.includes(String(m.threshold));
         const progressPercent = Math.min((this.currentRecharge / m.threshold) * 100, 100).toFixed(0);
         
-        let statusText = "Locked";
-        let statusClass = "locked";
-        if (isReached) {
-          statusText = "Claimed";
-          statusClass = "claimed";
-        } else if (idx === 0 || this.currentRecharge >= this.milestones[idx-1].threshold) {
-          statusText = "In Progress";
-          statusClass = "in-progress";
+        let statusHtml = '';
+        let subText = `Progress: ${this.currentRecharge}/${m.threshold}$ (${progressPercent}%)`;
+        
+        if (isClaimed) {
+          statusHtml = `<span class="status-badge claimed">✓ Claimed</span>`;
+          subText = `Reward claimed!`;
+        } else if (isReached) {
+          statusHtml = `<button class="claim-btn" onclick="handleClaimClick(${m.threshold}, '${(m.reward || '').replace(/'/g, "\\'")}')">CLAIM</button>`;
+          subText = `Milestone unlocked! Tap to claim.`;
+        } else if (idx === 0 || this.currentRecharge >= (this.milestones[idx-1] ? this.milestones[idx-1].threshold : 0)) {
+          statusHtml = `<span class="status-badge in-progress">In Progress</span>`;
+        } else {
+          statusHtml = `<span class="status-badge locked">Locked</span>`;
         }
 
         const nodeRow = document.createElement('div');
-        nodeRow.className = `milestone-row ${isReached ? 'reached' : ''}`;
+        nodeRow.className = `milestone-row ${isReached ? 'reached' : ''} ${isClaimed ? 'is-claimed' : ''}`;
         
         nodeRow.innerHTML = `
           <!-- Left Col: Node Circle with Threshold -->
@@ -78,12 +85,12 @@ class RechargeProgressTracker {
             <span class="milestone-icon">${m.icon || '🎁'}</span>
             <div class="milestone-text-wrap">
               <div class="milestone-reward">${m.reward || ''}</div>
-              <div class="milestone-sub">${isReached ? 'Reward claimed!' : `Progress: ${this.currentRecharge}/${m.threshold}$ (${progressPercent}%)`}</div>
+              <div class="milestone-sub">${subText}</div>
             </div>
           </div>
-          <!-- Right Col: Status Badge -->
+          <!-- Right Col: Status Badge or Claim Button -->
           <div class="milestone-status-col">
-            <span class="status-badge ${statusClass}">${statusText}</span>
+            ${statusHtml}
           </div>
         `;
         

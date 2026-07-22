@@ -4,8 +4,8 @@ import { doc, getDoc, setDoc, collectionGroup, getDocs, query, orderBy, limit, T
 import { RefreshCw, Save, Server, Trophy, Users, Palette, Zap, Activity } from 'lucide-react';
 
 const DEFAULT_THRESHOLDS = [
-  0, 5000000, 10000000, 25000000, 50000000,
-  100000000, 200000000, 400000000, 600000000, 800000000,
+  0, 5000000, 10000000, 20000000, 30000000,
+  50000000, 100000000, 300000000, 500000000, 700000000, 1000000000,
 ];
 
 const DEFAULT_CAPS = [

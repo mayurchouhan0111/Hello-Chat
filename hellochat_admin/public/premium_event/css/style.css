@@ -690,6 +690,26 @@ body {
   box-shadow: 0 0 8px rgba(163, 230, 53, 0.2);
 }
 
+.claim-btn {
+  background: linear-gradient(to bottom, #ffd700 0%, #b8860b 100%);
+  color: #000000;
+  border: 1.5px solid #fff3a8;
+  border-radius: 12px;
+  padding: 5px 14px;
+  font-family: 'Cinzel', serif;
+  font-weight: 800;
+  font-size: 11px;
+  cursor: pointer;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
+  transition: all 0.2s ease-in-out;
+  animation: pulse-glow 1.8s infinite;
+}
+
+.claim-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 18px rgba(255, 215, 0, 0.9);
+}
+
 .user-progress-info {
   display: flex;
   justify-content: space-between;
