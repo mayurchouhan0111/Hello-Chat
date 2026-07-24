@@ -64,7 +64,6 @@ const Sidebar = () => {
     { name: 'Audit Trail', icon: History, path: '/logs' },
     { name: 'Withdrawals', icon: ArrowRightLeft, path: '/withdrawals' },
     { name: 'KYC Verification', icon: ShieldCheck, path: '/kyc' },
-    { name: 'Dev Tools', icon: Database, path: '/dev' },
   ];
 
   const menu = (isAgencyOwner && !isAdmin) 

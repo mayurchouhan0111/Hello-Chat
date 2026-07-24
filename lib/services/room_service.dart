@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:dio/dio.dart';
 import '../core/models/room_model.dart';
 import '../core/models/participant_model.dart';
 import '../core/models/room_banner_model.dart';
@@ -127,6 +129,7 @@ class RoomService with BaseFirebaseService {
     final participantRef = roomRef.collection('participants').doc(uid);
 
     await _db.runTransaction((transaction) async {
+      final roomSnapshot = await transaction.get(roomRef);
       final userSnapshot = await transaction.get(userRef);
       final userData = userSnapshot.data() as Map<String, dynamic>?;
       final displayName = userData?['displayName'] ?? 'Guest';
@@ -135,18 +138,16 @@ class RoomService with BaseFirebaseService {
       final participantSnapshot = await transaction.get(participantRef);
 
       if (!participantSnapshot.exists) {
-        // Attempt to recover previous seat by checking if any existing
-        // participant doc with this uid was recently deleted (we can't query
-        // deleted docs, so start fresh as audience).
+        final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
         transaction.set(participantRef, {
           'uid': uid,
-          'displayName': displayName,
-          'profilePhotoUrl': photoUrl,
-          'role': 'audience',
+          'role': isOwner ? 'host' : 'audience',
+          'seatIndex': isOwner ? 0 : -1,
           'joinedAt': FieldValue.serverTimestamp(),
           'lastActive': FieldValue.serverTimestamp(),
-          'seatIndex': -1,
-          'isMuted': false,
+          'isMuted': isOwner ? false : true,
+          'displayName': displayName,
+          'profilePhotoUrl': photoUrl,
           'vipTier': userData?['vipTier'] ?? 'none',
           'nobleTier': userData?['nobleTier'] ?? 'Civilian',
           'entryAnimation': userData?['entryAnimation'] ?? '',
@@ -204,20 +205,51 @@ class RoomService with BaseFirebaseService {
     final roomRef = _db.collection('rooms').doc(roomId);
     final userRef = _db.collection('users').doc(uid);
 
-    await _db.runTransaction((transaction) async {
-      transaction.delete(roomRef.collection('participants').doc(uid));
-      transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(-1)});
-      
-      // Clear active room ID
-      transaction.update(userRef, {'activeRoomId': FieldValue.delete()});
-    });
+    try {
+      await _db.runTransaction((transaction) async {
+        transaction.delete(roomRef.collection('participants').doc(uid));
+        transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(-1)});
+        
+        // Clear active room ID
+        transaction.update(userRef, {'activeRoomId': FieldValue.delete()});
+      });
+    } catch (e) {
+      debugPrint('[ROOM_LEAVE] Transaction error ($e), attempting fallback individual writes');
+      try {
+        await roomRef.collection('participants').doc(uid).delete();
+        await roomRef.update({'currentUsersCount': FieldValue.increment(-1)});
+        await userRef.update({'activeRoomId': FieldValue.delete()});
+      } catch (fallbackError) {
+        debugPrint('[ROOM_LEAVE] Fallback error: $fallbackError');
+      }
+    }
   }
 
   Future<void> endRoom(String roomId) async {
-    await _db.collection('rooms').doc(roomId).update({
-      'status': 'ended',
-      'endedAt': FieldValue.serverTimestamp(),
-    });
+    await Future.wait([
+      _db.collection('rooms').doc(roomId).update({
+        'status': 'ended',
+        'endedAt': FieldValue.serverTimestamp(),
+      }),
+      _cleanupRoomImages(roomId),
+    ]);
+  }
+
+  Future<void> _cleanupRoomImages(String roomId) async {
+    try {
+      const cloudName = "dceh4ob2i";
+      const apiKey = "256641331991177";
+      const apiSecret = "eNzBz9AxS9d_VF2ebvSoAth18s0";
+      final basicAuth = base64Encode(utf8.encode("$apiKey:$apiSecret"));
+      final prefix = "chat_images/$roomId";
+      await Dio().post(
+        "https://api.cloudinary.com/v1_1/$cloudName/resources/image/delete_by_prefix",
+        options: Options(headers: {"Authorization": "Basic $basicAuth"}),
+        data: {"prefix": prefix},
+      );
+    } catch (e) {
+      debugPrint("Room image cleanup error: $e");
+    }
   }
 
   Future<void> updateParticipantPresence(String roomId) async {
@@ -237,9 +269,15 @@ class RoomService with BaseFirebaseService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
     
-    if (index == 0) {
-      final roomDoc = await _db.collection('rooms').doc(roomId).get();
-      if (roomDoc.exists && roomDoc.get('ownerUid') != uid) {
+    final roomDoc = await _db.collection('rooms').doc(roomId).get();
+    final ownerUid = roomDoc.exists ? roomDoc.get('ownerUid') as String? : null;
+
+    if (uid == ownerUid) {
+      if (index != 0) {
+        throw Exception("As Room Owner, your seat is the top Host Seat (Seat 0).");
+      }
+    } else {
+      if (index == 0) {
         throw Exception("Only the room owner can take the host seat");
       }
     }
@@ -516,6 +554,10 @@ class RoomService with BaseFirebaseService {
       final doc = await _db.collection('rooms').doc(roomId).get();
       if (!doc.exists) {
         debugPrint('Room $roomId not found. Cannot set YouTube video.');
+        return;
+      }
+      if (videoId.isEmpty) {
+        await stopYoutube(roomId);
         return;
       }
       await _db.collection('rooms').doc(roomId).update({

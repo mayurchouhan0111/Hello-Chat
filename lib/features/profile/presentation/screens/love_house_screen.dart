@@ -41,6 +41,16 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
   }
 
   void _showInviteDialog() {
+    final me = ref.read(currentUserProfileProvider).valueOrNull;
+    if (me?.partnerUid != null && me!.partnerUid!.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("You or the recipient already have an active CP relationship."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
     _searchCtrl.clear();
     _searchResults = [];
     showDialog(

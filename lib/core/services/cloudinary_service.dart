@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 final cloudinaryServiceProvider = Provider<CloudinaryService>((ref) => CloudinaryService());
@@ -57,6 +58,19 @@ class CloudinaryService {
       return response.data["secure_url"];
     } catch (e) {
       throw Exception("Cloudinary raw upload error: $e");
+    }
+  }
+
+  Future<void> deleteResourcesByPrefix(String prefix) async {
+    try {
+      final basicAuth = base64Encode(utf8.encode("$apiKey:$apiSecret"));
+      await _dio.post(
+        "https://api.cloudinary.com/v1_1/$cloudName/resources/image/delete_by_prefix",
+        options: Options(headers: {"Authorization": "Basic $basicAuth"}),
+        data: {"prefix": prefix},
+      );
+    } catch (e) {
+      debugPrint("Cloudinary delete error: $e");
     }
   }
 

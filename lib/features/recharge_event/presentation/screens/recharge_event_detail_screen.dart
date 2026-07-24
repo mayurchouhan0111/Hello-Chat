@@ -26,6 +26,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   // Local cache states to detect changes
   int _lastRecharge = -1;
   List<Map<String, dynamic>> _lastPackages = [];
+  List<dynamic> _lastClaimedMilestones = [];
   String _lastTitle = '';
   String _lastDescription = '';
   String _lastEndDateStr = '';
@@ -33,6 +34,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   // Track actual injected values to prevent redundant loops & OOM crashes
   int _lastInjectedRecharge = -1;
   String _lastInjectedPackagesJson = '';
+  String _lastInjectedClaimedJson = '';
   String _lastInjectedTitle = '';
   String _lastInjectedDescription = '';
   String _lastInjectedEndDateStr = '';
@@ -62,18 +64,110 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
           Navigator.pop(context);
         } else if (message.message == 'recharge') {
           context.push(AppRoutes.wallet);
+        } else if (message.message.startsWith('claim:')) {
+          final parts = message.message.split(':');
+          final thresholdStr = parts.length > 1 ? parts[1] : '';
+          final reward = parts.length > 2 ? parts[2] : 'Milestone Reward';
+          _handleClaimReward(context, thresholdStr, reward);
         }
       },
     );
   }
 
+  void _handleClaimReward(BuildContext context, String thresholdStr, String reward) async {
+    final uid = ref.read(currentUserProfileProvider).value?.uid;
+    if (uid == null) return;
+    
+    final threshold = int.tryParse(thresholdStr) ?? 0;
+    
+    // Parse Coin Amount from reward string if present (e.g., "10M Coins" -> 10,000,000, "30M Coins" -> 30,000,000)
+    int coinsToCredit = 0;
+    final rewardLower = reward.toLowerCase();
+    if (rewardLower.contains('m coins') || rewardLower.contains('m coin')) {
+      final reg = RegExp(r'(\d+)\s*m');
+      final match = reg.firstMatch(rewardLower);
+      if (match != null) {
+        final mVal = int.tryParse(match.group(1) ?? '0') ?? 0;
+        coinsToCredit = mVal * 1000000;
+      }
+    } else if (rewardLower.contains('k coins') || rewardLower.contains('k coin')) {
+      final reg = RegExp(r'(\d+)\s*k');
+      final match = reg.firstMatch(rewardLower);
+      if (match != null) {
+        final kVal = int.tryParse(match.group(1) ?? '0') ?? 0;
+        coinsToCredit = kVal * 1000;
+      }
+    }
+
+    // 1. Update user profile (claimedMilestones + diamondBalance)
+    final Map<String, dynamic> userUpdates = {
+      'claimedMilestones': FieldValue.arrayUnion([threshold, thresholdStr]),
+    };
+    if (coinsToCredit > 0) {
+      userUpdates['diamondBalance'] = FieldValue.increment(coinsToCredit);
+    }
+    await FirebaseFirestore.instance.collection('users').doc(uid).set(userUpdates, SetOptions(merge: true));
+
+    // 2. Add claimed gift/item to User Gifts / Claimed Rewards history
+    await FirebaseFirestore.instance.collection('users').doc(uid).collection('claimed_rewards').add({
+      'rewardName': reward,
+      'threshold': threshold,
+      'claimedAt': FieldValue.serverTimestamp(),
+      'coinsCredited': coinsToCredit,
+    });
+
+    // 3. If reward includes a prop/mount/effect item, add it to User Vault (My Decoration)
+    if (rewardLower.contains('effect') || rewardLower.contains('mount') || rewardLower.contains('frame')) {
+      final category = rewardLower.contains('mount') ? 'mount' : 'frame';
+      final expiry = rewardLower.contains('15 days') ? '15 Days' : (rewardLower.contains('30 days') ? '30 Days' : 'Permanent');
+      
+      await FirebaseFirestore.instance.collection('users').doc(uid).collection('vault').add({
+        'name': reward,
+        'category': category,
+        'type': 'Event Milestone Reward',
+        'imageUrl': 'assets/images/super/super-admin.svga',
+        'isEquipped': false,
+        'acquiredAt': FieldValue.serverTimestamp(),
+        'expiryDate': expiry,
+      });
+    }
+
+    if (context.mounted) {
+      String msg = "🎉 CLAIMED: $reward!";
+      if (coinsToCredit > 0) {
+        msg += " (+${coinsToCredit.toString()} Coins added to Wallet)";
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.stars_rounded, color: Color(0xFFFFD700), size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  msg,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: const Color(0xFF1B5E20),
+          duration: const Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   void _injectData() {
     if (!_pageLoaded) return;
 
-    // 1. Only inject user progress if it actually changed or hasn't been injected yet
-    if (_lastRecharge != _lastInjectedRecharge) {
+    // 1. Inject user progress and claimed milestone list
+    final claimedJson = jsonEncode(_lastClaimedMilestones);
+    if (_lastRecharge != _lastInjectedRecharge || claimedJson != _lastInjectedClaimedJson) {
       _lastInjectedRecharge = _lastRecharge;
-      _controller.runJavaScript("if (window.setUserData) window.setUserData({ recharge: $_lastRecharge });");
+      _lastInjectedClaimedJson = claimedJson;
+      _controller.runJavaScript("if (window.setUserData) window.setUserData({ recharge: $_lastRecharge, claimedMilestones: $claimedJson });");
     }
 
     // 2. Only inject packages list if JSON representation is different to avoid infinite OOM loops
@@ -150,7 +244,9 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
             final eventId = event['id'] as String;
             final customWebUrl = event['webUrl'] as String?;
             
-            final userRecharge = userProfileAsync.value?.monthlyRecharge ?? 0;
+            final userProfile = userProfileAsync.value;
+            final userRecharge = userProfile?.monthlyRecharge ?? 0;
+            final claimedMilestones = userProfile?.claimedMilestones ?? [];
             
             // Watch active event packages dynamically
             final packagesAsync = ref.watch(rechargeEventPackagesProvider(eventId));
@@ -174,6 +270,13 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
               hasChanged = true;
             }
             
+            final claimedJson = jsonEncode(claimedMilestones);
+            final lastClaimedJson = jsonEncode(_lastClaimedMilestones);
+            if (claimedJson != lastClaimedJson) {
+              _lastClaimedMilestones = claimedMilestones;
+              hasChanged = true;
+            }
+
             final pkgsJson = jsonEncode(packages);
             final lastPkgsJson = jsonEncode(_lastPackages);
             if (pkgsJson != lastPkgsJson) {
@@ -214,9 +317,109 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
                     ),
                   ),
                 ),
+                // Floating Dev Test Bar Overlay (Commented Out)
+                /*
+                Positioned(
+                  bottom: 75,
+                  right: 12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFFFD700), width: 1.2),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFFD700).withOpacity(0.25),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          "🧪 TEST:",
+                          style: TextStyle(color: Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 6),
+                        _buildTestBtn(context, userProfileAsync.value?.uid, "+\$5", 5),
+                        const SizedBox(width: 4),
+                        _buildTestBtn(context, userProfileAsync.value?.uid, "+\$10", 10),
+                        const SizedBox(width: 4),
+                        _buildTestBtn(context, userProfileAsync.value?.uid, "+\$50", 50),
+                        const SizedBox(width: 4),
+                        _buildResetBtn(context, userProfileAsync.value?.uid),
+                      ],
+                    ),
+                  ),
+                ),
+                */
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTestBtn(BuildContext context, String? uid, String label, int amount) {
+    return InkWell(
+      onTap: uid == null ? null : () async {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'monthlyRecharge': FieldValue.increment(amount),
+        }, SetOptions(merge: true));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Simulated +\$$amount recharge! Progress updated."),
+              duration: const Duration(seconds: 1),
+              backgroundColor: const Color(0xFF2E7D32),
+            ),
+          );
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFD700).withOpacity(0.2),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFFD700), width: 0.8),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResetBtn(BuildContext context, String? uid) {
+    return InkWell(
+      onTap: uid == null ? null : () async {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'monthlyRecharge': 0,
+        }, SetOptions(merge: true));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Reset recharge progress to \$0."),
+              duration: Duration(seconds: 1),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.redAccent.withOpacity(0.2),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.redAccent, width: 0.8),
+        ),
+        child: const Text(
+          "Reset",
+          style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
         ),
       ),
     );

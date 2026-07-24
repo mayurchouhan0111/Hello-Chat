@@ -263,7 +263,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> {
 
 
   void _stopVideo() {
-    _roomService.setYoutubeVideo(widget.room.roomId, '');
+    _roomService.stopYoutube(widget.room.roomId);
   }
 
   @override

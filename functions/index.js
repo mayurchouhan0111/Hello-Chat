@@ -34,6 +34,36 @@ async function isUserAdmin(uid) {
 }
 
 /**
+ * --- PUSH NOTIFICATION HELPER ---
+ */
+async function sendPush(targetUid, title, body, dataMap = {}) {
+    try {
+        const userDoc = await db.collection("users").doc(targetUid).get();
+        if (!userDoc.exists) return;
+        const fcmToken = userDoc.data()?.fcmToken;
+        if (!fcmToken) return;
+
+        const stringData = {};
+        for (const [k, v] of Object.entries(dataMap)) {
+            stringData[k] = String(v ?? "");
+        }
+
+        await admin.messaging().send({
+            token: fcmToken,
+            notification: {
+                title: title,
+                body: body,
+            },
+            data: stringData,
+        });
+        console.log(`[PUSH] Delivered to ${targetUid}: ${title}`);
+    } catch (err) {
+        console.error(`[PUSH_ERROR] Failed sending push to ${targetUid}:`, err);
+    }
+}
+
+
+/**
  * --- AGORA VOICE TOKEN SERVER (DIRECT HTTP BYPASS) ---
  * Immune to App Check/Auth Handshake issues.
  */
@@ -49,6 +79,14 @@ exports.getSecureAgoraTokenHttp = functions.https.onRequest(async (req, res) => 
     }
 
     try {
+        // 🔒 Verify authorization token header
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).send({ error: "Unauthorized access: Bearer token required" });
+        }
+        const idToken = authHeader.split('Bearer ')[1];
+        await admin.auth().verifyIdToken(idToken);
+
         const { roomId } = req.body.data || req.body || {};
         if (!roomId) {
             return res.status(400).send({ error: "Room ID required" });
@@ -632,6 +670,9 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
 
         country: "",
         profilePhotoUrl: photoURL || "",
+        referralCode: uid.substring(0, 6).toUpperCase(),
+        referralCount: 0,
+        referredBy: "",
         diamondBalance: 0,
         diamondStock: 0,
         beansBalance: 0,
@@ -738,6 +779,77 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
 });
 
 /**
+ * 3b. Redeem Referral Code (Invite & Earn Reward)
+ */
+exports.redeemReferralCode = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+
+    const uid = context.auth.uid;
+    const rawCode = (data.code || "").trim().toUpperCase();
+
+    if (!rawCode) {
+        throw new functions.https.HttpsError("invalid-argument", "Please enter a valid invite code.");
+    }
+
+    return db.runTransaction(async (transaction) => {
+        const userRef = db.collection("users").doc(uid);
+        const userDoc = await transaction.get(userRef);
+
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "User profile not found.");
+        }
+
+        const userData = userDoc.data() || {};
+        if (userData.referredBy) {
+            throw new functions.https.HttpsError("already-exists", "You have already redeemed an invite code.");
+        }
+
+        // Prevent self referral
+        if (userData.referralCode === rawCode || uid.substring(0, 6).toUpperCase() === rawCode) {
+            throw new functions.https.HttpsError("invalid-argument", "You cannot redeem your own invite code.");
+        }
+
+        // Find referrer matching referralCode
+        const referrerQuery = await db.collection("users").where("referralCode", "==", rawCode).limit(1).get();
+        if (referrerQuery.empty) {
+            throw new functions.https.HttpsError("not-found", "Invalid referral code. No user found with this code.");
+        }
+
+        const referrerDoc = referrerQuery.docs[0];
+        const referrerUid = referrerDoc.id;
+        const referrerRef = db.collection("users").doc(referrerUid);
+
+        // Award +100 Beans to Referrer & +50 Beans to Invitee
+        const referrerReward = 100;
+        const inviteeReward = 50;
+
+        transaction.update(referrerRef, {
+            beansBalance: admin.firestore.FieldValue.increment(referrerReward),
+            referralCount: admin.firestore.FieldValue.increment(1),
+        });
+
+        transaction.update(userRef, {
+            beansBalance: admin.firestore.FieldValue.increment(inviteeReward),
+            referredBy: referrerUid,
+            referredByCode: rawCode,
+        });
+
+        // Inbox Notification for Referrer
+        const notifRef = db.collection("users").doc(referrerUid).collection("inbox_messages").doc();
+        transaction.set(notifRef, {
+            title: "🎉 Friend Joined via Your Code!",
+            body: `A new friend used your invite code (${rawCode})! You received +${referrerReward} Beans reward.`,
+            type: "reward",
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            data: { route: "/invite-get-coins" }
+        });
+
+        return { success: true, message: `Bonus claimed! You received ${inviteeReward} Beans.` };
+    });
+});
+
+/**
  * 4. Admin: Ban/Unban User
  */
 exports.adminBanUser = functions.https.onCall(async (data, context) => {
@@ -762,6 +874,72 @@ exports.adminBanUser = functions.https.onCall(async (data, context) => {
     });
 
     return { success: true };
+});
+
+/**
+ * 4b. Admin: Refund and Revoke VIP
+ */
+exports.refundVip = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const isAdmin = await isUserAdmin(context.auth.uid);
+    if (!isAdmin) {
+        throw new functions.https.HttpsError("permission-denied", "Admin permissions required.");
+    }
+
+    const { helloId, reason } = data;
+    if (!helloId) throw new functions.https.HttpsError("invalid-argument", "Hello ID required.");
+
+    const usersSnap = await db.collection("users").where("helloId", "==", parseInt(helloId)).get();
+    if (usersSnap.empty) throw new functions.https.HttpsError("not-found", "User not found.");
+
+    const userDoc = usersSnap.docs[0];
+    const userData = userDoc.data();
+
+    if (!userData.vipTier || userData.vipTier === "none") {
+        throw new functions.https.HttpsError("failed-precondition", "User has no active VIP.");
+    }
+
+    const now = new Date();
+    const expiry = userData.vipExpiry?.toDate();
+    if (!expiry || expiry < now) {
+        throw new functions.https.HttpsError("failed-precondition", "VIP has already expired.");
+    }
+
+    const remainingDays = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+    
+    // Look up tier cost
+    const tierSnap = await db.collection("vip_tiers").doc(userData.vipTier).get();
+    let monthlyPrice = 0;
+    if (tierSnap.exists) {
+        monthlyPrice = tierSnap.data().monthlyPriceInDiamonds || 0;
+    }
+
+    // Proportional refund formula: (monthlyPrice * 20% conversion base * remainingDays / 30)
+    const refundAmount = Math.max(0, Math.round(monthlyPrice * 0.2 * (remainingDays / 30)));
+
+    await db.runTransaction(async (tx) => {
+        const userRef = userDoc.ref;
+        tx.update(userRef, {
+            vipTier: "none",
+            vipExpiry: null,
+            diamondBalance: admin.firestore.FieldValue.increment(refundAmount),
+            profileFrame: ""
+        });
+
+        const logRef = db.collection("admin_logs").doc();
+        tx.set(logRef, {
+            adminUid: context.auth.uid,
+            action: "VIP_REVOKE_REFUND",
+            targetUid: userDoc.id,
+            targetHelloId: helloId,
+            refundedDiamonds: refundAmount,
+            reason: reason || "Admin VIP revocation refund",
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+    });
+
+    return { success: true, refundedDiamonds: refundAmount, targetUid: userDoc.id };
 });
 
 /**
@@ -1542,7 +1720,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 const receiverData = receiverDoc.data();
                 const agencyId = receiverData.agencyId;
 
-                let hostSharePercent = 0.8;
+                let hostSharePercent = 1.0; // 1:1 Absolute Parity (1 Diamond = 1 Bean)
                 let agencySharePercent = 0;
 
                 // Only pay agency if document exists in 'agencies' collection
@@ -3449,8 +3627,8 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
             throw new functions.https.HttpsError("failed-precondition", "Insufficient Stars.");
         }
 
-        // Conversion Rate: 7 Stars = 2 Diamonds
-        const diamondsToReceive = Math.floor((amount / 7) * 2);
+        // Conversion Rate: 3 Beans = 1 Diamond (e.g. 100 Beans = 33 Diamonds)
+        const diamondsToReceive = Math.floor(amount / 3);
 
         transaction.update(userRef, {
             beansBalance: admin.firestore.FieldValue.increment(-amount),
@@ -4045,8 +4223,9 @@ exports.sendCPInvite = functions.https.onCall(async (data, context) => {
     ]);
 
     if (!targetDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
-    if (senderDoc.data().partnerUid) throw new functions.https.HttpsError("already-exists", "You are already paired.");
-    if (targetDoc.data().partnerUid) throw new functions.https.HttpsError("already-exists", "Target is already paired.");
+    if (senderDoc.data().partnerUid || targetDoc.data().partnerUid) {
+        throw new functions.https.HttpsError("already-exists", "You or the recipient already have an active CP relationship.");
+    }
 
     const inviteId = `${senderUid}_${targetUid}`;
     await db.collection("cp_invites").doc(inviteId).set({
@@ -4058,8 +4237,20 @@ exports.sendCPInvite = functions.https.onCall(async (data, context) => {
         createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
 
-    // Send Push Notification
-    await sendPush(targetUid, "New CP Invite! 💖", `${senderDoc.data().displayName} wants to be your partner!`, { type: "CP_INVITE", inviteId });
+    // Write to target's Official Inbox
+    const pushMsg = `User ${senderDoc.data().displayName || "Someone"} has sent you a CP request! Review it now.`;
+    const inboxRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
+    await inboxRef.set({
+        type: "system",
+        title: "CP Request Received 💖",
+        body: pushMsg,
+        read: false,
+        createdAt: admin.firestore.Timestamp.now(),
+        data: { route: "/love-house", inviteId: inviteId }
+    });
+
+    // Send Push Notification (PRD 5 Template)
+    await sendPush(targetUid, "CP Request Received 💖", pushMsg, { type: "CP_INVITE", inviteId, route: "/love-house" });
 
     return { success: true };
 });
@@ -4073,7 +4264,7 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
     const { inviteId } = data;
     const inviteRef = db.collection("cp_invites").doc(inviteId);
 
-    return db.runTransaction(async (transaction) => {
+    const result = await db.runTransaction(async (transaction) => {
         const inviteDoc = await transaction.get(inviteRef);
         if (!inviteDoc.exists) throw new functions.https.HttpsError("not-found", "Invite not found.");
 
@@ -4088,10 +4279,17 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             transaction.get(targetRef)
         ]);
 
+        if (senderDoc.data().partnerUid || targetDoc.data().partnerUid) {
+            throw new functions.https.HttpsError("failed-precondition", "You or the recipient already have an active CP relationship.");
+        }
+
+        const todayStr = new Date().toISOString().split('T')[0];
+
         transaction.update(senderRef, {
             partnerUid: targetDoc.id,
             partnerName: targetDoc.data().displayName,
             partnerAvatar: targetDoc.data().profilePhotoUrl,
+            anniversaryDate: todayStr,
             cpLevel: 1,
             cpPoints: 0
         });
@@ -4100,6 +4298,7 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             partnerUid: senderDoc.id,
             partnerName: senderDoc.data().displayName,
             partnerAvatar: senderDoc.data().profilePhotoUrl,
+            anniversaryDate: todayStr,
             cpLevel: 1,
             cpPoints: 0
         });
@@ -4114,16 +4313,55 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             status: "active",
             intimacy: 0,
             level: 1,
+            anniversaryDate: todayStr,
             startedAt: admin.firestore.Timestamp.now(),
             lastActivityAt: admin.firestore.Timestamp.now(),
             intimacyBreakdown: { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }
         });
 
-        // Notify sender
-        sendPush(inviteData.senderUid, "CP Accepted 💕", `${targetDoc.data().displayName} accepted your CP invite! You are now a couple.`, { type: "CP_ACCEPTED", relationshipId });
+        // Write Official Inbox messages to both users
+        const acceptMsg = `Congratulations! ${targetDoc.data().displayName || "Partner"} accepted your request. Your anniversary starts today!`;
+        const senderInboxRef = senderRef.collection("inbox_messages").doc();
+        transaction.set(senderInboxRef, {
+            type: "system",
+            title: "CP Request Accepted 💕",
+            body: acceptMsg,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: { route: "/love-house", relationshipId }
+        });
 
-        return { success: true, relationshipId };
+        const targetInboxRef = targetRef.collection("inbox_messages").doc();
+        transaction.set(targetInboxRef, {
+            type: "system",
+            title: "CP Relationship Started 💕",
+            body: `Congratulations! You are now CP partners with ${senderDoc.data().displayName || "Partner"}. Your anniversary starts today!`,
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: { route: "/love-house", relationshipId }
+        });
+
+        return { senderUid: inviteData.senderUid, targetUid: inviteData.targetUid, relationshipId, acceptMsg };
     });
+
+    // Auto-decline/delete all competing pending CP invites for both participants
+    try {
+        const [pendingSenderSnap, pendingTargetSnap] = await Promise.all([
+            db.collection("cp_invites").where("senderUid", "in", [result.senderUid, result.targetUid]).where("status", "==", "pending").get(),
+            db.collection("cp_invites").where("targetUid", "in", [result.senderUid, result.targetUid]).where("status", "==", "pending").get()
+        ]);
+        const batch = db.batch();
+        pendingSenderSnap.docs.forEach(d => batch.delete(d.ref));
+        pendingTargetSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+    } catch (e) {
+        console.error("Error auto-declining competing CP invites:", e);
+    }
+
+    // Notify sender (PRD 5 Template)
+    await sendPush(result.senderUid, "CP Request Accepted 💕", result.acceptMsg, { type: "CP_ACCEPTED", relationshipId: result.relationshipId, route: "/love-house" });
+
+    return { success: true, relationshipId: result.relationshipId };
 });
 
 /**
@@ -5275,6 +5513,7 @@ exports.transferFamilyOwnership = functions.https.onCall(async (data, context) =
 });
 
 // ─── FAMILY BATTLE PARTICIPANT CAPS ──────────────────────────────
+// ─── FAMILY BATTLE PARTICIPANT CAPS ──────────────────────────────
 const BATTLE_PARTICIPANT_CAPS = [
     { maxLevel: 2, cap: 100 },
     { maxLevel: 4, cap: 150 },
@@ -5290,6 +5529,120 @@ function getParticipantCap(familyLevel) {
     }
     return 1000;
 }
+
+/**
+ * --- SEND FAMILY BATTLE REQUEST (SERVER-SIDE) ---
+ * Validates no active battle exists for challenger family or owner before sending.
+ */
+exports.sendFamilyBattleRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+    const uid = context.auth.uid;
+    const { challengerFamilyId, opponentFamilyId, cost = 0, imageUrl } = data;
+    if (!challengerFamilyId || !opponentFamilyId) {
+        throw new functions.https.HttpsError('invalid-argument', 'challengerFamilyId and opponentFamilyId required.');
+    }
+
+    const callerDoc = await db.collection('users').doc(uid).get();
+    const callerData = callerDoc.data();
+    if (callerData?.currentActiveBattleId) {
+        throw new functions.https.HttpsError('failed-precondition', 'You are already participating in an active Family Battle. Please complete your current battle before joining another battle.');
+    }
+
+    // Check active battle for challenger family
+    const activeBattles = await db.collection('families').doc(challengerFamilyId).collection('battles')
+        .where('status', '==', 'active').limit(1).get();
+    if (!activeBattles.empty) {
+        throw new functions.https.HttpsError('failed-precondition', 'Your Family is already participating in an active Family Battle.');
+    }
+
+    // Check existing pending request between these families
+    const existingReq = await db.collection('familyBattleRequests')
+        .where('challengerFamilyId', '==', challengerFamilyId)
+        .where('opponentFamilyId', '==', opponentFamilyId)
+        .where('status', '==', 'pending')
+        .limit(1).get();
+    if (!existingReq.empty) {
+        throw new functions.https.HttpsError('already-exists', 'A pending battle request already exists between these families.');
+    }
+
+    const [challengerDoc, opponentDoc] = await Promise.all([
+        db.collection('families').doc(challengerFamilyId).get(),
+        db.collection('families').doc(opponentFamilyId).get(),
+    ]);
+    if (!challengerDoc.exists || !opponentDoc.exists) {
+        throw new functions.https.HttpsError('not-found', 'Challenger or opponent family not found.');
+    }
+    const challenger = challengerDoc.data();
+    const opponent = opponentDoc.data();
+
+    // Create request doc
+    const reqRef = db.collection('familyBattleRequests').doc();
+    await reqRef.set({
+        id: reqRef.id,
+        challengerFamilyId,
+        challengerName: challenger.name || '',
+        challengerAvatar: challenger.avatarUrl || null,
+        opponentFamilyId,
+        opponentName: opponent.name || '',
+        opponentAvatar: opponent.avatarUrl || null,
+        imageUrl: imageUrl || null,
+        status: 'pending',
+        cost: cost,
+        senderUid: uid,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, requestId: reqRef.id };
+});
+
+/**
+ * --- JOIN FAMILY BATTLE (4-STEP GATEKEEPER CHECK) ---
+ */
+exports.joinFamilyBattle = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError('unauthenticated', 'Login required.');
+    const uid = context.auth.uid;
+    const { battleId, familyId } = data;
+    if (!battleId || !familyId) throw new functions.https.HttpsError('invalid-argument', 'battleId and familyId required.');
+
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+
+    // Check 1: User active status
+    if (userData?.currentActiveBattleId && userData.currentActiveBattleId !== battleId) {
+        throw new functions.https.HttpsError('failed-precondition', 'You are already participating in an active Family Battle. Please complete your current battle before joining another battle.');
+    }
+
+    // Check 2: Target Battle status
+    const battleRef = db.collection('families').doc(familyId).collection('battles').doc(battleId);
+    const battleDoc = await battleRef.get();
+    if (!battleDoc.exists) throw new functions.https.HttpsError('not-found', 'Battle not found.');
+    const battle = battleDoc.data();
+    if (battle.status !== 'active') throw new functions.https.HttpsError('failed-precondition', 'Battle is not active.');
+
+    // Check 3: Capacity Check
+    const familyDoc = await db.collection('families').doc(familyId).get();
+    const familyLevel = familyDoc.data()?.level || 1;
+    const capacityCap = getParticipantCap(familyLevel);
+    const participantList = battle.participantUserList || [];
+    if (participantList.length >= capacityCap && !participantList.includes(uid)) {
+        throw new functions.https.HttpsError('resource-exhausted', 'Family Battle Participant Limit Is Full.');
+    }
+
+    // Lock user in transaction
+    await db.runTransaction(async (tx) => {
+        tx.update(db.collection('users').doc(uid), {
+            currentActiveBattleId: battleId,
+            battleJoinTime: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        if (!participantList.includes(uid)) {
+            tx.update(battleRef, {
+                participantUserList: admin.firestore.FieldValue.arrayUnion(uid),
+            });
+        }
+    });
+
+    return { success: true };
+});
 
 /**
  * --- ACCEPT FAMILY BATTLE (SERVER-SIDE) ---
@@ -5332,7 +5685,7 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
             .where('status', '==', 'active').limit(1).get(),
     ]);
     if (!challengerActives.empty) {
-        throw new functions.https.HttpsError('failed-precondition', 'Challenger family already has an active battle.');
+        throw new functions.https.HttpsError('failed-precondition', 'Your Family is already participating in an active Family Battle.');
     }
     if (!opponentActives.empty) {
         throw new functions.https.HttpsError('failed-precondition', 'Opponent family already has an active battle.');
@@ -5355,10 +5708,10 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
     const challengerMemberCount = (challengerFamily.memberUids || []).length;
     const opponentMemberCount = (opponentFamily.memberUids || []).length;
     if (challengerMemberCount > challengerCap) {
-        throw new functions.https.HttpsError('resource-exhausted', 'Challenger family member count exceeds battle participant limit.');
+        throw new functions.https.HttpsError('resource-exhausted', 'Family Battle Participant Limit Is Full.');
     }
     if (opponentMemberCount > opponentCap) {
-        throw new functions.https.HttpsError('resource-exhausted', 'Opponent family member count exceeds battle participant limit.');
+        throw new functions.https.HttpsError('resource-exhausted', 'Family Battle Participant Limit Is Full.');
     }
 
     // Check per-user active battle participation
@@ -5398,6 +5751,8 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
             imageUrl: req.imageUrl || null,
             familyAPoints: 0,
             familyBPoints: 0,
+            participantUserList: allMemberUids,
+            topContributors: [],
             startedAt: now,
             durationSeconds: durationSeconds,
             status: 'active',
@@ -5413,10 +5768,11 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
         // Update request status
         transaction.update(reqDoc.ref, { status: 'accepted' });
 
-        // Set currentActiveBattleId on all members
+        // Set currentActiveBattleId + battleJoinTime on all members
         for (const uid of allMemberUids) {
             transaction.update(db.collection('users').doc(uid), {
                 currentActiveBattleId: battleId,
+                battleJoinTime: now,
             });
         }
 
@@ -5528,8 +5884,8 @@ exports.autoLevelUpFamily = functions.firestore
         if (!before || !after) return null;
         if (before.totalBattlePoints === after.totalBattlePoints) return null;
 
-        const thresholds = [0, 5000000, 10000000, 25000000, 50000000,
-                            100000000, 200000000, 400000000, 600000000, 800000000];
+        const thresholds = [0, 5000000, 10000000, 20000000, 30000000,
+                            50000000, 100000000, 300000000, 500000000, 700000000, 1000000000];
         let newLevel = 1;
         for (let i = thresholds.length - 1; i >= 0; i--) {
             if ((after.totalBattlePoints || 0) >= thresholds[i]) {
@@ -7042,7 +7398,7 @@ async function processRechargeBonusInline(uid, amount) {
     for (const pkgDoc of packagesSnap.docs) {
         const pkg = pkgDoc.data();
         if (amount >= (pkg.rechargeAmount || 0)) {
-            totalBonus = Math.max(totalBonus, pkg.bonusCoins || 0);
+            totalBonus = Math.max(totalBonus, pkg.bonusDiamonds || pkg.bonusCoins || 0);
             matchedPackage = { id: pkgDoc.id, ...pkg };
         }
     }
@@ -7050,11 +7406,11 @@ async function processRechargeBonusInline(uid, amount) {
     if (totalBonus > 0) {
         const userRef = db.collection("users").doc(uid);
         await userRef.update({
-            beansBalance: admin.firestore.FieldValue.increment(totalBonus),
+            diamondBalance: admin.firestore.FieldValue.increment(totalBonus),
             [`event_bonuses.${event.id}`]: admin.firestore.FieldValue.increment(totalBonus)
         });
         await db.collection("users").doc(uid).collection("transactions").add({
-            type: "event_bonus", amount: totalBonus, currency: "beans",
+            type: "event_bonus", amount: totalBonus, currency: "diamonds",
             eventId: event.id, eventName: event.title || "Bonus Event",
             description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
             timestamp: admin.firestore.Timestamp.now()
@@ -7066,11 +7422,14 @@ async function processRechargeBonusInline(uid, amount) {
 /**
  * Inline: track recharge milestone (no auth check — caller must handle)
  */
-async function trackRechargeMilestoneInline(uid, amount, includeBonus = false) {
+async function trackRechargeMilestoneInline(uid, paidAmount, bonusAmount = 0) {
     const events = await getActiveEvents("recharge_milestone");
     if (events.length === 0) return { progress: null, milestones: [] };
 
     const event = events[0];
+    const includeBonus = event.includeBonusInProgress ?? false;
+    const addedProgress = includeBonus ? (paidAmount + bonusAmount) : paidAmount;
+
     const milestonesSnap = await db.collection("recharge_milestones")
         .where("eventId", "==", event.id)
         .where("isActive", "==", true)
@@ -7082,7 +7441,7 @@ async function trackRechargeMilestoneInline(uid, amount, includeBonus = false) {
     const progressRef = db.collection("user_event_progress").doc(`${uid}_${event.id}`);
     const progressDoc = await progressRef.get();
 
-    let currentProgress = amount;
+    let currentProgress = addedProgress;
     const claimedMilestones = [];
     if (progressDoc.exists) {
         const pData = progressDoc.data();
@@ -7097,10 +7456,23 @@ async function trackRechargeMilestoneInline(uid, amount, includeBonus = false) {
     for (const ms of milestones) {
         if (!claimedMilestones.includes(ms.id) && currentProgress >= (ms.targetAmount || 0)) {
             newlyClaimed.push(ms.id);
-            if ((ms.rewardType || "coins") === "coins" && (ms.rewardAmount || 0) > 0) {
-                batch.update(db.collection("users").doc(uid), {
-                    beansBalance: admin.firestore.FieldValue.increment(ms.rewardAmount)
+            const userRef = db.collection("users").doc(uid);
+            
+            // Credit diamonds reward
+            if ((ms.rewardType === "diamonds" || ms.rewardType === "coins") && (ms.rewardAmount || 0) > 0) {
+                batch.update(userRef, {
+                    diamondBalance: admin.firestore.FieldValue.increment(ms.rewardAmount)
                 });
+            }
+            // Unlock asset rewards (Avatar Frame, Entry Effect, Chat Bubble)
+            if (ms.frameUrl) {
+                batch.update(userRef, { unlockedAvatarFrames: admin.firestore.FieldValue.arrayUnion(ms.frameUrl) });
+            }
+            if (ms.entryEffectUrl) {
+                batch.update(userRef, { unlockedEntryEffects: admin.firestore.FieldValue.arrayUnion(ms.entryEffectUrl) });
+            }
+            if (ms.chatBubbleUrl) {
+                batch.update(userRef, { unlockedChatBubbles: admin.firestore.FieldValue.arrayUnion(ms.chatBubbleUrl) });
             }
         }
     }
@@ -7476,4 +7848,1056 @@ exports.seedRelationshipLevels = functions.https.onCall(async (data, context) =>
 
     return { success: true, count: levels.length };
 });
+
+/**
+ * 📩 Helper: Send Official Inbox Reward Message
+ */
+async function sendOfficialRewardMessage(uid, { type = "reward", title, body, rewardName, rewardAmount, reason, status = "Claimed" }) {
+    if (!uid) return;
+    const msgRef = db.collection("users").doc(uid).collection("inbox_messages").doc();
+    await msgRef.set({
+        id: msgRef.id,
+        type,
+        title: title || "Official Reward Received 🎁",
+        body: body || `You received ${rewardAmount || ""} ${rewardName || "Reward"}. Reason: ${reason || "Official Reward"}.`,
+        rewardName: rewardName || "",
+        rewardAmount: rewardAmount || 0,
+        reason: reason || "Official Reward",
+        status,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+}
+exports.sendOfficialRewardMessage = sendOfficialRewardMessage;
+
+/**
+ * 📢 Admin Broadcast Callable Function (PRD 4)
+ */
+exports.sendAdminBroadcast = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data()?.tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { title, body, imageUrl, linkUrl, filters = {} } = data;
+    if (!title || !body) throw new functions.https.HttpsError("invalid-argument", "title and body required.");
+
+    let query = db.collection("users");
+    if (filters.vipLevel != null) query = query.where("vipTier", "==", filters.vipLevel);
+    if (filters.country) query = query.where("country", "==", filters.country);
+    if (filters.familyId) query = query.where("familyId", "==", filters.familyId);
+    if (filters.agencyId) query = query.where("agencyId", "==", filters.agencyId);
+
+    const targetUsersSnap = await query.limit(500).get();
+    const batch = db.batch();
+
+    for (const uDoc of targetUsersSnap.docs) {
+        const msgRef = uDoc.ref.collection("inbox_messages").doc();
+        batch.set(msgRef, {
+            id: msgRef.id,
+            type: "broadcast",
+            title,
+            body,
+            imageUrl: imageUrl || null,
+            linkUrl: linkUrl || null,
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        const fcmToken = uDoc.data()?.fcmToken;
+        if (fcmToken) {
+            try { await sendPush(uDoc.id, title, body, { type: "BROADCAST", linkUrl }); } catch (_) {}
+        }
+    }
+
+    await batch.commit();
+    return { success: true, targetCount: targetUsersSnap.docs.length };
+});
+
+/**
+ * 👑 Claim VIP Daily Reward Callable Function
+ */
+exports.claimVipDailyReward = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (tx) => {
+        const uDoc = await tx.get(userRef);
+        if (!uDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+        const userData = uDoc.data();
+
+        const vipTier = userData.vipTier || 0;
+        if (vipTier <= 0) throw new functions.https.HttpsError("failed-precondition", "Active VIP membership required.");
+
+        const lastClaim = userData.lastDailyVipClaim?.toDate ? userData.lastDailyVipClaim.toDate() : null;
+        const now = new Date();
+        if (lastClaim && lastClaim.getUTCFullYear() === now.getUTCFullYear() &&
+            lastClaim.getUTCMonth() === now.getUTCMonth() &&
+            lastClaim.getUTCDate() === now.getUTCDate()) {
+            throw new functions.https.HttpsError("already-exists", "Daily VIP reward already claimed today.");
+        }
+
+        const rewardDiamonds = vipTier * 10000; // Tier bonus scaling
+        tx.update(userRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(rewardDiamonds),
+            lastDailyVipClaim: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Record inbox reward message
+        const msgRef = userRef.collection("inbox_messages").doc();
+        tx.set(msgRef, {
+            id: msgRef.id,
+            type: "reward",
+            title: "VIP Daily Reward 👑",
+            body: `You claimed your daily VIP Tier ${vipTier} reward of ${rewardDiamonds.toLocaleString()} diamonds!`,
+            rewardName: "Diamonds",
+            rewardAmount: rewardDiamonds,
+            reason: "VIP Daily Reward",
+            status: "Claimed",
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true, rewardDiamonds };
+    });
+});
+
+/**
+ * 💸 Refund VIP Membership (Admin)
+ */
+exports.refundVip = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
+    const tags = callerDoc.data()?.tags || [];
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    }
+
+    const { targetUid, refundAmount, reason } = data;
+    if (!targetUid) throw new functions.https.HttpsError("invalid-argument", "targetUid required.");
+
+    const userRef = db.collection("users").doc(targetUid);
+    const uDoc = await userRef.get();
+    if (!uDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+    await userRef.update({
+        vipTier: 0,
+        vipExpiry: admin.firestore.FieldValue.delete(),
+        diamondBalance: admin.firestore.FieldValue.increment(refundAmount || 0)
+    });
+
+    await sendOfficialRewardMessage(targetUid, {
+        type: "system",
+        title: "VIP Membership Refunded 💸",
+        body: `Your VIP membership has been refunded. ${refundAmount || 0} diamonds have been credited back. Reason: ${reason || "Administrative Refund"}.`,
+        rewardName: "Diamonds Refund",
+        rewardAmount: refundAmount || 0,
+        reason: reason || "VIP Refund",
+        status: "Processed"
+    });
+
+    return { success: true };
+});
+
+/**
+ * 📦 Helper: Send Official System Message & Push Notification
+ */
+async function sendOfficialRewardMessage(targetUid, rewardData) {
+    try {
+        const msgRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
+        await msgRef.set({
+            id: msgRef.id,
+            type: rewardData.type || "reward",
+            title: rewardData.title || "Official Reward Received 🎁",
+            body: rewardData.body || "You have received an official reward.",
+            rewardName: rewardData.rewardName || "Reward",
+            rewardAmount: rewardData.rewardAmount || 0,
+            reason: rewardData.reason || "Official System Event",
+            status: rewardData.status || "Received",
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: rewardData.data || { route: "/wallet" }
+        });
+        await sendPush(targetUid, rewardData.title || "Official Reward", rewardData.body || "", { route: "/inbox", type: "OFFICIAL_REWARD" });
+    } catch (err) {
+        console.error(`[OFFICIAL_MESSAGE_ERROR] Failed writing to ${targetUid}:`, err);
+    }
+}
+
+/**
+ * 💎 Diamond Seller Transfer Function
+ */
+exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const senderUid = context.auth.uid;
+    const { targetHelloId, amount } = data;
+
+    const parsedAmount = parseInt(amount);
+    if (!targetHelloId || isNaN(parsedAmount) || parsedAmount <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Valid targetHelloId and positive amount required.");
+    }
+
+    const senderRef = db.collection("users").doc(senderUid);
+    const senderDoc = await senderRef.get();
+    if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender not found.");
+    const senderData = senderDoc.data();
+
+    if (!senderData.isReseller && !(senderData.tags || []).includes("Reseller") && !(senderData.tags || []).includes("Admin")) {
+        throw new functions.https.HttpsError("permission-denied", "Only authorized Diamond Sellers can transfer stock.");
+    }
+
+    const stock = senderData.diamondStock || 0;
+    if (stock < parsedAmount) {
+        throw new functions.https.HttpsError("failed-precondition", `Insufficient diamond stock. Current stock: ${stock.toLocaleString()}`);
+    }
+
+    let targetUid = null;
+    let targetData = null;
+    const helloIdNum = parseInt(targetHelloId);
+
+    const queryNum = await db.collection("users").where("helloId", "==", isNaN(helloIdNum) ? targetHelloId : helloIdNum).limit(1).get();
+    if (!queryNum.empty) {
+        targetUid = queryNum.docs[0].id;
+        targetData = queryNum.docs[0].data();
+    } else {
+        const queryStr = await db.collection("users").where("helloId", "==", targetHelloId.toString()).limit(1).get();
+        if (!queryStr.empty) {
+            targetUid = queryStr.docs[0].id;
+            targetData = queryStr.docs[0].data();
+        }
+    }
+
+    if (!targetUid || !targetData) {
+        throw new functions.https.HttpsError("not-found", `User with Hello ID ${targetHelloId} not found.`);
+    }
+
+    const targetRef = db.collection("users").doc(targetUid);
+    const now = new Date();
+    const dateTimeStr = now.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" }) + ", " + now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const sellerName = senderData.displayName || "Diamond Seller";
+    const sellerId = senderData.helloId ? `S${senderData.helloId}` : senderUid.substring(0, 6);
+
+    await db.runTransaction(async (transaction) => {
+        transaction.update(senderRef, {
+            diamondStock: admin.firestore.FieldValue.increment(-parsedAmount)
+        });
+        transaction.update(targetRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(parsedAmount)
+        });
+
+        const txRef = db.collection("reseller_transactions").doc();
+        transaction.set(txRef, {
+            senderUid: senderUid,
+            senderName: sellerName,
+            senderHelloId: sellerId,
+            targetUid: targetUid,
+            targetName: targetData.displayName || "User",
+            targetHelloId: targetHelloId,
+            amount: parsedAmount,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        const inboxRef = targetRef.collection("inbox_messages").doc();
+        transaction.set(inboxRef, {
+            type: "reward",
+            title: "Diamonds Received 💎",
+            body: `🎉 You have received ${parsedAmount.toLocaleString()} Diamonds.\nSent by: ${sellerName} (Seller ID: ${sellerId})\nDate: ${dateTimeStr}\nThe Diamonds have been successfully added to your account.`,
+            rewardName: "Diamonds",
+            rewardAmount: parsedAmount,
+            reason: `Transfer from Diamond Seller ${sellerName}`,
+            status: "Received",
+            read: false,
+            createdAt: admin.firestore.Timestamp.now(),
+            data: {
+                sellerName: sellerName,
+                sellerId: sellerId,
+                amount: parsedAmount,
+                route: "/wallet"
+            }
+        });
+    });
+
+    const pushBody = `🎉 You have received ${parsedAmount.toLocaleString()} Diamonds from Seller ${sellerName}.`;
+    await sendPush(targetUid, "Diamonds Received 💎", pushBody, { route: "/inbox", type: "DIAMONDS_RECEIVED" });
+
+    return { success: true, targetName: targetData.displayName, amount: parsedAmount };
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * ⚔️ FAMILY BATTLE SYSTEM CLOUD FUNCTIONS
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+// Helper to determine Family Level from combat points
+function getFamilyLevelForPoints(points) {
+    if (points >= 1000000000) return 10;
+    if (points >= 700000000) return 9;
+    if (points >= 500000000) return 8;
+    if (points >= 300000000) return 7;
+    if (points >= 100000000) return 6;
+    if (points >= 50000000) return 5;
+    if (points >= 30000000) return 4;
+    if (points >= 20000000) return 3;
+    if (points >= 10000000) return 2;
+    if (points >= 5000000) return 1;
+    return 1;
+}
+
+// Helper to determine Dynamic Member Capacity from Level
+function getMemberCapacityForLevel(level) {
+    if (level >= 10) return 1000;
+    if (level >= 9) return 500;
+    if (level >= 7) return 300;
+    if (level >= 5) return 200;
+    if (level >= 3) return 150;
+    return 100;
+}
+
+/**
+ * 1. Send Family Battle Request with Concurrency Lock
+ */
+exports.sendFamilyBattleRequest = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { challengerFamilyId, opponentFamilyId, cost, imageUrl } = data;
+
+    if (!challengerFamilyId || !opponentFamilyId) {
+        throw new functions.https.HttpsError("invalid-argument", "Challenger and opponent family IDs required.");
+    }
+
+    // 🔒 Concurrency Lock Check: 1 Family = Max 1 Active Battle
+    const [challengerActive, opponentActive] = await Promise.all([
+        db.collection("families").doc(challengerFamilyId).collection("battles").where("status", "==", "active").limit(1).get(),
+        db.collection("families").doc(opponentFamilyId).collection("battles").where("status", "==", "active").limit(1).get()
+    ]);
+
+    if (!challengerActive.empty) {
+        throw new functions.https.HttpsError("failed-precondition", "Your Family is already participating in an active Family Battle.");
+    }
+    if (!opponentActive.empty) {
+        throw new functions.https.HttpsError("failed-precondition", "Opponent Family is already participating in an active Family Battle.");
+    }
+
+    // Check pending request lock
+    const existingReq = await db.collection("familyBattleRequests")
+        .where("challengerFamilyId", "==", challengerFamilyId)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+    if (!existingReq.empty) {
+        throw new functions.https.HttpsError("already-exists", "Your Family already has an active outgoing battle request.");
+    }
+
+    const challengerDoc = await db.collection("families").doc(challengerFamilyId).get();
+    const opponentDoc = await db.collection("families").doc(opponentFamilyId).get();
+
+    if (!challengerDoc.exists || !opponentDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "One or both families were not found.");
+    }
+
+    const challengerData = challengerDoc.data();
+    const opponentData = opponentDoc.data();
+
+    const reqRef = db.collection("familyBattleRequests").doc();
+    await reqRef.set({
+        requestId: reqRef.id,
+        challengerFamilyId: challengerFamilyId,
+        challengerName: challengerData.name || "Challenger Family",
+        challengerAvatar: challengerData.avatarUrl || "",
+        opponentFamilyId: opponentFamilyId,
+        opponentName: opponentData.name || "Opponent Family",
+        opponentAvatar: opponentData.avatarUrl || "",
+        cost: cost || 0,
+        imageUrl: imageUrl || "",
+        senderUid: uid,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    console.log(`[FAMILY_BATTLE] Battle request created: ${reqRef.id} (${challengerFamilyId} vs ${opponentFamilyId})`);
+    return { success: true, requestId: reqRef.id };
+});
+
+/**
+ * 2. Accept Family Battle Request with State Lock & Overwrite Protection
+ */
+exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const { requestId } = data;
+
+    if (!requestId) {
+        throw new functions.https.HttpsError("invalid-argument", "requestId required.");
+    }
+
+    const reqRef = db.collection("familyBattleRequests").doc(requestId);
+    const reqDoc = await reqRef.get();
+
+    if (!reqDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "Battle request not found.");
+    }
+
+    const reqData = reqDoc.data();
+    if (reqData.status !== "pending") {
+        throw new functions.https.HttpsError("failed-precondition", `Request is already ${reqData.status}.`);
+    }
+
+    const challengerId = reqData.challengerFamilyId;
+    const opponentId = reqData.opponentFamilyId;
+
+    // 🔒 Hard Concurrency Check & Overwrite Protection: 1 Family = Max 1 Active Battle
+    const [challengerActive, opponentActive] = await Promise.all([
+        db.collection("families").doc(challengerId).collection("battles").where("status", "==", "active").limit(1).get(),
+        db.collection("families").doc(opponentId).collection("battles").where("status", "==", "active").limit(1).get()
+    ]);
+
+    if (!challengerActive.empty || !opponentActive.empty) {
+        throw new functions.https.HttpsError("failed-precondition", "Your Family is already participating in an active Family Battle.");
+    }
+
+    const challengerDoc = await db.collection("families").doc(challengerId).get();
+    const opponentDoc = await db.collection("families").doc(opponentId).get();
+
+    if (!challengerDoc.exists || !opponentDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "Family profiles not found.");
+    }
+
+    const cData = challengerDoc.data();
+    const oData = opponentDoc.data();
+    const battleId = db.collection("families").doc(challengerId).collection("battles").doc().id;
+    const now = admin.firestore.Timestamp.now();
+    const durationSeconds = 300; // 5 minute standard duration
+
+    const battlePayload = {
+        id: battleId,
+        familyAId: challengerId,
+        familyBId: opponentId,
+        familyAName: cData.name || "Family A",
+        familyBName: oData.name || "Family B",
+        familyAAvatar: cData.avatarUrl || "",
+        familyBAvatar: oData.avatarUrl || "",
+        imageUrl: reqData.imageUrl || "",
+        familyAPoints: 0,
+        familyBPoints: 0,
+        startedAt: now,
+        durationSeconds: durationSeconds,
+        status: "active",
+        createdAt: now
+    };
+
+    const batch = db.batch();
+    // Update request status
+    batch.update(reqRef, { status: "accepted", acceptedAt: now });
+
+    // Write isolated battle document to BOTH families' battles subcollection
+    batch.set(db.collection("families").doc(challengerId).collection("battles").doc(battleId), battlePayload);
+    batch.set(db.collection("families").doc(opponentId).collection("battles").doc(battleId), battlePayload);
+
+    await batch.commit();
+
+    console.log(`[FAMILY_BATTLE] Battle accepted and active: ${battleId} (${challengerId} vs ${opponentId})`);
+    return { success: true, battleId: battleId };
+});
+
+/**
+ * 3. Atomic Battle Point Injection & 1:1 Diamond Conversion
+ */
+exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { battleId, familyId, points } = data;
+
+    const diamondAmount = parseInt(points) || 1;
+    if (!battleId || !familyId || diamondAmount <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid parameters.");
+    }
+
+    const battleRef = db.collection("families").doc(familyId).collection("battles").doc(battleId);
+    const battleDoc = await battleRef.get();
+
+    if (!battleDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "Active battle not found.");
+    }
+
+    const battleData = battleDoc.data();
+    // 🔒 State Lifecycle Rule: Points only injected when state == 'active'
+    if (battleData.status !== "active") {
+        console.log(`[FAMILY_BATTLE] Point injection rejected: battle ${battleId} state is ${battleData.status}`);
+        return { success: false, reason: "Battle not active" };
+    }
+
+    const familyAId = battleData.familyAId;
+    const familyBId = battleData.familyBId;
+    const isFamilyA = familyId === familyAId;
+    const opponentFamilyId = isFamilyA ? familyBId : familyAId;
+
+    const userDoc = await db.collection("users").doc(uid).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const displayName = userData.displayName || "Member";
+    const avatarUrl = userData.profilePhotoUrl || "";
+    const level = userData.level || 1;
+
+    await db.runTransaction(async (transaction) => {
+        // 1. ACID-Compliant Transaction Record Log
+        const txLogRef = db.collection("family_battle_transactions").doc();
+        transaction.set(txLogRef, {
+            transactionId: txLogRef.id,
+            userId: uid,
+            familyId: familyId,
+            battleId: battleId,
+            diamondCount: diamondAmount,
+            pointsConverted: diamondAmount, // 1:1 Ratio
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. Increment Battle Points on both mirrored battle docs
+        const pointsField = isFamilyA ? "familyAPoints" : "familyBPoints";
+        const mirrorRef = db.collection("families").doc(opponentFamilyId).collection("battles").doc(battleId);
+
+        transaction.update(battleRef, { [pointsField]: admin.firestore.FieldValue.increment(diamondAmount) });
+        transaction.update(mirrorRef, { [pointsField]: admin.firestore.FieldValue.increment(diamondAmount) });
+
+        // 3. Dynamic Family Level Progression & In-Flight Capacity Scaling
+        const familyRef = db.collection("families").doc(familyId);
+        const familyDoc = await transaction.get(familyRef);
+        if (familyDoc.exists) {
+            const currentCombat = (familyDoc.data().totalCombatPoints || 0) + diamondAmount;
+            const newLevel = getFamilyLevelForPoints(currentCombat);
+            const newCapacity = getMemberCapacityForLevel(newLevel);
+
+            transaction.update(familyRef, {
+                totalCombatPoints: admin.firestore.FieldValue.increment(diamondAmount),
+                totalBattlePoints: admin.firestore.FieldValue.increment(diamondAmount),
+                totalDiamonds: admin.firestore.FieldValue.increment(diamondAmount),
+                currentMonthPoints: admin.firestore.FieldValue.increment(diamondAmount),
+                level: newLevel,
+                memberLimit: newCapacity
+            });
+        }
+
+        // 4. Update Member Individual Contribution
+        const memberRef = familyRef.collection("members").doc(uid);
+        transaction.set(memberRef, {
+            userId: uid,
+            combatPoints: admin.firestore.FieldValue.increment(diamondAmount),
+            totalBattlePoints: admin.firestore.FieldValue.increment(diamondAmount),
+            totalDiamondsSent: admin.firestore.FieldValue.increment(diamondAmount),
+            contribution: admin.firestore.FieldValue.increment(diamondAmount),
+            memberXP: admin.firestore.FieldValue.increment(diamondAmount)
+        }, { merge: true });
+
+        // 5. Update MVP Top Contributor Micro-Leaderboard Profile
+        const contribRef = battleRef.collection("contributors").doc(uid);
+        transaction.set(contribRef, {
+            userId: uid,
+            displayName: displayName,
+            avatarUrl: avatarUrl,
+            userLevel: level,
+            battlePoints: admin.firestore.FieldValue.increment(diamondAmount),
+            diamondsGifted: admin.firestore.FieldValue.increment(diamondAmount),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    });
+
+    return { success: true, pointsAdded: diamondAmount };
+});
+
+/**
+ * 4. Scheduled Auto-Termination of Expired Family Battles
+ */
+exports.autoEndFamilyBattles = functions.pubsub.schedule("every 1 minutes").onRun(async (context) => {
+    const now = admin.firestore.Timestamp.now();
+    
+    // Find active family battles that have exceeded duration
+    const families = await db.collection("families").get();
+    let count = 0;
+
+    for (const fDoc of families.docs) {
+        const activeBattles = await fDoc.ref.collection("battles")
+            .where("status", "==", "active")
+            .get();
+
+        for (const bDoc of activeBattles.docs) {
+            const bData = bDoc.data();
+            const startedAt = bData.startedAt ? bData.startedAt.toDate() : new Date();
+            const durationSec = bData.durationSeconds || 300;
+            const expiresAt = new Date(startedAt.getTime() + durationSec * 1000);
+
+            if (new Date() >= expiresAt) {
+                const aPts = bData.familyAPoints || 0;
+                const bPts = bData.familyBPoints || 0;
+                const familyAId = bData.familyAId;
+                const familyBId = bData.familyBId;
+
+                let winnerId = null;
+                if (aPts > bPts) winnerId = familyAId;
+                else if (bPts > aPts) winnerId = familyBId;
+
+                const batch = db.batch();
+                // Immutable State Lock: mark completed
+                batch.update(bDoc.ref, {
+                    status: "completed",
+                    winnerId: winnerId,
+                    endedAt: now
+                });
+
+                const mirrorRef = db.collection("families").doc(familyBId === fDoc.id ? familyAId : familyBId).collection("battles").doc(bDoc.id);
+                const mirrorDoc = await mirrorRef.get();
+                if (mirrorDoc.exists) {
+                    batch.update(mirrorRef, {
+                        status: "completed",
+                        winnerId: winnerId,
+                        endedAt: now
+                    });
+                }
+
+                await batch.commit();
+                count++;
+                console.log(`[FAMILY_BATTLE_AUTO_END] Battle ${bDoc.id} ended. Winner: ${winnerId || 'Draw'}`);
+            }
+        }
+    }
+    return null;
+});
+
+/**
+ * 5. Scheduled Ranking Indexers (Daily, Weekly, Monthly)
+ */
+exports.scheduledFamilyRankings = functions.pubsub.schedule("every 24 hours").onRun(async (context) => {
+    console.log("[RANKINGS] Recalculating Family Rankings at 00:00 UTC");
+    const familiesSnap = await db.collection("families")
+        .orderBy("totalCombatPoints", "desc")
+        .limit(100)
+        .get();
+
+    const batch = db.batch();
+    let rank = 1;
+
+    for (const doc of familiesSnap.docs) {
+        const data = doc.data();
+        const pts = data.totalCombatPoints || 0;
+        const level = getFamilyLevelForPoints(pts);
+
+        const rankRef = db.collection("familyRankings").doc(`daily_${doc.id}`);
+        batch.set(rankRef, {
+            familyId: doc.id,
+            familyName: data.name,
+            avatarUrl: data.avatarUrl || "",
+            level: level,
+            pts: pts,
+            rank: rank,
+            period: "daily",
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        rank++;
+    }
+
+    await batch.commit();
+    return null;
+});
+
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 👑 HIERARCHY PERMISSION, COMMISSION WALLET & USD-TO-DIAMOND SYSTEM
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/**
+ * 1. Owner: Financial Policies Config (Commission Rates, Conversion Rate, Gateways)
+ */
+exports.updateFinancialPolicies = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+
+    const userDoc = await db.collection("users").doc(uid).get();
+    if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+    const uData = userDoc.data();
+    const isOwner = uData.role === "owner" || (uData.tags || []).includes("Owner") || (uData.tags || []).includes("SuperAdmin");
+    if (!isOwner) {
+        throw new functions.https.HttpsError("permission-denied", "Only the Owner can modify financial policies.");
+    }
+
+    const { agencyCommissionRate, adminCommissionRate, usdToDiamondRate, supportedGateways } = data;
+
+    const updates = {
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: uid,
+    };
+    if (agencyCommissionRate !== undefined) updates.agencyCommissionRate = parseFloat(agencyCommissionRate) || 0.30;
+    if (adminCommissionRate !== undefined) updates.adminCommissionRate = parseFloat(adminCommissionRate) || 0.10;
+    if (usdToDiamondRate !== undefined) updates.usdToDiamondRate = parseInt(usdToDiamondRate) || 1000000;
+    if (supportedGateways !== undefined) updates.supportedGateways = supportedGateways;
+
+    await db.collection("system_configs").doc("financial_policies").set(updates, { merge: true });
+    console.log(`[FINANCIAL_POLICY] Updated by Owner ${uid}:`, updates);
+    return { success: true, policies: updates };
+});
+
+/**
+ * 2. Get Active Financial Policies
+ */
+exports.getFinancialPolicies = functions.https.onCall(async (data, context) => {
+    const docSnap = await db.collection("system_configs").doc("financial_policies").get();
+    if (!docSnap.exists) {
+        return {
+            agencyCommissionRate: 0.30,
+            adminCommissionRate: 0.10,
+            usdToDiamondRate: 1000000,
+            supportedGateways: ["bKash", "Nagad", "Rocket", "Bank Transfer", "PayPal", "Wise", "Binance Pay", "USDT TRC20", "USDT BEP20"]
+        };
+    }
+    return docSnap.data();
+});
+
+/**
+ * 3. Real-Time Recharge Commission Process Trigger
+ * 30% to Agency Commission Wallet (USD) | 10% to Admin Commission Wallet (USD)
+ */
+exports.processRechargeCommission = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const { hostUid, rechargeUSD } = data;
+
+    const usdAmount = parseFloat(rechargeUSD);
+    if (!hostUid || isNaN(usdAmount) || usdAmount <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Valid hostUid and positive rechargeUSD required.");
+    }
+
+    const policySnap = await db.collection("system_configs").doc("financial_policies").get();
+    const policy = policySnap.exists ? policySnap.data() : {};
+    const agencyRate = policy.agencyCommissionRate !== undefined ? policy.agencyCommissionRate : 0.30;
+    const adminRate = policy.adminCommissionRate !== undefined ? policy.adminCommissionRate : 0.10;
+
+    const hostDoc = await db.collection("users").doc(hostUid).get();
+    if (!hostDoc.exists) return { success: false, reason: "Host not found" };
+
+    const hData = hostDoc.data();
+    const agencyId = hData.agencyId;
+    if (!agencyId) return { success: true, processed: false, reason: "Host has no agency assigned" };
+
+    const agencyDoc = await db.collection("users").doc(agencyId).get();
+    if (!agencyDoc.exists) return { success: false, reason: "Agency not found" };
+
+    const aData = agencyDoc.data();
+    const adminId = aData.adminId;
+
+    const agencyCommissionUSD = parseFloat((usdAmount * agencyRate).toFixed(2));
+    const adminCommissionUSD = adminId ? parseFloat((usdAmount * adminRate).toFixed(2)) : 0.0;
+
+    await db.runTransaction(async (transaction) => {
+        // 1. Credit Agency USD Commission Wallet
+        const agencyRef = db.collection("users").doc(agencyId);
+        transaction.update(agencyRef, {
+            usdCommissionBalance: admin.firestore.FieldValue.increment(agencyCommissionUSD),
+            totalCommissionEarned: admin.firestore.FieldValue.increment(agencyCommissionUSD),
+            totalRechargeGenerated: admin.firestore.FieldValue.increment(usdAmount)
+        });
+
+        const agencyTxRef = db.collection("commission_transactions").doc();
+        transaction.set(agencyTxRef, {
+            txId: agencyTxRef.id,
+            recipientUid: agencyId,
+            recipientRole: "agency",
+            hostUid: hostUid,
+            rechargeUSD: usdAmount,
+            commissionRate: agencyRate,
+            commissionUSD: agencyCommissionUSD,
+            type: "agency_commission",
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. Credit Admin USD Commission Wallet (If Admin Assigned)
+        if (adminId) {
+            const adminRef = db.collection("users").doc(adminId);
+            transaction.update(adminRef, {
+                usdCommissionBalance: admin.firestore.FieldValue.increment(adminCommissionUSD),
+                totalCommissionEarned: admin.firestore.FieldValue.increment(adminCommissionUSD),
+                totalRechargeGenerated: admin.firestore.FieldValue.increment(usdAmount)
+            });
+
+            const adminTxRef = db.collection("commission_transactions").doc();
+            transaction.set(adminTxRef, {
+                txId: adminTxRef.id,
+                recipientUid: adminId,
+                recipientRole: "admin",
+                hostUid: hostUid,
+                agencyId: agencyId,
+                rechargeUSD: usdAmount,
+                commissionRate: adminRate,
+                commissionUSD: adminCommissionUSD,
+                type: "admin_commission",
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+    });
+
+    console.log(`[COMMISSION] Processed recharge $${usdAmount} for Host ${hostUid}: Agency=${agencyId} ($${agencyCommissionUSD}), Admin=${adminId || 'none'} ($${adminCommissionUSD})`);
+    return { success: true, agencyCommissionUSD, adminCommissionUSD };
+});
+
+/**
+ * 4. USD Commission Wallet -> Convert to Diamonds Engine
+ * Rate: 1 USD = 1,000,000 Diamonds (Configurable)
+ */
+exports.convertCommissionToDiamonds = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { usdAmount } = data;
+
+    const parsedUSD = parseFloat(usdAmount);
+    if (isNaN(parsedUSD) || parsedUSD <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Positive USD amount required.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+    const uData = userDoc.data();
+    const currentUSD = uData.usdCommissionBalance || 0.0;
+
+    if (currentUSD < parsedUSD) {
+        throw new functions.https.HttpsError("failed-precondition", `Insufficient USD commission balance. Available: $${currentUSD.toFixed(2)} USD.`);
+    }
+
+    // Get conversion rate
+    const policySnap = await db.collection("system_configs").doc("financial_policies").get();
+    const rate = policySnap.exists && policySnap.data().usdToDiamondRate ? policySnap.data().usdToDiamondRate : 1000000;
+    const diamondsReceived = Math.floor(parsedUSD * rate);
+
+    const now = admin.firestore.Timestamp.now();
+
+    await db.runTransaction(async (transaction) => {
+        // Deduct USD, credit Diamonds
+        transaction.update(userRef, {
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD),
+            diamondBalance: admin.firestore.FieldValue.increment(diamondsReceived)
+        });
+
+        // Record Conversion Log
+        const convRef = db.collection("commission_diamond_conversions").doc();
+        transaction.set(convRef, {
+            id: convRef.id,
+            userId: uid,
+            displayName: uData.displayName || "User",
+            role: uData.role || "agency",
+            usdAmount: parsedUSD,
+            conversionRate: rate,
+            diamondsReceived: diamondsReceived,
+            status: "completed",
+            createdAt: now
+        });
+    });
+
+    console.log(`[DIAMOND_CONVERSION] User ${uid} converted $${parsedUSD} USD -> ${diamondsReceived.toLocaleString()} Diamonds (Rate: 1 USD = ${rate.toLocaleString()})`);
+    return {
+        success: true,
+        usdAmount: parsedUSD,
+        conversionRate: rate,
+        diamondsReceived: diamondsReceived
+    };
+});
+
+/**
+ * 5. Option 1: Reseller Wallet Transfer Engine
+ */
+exports.transferCommissionToReseller = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const senderUid = context.auth.uid;
+    const { targetResellerHelloId, usdAmount } = data;
+
+    const parsedUSD = parseFloat(usdAmount);
+    if (!targetResellerHelloId || isNaN(parsedUSD) || parsedUSD <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Valid target reseller ID and positive USD amount required.");
+    }
+
+    const senderRef = db.collection("users").doc(senderUid);
+    const senderDoc = await senderRef.get();
+    if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender user not found.");
+
+    const sData = senderDoc.data();
+    const currentUSD = sData.usdCommissionBalance || 0.0;
+    if (currentUSD < parsedUSD) {
+        throw new functions.https.HttpsError("failed-precondition", `Insufficient USD balance. Available: $${currentUSD.toFixed(2)} USD.`);
+    }
+
+    // Find Target Reseller
+    const helloIdNum = parseInt(targetResellerHelloId);
+    let targetUid = null;
+    let targetData = null;
+
+    const qNum = await db.collection("users").where("helloId", "==", isNaN(helloIdNum) ? targetResellerHelloId : helloIdNum).limit(1).get();
+    if (!qNum.empty) {
+        targetUid = qNum.docs[0].id;
+        targetData = qNum.docs[0].data();
+    } else {
+        const qStr = await db.collection("users").where("helloId", "==", targetResellerHelloId.toString()).limit(1).get();
+        if (!qStr.empty) {
+            targetUid = qStr.docs[0].id;
+            targetData = qStr.docs[0].data();
+        }
+    }
+
+    if (!targetUid || !targetData) {
+        throw new functions.https.HttpsError("not-found", `Reseller with ID ${targetResellerHelloId} not found.`);
+    }
+
+    const now = admin.firestore.Timestamp.now();
+
+    await db.runTransaction(async (transaction) => {
+        // Deduct from Sender USD Commission
+        transaction.update(senderRef, {
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD)
+        });
+
+        // Credit to Target Reseller
+        const targetRef = db.collection("users").doc(targetUid);
+        transaction.update(targetRef, {
+            usdResellerBalance: admin.firestore.FieldValue.increment(parsedUSD)
+        });
+
+        // Log Transfer
+        const trfRef = db.collection("commission_reseller_transfers").doc();
+        transaction.set(trfRef, {
+            transactionId: `TRF-${trfRef.id.slice(0, 8).toUpperCase()}-USD`,
+            senderUid: senderUid,
+            senderName: sData.displayName || "Agency/Admin",
+            senderRole: sData.role || "agency",
+            targetUid: targetUid,
+            targetName: targetData.displayName || "Reseller",
+            targetHelloId: targetResellerHelloId,
+            transferAmountUSD: parsedUSD,
+            status: "completed",
+            createdAt: now
+        });
+    });
+
+    console.log(`[RESELLER_TRANSFER] User ${senderUid} transferred $${parsedUSD} USD to Reseller ${targetUid}`);
+    return { success: true, targetName: targetData.displayName, transferAmountUSD: parsedUSD };
+});
+
+/**
+ * 6. Option 2: Direct Financial Withdrawal Submission
+ */
+exports.submitCommissionWithdrawal = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const { usdAmount, paymentMethod, paymentAccountDetails } = data;
+
+    const parsedUSD = parseFloat(usdAmount);
+    if (isNaN(parsedUSD) || parsedUSD <= 0 || !paymentMethod || !paymentAccountDetails) {
+        throw new functions.https.HttpsError("invalid-argument", "USD amount, payment method, and account details required.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+    const uData = userDoc.data();
+    const currentUSD = uData.usdCommissionBalance || 0.0;
+
+    if (currentUSD < parsedUSD) {
+        throw new functions.https.HttpsError("failed-precondition", `Insufficient USD commission balance. Available: $${currentUSD.toFixed(2)} USD.`);
+    }
+
+    const reqRef = db.collection("commission_withdrawals").doc();
+    const now = admin.firestore.Timestamp.now();
+
+    await db.runTransaction(async (transaction) => {
+        // Lock funds into pendingWithdrawalBalance
+        transaction.update(userRef, {
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD),
+            pendingWithdrawalBalance: admin.firestore.FieldValue.increment(parsedUSD)
+        });
+
+        transaction.set(reqRef, {
+            requestId: reqRef.id,
+            userId: uid,
+            displayName: uData.displayName || "User",
+            userRole: uData.role || "agency",
+            usdAmount: parsedUSD,
+            paymentMethod: paymentMethod,
+            paymentAccountDetails: paymentAccountDetails,
+            status: "pending", // pending -> processing -> paid / rejected
+            createdAt: now
+        });
+    });
+
+    console.log(`[WITHDRAWAL_SUBMIT] User ${uid} submitted $${parsedUSD} USD withdrawal via ${paymentMethod}`);
+    return { success: true, requestId: reqRef.id };
+});
+
+/**
+ * 7. Owner Review Commission Withdrawal (Approve / Reject)
+ */
+exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const reviewerUid = context.auth.uid;
+
+    const reviewerDoc = await db.collection("users").doc(reviewerUid).get();
+    const rData = reviewerDoc.exists ? reviewerDoc.data() : {};
+    const isOwner = rData.role === "owner" || (rData.tags || []).includes("Owner") || (rData.tags || []).includes("SuperAdmin");
+
+    if (!isOwner) {
+        throw new functions.https.HttpsError("permission-denied", "Only the Owner can review withdrawal requests.");
+    }
+
+    const { requestId, action, notes } = data;
+    if (!requestId || !["approve", "reject", "process"].includes(action)) {
+        throw new functions.https.HttpsError("invalid-argument", "requestId and valid action required ('approve', 'reject', 'process').");
+    }
+
+    const reqRef = db.collection("commission_withdrawals").doc(requestId);
+    const reqDoc = await reqRef.get();
+    if (!reqDoc.exists) throw new functions.https.HttpsError("not-found", "Withdrawal request not found.");
+
+    const reqData = reqDoc.data();
+    if (reqData.status === "paid" || reqData.status === "rejected") {
+        throw new functions.https.HttpsError("failed-precondition", `Request is already in terminal state: ${reqData.status}`);
+    }
+
+    const targetUid = reqData.userId;
+    const usdAmount = reqData.usdAmount;
+    const userRef = db.collection("users").doc(targetUid);
+    const now = admin.firestore.Timestamp.now();
+
+    await db.runTransaction(async (transaction) => {
+        if (action === "process") {
+            transaction.update(reqRef, { status: "processing", processedAt: now });
+        } else if (action === "approve") {
+            // Deduct pending, increment total withdrawn
+            transaction.update(userRef, {
+                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-usdAmount),
+                totalWithdrawnUSD: admin.firestore.FieldValue.increment(usdAmount)
+            });
+            transaction.update(reqRef, {
+                status: "paid",
+                paidAt: now,
+                approvedBy: reviewerUid
+            });
+        } else if (action === "reject") {
+            // Refund locked pending balance back to available balance
+            transaction.update(userRef, {
+                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-usdAmount),
+                usdCommissionBalance: admin.firestore.FieldValue.increment(usdAmount)
+            });
+            transaction.update(reqRef, {
+                status: "rejected",
+                rejectedAt: now,
+                rejectionNotes: notes || "Declined by Owner",
+                rejectedBy: reviewerUid
+            });
+        }
+    });
+
+    console.log(`[WITHDRAWAL_REVIEW] Request ${requestId} ${action}d by Owner ${reviewerUid}`);
+    return { success: true, action: action };
+});
+
+
+
 

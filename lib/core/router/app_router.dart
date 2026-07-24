@@ -43,8 +43,13 @@ import '../../features/profile/presentation/screens/family/family_battle_screen.
 import '../../features/profile/presentation/screens/family/family_members_screen.dart';
 import '../../features/profile/presentation/screens/family/family_detail_screen.dart';
 import '../../features/profile/presentation/screens/settings_screen.dart';
+import '../../features/profile/presentation/screens/privacy_settings_screen.dart';
+import '../../features/profile/presentation/screens/language_settings_screen.dart';
+import '../../features/profile/presentation/screens/help_center_screen.dart';
+import '../../features/profile/presentation/screens/about_screen.dart';
 import '../../features/chats/presentation/screens/private_chat_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
+import '../../features/profile/presentation/screens/agency/commission_wallet_screen.dart';
 
 import '../../features/rooms/presentation/screens/home_screen.dart';
 import '../../features/moments/presentation/screens/add_moment_screen.dart';
@@ -111,6 +116,10 @@ class AppRoutes {
   static const familyMembers    = '/family-members';
   static const familyDetail     = '/family-detail';
   static const settings         = '/settings';
+  static const privacySettings  = '/privacy-settings';
+  static const languageSettings = '/language-settings';
+  static const helpCenter       = '/help-center';
+  static const about            = '/about';
   static const chatDetail       = '/chat-detail';
   static const pkBattle         = '/pk-battle';
   static const resellerCenter   = '/reseller-center';
@@ -118,6 +127,7 @@ class AppRoutes {
   static const verification     = '/verification';
   static const withdrawalHistory = '/withdrawal-history';
   static const withdrawBeans     = '/withdraw-beans';
+  static const commissionWallet  = '/commission-wallet';
   static const roomSupport       = '/room-support';
   static const inbox             = '/inbox';
   static const vipRewards        = '/vip-rewards';
@@ -333,6 +343,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const SVIPPrivilegesScreen(),
       ),
       GoRoute(
+        path: AppRoutes.commissionWallet,
+        builder: (context, state) => const CommissionWalletScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.invite,
         builder: (context, state) => const InviteGetCoinsScreen(),
       ),
@@ -391,6 +405,22 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.privacySettings,
+        builder: (context, state) => const PrivacySettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.languageSettings,
+        builder: (context, state) => const LanguageSettingsScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.helpCenter,
+        builder: (context, state) => const HelpCenterScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.about,
+        builder: (context, state) => const AboutScreen(),
       ),
       GoRoute(
         path: AppRoutes.chatDetail,

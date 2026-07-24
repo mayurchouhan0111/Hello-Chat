@@ -269,6 +269,14 @@ class RoomMessageTile extends ConsumerWidget {
         child: _buildImageMessage(context, ref, msg),
       );
     }
+    if (msg.type == 'sticker') {
+      return GestureDetector(
+        onTap: () {
+          if (msg.uid.isNotEmpty) onUserTap?.call(msg.uid);
+        },
+        child: _buildStickerMessage(ref, msg),
+      );
+    }
 
     final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
 

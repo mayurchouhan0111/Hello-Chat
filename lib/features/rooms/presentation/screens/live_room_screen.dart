@@ -33,12 +33,13 @@ import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/svga_player.dart';
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../core/services/report_service.dart';
+import '../../../../core/services/cloudinary_service.dart';
 import '../../../../services/voice_service.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import '../widgets/viewers_list_sheet.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/providers/room_reactions_provider.dart';
@@ -112,18 +113,6 @@ class LiveRoomScreen extends ConsumerStatefulWidget {
 
 class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBindingObserver {
   @override
-  void didChangeMetrics() {
-    super.didChangeMetrics();
-    if (!mounted) return;
-    final bottomInset = WidgetsBinding.instance.platformDispatcher.views.first.viewInsets.bottom;
-    final isKeyboardVisible = bottomInset > 0.0;
-    if (_wasKeyboardVisible && !isKeyboardVisible && _chatFocusNode.hasFocus) {
-      _chatFocusNode.unfocus();
-    }
-    _wasKeyboardVisible = isKeyboardVisible;
-  }
-
-  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
     if (state == AppLifecycleState.resumed) {
@@ -181,10 +170,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Timer? _bannerTimer;
   int _bannerCurrentPage = 0;
 
-  final FocusNode _chatFocusNode = FocusNode();
-  bool _isChatFocused = false;
-  bool _wasKeyboardVisible = false;
-
   // Store needed providers to avoid ref reads during dispose
   late final VoiceService _voiceService;
 
@@ -221,9 +206,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     WidgetsBinding.instance.addObserver(this);
     // Capture providers early to avoid ref reads in dispose
     _voiceService = ref.read(voiceServiceProvider);
-    _chatFocusNode.addListener(() {
-      if (mounted) setState(() => _isChatFocused = _chatFocusNode.hasFocus);
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       
@@ -296,7 +278,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     _landingTimer?.cancel();
     _bannerTimer?.cancel();
     _bannerPageController.dispose();
-    _chatFocusNode.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _presenceTimer?.cancel();
 
@@ -447,100 +428,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           if (uid == null) return;
           await ref.read(chatServiceProvider).sendStickerMessage(widget.roomId, uid, path);
         },
-      ),
-    );
-  }
-
-  void _pickAndUploadImage() async {
-    final ImageSource? source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40, height: 4,
-              margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
-            ),
-            const Text(
-              "Share Image",
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildPickerOption(context, Icons.camera_alt_outlined, "Camera", ImageSource.camera),
-                _buildPickerOption(context, Icons.image_outlined, "Gallery", ImageSource.gallery),
-              ],
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-
-    if (source == null) return;
-
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
-    if (pickedFile == null) return;
-
-    setState(() => _isUploadingImage = true);
-
-    try {
-      final uid = ref.read(authStateProvider).value?.uid;
-      if (uid == null) return;
-
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('chat_images')
-          .child(widget.roomId)
-          .child('${uid}_$timestamp.jpg');
-
-      await storageRef.putFile(File(pickedFile.path));
-      final downloadUrl = await storageRef.getDownloadURL();
-
-      await ref.read(chatServiceProvider).sendImageMessage(widget.roomId, uid, downloadUrl);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Upload failed: $e")),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isUploadingImage = false);
-      }
-    }
-  }
-
-  Widget _buildPickerOption(BuildContext context, IconData icon, String label, ImageSource source) {
-    return GestureDetector(
-      onTap: () => Navigator.pop(context, source),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 60, height: 60,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.06),
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white10),
-            ),
-            child: Icon(icon, color: Colors.white, size: 28),
-          ),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        ],
       ),
     );
   }
@@ -787,11 +674,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                   if (!room.isYoutubeActive) ...[
                                     const SizedBox(height: 8),
                                     Consumer(
+                                      key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}'),
                                       builder: (context, ref, child) {
                                         final pts = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
                                         final hostPart = pts.firstWhere(
-                                          (p) => p.seatIndex == 0,
-                                          orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'host'),
+                                          (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
+                                          orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'owner', seatIndex: 0),
                                         );
                                         return _buildHostSeat(hostPart, room);
                                       },
@@ -799,7 +687,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                   ],
                                   Expanded(
                                     child: SeatGrid(
-                                      key: ValueKey('seatgrid_${widget.roomId}'),
+                                      key: ValueKey('seatgrid_${widget.roomId}_${room.isYoutubeActive}'),
                                       roomId: widget.roomId,
                                       capacity: room.capacity,
                                       lockedSeats: room.lockedSeats,
@@ -1312,166 +1200,387 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
 
-  Widget _buildBottomBar(RoomModel room) {
-    return Consumer(builder: (context, ref, child) {
-      final myUid = FirebaseAuth.instance.currentUser?.uid;
-      final bool isHostOrAdmin = room.ownerUid == myUid || (room.admins.contains(myUid));
+  void _showRoomChatInputSheet({int initialTab = 0}) {
+    int activeTab = initialTab;
+    final hasTextNotifier = ValueNotifier(_chatController.text.trim().isNotEmpty);
+    _chatController.addListener(() {
+      hasTextNotifier.value = _chatController.text.trim().isNotEmpty;
+    });
 
-      return Container(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // ── Text input (always expands to take remaining space) ──────
-            Expanded(
-              child: Container(
-                key: const ValueKey('chat_input_container'),
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.45),
-                  borderRadius: BorderRadius.circular(20),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return Container(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+              top: 14, left: 16, right: 16,
+            ),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
                 ),
-                child: Row(
-                  children: [
-                    // Keep index 0 stable to prevent TextField recreation and focus loss
-                    SizedBox(
-                      width: _isChatFocused ? 0 : 30,
-                      child: Visibility(
-                        visible: !_isChatFocused,
-                        child: const Padding(
-                          padding: EdgeInsets.only(left: 12),
-                          child: Icon(Icons.chat_bubble_outline_rounded, color: Colors.white54, size: 18),
+                const SizedBox(height: 16),
+                // Lavender 3-mode tab capsule
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(child: _buildSheetTab("Text", Icons.chat_bubble_outline_rounded, activeTab == 0, () => setSheetState(() => activeTab = 0))),
+                      _buildTabDivider(activeTab == 0 || activeTab == 1),
+                      Expanded(child: _buildSheetTab("Photo", Icons.image_outlined, activeTab == 1, () => setSheetState(() => activeTab = 1))),
+                      _buildTabDivider(activeTab == 1 || activeTab == 2),
+                      Expanded(child: _buildSheetTab("Sticker", Icons.emoji_emotions_outlined, activeTab == 2, () => setSheetState(() => activeTab = 2))),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                // Tab content
+                if (activeTab == 0) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: TextField(
+                            controller: _chatController,
+                            autofocus: true,
+                            textInputAction: TextInputAction.send,
+                            cursorColor: const Color(0xFF7C3AED),
+                            style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14),
+                            decoration: const InputDecoration(
+                              hintText: "Say hi...",
+                              hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onChanged: (_) => setSheetState(() {}),
+                            onSubmitted: (_) {
+                              Navigator.pop(sheetContext);
+                              _sendMessage();
+                            },
+                          ),
                         ),
                       ),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        key: const ValueKey('chat_textfield'),
-                        controller: _chatController,
-                        focusNode: _chatFocusNode,
-                        cursorColor: Colors.white,
-                        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
-                        decoration: InputDecoration(
-                          hintText: "Say hi...",
-                          hintStyle: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
-                          filled: true,
-                          fillColor: Colors.transparent,
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      const SizedBox(width: 10),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: hasTextNotifier,
+                        builder: (context, hasText, child) {
+                          return GestureDetector(
+                            onTap: hasText ? () {
+                              Navigator.pop(sheetContext);
+                              _sendMessage();
+                            } : null,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.all(13),
+                              decoration: BoxDecoration(
+                                gradient: hasText
+                                    ? const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)])
+                                    : LinearGradient(colors: [Colors.grey.shade200, Colors.grey.shade300]),
+                                shape: BoxShape.circle,
+                                boxShadow: hasText
+                                    ? [BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.35), blurRadius: 8)]
+                                    : [],
+                              ),
+                              child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ] else if (activeTab == 1) ...[
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildPhotoOption(
+                          Icons.camera_alt_outlined,
+                          "Camera",
+                          const Color(0xFF7C3AED),
+                          () {
+                            Navigator.pop(sheetContext);
+                            _pickAndUploadImage(source: ImageSource.camera);
+                          },
                         ),
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                    if (_isChatFocused) ...[
-                      IconButton(
-                        icon: const Icon(Icons.image_outlined, color: Colors.white70, size: 20),
-                        onPressed: _pickAndUploadImage,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.white70, size: 20),
-                        onPressed: _showStickerSheet,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.send_rounded, color: Colors.white70, size: 20),
-                        onPressed: _sendMessage,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
                       ),
                       const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildPhotoOption(
+                          Icons.photo_library_outlined,
+                          "Gallery",
+                          const Color(0xFF6366F1),
+                          () {
+                            Navigator.pop(sheetContext);
+                            _pickAndUploadImage(source: ImageSource.gallery);
+                          },
+                        ),
+                      ),
                     ],
+                  ),
+                ] else ...[
+                  SizedBox(
+                    height: 280,
+                    child: StickerSheet(
+                      onStickerSelected: (path) async {
+                        final uid = ref.read(authStateProvider).value?.uid;
+                        if (uid == null) return;
+                        await ref.read(chatServiceProvider).sendStickerMessage(widget.roomId, uid, path);
+                      },
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSheetTab(String label, IconData icon, bool isSelected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFEDE9FE) : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFF334155), size: 15),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(
+              color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFF334155),
+              fontSize: 13, fontWeight: FontWeight.w600,
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTabDivider(bool visible) {
+    if (!visible) return const SizedBox(width: 2);
+    return Container(width: 1, height: 20, color: const Color(0xFFE2E8F0));
+  }
+
+  Widget _buildPhotoOption(IconData icon, String label, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFAFAFA),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(color: Color(0xFF334155), fontSize: 13, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadImage({required ImageSource source}) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        maxWidth: 1920,
+        maxHeight: 1920,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) return;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+                SizedBox(width: 12),
+                Text("Uploading photo..."),
+              ],
+            ),
+            backgroundColor: Color(0xFF6366F1),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+
+      final uid = ref.read(authStateProvider).value?.uid;
+      if (uid == null) return;
+
+      final file = File(pickedFile.path);
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('chat_images')
+          .child(widget.roomId)
+          .child('${uid}_$timestamp.jpg');
+
+      final uploadTask = await storageRef.putFile(
+        file,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+
+      final downloadUrl = await uploadTask.ref.getDownloadURL();
+
+      final chatService = ref.read(chatServiceProvider);
+      await chatService.sendImageMessage(widget.roomId, uid, downloadUrl);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Photo shared successfully! 🖼️"),
+            backgroundColor: Color(0xFF10B981),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to upload image: $e"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildBottomBar(RoomModel room) {
+    return Consumer(builder: (context, ref, child) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        height: 54,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(32),
+          boxShadow: const [
+            BoxShadow(color: Colors.black26, blurRadius: 18, offset: Offset(0, 6)),
+          ],
+        ),
+        child: Row(
+          children: [
+            // Leftmost floating chat circle button
+            GestureDetector(
+              onTap: () => _showRoomChatInputSheet(initialTab: 0),
+              child: Container(
+                width: 40, height: 40,
+                margin: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
                   ],
+                ),
+                child: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0F766E), size: 19),
+              ),
+            ),
+
+            // "Say hi..." sub-capsule input
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _showRoomChatInputSheet(initialTab: 0),
+                child: Container(
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEDF2F7),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 14),
+                      const Text("Say hi...", style: TextStyle(color: Color(0xFF718096), fontSize: 13)),
+                      const Spacer(),
+                      Container(width: 1, height: 18, color: const Color(0xFFCBD5E0)),
+                      const SizedBox(width: 10),
+                      const Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 18),
+                      const SizedBox(width: 10),
+                    ],
+                  ),
                 ),
               ),
             ),
 
-            // ── Action buttons (wrapped in SizedBox/Visibility to maintain layout state and prevent focus loss) ──
-            SizedBox(
-              width: _isChatFocused ? 0 : null,
-              height: _isChatFocused ? 0 : null,
-              child: Visibility(
-                visible: !_isChatFocused,
-                maintainState: true,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Gap(6),
-                    Builder(builder: (context) {
-                      final isExpired = room.pkEndTime != null && room.pkEndTime!.isBefore(DateTime.now());
-                      if ((myUid == room.ownerUid && room.pkActive) || (isExpired && room.pkPhase == 'finished')) {
-                        return GestureDetector(
-                          onTap: () => ref.read(roomServiceProvider).endPKBattle(room.roomId),
-                          child: Container(
-                            margin: const EdgeInsets.only(right: 8),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(colors: isExpired ? [Colors.cyan, Colors.blue] : [Colors.pink, Colors.red]),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(isExpired ? Icons.refresh_rounded : Icons.stop_rounded, color: Colors.white, size: 14),
-                                const Gap(4),
-                                Text(isExpired ? "CLEANUP" : "END PK", style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-                      return const SizedBox.shrink();
-                    }),
+            const SizedBox(width: 6),
 
-                    if (isHostOrAdmin)
-                      _buildCompactBottomButton(Icons.live_tv_rounded, const Color(0xFFFF0000), _showYouTubePanel),
+            // Video / Camera icon
+            _buildPillIcon(Icons.videocam_rounded, const Color(0xFFFF3B30), _showYouTubePanel),
+            const SizedBox(width: 8),
 
-                    if (!room.pkActive) ...[
-                      _buildCompactBottomButton(
-                        _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                        Colors.white,
-                        () {
-                          setState(() => _isSpeakerOn = !_isSpeakerOn);
-                          ref.read(voiceServiceProvider).toggleSpeakerphone(_isSpeakerOn);
-                        },
-                      ),
-                      Consumer(builder: (context, ref, child) {
-                        final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
-                        final myUid2 = ref.watch(authStateProvider).value?.uid;
-                        final myPart = participants.where((p) => p.uid == myUid2 && p.seatIndex != -1).firstOrNull;
-                        if (myPart == null) return const SizedBox.shrink();
-                        return _buildCompactBottomButton(
-                          myPart.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
-                          myPart.isMuted ? Colors.redAccent : Colors.white,
-                          () async {
-                            final newMute = !myPart.isMuted;
-                            await ref.read(voiceServiceProvider).muteLocalAudio(newMute);
-                            await ref.read(roomServiceProvider).muteUser(widget.roomId, myUid2 ?? '', newMute);
-                          },
-                        );
-                      }),
-                      _buildCompactBottomButton(Icons.military_tech_rounded, Colors.orangeAccent, _showPKPanel),
-                      _buildCompactBottomButton(Icons.games_outlined, Colors.white, _showGamesPanel),
-                      const Gap(4),
-                    ],
+            // Speaker toggle
+            _buildPillIcon(
+              _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+              const Color(0xFFFF9500),
+              () {
+                setState(() => _isSpeakerOn = !_isSpeakerOn);
+                ref.read(voiceServiceProvider).toggleSpeakerphone(_isSpeakerOn);
+              },
+            ),
+            const SizedBox(width: 8),
 
-                    GestureDetector(
-                      onTap: _showGiftPanel,
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF8E54E9)]),
-                        ),
-                        child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 16),
-                      ),
-                    ),
+            // Divider
+            Container(width: 1, height: 24, color: const Color(0xFFE2E8F0)),
+            const SizedBox(width: 8),
+
+            // Trophy / PK icon
+            _buildPillIcon(Icons.military_tech_rounded, const Color(0xFFFFCC00), _showPKPanel),
+            const SizedBox(width: 8),
+
+            // Games icon
+            _buildPillIcon(Icons.grid_view_rounded, const Color(0xFF64748B), _showGamesPanel),
+            const SizedBox(width: 4),
+
+            // Rightmost glowing gift button
+            GestureDetector(
+              onTap: _showGiftPanel,
+              child: Container(
+                width: 38, height: 38,
+                margin: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.4), blurRadius: 10),
                   ],
                 ),
+                child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
               ),
             ),
           ],
@@ -1480,47 +1589,55 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     });
   }
 
-  Widget _buildCompactBottomButton(IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildPillIcon(IconData icon, Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 5),
-        child: Icon(icon, color: color.withOpacity(0.9), size: 21),
-      ),
+      child: Icon(icon, color: color, size: 21),
     );
   }
 
   Widget _buildHostSeat(Participant host, RoomModel room) {
     final allParticipants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
 
-    if (host.uid.isEmpty) {
-      return GestureDetector(
-        onTap: () => _onSeatTap(0, allParticipants, room),
-        child: Container(
-          width: 70, height: 70,
-          decoration: BoxDecoration(color: Colors.black12, shape: BoxShape.circle, border: Border.all(color: Colors.white12)),
-          child: const Icon(Icons.person, color: Colors.white24, size: 32),
-        ),
-      );
-    }
+    // Global Owner Seat: Find active owner participant or fallback to ownerUid participant
+    final Participant activeHost = allParticipants.firstWhere(
+      (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
+      orElse: () => Participant(
+        uid: room.ownerUid,
+        role: 'owner',
+        seatIndex: 0,
+        isMuted: true,
+        joinedAt: DateTime.now(),
+        lastActive: DateTime.now(),
+      ),
+    );
 
-    final userAsync = ref.watch(userProfileProvider(host.uid));
+    // Check if Room Owner is actively present in room participants
+    final bool isOwnerOnline = allParticipants.any((p) => p.uid == room.ownerUid);
+
+    final userAsync = ref.watch(cachedUserProfileProvider(room.ownerUid));
 
     return GestureDetector(
-      onTap: () => _showUserOptions(host),
+      onTap: () {
+        if (activeHost.uid.isNotEmpty) {
+          _showUserOptions(activeHost);
+        } else {
+          _onSeatTap(0, allParticipants, room);
+        }
+      },
       child: Column(
-        mainAxisSize: MainAxisSize.min, // 🚀 Center it up
+        mainAxisSize: MainAxisSize.min,
         children: [
           userAsync.when(
             data: (user) {
-              final u = user as UserModel;
-              final currentUid = ref.watch(authStateProvider).value?.uid;
-              final isMe = currentUid == u.uid;
-              final isRoomOwner = currentUid == room.ownerUid;
-              final showSecretFrame = isMe && isRoomOwner;
-
-              final displayFrame = u.profileFrame;
+              final u = user as UserModel?;
+              final displayName = u?.displayName.isNotEmpty == true ? u!.displayName : "Owner";
+              final photoUrl = u?.profilePhotoUrl ?? "";
+              final displayFrame = u?.profileFrame ?? "";
+              final vipTier = u?.vipTier ?? "none";
+              final level = u?.level ?? 1;
+              final tags = u?.tags ?? [];
               const double frameMult = 2.3;
 
               return Column(
@@ -1530,32 +1647,36 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     alignment: Alignment.bottomCenter,
                     clipBehavior: Clip.none,
                     children: [
-                      Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Positioned.fill(child: HostRippleWidget(user: u)),
-                          SizedBox(
-                            width: 56, // radius 28 * 2
-                            height: 56,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              clipBehavior: Clip.none,
-                              children: [
-                                AppAvatar(
-                                  imageUrl: u.profilePhotoUrl,
-                                  frameUrl: displayFrame,
-                                  vipTier: u.vipTier,
-                                  userLevel: u.level,
-                                  tags: u.tags,
-                                  radius: 28,
-                                  showFrame: true,
-                                  frameMultiplier: frameMult,
-                                 ),
-                                 SeatEmojiReactionWidget(uid: host.uid),
-                              ],
+                      // Dim avatar & ripple when Owner is Offline in the room
+                      Opacity(
+                        opacity: isOwnerOnline ? 1.0 : 0.45,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            if (u != null && isOwnerOnline) Positioned.fill(child: HostRippleWidget(user: u)),
+                            SizedBox(
+                              width: 56, // radius 28 * 2
+                              height: 56,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                clipBehavior: Clip.none,
+                                children: [
+                                  AppAvatar(
+                                    imageUrl: photoUrl,
+                                    frameUrl: displayFrame,
+                                    vipTier: vipTier,
+                                    userLevel: level,
+                                    tags: tags,
+                                    radius: 28,
+                                    showFrame: true,
+                                    frameMultiplier: frameMult,
+                                  ),
+                                  if (activeHost.uid.isNotEmpty) SeatEmojiReactionWidget(uid: activeHost.uid),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                       Positioned(
                         bottom: -4,
@@ -1567,12 +1688,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                             border: Border.all(color: Colors.white10, width: 0.5),
                           ),
                           child: Text(
-                            u.displayName,
-                            style: const TextStyle(
-                              color: Colors.white, 
-                              fontSize: 10, 
+                            displayName,
+                            style: TextStyle(
+                              color: isOwnerOnline ? Colors.white : Colors.white60,
+                              fontSize: 10,
                               fontWeight: FontWeight.bold,
-                              shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                              shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
                             ),
                             textAlign: TextAlign.center,
                             maxLines: 1,
@@ -1580,9 +1701,30 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                           ),
                         ),
                       ),
-                      if (host.isMuted)
-                         Positioned(
-                          top: 0, right: 0,
+                      Positioned(
+                        top: -10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isOwnerOnline ? const Color(0xFFFFD700) : const Color(0xFF475569),
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                          ),
+                          child: Text(
+                            isOwnerOnline ? "OWNER" : "OFFLINE",
+                            style: TextStyle(
+                              color: isOwnerOnline ? Colors.black : Colors.white70,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (activeHost.isMuted)
+                        Positioned(
+                          top: 0,
+                          right: 0,
                           child: Container(
                             padding: const EdgeInsets.all(4),
                             decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
@@ -1605,9 +1747,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         const Text("💎", style: TextStyle(fontSize: 8)),
                         const SizedBox(width: 4),
                         Text(
-                          host.diamondsReceived >= 1000 
-                              ? '${(host.diamondsReceived / 1000).toStringAsFixed(1)}k' 
-                              : '${host.diamondsReceived}',
+                          activeHost.diamondsReceived >= 1000
+                              ? '${(activeHost.diamondsReceived / 1000).toStringAsFixed(1)}k'
+                              : '${activeHost.diamondsReceived}',
                           style: const TextStyle(color: Colors.yellowAccent, fontSize: 9, fontWeight: FontWeight.bold),
                         ),
                       ],
@@ -1616,8 +1758,26 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 ],
               );
             },
-            loading: () => const CircularProgressIndicator(),
-            error: (e, __) => const Icon(Icons.error, color: Colors.red),
+            loading: () => const SizedBox(
+              width: 56, height: 56,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD700))),
+            ),
+            error: (_, __) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 56, height: 56,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.25),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.amber, width: 1.5),
+                  ),
+                  child: const Icon(Icons.person, color: Colors.amber, size: 28),
+                ),
+                const SizedBox(height: 4),
+                const Text("Owner", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+              ],
+            ),
           ),
         ],
       ),
@@ -1879,6 +2039,17 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         const SnackBar(
           content: Text("Only the room owner can take the host seat"),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    if (room.ownerUid == uid && index != 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("As Room Owner, your seat is the top Host Seat (Seat 0)."),
+          backgroundColor: Colors.amber,
           behavior: SnackBarBehavior.floating,
         ),
       );

@@ -522,6 +522,201 @@ export const VIPManagement = () => {
           VIP Memberships
         </button>
         <button 
+          name: 'VIP 7',
+          level: 7,
+          monthlyPriceInDiamonds: 200000000,
+          monthlyPriceInUSD: 2000.0,
+          benefits: ["all_access", "master_badge", "world_announce"],
+          profileFrame: "https://picsum.photos/206",
+          entryAnimation: "svip_entry",
+          badgeIcon: "https://picsum.photos/107",
+          backgroundImage: '',
+          themeColor: '#FFFFFF',
+          entryRequirement: 'Recharge 200,000,000 Diamonds',
+          priorityMicAccess: true,
+          isActive: true,
+          sortOrder: 7
+        },
+      ];
+
+      const nobleTiers = [
+        {
+          tierId: 'knight',
+          name: 'Knight',
+          level: 1,
+          monthlyPriceInDiamonds: 200000,
+          monthlyPriceInUSD: 200.0,
+          benefits: ["noble_badge", "priority_mic"],
+          badgeIcon: "https://picsum.photos/110",
+          profileFrame: "",
+          entryAnimation: 'noble_1',
+          backgroundImage: '',
+          themeColor: '#34D399',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 1
+        },
+        {
+          tierId: 'viscount',
+          name: 'Viscount',
+          level: 2,
+          monthlyPriceInDiamonds: 1000000,
+          monthlyPriceInUSD: 1000.0,
+          benefits: ["noble_badge", "entry_effect", "priority_mic"],
+          badgeIcon: "https://picsum.photos/111",
+          profileFrame: "",
+          entryAnimation: 'noble_2',
+          backgroundImage: '',
+          themeColor: '#10B981',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 2
+        },
+        {
+          tierId: 'marquis',
+          name: 'Marquis',
+          level: 4,
+          monthlyPriceInDiamonds: 5000000,
+          monthlyPriceInUSD: 5000.0,
+          benefits: ["noble_frame", "kick_protection", "priority_mic"],
+          badgeIcon: "https://picsum.photos/113",
+          profileFrame: "",
+          entryAnimation: 'noble_4',
+          backgroundImage: '',
+          themeColor: '#3B82F6',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 3
+        },
+        {
+          tierId: 'king',
+          name: 'King',
+          level: 6,
+          monthlyPriceInDiamonds: 50000000,
+          monthlyPriceInUSD: 50000.0,
+          benefits: ["golden_entry", "kick_protection", "mute_immunity"],
+          badgeIcon: "https://picsum.photos/115",
+          profileFrame: "",
+          entryAnimation: 'noble_6',
+          backgroundImage: '',
+          themeColor: '#F59E0B',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 4
+        },
+        {
+          tierId: 'emperor',
+          name: 'Emperor',
+          level: 7,
+          monthlyPriceInDiamonds: 200000000,
+          monthlyPriceInUSD: 200000.0,
+          benefits: ["dragon_entry", "god_badge", "kick_protection", "mute_immunity"],
+          badgeIcon: "https://picsum.photos/116",
+          profileFrame: "",
+          entryAnimation: 'noble_7',
+          backgroundImage: '',
+          themeColor: '#FFFFFF',
+          entryRequirement: 'Monthly Fee',
+          priorityMicAccess: true,
+          sortOrder: 5
+        },
+
+      ];
+
+
+      const svipLevels = [
+        { level: 1, name: "SVIP 1", rechargeThreshold: 10000000, color: "#FDE047" },
+        { level: 2, name: "SVIP 2", rechargeThreshold: 30000000, color: "#FACC15" },
+        { level: 3, name: "SVIP 3", rechargeThreshold: 50000000, color: "#EAB308" },
+        { level: 4, name: "SVIP 4", rechargeThreshold: 100000000, color: "#CA8A04" },
+        { level: 5, name: "SVIP 5", rechargeThreshold: 200000000, color: "#A16207" },
+        { level: 6, name: "SVIP 6", rechargeThreshold: 300000000, color: "#854D0E" },
+        { level: 7, name: "SVIP 7", rechargeThreshold: 500000000, color: "#713F12" },
+      ];
+
+      const batch = [];
+      vipTiers.forEach(v => batch.push(setDoc(doc(db, "vip_tiers", v.tierId), { ...v, isActive: true, createdAt: serverTimestamp() })));
+      nobleTiers.forEach(n => batch.push(setDoc(doc(db, "noble_tiers", n.tierId), { ...n, isActive: true, createdAt: serverTimestamp() })));
+      svipLevels.forEach(s => batch.push(setDoc(doc(db, "svip_levels", `svip${s.level}`), { ...s, isActive: true, createdAt: serverTimestamp() })));
+      
+      await Promise.all(batch);
+      await logAdminAction(user, "FULL_ECONOMY_RESEED", "system", { status: "success" });
+      alert("Economy Seeding Successful! All Tiers (VIP, Noble, SVIP) Initialized.");
+
+    } catch (err) {
+      alert("Seed Error: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const createTier = () => {
+    const newId = `vip_${tiers.length + 1}`;
+    setEditingTier({
+      id: newId,
+      tierId: newId,
+      name: 'New VIP Tier',
+      level: tiers.length + 1,
+      monthlyPriceInDiamonds: 0,
+      monthlyPriceInUSD: 0,
+      benefits: [],
+      profileFrame: '',
+      entryAnimation: '',
+      badgeIcon: '',
+      priorityMicAccess: false,
+      isActive: true,
+      sortOrder: tiers.length + 1
+    });
+    setCreating(true);
+  };
+
+  const updateBenefit = (benefit, checked) => {
+    const currentBenefits = editingTier.benefits || [];
+    if(checked) {
+       setEditingTier({...editingTier, benefits: [...currentBenefits, benefit]});
+    } else {
+       setEditingTier({...editingTier, benefits: currentBenefits.filter(b => b !== benefit)});
+    }
+  };
+
+  return (
+    <div className="space-y-10 animate-fade-in text-white pb-20">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-1">
+        <div>
+           <h1 className="text-4xl font-black text-white tracking-tighter uppercase flex items-center gap-4">
+              <div className="p-3 bg-[#B4E0A2]/20 rounded-2xl border border-[#B4E0A2]/30">
+                 <Crown className="text-[#B4E0A2]" size={28} />
+              </div>
+              Prestige Store
+           </h1>
+           <p className="text-slate-500 font-bold text-xs uppercase tracking-[0.3em] mt-3">VIP Membership & Economy Orchestration • {tiers.length} Tiers</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleSeedAll}
+            className="px-6 py-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/20 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+          >
+            Reset & Seed All
+          </button>
+          <button 
+            onClick={createTier}
+            className="px-6 py-3 bg-white/5 hover:bg-[#B4E0A2] hover:text-black text-[#B4E0A2] border border-white/5 rounded-2xl font-black uppercase text-[10px] tracking-widest transition-all"
+          >
+            <Plus size={14} className="inline mr-2" /> New Tier
+          </button>
+        </div>
+      </div>
+
+      <div className="flex gap-4 border-b border-white/5 pb-6">
+        <button 
+          onClick={() => setCategory("vip_tiers")}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'vip_tiers' ? 'bg-[#B4E0A2] text-black' : 'bg-white/5 text-slate-500'}`}
+        >
+          VIP Memberships
+        </button>
+        <button 
           onClick={() => setCategory("noble_tiers")}
           className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'noble_tiers' ? 'bg-[#B4E0A2] text-black' : 'bg-white/5 text-slate-500'}`}
         >
@@ -532,6 +727,12 @@ export const VIPManagement = () => {
           className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'svip_levels' ? 'bg-rose-500 text-white outline outline-1 outline-rose-400' : 'bg-white/5 text-slate-500'}`}
         >
           SVIP (High-Stake)
+        </button>
+        <button 
+          onClick={() => setCategory("vip_refunds")}
+          className={`px-8 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest transition-all ${category === 'vip_refunds' ? 'bg-amber-500 text-black font-black' : 'bg-white/5 text-amber-500/80 hover:text-amber-400'}`}
+        >
+          VIP Revocation & Refunds
         </button>
         <button 
            onClick={startCreating}

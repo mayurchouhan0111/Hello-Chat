@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:gap/gap.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/models/vip_tier_model.dart';
 import 'package:hello_chat/core/providers/vip_provider.dart';
@@ -9,17 +11,42 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/services/gift_service.dart';
 import 'package:go_router/go_router.dart';
 
-// ── Color palette ──────────────────────────────────────────────────────────
-const _bg        = Color(0xFF080808);
-const _surface   = Color(0xFF111111);
-const _surface2  = Color(0xFF161616);
-const _gold      = Color(0xFFFFD700);
-const _goldLight = Color(0xFFFFEB3B);
-const _goldDim   = Color(0xFFFBC02D);
-const _white     = Colors.white;
+// ── Color palette (Room Support System) ───────────────────────────────────
+const _bg              = Color(0xFF070604);
+const _surface         = Color(0xFF13100B);
+const _surface2        = Color(0xFF1B1710);
+const _borderGold      = Color(0xFF4A3A16);
+const _gold            = Color(0xFFFFD700);
+const _goldLight       = Color(0xFFFFE58F);
+const _goldSub         = Color(0xFFD8B65C);
+const _goldHeader      = Color(0xFFF7E7B4);
+const _goldDim         = Color(0xFFFBC02D);
+const _white           = Colors.white;
 
-// ── Text styles ─────────────────────────────────────────────────────────────
-const _serif = TextStyle(fontFamily: 'Georgia'); // serif fallback
+const _goldHeaderGradient = LinearGradient(
+  colors: [
+    Color(0xFFE5C058),
+    Color(0xFFB38728),
+    Color(0xFFFBF5B7),
+    Color(0xFFDAA520),
+    Color(0xFFA67C1E),
+  ],
+  stops: [0.0, 0.25, 0.5, 0.75, 1.0],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const _metallicBadgeGradient = LinearGradient(
+  colors: [
+    Color(0xFFFFF1B8),
+    Color(0xFFD4AF37),
+    Color(0xFFAA7C11),
+    Color(0xFFF3E5AB),
+    Color(0xFF8A6D1C),
+  ],
+  begin: Alignment.topCenter,
+  end: Alignment.bottomCenter,
+);
 
 class VIPShopScreen extends ConsumerStatefulWidget {
   const VIPShopScreen({super.key});
@@ -518,184 +545,178 @@ class _HeroSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 110, 16, 28),
-      child: Stack(
-        children: [
-          // Card body
-          Container(
-            padding: const EdgeInsets.fromLTRB(28, 32, 28, 28),
-            decoration: BoxDecoration(
-              color: _surface,
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: Colors.white.withOpacity(0.06)),
+    return Column(
+      children: [
+        const SizedBox(height: 70),
+        Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Container(
+                width: double.infinity,
+                height: 220,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: _bg,
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                    bottom: Radius.circular(16),
+                  ),
+                ),
+                child: ShaderMask(
+                  shaderCallback: (rect) {
+                    return const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black,
+                        Colors.black,
+                        Colors.black87,
+                        Colors.black38,
+                        Colors.transparent,
+                      ],
+                      stops: [0.0, 0.35, 0.65, 0.88, 1.0],
+                    ).createShader(rect);
+                  },
+                  blendMode: BlendMode.dstIn,
+                  child: Image.asset(
+                    'assets/images/vip_shop_hero.png',
+                    fit: BoxFit.cover,
+                    alignment: Alignment.center,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: const BoxDecoration(
+                          gradient: RadialGradient(
+                            center: Alignment(0, -0.3),
+                            radius: 0.95,
+                            colors: [
+                              Color(0xFF4A3710),
+                              Color(0xFF1F1608),
+                              _bg,
+                            ],
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.workspace_premium_rounded, color: _goldLight, size: 80),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Crown icon row
-                Row(
+            Positioned(
+              bottom: -18,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
+                decoration: BoxDecoration(
+                  gradient: _metallicBadgeGradient,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFFF9E6), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.8), blurRadius: 15, offset: const Offset(0, 6)),
+                    BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 18, spreadRadius: 2),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const _GoldCrownIcon(),
-                    const SizedBox(width: 12),
-                    Column(
+                    Text(
+                      "Prestige VIP Store",
+                      style: GoogleFonts.cinzel(
+                        color: const Color(0xFF2A1D04),
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 2.0,
+                        shadows: [
+                          const Shadow(color: Colors.white70, blurRadius: 1, offset: Offset(0, 1)),
+                        ],
+                      ),
+                    ),
+                    const Gap(8),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFFD700),
+                        shape: BoxShape.circle,
+                        boxShadow: [
+                          BoxShadow(color: Color(0xFFFFE58F), blurRadius: 8, spreadRadius: 2),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 28),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: InkWell(
+            onTap: () {
+              context.push('/vip-rewards');
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFE2A200), Color(0xFF9E6B00)],
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: _borderGold, width: 1),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.stars_rounded, color: Colors.white, size: 24),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'EXCLUSIVE',
-                          style: TextStyle(
-                            color: _gold.withOpacity(0.6),
-                            fontSize: 10,
-                            letterSpacing: 3,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          "DAILY VIP REWARDS",
+                          style: GoogleFonts.cinzel(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                         ),
-                        const Text(
-                          'Membership',
-                          style: TextStyle(
-                            color: _white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w200,
-                            height: 1.1,
-                          ),
+                        const SizedBox(height: 2),
+                        Text(
+                          "Claim daily diamonds & XP bonuses",
+                          style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 10),
                         ),
                       ],
                     ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                // Divider with gold dot
-                Row(
-                  children: [
-                    Expanded(
-                      child: Container(
-                        height: 0.5,
-                        color: Colors.white.withOpacity(0.07),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      child: Container(
-                        width: 4,
-                        height: 4,
-                        decoration: const BoxDecoration(
-                            shape: BoxShape.circle, color: _gold),
-                      ),
-                    ),
-                    Expanded(
-                      child: Container(
-                        height: 0.5,
-                        color: Colors.white.withOpacity(0.07),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Join the elite circle and unlock exclusive prestige benefits tailored for kings.',
-                  style: TextStyle(
-                    color: Colors.white38,
-                    fontSize: 12.5,
-                    height: 1.7,
                   ),
-                ),
-                const SizedBox(height: 24),
-                // Perks row
-                Row(
-                  children: [
-                    _PerkPill(icon: Icons.bolt_rounded, label: 'Priority'),
-                    const SizedBox(width: 8),
-                    _PerkPill(icon: Icons.shield_rounded, label: 'Exclusive'),
-                    const SizedBox(width: 8),
-                    _PerkPill(icon: Icons.star_rounded, label: 'Prestige'),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Container(height: 0.5, color: Colors.white10),
-                const SizedBox(height: 16),
-                InkWell(
-                  onTap: () {
-                    context.push('/vip-rewards');
-                  },
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFE2A200), Color(0xFF9E6B00)],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
+                      color: Colors.black38,
+                      borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.stars_rounded, color: Colors.white, size: 24),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "DAILY VIP REWARDS",
-                                style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                              ),
-                              SizedBox(height: 2),
-                              Text(
-                                "Claim daily diamonds & XP bonuses",
-                                style: TextStyle(color: Colors.white70, fontSize: 10),
-                              ),
-                            ],
-                          ),
+                        Text(
+                          "CLAIM",
+                          style: GoogleFonts.cinzel(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.black26,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                "CLAIM",
-                                style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
-                              ),
-                              SizedBox(width: 4),
-                              Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 10),
-                            ],
-                          ),
-                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 10),
                       ],
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          // Shimmer line at top
-          Positioned(
-            top: 0,
-            left: 40,
-            right: 40,
-            child: AnimatedBuilder(
-              animation: shimmer,
-              builder: (_, __) {
-                return Container(
-                  height: 1,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.transparent,
-                        _gold.withOpacity(0.6 * math.sin(shimmer.value * math.pi)),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

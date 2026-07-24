@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
 
 import '../../../../core/providers/profile_provider.dart';
@@ -31,19 +32,55 @@ extension HexColor on Color {
 }
 
 // ─────────────────────────────────────────────
-//  Noble Theme Tokens
+//  Noble Theme Tokens (Room Support System)
 // ─────────────────────────────────────────────
 class NobleTheme {
-  static const bg       = Color(0xFF080808);
-  static const surface  = Color(0xFF0E0E0E);
-  static const surface2 = Color(0xFF151515);
-  static const surface3 = Color(0xFF1C1C1C);
-  static const text     = Color(0xFFF0F4F8);
-  static const textSub  = Color(0xFF8A95A3);
-  static const textHint = Color(0xFF3D4A58);
-  static const divider  = Color(0xFF1A1A1A);
-  static const gold     = Color(0xFFD4AF37);
+  static const darkBg          = Color(0xFF070604);
+  static const cardBg          = Color(0xFF13100B);
+  static const tableRowBgEven  = Color(0xFF1B1710);
+  static const tableRowBgOdd   = Color(0xFF13100B);
+  static const borderGold      = Color(0xFF4A3A16);
+  static const borderGoldLight = Color(0xFF7E6327);
+  static const textGoldHeader  = Color(0xFFF7E7B4);
+  static const textGoldSub     = Color(0xFFD8B65C);
+  static const textGoldBright  = Color(0xFFFFE58F);
+
+  // Legacy field aliases for helper widgets
+  static const bg       = darkBg;
+  static const surface  = cardBg;
+  static const surface2 = tableRowBgEven;
+  static const surface3 = tableRowBgOdd;
+  static const text     = textGoldHeader;
+  static const textSub  = textGoldSub;
+  static const textHint = Color(0xFF66532B);
+  static const divider  = borderGold;
+  static const gold     = textGoldBright;
   static const silver   = Color(0xFFC0C0C0);
+
+  static const LinearGradient goldHeaderGradient = LinearGradient(
+    colors: [
+      Color(0xFFE5C058),
+      Color(0xFFB38728),
+      Color(0xFFFBF5B7),
+      Color(0xFFDAA520),
+      Color(0xFFA67C1E),
+    ],
+    stops: [0.0, 0.25, 0.5, 0.75, 1.0],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const LinearGradient metallicBadgeGradient = LinearGradient(
+    colors: [
+      Color(0xFFFFF1B8),
+      Color(0xFFD4AF37),
+      Color(0xFFAA7C11),
+      Color(0xFFF3E5AB),
+      Color(0xFF8A6D1C),
+    ],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
 }
 
 // ─────────────────────────────────────────────
@@ -124,94 +161,52 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
     final nobleTiersAsync = ref.watch(nobleTiersProvider);
 
     return Scaffold(
-      backgroundColor: NobleTheme.bg,
-      body: Stack(
-        children: [
-          AnimatedBuilder(
-            animation: _glowAnim,
-            builder: (_, __) => _buildBackground(_glowAnim.value),
-          ),
-          SafeArea(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildAppBar(),
-                Expanded(
-                  child: nobleTiersAsync.when(
-                    data: (tiers) => _buildContent(tiers, userTier, remainingDays),
-                    loading: _buildLoader,
-                    error: (e, _) => _buildError(),
-                  ),
-                ),
-              ],
+      backgroundColor: NobleTheme.darkBg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildAppBar(),
+            Expanded(
+              child: nobleTiersAsync.when(
+                data: (tiers) => _buildContent(tiers, userTier, remainingDays),
+                loading: _buildLoader,
+                error: (e, _) => _buildError(),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildBackground(double opacity) {
-    return Positioned.fill(
-      child: Stack(children: [
-        Positioned(
-          top: -120, left: 0, right: 0,
-          child: Container(
-            height: 500,
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.topCenter,
-                radius: 0.75,
-                colors: [
-                  NobleTheme.gold.withOpacity(opacity),
-                  Colors.transparent,
-                ],
+  Widget _buildAppBar() {
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: NobleTheme.darkBg,
+        border: Border(bottom: BorderSide(color: Color(0xFF221B0E), width: 1)),
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 18),
+            onPressed: () => Navigator.pop(context),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                "NOBLE HALL",
+                style: GoogleFonts.cinzel(
+                  color: NobleTheme.textGoldBright,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 2.5,
+                ),
               ),
             ),
           ),
-        ),
-      ]),
-    );
-  }
-
-  Widget _buildAppBar() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-      child: Row(
-        children: [
-          _CircleBtn(
-            onTap: () => Navigator.pop(context),
-            child: const Icon(Icons.arrow_back_ios_new_rounded,
-                color: NobleTheme.textSub, size: 15),
-          ),
-          const Spacer(),
-          Column(
-            children: [
-              const Text(
-                'NOBLE HALL',
-                style: TextStyle(
-                  color: NobleTheme.gold,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 3.5,
-                ),
-              ),
-              const Gap(3),
-              Container(
-                width: 32, height: 1.5,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(1),
-                  color: NobleTheme.gold,
-                ),
-              ),
-            ],
-          ),
-          const Spacer(),
-          _CircleBtn(
-            onTap: () {},
-            child: const Icon(Icons.info_outline_rounded,
-                color: NobleTheme.textSub, size: 16),
-          ),
+          const SizedBox(width: 48),
         ],
       ),
     );
@@ -220,36 +215,54 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
   Widget _buildContent(List<VIPTierModel> tiers, String userTier, int remainingDays) {
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 40),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Gap(40),
+          // Ultra-Premium Hero Banner with Top-to-Bottom Opacity Fade & Outside Floating Title Badge
+          Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.bottomCenter,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: _buildHeroBanner(),
+              ),
+              Positioned(
+                bottom: -18,
+                child: _buildTitleBadge(),
+              ),
+            ],
+          ),
+
+          const Gap(32),
+
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Accept Your\nRoyal Title',
-                  style: TextStyle(
-                    color: NobleTheme.text,
-                    fontSize: 28,
+                Text(
+                  'Accept Your Royal Title',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.cinzel(
+                    color: NobleTheme.textGoldBright,
+                    fontSize: 22,
                     fontWeight: FontWeight.w900,
-                    height: 1.2,
-                    letterSpacing: -0.5,
+                    letterSpacing: 1.0,
                   ),
                 ),
-                const Gap(8),
-                const Text(
+                const Gap(6),
+                Text(
                   'Explore the aristocratic hierarchy and its privileges',
-                  style: TextStyle(color: NobleTheme.textSub, fontSize: 13),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.plusJakartaSans(color: NobleTheme.textGoldSub, fontSize: 12),
                 ),
               ],
             ),
           ),
-          const Gap(24),
+          const Gap(20),
           SizedBox(
-            height: 220,
+            height: 230,
             child: PageView.builder(
               controller: _pageController,
               itemCount: tiers.length,
@@ -280,7 +293,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
               },
             ),
           ),
-          const Gap(20),
+          const Gap(16),
           Center(
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -294,13 +307,13 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                   height: 6,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(3),
-                    color: isActive ? accent : NobleTheme.surface3,
+                    color: isActive ? accent : NobleTheme.borderGold,
                   ),
                 );
               }),
             ),
           ),
-          const Gap(32),
+          const Gap(24),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 350),
             transitionBuilder: (child, anim) => FadeTransition(
@@ -310,6 +323,107 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
             child: _expandedIndex != null && _expandedIndex! < tiers.length
                 ? _buildDetailPanel(tiers[_expandedIndex!], key: ValueKey(_expandedIndex))
                 : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── HERO BANNER (TOP-TO-BOTTOM OPACITY FADE) ──────────────────────────────
+  Widget _buildHeroBanner() {
+    return Container(
+      width: double.infinity,
+      height: 240,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: NobleTheme.darkBg,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(24),
+          bottom: Radius.circular(16),
+        ),
+      ),
+      child: ShaderMask(
+        shaderCallback: (rect) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.black,
+              Colors.black,
+              Colors.black87,
+              Colors.black38,
+              Colors.transparent,
+            ],
+            stops: [0.0, 0.35, 0.65, 0.88, 1.0],
+          ).createShader(rect);
+        },
+        blendMode: BlendMode.dstIn,
+        child: Image.asset(
+          'assets/images/noble_hall_hero.png',
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              decoration: const BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(0, -0.3),
+                  radius: 0.95,
+                  colors: [
+                    Color(0xFF4A3710),
+                    Color(0xFF1F1608),
+                    NobleTheme.darkBg,
+                  ],
+                ),
+              ),
+              child: const Center(
+                child: Icon(Icons.shield_rounded, color: NobleTheme.textGoldBright, size: 90),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ─── 3D METALLIC GOLD TITLE BADGE ──────────────────────────────────────────
+  Widget _buildTitleBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: NobleTheme.metallicBadgeGradient,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFF9E6), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.8), blurRadius: 15, offset: const Offset(0, 6)),
+          BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 18, spreadRadius: 2),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "Noble Hall",
+            style: GoogleFonts.cinzel(
+              color: const Color(0xFF2A1D04),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
+              shadows: [
+                const Shadow(color: Colors.white70, blurRadius: 1, offset: Offset(0, 1)),
+              ],
+            ),
+          ),
+          const Gap(8),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: const BoxDecoration(
+              color: Color(0xFFFFD700),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: Color(0xFFFFE58F), blurRadius: 8, spreadRadius: 2),
+              ],
+            ),
           ),
         ],
       ),

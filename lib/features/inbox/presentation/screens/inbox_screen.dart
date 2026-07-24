@@ -69,20 +69,15 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
 
     showDialog(
       context: context,
-      barrierColor: Colors.black87,
       builder: (context) => Dialog(
-        backgroundColor: const Color(0xFF16161A),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: Container(
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white10),
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1E1E24), Color(0xFF121215)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.black.withOpacity(0.05)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -105,14 +100,14 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: -0.3),
+                style: const TextStyle(color: Colors.black, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: -0.3),
               ),
               const Gap(6),
               // Time
               Text(
                 timeago.format(timestamp, locale: 'en'),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.w500),
+                style: const TextStyle(color: Colors.black45, fontSize: 11, fontWeight: FontWeight.w500),
               ),
               const Gap(20),
               // Body
@@ -123,7 +118,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                   child: Text(
                     body,
                     textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13, height: 1.5, fontWeight: FontWeight.w400),
+                    style: const TextStyle(color: Colors.black87, fontSize: 13, height: 1.5, fontWeight: FontWeight.w400),
                   ),
                 ),
               ),
@@ -138,9 +133,9 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
-                          side: const BorderSide(color: Colors.white10),
+                          side: BorderSide(color: Colors.grey.shade300),
                         ),
-                        foregroundColor: Colors.white70,
+                        foregroundColor: Colors.grey.shade700,
                       ),
                       child: const Text("CLOSE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 0.5)),
                     ),
@@ -154,8 +149,8 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                           context.push(actionRoute);
                         },
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _getTypeColor(type),
-                          foregroundColor: Colors.black,
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                         ),
@@ -175,12 +170,12 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   Color _getTypeColor(String type) {
     switch (type.toLowerCase()) {
       case 'reward':
-        return const Color(0xFFFFD700); // Gold
+        return const Color(0xFFD97706); // Amber Gold
       case 'broadcast':
-        return const Color(0xFF00E5FF); // Cyan
+        return const Color(0xFF0284C7); // Light Cyan Blue
       case 'system':
       default:
-        return const Color(0xFFCC00FF); // Purple
+        return AppColors.primary; // Primary Purple/Indigo
     }
   }
 
@@ -199,18 +194,18 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F12),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF131317),
-        elevation: 0,
-        scrolledUnderElevation: 0,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        scrolledUnderElevation: 0.5,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+          icon: const Icon(Icons.chevron_left_rounded, color: Colors.black, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
-          "Official Inbox",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17, letterSpacing: -0.3),
+          "Notifications",
+          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 17, letterSpacing: -0.3),
         ),
         actions: [
           StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -226,7 +221,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                   margin: const EdgeInsets.only(right: 16),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE24B4A),
+                    color: const Color(0xFFEF4444),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -243,7 +238,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
         stream: _getInboxMessagesStream(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator(color: Color(0xFF00E5FF)));
+            return const Center(child: CircularProgressIndicator(color: AppColors.primary));
           }
 
           if (snapshot.hasError) {
@@ -272,7 +267,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                     const Gap(16),
                     Text(
                       isPermissionDenied ? "Access Denied" : "Something went wrong",
-                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                      style: const TextStyle(color: Colors.black, fontSize: 16, fontWeight: FontWeight.w900),
                     ),
                     const Gap(8),
                     Text(
@@ -280,7 +275,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                           ? "You don't have permission to view your inbox. Please try logging in again."
                           : "Could not load your inbox. Please try again later.",
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white38, fontSize: 13, height: 1.4),
+                      style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4),
                     ),
                     const Gap(24),
                     ElevatedButton.icon(
@@ -309,13 +304,13 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                   Container(
                     padding: const EdgeInsets.all(28),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.02),
+                      color: AppColors.primary.withOpacity(0.08),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.mail_outline_rounded, size: 48, color: Colors.white24),
+                    child: const Icon(Icons.notifications_none_rounded, size: 48, color: AppColors.primary),
                   ),
                   const Gap(16),
-                  const Text("Inbox is empty", style: TextStyle(color: Colors.white30, fontSize: 14, fontWeight: FontWeight.bold)),
+                  const Text("No notifications yet", style: TextStyle(color: Colors.black45, fontSize: 14, fontWeight: FontWeight.bold)),
                 ],
               ),
             );
@@ -342,12 +337,19 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: isRead ? const Color(0xFF131317) : const Color(0xFF1C1B22),
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color: isRead ? Colors.white.withOpacity(0.03) : color.withOpacity(0.15),
-                      width: 1,
+                      color: isRead ? Colors.black.withOpacity(0.04) : AppColors.primary.withOpacity(0.3),
+                      width: isRead ? 1 : 1.5,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.02),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,11 +358,11 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                       Container(
                         width: 40, height: 40,
                         decoration: BoxDecoration(
-                          color: color.withOpacity(isRead ? 0.06 : 0.12),
+                          color: color.withOpacity(isRead ? 0.08 : 0.15),
                           shape: BoxShape.circle,
-                          border: Border.all(color: color.withOpacity(isRead ? 0.1 : 0.25), width: 1),
+                          border: Border.all(color: color.withOpacity(isRead ? 0.15 : 0.4), width: 1),
                         ),
-                        child: Icon(_getTypeIcon(type), color: color.withOpacity(isRead ? 0.6 : 1.0), size: 18),
+                        child: Icon(_getTypeIcon(type), color: color, size: 18),
                       ),
                       const Gap(12),
                       // Text Contents
@@ -377,7 +379,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: isRead ? Colors.white70 : Colors.white,
+                                      color: isRead ? Colors.black87 : Colors.black,
                                       fontSize: 14,
                                       fontWeight: isRead ? FontWeight.w600 : FontWeight.w900,
                                     ),
@@ -387,7 +389,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                                 Text(
                                   timeago.format(timestamp, locale: 'en_short'),
                                   style: TextStyle(
-                                    color: isRead ? Colors.white30 : Colors.white60,
+                                    color: isRead ? Colors.grey : Colors.black45,
                                     fontSize: 10,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -400,7 +402,7 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: isRead ? Colors.white38 : Colors.white60,
+                                color: isRead ? Colors.black45 : Colors.black87,
                                 fontSize: 12,
                                 height: 1.4,
                               ),

@@ -210,7 +210,7 @@ class RoomModel {
       superMic: map['superMic'] ?? false,
       effectSwitch: map['effectSwitch'] ?? true,
       youtubeVideoId: map['youtubeVideoId'],
-      isYoutubeActive: map['isYoutubeActive'] ?? false,
+      isYoutubeActive: (map['isYoutubeActive'] ?? false) && (map['youtubeVideoId'] as String?)?.isNotEmpty == true,
       youtubeStatus: map['youtubeStatus'] ?? 'stopped',
       youtubeSeekTime: (map['youtubeSeekTime'] ?? 0) as int,
       youtubeVolume: (map['youtubeVolume'] ?? 100) as int,

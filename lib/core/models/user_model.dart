@@ -51,6 +51,7 @@ class UserModel {
   final int? svipLevel;
   final int? svipPoints;
   final int? monthlyRecharge;
+  final List<dynamic>? claimedMilestones;
   final List<String> blockedUids;
   final String referralCode;
   final String? referredBy;
@@ -58,6 +59,7 @@ class UserModel {
   final String? partnerUid;
   final String? partnerName;
   final String? partnerAvatar;
+  final String? anniversaryDate;
   final int cpLevel;
   final int cpPoints;
   final String? bestFriendUid;
@@ -81,6 +83,14 @@ class UserModel {
   final String? idPhotoUrl;
   final double walletBalance;
   final String? activeRoomId;
+  final String role;
+  final String? superAdminId;
+  final String? adminId;
+  final double usdCommissionBalance;
+  final double pendingWithdrawalBalance;
+  final double totalCommissionEarned;
+  final double totalRechargeGenerated;
+  final double totalWithdrawnUSD;
 
 UserModel({
     required this.uid,
@@ -132,6 +142,7 @@ UserModel({
     this.svipLevel = 0,
     this.svipPoints = 0,
     this.monthlyRecharge = 0,
+    this.claimedMilestones = const [],
     this.blockedUids = const [],
     this.referralCode = '',
     this.referredBy,
@@ -139,6 +150,7 @@ UserModel({
     this.partnerUid,
     this.partnerName,
     this.partnerAvatar,
+    this.anniversaryDate,
     this.cpLevel = 0,
     this.cpPoints = 0,
     this.combatPoints = 0,
@@ -163,6 +175,14 @@ this.verificationStatus = 'unverified',
     this.bestFriendUid,
     this.bestFriendName,
     this.bestFriendAvatar,
+    this.role = 'host',
+    this.superAdminId,
+    this.adminId,
+    this.usdCommissionBalance = 0.0,
+    this.pendingWithdrawalBalance = 0.0,
+    this.totalCommissionEarned = 0.0,
+    this.totalRechargeGenerated = 0.0,
+    this.totalWithdrawnUSD = 0.0,
   });
 
   static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
@@ -226,6 +246,7 @@ this.verificationStatus = 'unverified',
       svipLevel: (data['svipLevel'] as num?)?.toInt(),
       svipPoints: (data['svipPoints'] as num?)?.toInt(),
       monthlyRecharge: (data['monthlyRecharge'] as num?)?.toInt(),
+      claimedMilestones: (data['claimedMilestones'] as List?) ?? [],
       blockedUids: (data['blockedUids'] as Iterable?)?.whereType<String>().toList() ?? [],
       referralCode: (data['referralCode'] as String?) ?? (data['uid'] as String? ?? '').split('-').first.toUpperCase(),
       referredBy: data['referredBy'] as String?,
@@ -233,6 +254,7 @@ this.verificationStatus = 'unverified',
       partnerUid: data['partnerUid'] as String?,
       partnerName: data['partnerName'] as String?,
       partnerAvatar: data['partnerAvatar'] as String?,
+      anniversaryDate: data['anniversaryDate'] as String?,
       cpLevel: (data['cpLevel'] as num? ?? 0).toInt(),
       cpPoints: (data['cpPoints'] as num? ?? 0).toInt(),
       combatPoints: (data['combatPoints'] as num? ?? 0).toInt(),
@@ -257,6 +279,14 @@ this.verificationStatus = 'unverified',
       bestFriendUid: data['bestFriendUid'] as String?,
       bestFriendName: data['bestFriendName'] as String?,
       bestFriendAvatar: data['bestFriendAvatar'] as String?,
+      role: (data['role'] as String?) ?? 'host',
+      superAdminId: data['superAdminId'] as String?,
+      adminId: data['adminId'] as String?,
+      usdCommissionBalance: (data['usdCommissionBalance'] as num? ?? 0.0).toDouble(),
+      pendingWithdrawalBalance: (data['pendingWithdrawalBalance'] as num? ?? 0.0).toDouble(),
+      totalCommissionEarned: (data['totalCommissionEarned'] as num? ?? 0.0).toDouble(),
+      totalRechargeGenerated: (data['totalRechargeGenerated'] as num? ?? 0.0).toDouble(),
+      totalWithdrawnUSD: (data['totalWithdrawnUSD'] as num? ?? 0.0).toDouble(),
     );
   }
 
@@ -316,11 +346,12 @@ this.verificationStatus = 'unverified',
       'totalReferralEarnings': totalReferralEarnings,
       'partnerUid': partnerUid,
       'partnerName': partnerName,
-'partnerAvatar': partnerAvatar,
-        'bestFriendUid': bestFriendUid,
-        'bestFriendName': bestFriendName,
-        'bestFriendAvatar': bestFriendAvatar,
-        'cpLevel': cpLevel,
+      'partnerAvatar': partnerAvatar,
+      'anniversaryDate': anniversaryDate,
+      'bestFriendUid': bestFriendUid,
+      'bestFriendName': bestFriendName,
+      'bestFriendAvatar': bestFriendAvatar,
+      'cpLevel': cpLevel,
       'cpPoints': cpPoints,
       'combatPoints': combatPoints,
       'helloId': helloId,
@@ -400,6 +431,7 @@ this.verificationStatus = 'unverified',
     String? partnerUid,
     String? partnerName,
     String? partnerAvatar,
+    String? anniversaryDate,
     String? bestFriendUid,
     String? bestFriendName,
     String? bestFriendAvatar,
@@ -481,6 +513,7 @@ this.verificationStatus = 'unverified',
       partnerUid: partnerUid ?? this.partnerUid,
       partnerName: partnerName ?? this.partnerName,
       partnerAvatar: partnerAvatar ?? this.partnerAvatar,
+      anniversaryDate: anniversaryDate ?? this.anniversaryDate,
       bestFriendUid: bestFriendUid ?? this.bestFriendUid,
        bestFriendName: bestFriendName ?? this.bestFriendName,
        bestFriendAvatar: bestFriendAvatar ?? this.bestFriendAvatar,

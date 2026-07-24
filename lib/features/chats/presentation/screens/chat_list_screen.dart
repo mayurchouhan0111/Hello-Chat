@@ -65,9 +65,43 @@ class ChatListScreen extends ConsumerWidget {
             },
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => _buildChatListShimmerLoading(),
         error: (e, __) => Center(child: Text("Error: $e")),
       ),
+    );
+  }
+
+  Widget _buildChatListShimmerLoading() {
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      itemCount: 6,
+      separatorBuilder: (_, __) => const Gap(8),
+      itemBuilder: (context, index) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 48, height: 48,
+              decoration: BoxDecoration(color: Colors.grey.shade200, shape: BoxShape.circle),
+            ),
+            const Gap(14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(width: 120, height: 14, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                  const Gap(6),
+                  Container(width: 180, height: 10, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(5))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70),
     );
   }
 

@@ -1300,6 +1300,47 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            // Roster Gatekeeper & Level Viewport
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: AppColors.familySurface.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: FamilyModel.badgeColorForLevel(myFamily.level).withOpacity(0.4)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: FamilyModel.themeGradientForLevel(myFamily.level)),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'LEVEL ${myFamily.level}',
+                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10),
+                        ),
+                      ),
+                      const Gap(8),
+                      Text(
+                        'Participants: ${myFamily.memberCount} / ${myFamily.memberLimit}',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Remaining Slots: ${(myFamily.memberLimit - myFamily.memberCount).clamp(0, 1000)}',
+                    style: TextStyle(color: FamilyModel.badgeColorForLevel(myFamily.level), fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+
             // Timer or Result Banner
             _buildTimerBanner(
                 battle, isCompleted, isWinner, isDraw),
@@ -1315,7 +1356,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                           myFamily.name,
                           myFamily.avatarUrl,
                           myPts,
-                          AppColors.familyGold,
+                          FamilyModel.badgeColorForLevel(myFamily.level),
                           true)),
                   _buildVSColumn(myPts, enemyPtsTotal, showBackBtn),
                   Expanded(
@@ -1334,7 +1375,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             _buildGlowProgressBar(myRatio),
             const Gap(24),
 
-            // Top Recruits
+            // Top Recruits / Contributor Leaderboard
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -1355,12 +1396,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                               width: 3,
                               height: 14,
                               decoration: BoxDecoration(
-                                color: AppColors.familyGold,
+                                color: FamilyModel.badgeColorForLevel(myFamily.level),
                                 borderRadius: BorderRadius.circular(2),
                               ),
                             ),
                             const Gap(8),
-                            const Text('TOP FIGHTERS',
+                            const Text('MVP TOP CONTRIBUTORS',
                                 style: TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 12,

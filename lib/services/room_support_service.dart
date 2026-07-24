@@ -37,12 +37,61 @@ class RoomSupportService extends BaseFirebaseService {
     );
   }
 
-  /// Fetch room rankings
+  /// Fetch room rankings (Live stream from active cycles with fallback)
   Stream<List<Map<String, dynamic>>> rankingsStream() {
-    return _db.collection('room_support_rankings').doc('rankings')
-      .collection('rooms').orderBy('totalCoins', descending: true).limit(50).snapshots().map(
-      (s) => s.docs.map((d) => ({...d.data(), 'id': d.id})).toList(),
-    );
+    return _db
+        .collection('room_support_cycles')
+        .orderBy('totalCoins', descending: true)
+        .limit(50)
+        .snapshots()
+        .asyncMap((snap) async {
+          if (snap.docs.isNotEmpty) {
+            final List<Map<String, dynamic>> results = [];
+            for (final doc in snap.docs) {
+              final data = doc.data();
+              final roomId = doc.id;
+              String roomName = data['roomName'] ?? '';
+              
+              // If roomName not cached in cycle doc, fetch from rooms collection
+              if (roomName.isEmpty) {
+                try {
+                  final roomDoc = await _db.collection('rooms').doc(roomId).get();
+                  if (roomDoc.exists) {
+                    roomName = roomDoc.data()?['name'] ?? roomDoc.data()?['title'] ?? 'Room #$roomId';
+                  }
+                } catch (_) {}
+              }
+              if (roomName.isEmpty) roomName = 'Room #$roomId';
+
+              results.add({
+                'id': roomId,
+                'roomId': roomId,
+                'roomName': roomName,
+                'totalCoins': (data['totalCoins'] as num?)?.toInt() ?? 0,
+                'level': data['level'] ?? 1,
+              });
+            }
+            return results;
+          }
+
+          // Fallback to active rooms collection
+          final roomsSnap = await _db
+              .collection('rooms')
+              .where('status', isEqualTo: 'active')
+              .limit(50)
+              .get();
+
+          return roomsSnap.docs.map((d) {
+            final data = d.data();
+            return {
+              'id': d.id,
+              'roomId': d.id,
+              'roomName': data['name'] ?? data['title'] ?? 'Room #${d.id}',
+              'totalCoins': (data['totalCoins'] as num?)?.toInt() ?? (data['weeklyCoins'] as num?)?.toInt() ?? 0,
+              'level': data['level'] ?? 1,
+            };
+          }).toList();
+        });
   }
 
   /// Assign a salary partner (owner only, Mon-Tue only)

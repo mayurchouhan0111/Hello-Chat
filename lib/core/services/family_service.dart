@@ -3,6 +3,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../models/family_model.dart';
 import '../models/family_battle_model.dart';
 import '../models/family_battle_request_model.dart';
+import '../models/family_battle_contributor_model.dart';
 import '../models/family_join_request_model.dart';
 import '../models/family_member_model.dart';
 import '../models/family_policy_model.dart';
@@ -436,47 +437,17 @@ class FamilyService {
     String? challengerImageUrl,
     String? challengerUid,
   }) async {
-    final existing = await _battleRequests
-        .where('challengerFamilyId', isEqualTo: challengerFamilyId)
-        .where('opponentFamilyId', isEqualTo: opponentFamilyId)
-        .where('status', isEqualTo: 'pending')
-        .limit(1)
-        .get();
-    if (existing.docs.isNotEmpty) {
-      throw Exception('A pending battle request already exists between these families.');
+    final fn = FirebaseFunctions.instance.httpsCallable('sendFamilyBattleRequest');
+    try {
+      await fn({
+        'challengerFamilyId': challengerFamilyId,
+        'opponentFamilyId': opponentFamilyId,
+        'cost': cost,
+        'imageUrl': challengerImageUrl,
+      });
+    } on FirebaseFunctionsException catch (e) {
+      throw Exception(e.message ?? 'Failed to send battle request.');
     }
-
-    final challengerDoc = await _families.doc(challengerFamilyId).get();
-    final opponentDoc = await _families.doc(opponentFamilyId).get();
-    final challenger = FamilyModel.fromMap(challengerDoc.data() as Map<String, dynamic>, challengerDoc.id);
-    final opponent = FamilyModel.fromMap(opponentDoc.data() as Map<String, dynamic>, opponentDoc.id);
-
-    // Use transaction to atomically create request and deduct diamonds if needed
-    await _firestore.runTransaction((tx) async {
-      // Deduct diamonds from challenger if a cost is specified
-      if (cost > 0 && challengerUid != null) {
-        final userRef = _users.doc(challengerUid);
-        final userSnap = await tx.get(userRef);
-        if (!userSnap.exists) throw Exception('User not found.');
-        final balance = (userSnap.data() as Map<String, dynamic>)['diamondBalance'] as num? ?? 0;
-        if (balance < cost) throw Exception('Insufficient diamonds.');
-        tx.update(userRef, {'diamondBalance': FieldValue.increment(-cost)});
-      }
-
-      // Create battle request document
-      final reqRef = _battleRequests.doc();
-      tx.set(reqRef, FamilyBattleRequestModel(
-        id: reqRef.id,
-        challengerFamilyId: challengerFamilyId,
-        challengerName: challenger.name,
-        challengerAvatar: challenger.avatarUrl,
-        opponentFamilyId: opponentFamilyId,
-        opponentName: opponent.name,
-        opponentAvatar: opponent.avatarUrl,
-        imageUrl: challengerImageUrl,
-        createdAt: DateTime.now(),
-      ).toMap());
-    });
   }
 
   /// Deduct diamonds to grant battle access for the user.
@@ -719,5 +690,18 @@ class FamilyService {
       if (!doc.exists) return null;
       return FamilyMemberModel.fromMap(doc.data() as Map<String, dynamic>, doc.id);
     });
+  }
+
+  /// Stream MVP Top Contributors micro-leaderboard for a battle
+  Stream<List<FamilyBattleContributorModel>> streamBattleContributors(String familyId, String battleId) {
+    return _battles(familyId)
+        .doc(battleId)
+        .collection('contributors')
+        .orderBy('battlePoints', descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => FamilyBattleContributorModel.fromMap(doc.data(), doc.id))
+            .toList());
   }
 }

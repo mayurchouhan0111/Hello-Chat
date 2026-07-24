@@ -219,147 +219,214 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         final fgColor = (isFollowing || isFriends) ? Colors.black87 : Colors.white;
 
         return Container(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: Colors.white,
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, -5))],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: _isActionLoading ? null : () async {
-                        setState(() => _isActionLoading = true);
-                        try {
-                          if (isFollowing) {
-                            await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
-                            _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
-                          } else {
-                            await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
-                            _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
-                          }
-                        } catch (e) {
-                          _showCuteSnackBar("Oops! $e", isError: true);
-                        } finally {
-                          if (mounted) setState(() => _isActionLoading = false);
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: bgColor,
-                        foregroundColor: fgColor,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: (isFollowing || isFriends) ? 0 : 2,
-                      ),
-                      child: _isActionLoading 
-                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : Text(buttonLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 1,
-                    child: OutlinedButton(
-                      onPressed: () async {
-                        try {
-                          final chatService = ref.read(chatServiceProvider);
-                          final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
-                          if (context.mounted) {
-                             Navigator.push(
-                              context, 
-                              MaterialPageRoute(
-                                builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid)
-                              )
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
-                          }
-                        }
-                      },
-                      style: OutlinedButton.styleFrom(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        side: const BorderSide(color: AppColors.primary),
-                      ),
-                      child: const Icon(Icons.chat_bubble_outline_rounded, color: AppColors.primary),
-                    ),
-                  ),
-                ],
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
               ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: friendReqSent
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.amber.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(15),
+            ],
+            border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+          ),
+          child: Row(
+            children: [
+              // 1. Primary Action Button: Follow / Following / Friends
+              Expanded(
+                flex: 3,
+                child: GestureDetector(
+                  onTap: _isActionLoading ? null : () async {
+                    setState(() => _isActionLoading = true);
+                    try {
+                      if (isFollowing) {
+                        await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
+                        _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
+                      } else {
+                        await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
+                        _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
+                      }
+                    } catch (e) {
+                      _showCuteSnackBar("Oops! $e", isError: true);
+                    } finally {
+                      if (mounted) setState(() => _isActionLoading = false);
+                    }
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: (isFollowing || isFriends)
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                            child: const Row(
+                      color: (isFollowing || isFriends) ? Colors.grey[100] : null,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: (isFollowing || isFriends)
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFF4F46E5).withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                    ),
+                    child: Center(
+                      child: _isActionLoading
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.hourglass_bottom, color: Colors.amber, size: 16),
-                                SizedBox(width: 6),
-                                Text("Requested", style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12)),
+                                Icon(
+                                  isFriends ? Icons.people_alt_rounded : (isFollowing ? Icons.check_circle_rounded : Icons.person_add_alt_1_rounded),
+                                  color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
+                                  size: 19,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  buttonLabel,
+                                  style: TextStyle(
+                                    color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ],
                             ),
-                          )
-                        : ElevatedButton(
-                            onPressed: _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue.withOpacity(0.1),
-                              foregroundColor: Colors.blue,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              elevation: 0,
-                              disabledBackgroundColor: Colors.blue.withOpacity(0.05),
-                              disabledForegroundColor: Colors.blue.withOpacity(0.4),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 2. Direct Chat Button (Vibrant Indigo Disc)
+              GestureDetector(
+                onTap: () async {
+                  try {
+                    final chatService = ref.read(chatServiceProvider);
+                    final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
+                    if (context.mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
+                    }
+                  }
+                },
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4F46E5).withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.forum_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 3. Friendship Request Button (Emerald Disc)
+              GestureDetector(
+                onTap: friendReqSent || _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
+                child: Tooltip(
+                  message: friendReqSent ? "Friendship Request Sent" : "Send Friend Request",
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: friendReqSent
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                            child: _isSendingFriendReq
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue))
-                                : const Text("🤝 Friendship", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      color: friendReqSent ? Colors.amber.withOpacity(0.15) : null,
+                      shape: BoxShape.circle,
+                      boxShadow: friendReqSent
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                      border: friendReqSent ? Border.all(color: Colors.amber.withOpacity(0.4), width: 1.5) : null,
+                    ),
+                    child: _isSendingFriendReq
+                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        : Icon(
+                            friendReqSent ? Icons.hourglass_bottom_rounded : Icons.diversity_3_rounded,
+                            color: friendReqSent ? Colors.amber[800] : Colors.white,
+                            size: 20,
                           ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: isPartner
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.pink.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 4. CP (Couple Partner) Request Button (Rose Gold Disc)
+              GestureDetector(
+                onTap: isPartner || _isSendingCPReq ? null : () => _sendCPRequest(userData),
+                child: Tooltip(
+                  message: isPartner ? "Active CP Partner ❤️" : "Send CP Invite 💕",
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: isPartner
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFFEC4899), Color(0xFFF43F5E)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
                             ),
-                            child: const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.favorite, color: Colors.pink, size: 16),
-                                SizedBox(width: 6),
-                                Text("CP ❤️", style: TextStyle(color: Colors.pink, fontWeight: FontWeight.bold, fontSize: 12)),
-                              ],
-                            ),
-                          )
-                        : OutlinedButton(
-                            onPressed: _isSendingCPReq ? null : () => _sendCPRequest(userData.uid),
-                            style: OutlinedButton.styleFrom(
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              side: BorderSide(color: _isSendingCPReq ? Colors.pink.withOpacity(0.2) : Colors.pink.withOpacity(0.4)),
-                              foregroundColor: _isSendingCPReq ? Colors.pink.withOpacity(0.4) : Colors.pink,
-                            ),
-                            child: _isSendingCPReq
-                                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.pink))
-                                : const Text("💕 CP Request", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                      color: isPartner ? Colors.pink.withOpacity(0.18) : null,
+                      shape: BoxShape.circle,
+                      boxShadow: isPartner
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFFEC4899).withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                      border: isPartner ? Border.all(color: Colors.pink.withOpacity(0.4), width: 1.5) : null,
+                    ),
+                    child: _isSendingCPReq
+                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        : Icon(
+                            isPartner ? Icons.favorite_rounded : Icons.volunteer_activism_rounded,
+                            color: isPartner ? Colors.pink[700] : Colors.white,
+                            size: 20,
                           ),
                   ),
-                ],
+                ),
               ),
             ],
           ),
@@ -382,10 +449,17 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     if (mounted) setState(() => _isSendingFriendReq = false);
   }
 
-  Future<void> _sendCPRequest(String targetUid) async {
+  Future<void> _sendCPRequest(UserModel targetUser) async {
+    final me = ref.read(currentUserProfileProvider).valueOrNull;
+    if ((me?.partnerUid != null && me!.partnerUid!.isNotEmpty) ||
+        (targetUser.partnerUid != null && targetUser.partnerUid!.isNotEmpty)) {
+      _showCuteSnackBar("You or the recipient already have an active CP relationship.", isError: true);
+      return;
+    }
+
     setState(() => _isSendingCPReq = true);
     try {
-      await ref.read(relationshipServiceProvider).sendCPInvite(targetUid);
+      await ref.read(relationshipServiceProvider).sendCPInvite(targetUser.uid);
       _showCuteSnackBar("CP invite sent! 💕");
     } catch (e) {
       _showCuteSnackBar("$e", isError: true);
@@ -509,119 +583,236 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   Widget _buildIdentity(BuildContext context, UserModel userData, Color textColor, Color subTextColor) {
     final vipLevel = _getVipLevel(userData.vipTier);
     final hasVipBg = vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+    final bool hasCP = userData.partnerUid != null && userData.partnerUid!.isNotEmpty;
+    final bool hasBestie = userData.bestFriendName != null && userData.bestFriendName!.isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text("🌹 ", style: TextStyle(fontSize: 16)),
-              Text(userData.displayName, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor)),
-              const Text(" 🔥", style: TextStyle(fontSize: 16)),
-              const Gap(6),
-              Icon(
-                userData.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
-                color: userData.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pink,
-                size: 16,
+      children: [
+        Row(
+          children: [
+            const Text("🌹 ", style: TextStyle(fontSize: 16)),
+            Flexible(
+              child: Text(
+                userData.displayName,
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+                overflow: TextOverflow.ellipsis,
               ),
-              if (userData.isReseller) ...[
-                const Gap(6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.store_rounded, color: Colors.white, size: 12),
-                      SizedBox(width: 3),
-                      Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+            ),
+            const Text(" 🔥", style: TextStyle(fontSize: 16)),
+            const Gap(6),
+            Icon(
+              userData.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
+              color: userData.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pink,
+              size: 16,
+            ),
+            if (hasCP) ...[
+              const Gap(6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFE91E63)]),
+                  borderRadius: BorderRadius.circular(10),
                 ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.favorite, color: Colors.white, size: 10),
+                    Gap(2),
+                    Text("CP", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+            ] else if (hasBestie) ...[
+              const Gap(6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF2979FF)]),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.handshake_rounded, color: Colors.white, size: 10),
+                    Gap(2),
+                    Text("FRIEND", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
+                  ],
+                ),
+              ),
+            ],
+            if (userData.isReseller) ...[
+              const Gap(6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.store_rounded, color: Colors.white, size: 12),
+                    SizedBox(width: 3),
+                    Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            GestureDetector(
+              onTap: () {
+                if (userData.helloId != null) {
+                  Clipboard.setData(ClipboardData(text: userData.displayId));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID Copied to Clipboard")));
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID is still pending...")));
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: hasVipBg ? Colors.white.withOpacity(0.12) : Colors.grey[100],
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "ID: ${userData.displayId}", 
+                      style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.w900)
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(Icons.copy_rounded, color: subTextColor, size: 12),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        const SizedBox(height: 2),
+        Row(
+          children: [
+            Text(userData.country.isEmpty ? 'India' : userData.country, style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
+            Icon(Icons.chevron_right_rounded, color: subTextColor, size: 14),
+          ],
+        ),
+
+        // Dedicated Partner Component Block (PRD Section 4)
+        if (hasCP) ...[
+          _buildPartnerComponentBlock(context, userData),
+        ],
+
+        if (hasBestie && !hasCP) ...[
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFF00BCD4)]),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.people_alt_rounded, color: Colors.white, size: 12),
+                const SizedBox(width: 4),
+                Text("🤝 Bestie: ${userData.bestFriendName}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
               ],
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPartnerComponentBlock(BuildContext context, UserModel userData) {
+    final partnerUid = userData.partnerUid!;
+    final partnerAvatar = userData.partnerAvatar ?? '';
+    final partnerName = userData.partnerName ?? 'Partner';
+    final anniversary = userData.anniversaryDate ?? DateTime.now().toString().split(' ')[0];
+
+    return Consumer(
+      builder: (context, ref, child) {
+        final partnerUserAsync = ref.watch(userProfileProvider(partnerUid));
+        final partnerDisplayId = partnerUserAsync.valueOrNull?.displayId ?? partnerUid.substring(0, 6);
+
+        return Container(
+          margin: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF331526), Color(0xFF1E0B19)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.pinkAccent.withOpacity(0.4), width: 1),
+            boxShadow: [
+              BoxShadow(color: Colors.pink.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 3)),
             ],
           ),
-          const SizedBox(height: 4),
-          Row(
+          child: Row(
             children: [
               GestureDetector(
-                onTap: () {
-                  if (userData.helloId != null) {
-                    Clipboard.setData(ClipboardData(text: userData.displayId));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID Copied to Clipboard")));
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID is still pending...")));
-                  }
-                },
+                onTap: () => context.push(AppRoutes.userProfile, extra: partnerUid),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                   decoration: BoxDecoration(
-                    color: hasVipBg ? Colors.white.withOpacity(0.12) : Colors.grey[100],
-                    borderRadius: BorderRadius.circular(10),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.pinkAccent, width: 2),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        "ID: ${userData.displayId}", 
-                        style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.w900)
-                      ),
-                      const SizedBox(width: 4),
-                      Icon(Icons.copy_rounded, color: subTextColor, size: 12),
-                    ],
+                  child: CircleAvatar(
+                    radius: 20,
+                    backgroundColor: Colors.pink.withOpacity(0.2),
+                    backgroundImage: partnerAvatar.isNotEmpty ? CachedNetworkImageProvider(partnerAvatar) : null,
+                    child: partnerAvatar.isEmpty ? const Icon(Icons.favorite, color: Colors.pinkAccent, size: 18) : null,
                   ),
                 ),
               ),
+              const Gap(10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.favorite_rounded, color: Colors.pinkAccent, size: 12),
+                        const Gap(4),
+                        Flexible(
+                          child: Text(
+                            partnerName,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Gap(2),
+                    Text(
+                      "UID: $partnerDisplayId",
+                      style: const TextStyle(color: Colors.white60, fontSize: 9, fontWeight: FontWeight.w600, fontFamily: 'monospace'),
+                    ),
+                    const Gap(2),
+                    Text(
+                      "Anniversary: $anniversary",
+                      style: const TextStyle(color: Color(0xFFFF80AB), fontSize: 9, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 18),
+                onPressed: () => context.push(AppRoutes.userProfile, extra: partnerUid),
+              ),
             ],
           ),
-
-          const SizedBox(height: 2),
-          Row(
-            children: [
-              Text(userData.country.isEmpty ? 'India' : userData.country, style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
-              Icon(Icons.chevron_right_rounded, color: subTextColor, size: 14),
-            ],
-          ),
-          if (userData.partnerUid != null && userData.partnerName != null) ...[
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFFE91E63), Color(0xFF9C27B0)]),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.favorite, color: Colors.white, size: 12),
-                  const SizedBox(width: 4),
-                  Text("❤️ CP: ${userData.partnerName}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-          ],
-          if (userData.bestFriendName != null) ...[
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF2196F3), Color(0xFF00BCD4)]),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.people_alt_rounded, color: Colors.white, size: 12),
-                  const SizedBox(width: 4),
-                  Text("🤝 Bestie: ${userData.bestFriendName}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ),
-          ],
-        ],
-      );
+        );
+      },
+    );
   }
 
   Widget _buildBadgeIcon(IconData icon, Color color) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -17,6 +18,40 @@ import '../../../../core/services/relationship_service.dart';
 class FriendshipPortalScreen extends ConsumerStatefulWidget {
   const FriendshipPortalScreen({super.key});
 
+  // Ultra-Luxury Room Support Palette
+  static const Color darkBg = Color(0xFF070604);
+  static const Color cardBg = Color(0xFF13100B);
+  static const Color borderGold = Color(0xFF4A3A16);
+  static const Color borderGoldLight = Color(0xFF7E6327);
+  static const Color textGoldHeader = Color(0xFFF7E7B4);
+  static const Color textGoldSub = Color(0xFFD8B65C);
+  static const Color textGoldBright = Color(0xFFFFE58F);
+
+  static const LinearGradient goldHeaderGradient = LinearGradient(
+    colors: [
+      Color(0xFFE5C058),
+      Color(0xFFB38728),
+      Color(0xFFFBF5B7),
+      Color(0xFFDAA520),
+      Color(0xFFA67C1E),
+    ],
+    stops: [0.0, 0.25, 0.5, 0.75, 1.0],
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+  );
+
+  static const LinearGradient metallicBadgeGradient = LinearGradient(
+    colors: [
+      Color(0xFFFFF1B8),
+      Color(0xFFD4AF37),
+      Color(0xFFAA7C11),
+      Color(0xFFF3E5AB),
+      Color(0xFF8A6D1C),
+    ],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
   @override
   ConsumerState<FriendshipPortalScreen> createState() => _FriendshipPortalScreenState();
 }
@@ -27,65 +62,184 @@ class _FriendshipPortalScreenState extends ConsumerState<FriendshipPortalScreen>
     final profileAsync = ref.watch(currentUserProfileProvider);
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: FriendshipPortalScreen.darkBg,
       body: profileAsync.when(
         data: (user) {
           if (user == null) return const SizedBox();
           
-            final friendshipsAsync = ref.watch(userFriendshipsProvider(user.uid));
-            return friendshipsAsync.when(
-              data: (friendships) {
-                final activeFriendships = friendships
-                    .where((f) => f.isActive && f.isFriendship)
-                    .toList();
-                
-                if (activeFriendships.isEmpty) {
-                  return _buildNoFriendsState(user);
-                }
-                
-                // For now, show the first/best friendship (highest intimacy)
-                final bestFriendship = activeFriendships.reduce(
-                  (a, b) => a.intimacy > b.intimacy ? a : b,
-                );
-                
-                return _buildPortalContent(user, activeFriendships);
-              },
-              loading: () => const Center(child: CircularProgressIndicator(color: Colors.blueAccent)),
-              error: (e, __) => _buildErrorState(e.toString()),
-            );
+          final friendshipsAsync = ref.watch(userFriendshipsProvider(user.uid));
+          return friendshipsAsync.when(
+            data: (friendships) {
+              final activeFriendships = friendships
+                  .where((f) => f.isActive && f.isFriendship)
+                  .toList();
+              
+              if (activeFriendships.isEmpty) {
+                return _buildNoFriendsState(user);
+              }
+              
+              return _buildPortalContent(user, activeFriendships);
+            },
+            loading: () => const Center(child: CircularProgressIndicator(color: FriendshipPortalScreen.textGoldBright)),
+            error: (e, __) => _buildErrorState(e.toString()),
+          );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: Colors.blueAccent)),
+        loading: () => const Center(child: CircularProgressIndicator(color: FriendshipPortalScreen.textGoldBright)),
         error: (e, __) => _buildErrorState(e.toString()),
       ),
     );
   }
 
-    Widget _buildPortalContent(UserModel user, List<RelationshipModel> friendships) {
-    // Background and particle effects stay the same
-    return Stack(
-      children: [
-        _buildBackground(),
-        ..._buildFloatingParticles(),
-        _buildGradientOverlay(),
-        SafeArea(
-          child: Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  itemCount: friendships.length,
-                  separatorBuilder: (_, __) => const Gap(12),
-                  itemBuilder: (context, index) {
-                    final friendship = friendships[index];
-                    return _buildFriendCard(user, friendship);
-                  },
+  Widget _buildPortalContent(UserModel user, List<RelationshipModel> friendships) {
+    return SafeArea(
+      child: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.only(bottom: 40),
+              child: Column(
+                children: [
+                  // Ultra-Premium Hero Banner with Top-to-Bottom Opacity Fade & Outside Floating Title Badge
+                  Stack(
+                    clipBehavior: Clip.none,
+                    alignment: Alignment.bottomCenter,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        child: _buildHeroBanner(),
+                      ),
+                      Positioned(
+                        bottom: -18,
+                        child: _buildTitleBadge(),
+                      ),
+                    ],
+                  ),
+
+                  const Gap(32),
+
+                  // Friends List Cards
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: friendships.length,
+                      separatorBuilder: (_, __) => const Gap(12),
+                      itemBuilder: (context, index) {
+                        final friendship = friendships[index];
+                        return _buildFriendCard(user, friendship);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── HERO BANNER ─────────────────────────────────────────────────────────
+  Widget _buildHeroBanner() {
+    return Container(
+      width: double.infinity,
+      height: 220,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: FriendshipPortalScreen.darkBg,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(24),
+          bottom: Radius.circular(16),
+        ),
+      ),
+      child: ShaderMask(
+        shaderCallback: (rect) {
+          return const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Colors.black,
+              Colors.black,
+              Colors.black87,
+              Colors.black38,
+              Colors.transparent,
+            ],
+            stops: [0.0, 0.35, 0.65, 0.88, 1.0],
+          ).createShader(rect);
+        },
+        blendMode: BlendMode.dstIn,
+        child: Image.asset(
+          'assets/images/friendship_mall_hero.png',
+          fit: BoxFit.cover,
+          alignment: Alignment.center,
+          errorBuilder: (context, error, stackTrace) {
+            return Container(
+              decoration: const BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment(0, -0.3),
+                  radius: 0.95,
+                  colors: [
+                    Color(0xFF4A3710),
+                    Color(0xFF1F1608),
+                    FriendshipPortalScreen.darkBg,
+                  ],
                 ),
               ),
-            ],
-          ),
+              child: const Center(
+                child: Icon(Icons.favorite_rounded, color: FriendshipPortalScreen.textGoldBright, size: 80),
+              ),
+            );
+          },
         ),
-      ],
+      ),
+    );
+  }
+
+  // ─── 3D METALLIC TITLE BADGE ──────────────────────────────────────────────
+  Widget _buildTitleBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: FriendshipPortalScreen.metallicBadgeGradient,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFFFF9E6), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.8), blurRadius: 15, offset: const Offset(0, 6)),
+          BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 18, spreadRadius: 2),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "Friendship Hall",
+            style: GoogleFonts.cinzel(
+              color: const Color(0xFF2A1D04),
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 2.0,
+              shadows: [
+                const Shadow(color: Colors.white70, blurRadius: 1, offset: Offset(0, 1)),
+              ],
+            ),
+          ),
+          const Gap(8),
+          Container(
+            width: 10,
+            height: 10,
+            decoration: const BoxDecoration(
+              color: Color(0xFF00E5FF),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: Color(0xFF00E5FF), blurRadius: 8, spreadRadius: 2),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -97,92 +251,97 @@ class _FriendshipPortalScreenState extends ConsumerState<FriendshipPortalScreen>
       data: (friend) {
         if (friend == null) return const SizedBox();
         final isBestFriend = friendship.level >= 4;
-        return Card(
-          color: Colors.white.withOpacity(0.04),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        return Container(
+          decoration: BoxDecoration(
+            color: FriendshipPortalScreen.cardBg,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: isBestFriend ? FriendshipPortalScreen.textGoldBright : FriendshipPortalScreen.borderGold, width: 1.2),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, 4)),
+            ],
+          ),
           child: ListTile(
-            leading: CircleAvatar(
-              backgroundImage: CachedNetworkImageProvider(friend.profilePhotoUrl),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            leading: Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: FriendshipPortalScreen.borderGoldLight, width: 1.5),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: CachedNetworkImage(
+                  imageUrl: friend.profilePhotoUrl,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.white38),
+                ),
+              ),
             ),
-            title: Text(friend.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-            subtitle: Text('Level ${friendship.level} • ${friendship.intimacy} XP', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+            title: Text(
+              friend.displayName,
+              style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+            subtitle: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    gradient: FriendshipPortalScreen.goldHeaderGradient,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    "LV.${friendship.level}",
+                    style: GoogleFonts.cinzel(color: const Color(0xFF241804), fontSize: 10, fontWeight: FontWeight.w900),
+                  ),
+                ),
+                const Gap(8),
+                Text(
+                  "${friendship.intimacy} XP",
+                  style: GoogleFonts.plusJakartaSans(color: FriendshipPortalScreen.textGoldSub, fontSize: 12),
+                ),
+              ],
+            ),
             trailing: IconButton(
-              icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+              icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent, size: 20),
               onPressed: () => _showRemoveFriendDialog(friend, friendship),
             ),
           ),
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator(color: Colors.blueAccent)),
+      loading: () => const Center(child: CircularProgressIndicator(color: FriendshipPortalScreen.textGoldBright)),
       error: (_, __) => const SizedBox(),
     );
   }
 
-  Widget _buildBackground() {
-    return Positioned.fill(
-      child: CachedNetworkImage(
-        imageUrl: "https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=1000&q=80",
-        fit: BoxFit.cover,
-        errorWidget: (c, e, s) => Container(color: const Color(0xFF1A1A2E)),
-      ),
-    );
-  }
-
-  List<Widget> _buildFloatingParticles() {
-    return List.generate(6, (i) => Positioned(
-      left: (i * 60).toDouble() + 10,
-      bottom: -40,
-      child: Icon(
-        i % 3 == 0 ? Icons.stars_rounded : (i % 3 == 1 ? Icons.emoji_events_rounded : Icons.favorite_border_rounded),
-        color: Colors.white.withOpacity(0.3),
-        size: (10 + i % 5).toDouble(),
-      ).animate(onPlay: (c) => c.repeat())
-        .moveY(begin: 0, end: -700, duration: (5 + i).seconds)
-        .fadeOut(delay: (2 + i).seconds),
-    ));
-  }
-
-  Widget _buildGradientOverlay() {
-    return Positioned.fill(
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Colors.black.withOpacity(0.85),
-              const Color(0xFF1A1A2E).withOpacity(0.3),
-              Colors.black.withOpacity(0.95),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8),
+    return Container(
+      height: 54,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: const BoxDecoration(
+        color: FriendshipPortalScreen.darkBg,
+        border: Border(bottom: BorderSide(color: Color(0xFF221B0E), width: 1)),
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           IconButton(
             onPressed: () => Navigator.pop(context),
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white70, size: 18),
           ),
-          const Column(
-            children: [
-              Text(
+          Expanded(
+            child: Center(
+              child: Text(
                 "FRIENDSHIP HALL",
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 4),
+                style: GoogleFonts.cinzel(
+                  color: FriendshipPortalScreen.textGoldBright,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  letterSpacing: 2.5,
+                ),
               ),
-              Text(
-                "BOND WITH YOUR BESTIES",
-                style: TextStyle(color: Colors.blueAccent, fontSize: 7, fontWeight: FontWeight.bold, letterSpacing: 1),
-              ),
-            ],
+            ),
           ),
-          const Icon(Icons.auto_awesome_rounded, color: Colors.blueAccent, size: 20),
+          const SizedBox(width: 48),
         ],
       ),
     );

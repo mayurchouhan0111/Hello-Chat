@@ -66,3 +66,8 @@ final incomingBattleRequestsProvider = StreamProvider.family<List<FamilyBattleRe
 final sentBattleRequestsProvider = StreamProvider.family<List<FamilyBattleRequestModel>, String>((ref, familyId) {
   return ref.watch(familyServiceProvider).streamSentBattleRequests(familyId);
 });
+
+final battleContributorsProvider = StreamProvider.family<List<dynamic>, ({String familyId, String battleId})>((ref, arg) {
+  return ref.watch(familyServiceProvider).streamBattleContributors(arg.familyId, arg.battleId);
+});
+

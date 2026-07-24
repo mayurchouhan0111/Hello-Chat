@@ -35,8 +35,8 @@ class FamilyModel {
   ];
 
   static const List<int> familyLevelThresholds = [
-    0, 5000000, 10000000, 25000000, 50000000,
-    100000000, 200000000, 400000000, 600000000, 800000000,
+    0, 5000000, 10000000, 20000000, 30000000,
+    50000000, 100000000, 300000000, 500000000, 700000000, 1000000000,
   ];
 
   static int familyLevelForPoints(int points) {
@@ -47,9 +47,10 @@ class FamilyModel {
   }
 
   static int themeIndexForLevel(int level) {
-    if (level >= 9) return 3;
-    if (level >= 7) return 2;
-    if (level >= 4) return 1;
+    if (level >= 10) return 4;
+    if (level >= 7) return 3;
+    if (level >= 5) return 2;
+    if (level >= 3) return 1;
     return 0;
   }
 
@@ -73,30 +74,35 @@ class FamilyModel {
   }
 
   static Color badgeColorForLevel(int level) {
-    if (level >= 9) return const Color(0xFFDC2626);
-    if (level >= 7) return const Color(0xFFD4A843);
-    if (level >= 4) return const Color(0xFF6B7280);
+    if (level >= 10) return const Color(0xFFFF0055);
+    if (level >= 7) return const Color(0xFFFFD700);
+    if (level >= 5) return const Color(0xFFE040FB);
+    if (level >= 3) return const Color(0xFF00E5FF);
     return const Color(0xFFCD7F32);
   }
 
   static Color progressColorForLevel(int level) {
-    if (level >= 9) return const Color(0xFFDC2626);
-    if (level >= 7) return const Color(0xFFD4A843);
-    if (level >= 4) return const Color(0xFF6B7280);
+    if (level >= 10) return const Color(0xFFFF0055);
+    if (level >= 7) return const Color(0xFFFFD700);
+    if (level >= 5) return const Color(0xFFE040FB);
+    if (level >= 3) return const Color(0xFF00E5FF);
     return const Color(0xFFCD7F32);
   }
 
   static List<Color> themeGradientForLevel(int level) {
-    if (level >= 9) return [const Color(0xFFDC2626), const Color(0xFFD4A843)];
-    if (level >= 7) return [const Color(0xFFD4A843), const Color(0xFFF59E0B)];
-    if (level >= 4) return [const Color(0xFF6B7280), const Color(0xFF9CA3AF)];
+    if (level >= 10) return [const Color(0xFFFF0055), const Color(0xFFFFD700)];
+    if (level >= 7) return [const Color(0xFFFFD700), const Color(0xFFFFA000)];
+    if (level >= 5) return [const Color(0xFF9C27B0), const Color(0xFFE040FB)];
+    if (level >= 3) return [const Color(0xFF00E5FF), const Color(0xFF2979FF)];
     return [const Color(0xFFCD7F32), const Color(0xFFB8860B)];
   }
 
   static int memberCapacityForLevel(int familyLevel) {
-    if (familyLevel >= 20) return 1000;
-    if (familyLevel >= 10) return 500;
-    if (familyLevel >= 5) return 300;
+    if (familyLevel >= 10) return 1000;
+    if (familyLevel >= 9) return 500;
+    if (familyLevel >= 7) return 300;
+    if (familyLevel >= 5) return 200;
+    if (familyLevel >= 3) return 150;
     return 100;
   }
 

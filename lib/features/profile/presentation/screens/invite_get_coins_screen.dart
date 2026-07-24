@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
@@ -84,6 +85,10 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
       body: profileAsync.when(
         data: (user) {
           if (user == null) return const SizedBox();
+          final referralCode = (user.referralCode.isNotEmpty)
+              ? user.referralCode
+              : user.uid.substring(0, 6).toUpperCase();
+
           return Column(
             children: [
               Expanded(
@@ -103,15 +108,20 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
                       const Gap(12),
 
                       // 🆔 My Code - Small Card
-                      _buildSmallCodeCard(user.referralCode),
+                      _buildSmallCodeCard(referralCode),
 
                       const Gap(12),
 
-                      // 🎟️ Redeem Box - Cute Gradient
+                      // 🎟️ Redeem Box
                       if (user.referredBy == null || user.referredBy!.isEmpty)
                         _buildCompactRedeem()
                       else
                         _buildAlreadyDone(),
+
+                      const Gap(16),
+
+                      // 👥 Referred Friends List & Earnings History
+                      _buildReferredFriendsSection(user.uid),
 
                       const Gap(20),
                     ],
@@ -121,9 +131,109 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
             ],
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (e, __) => const SizedBox(),
       ),
+    );
+  }
+
+  Widget _buildReferredFriendsSection(String uid) {
+    return StreamBuilder<dynamic>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .where('referredBy', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        final count = docs.length;
+        final totalEarned = count * 100;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.black.withOpacity(0.04)),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10)],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "MY INVITED FRIENDS",
+                    style: TextStyle(color: Colors.black45, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      "$count Friends • $totalEarned Beans",
+                      style: const TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+              ),
+              const Gap(12),
+              if (docs.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8F9FA),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      "No friends invited yet. Share your code to earn 100 Beans per friend!",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.black38, fontSize: 12),
+                    ),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 12, color: Colors.black12),
+                  itemBuilder: (context, index) {
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final name = data['displayName'] ?? 'Friend';
+                    final photo = data['profilePhotoUrl'] ?? '';
+
+                    return Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Colors.grey.shade200,
+                          backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) : null,
+                          child: photo.isEmpty ? const Icon(Icons.person, size: 18, color: Colors.grey) : null,
+                        ),
+                        const Gap(12),
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ),
+                        const Text(
+                          "+100 🫘",
+                          style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w900, fontSize: 12),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

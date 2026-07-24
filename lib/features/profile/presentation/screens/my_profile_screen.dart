@@ -25,7 +25,7 @@ class MyProfileScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: Colors.white,
       body: profileAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => _buildMyProfileShimmerLoading(),
         error: (err, stack) => Center(child: Text("Error: $err")),
         data: (userData) {
           if (userData == null) return const Center(child: Text("Not logged in"));
@@ -478,7 +478,7 @@ class MyProfileScreen extends ConsumerWidget {
           label: "Blocked List",
           iconColor: const Color(0xFFEF5350),
           count: 0,
-          onTap: () {},
+          onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Blocked', 'targetUid': userData.uid}),
         ),
       ],
     );
@@ -591,5 +591,56 @@ class MyProfileScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildMyProfileShimmerLoading() {
+    return ListView(
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        const Gap(40),
+        Center(
+          child: Column(
+            children: [
+              Container(
+                width: 92, height: 92,
+                decoration: BoxDecoration(color: Colors.grey.shade200, shape: BoxShape.circle),
+              ),
+              const Gap(16),
+              Container(width: 140, height: 18, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(8))),
+            ],
+          ),
+        ),
+        const Gap(24),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: List.generate(3, (i) => Column(
+            children: [
+              Container(width: 40, height: 18, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+              const Gap(4),
+              Container(width: 50, height: 12, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+            ],
+          )),
+        ),
+        const Gap(24),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: List.generate(4, (i) => Expanded(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                height: 76,
+                decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(16)),
+              ),
+            )),
+          ),
+        ),
+        const Gap(24),
+        ...List.generate(5, (i) => Container(
+          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          height: 52,
+          decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(14)),
+        )),
+      ],
+    ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70);
   }
 }

@@ -17,16 +17,16 @@ class FriendRequestsScreen extends ConsumerWidget {
     if (uid == null) return const SizedBox();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
-        elevation: 0,
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+          icon: const Icon(Icons.chevron_left_rounded, color: Colors.black, size: 28),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("Friend Requests", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
-        centerTitle: true,
+        title: const Text("Friend Requests", style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16)),
       ),
       body: ref.watch(friendRequestProvider(uid)).when(
         data: (requests) {
@@ -35,20 +35,20 @@ class FriendRequestsScreen extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.person_add_disabled, color: Colors.white24, size: 56),
+                  Icon(Icons.person_add_disabled_rounded, color: Colors.black26, size: 56),
                   Gap(16),
-                  Text("No pending requests", style: TextStyle(color: Colors.white38, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text("No pending requests", style: TextStyle(color: Colors.black45, fontSize: 16, fontWeight: FontWeight.bold)),
                 ],
               ),
             );
           }
           return ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(16),
             itemCount: requests.length,
             itemBuilder: (context, index) => _RequestTile(request: requests[index]),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.diamond)),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
         error: (err, _) => Center(child: Text("Error: $err", style: const TextStyle(color: Colors.redAccent))),
       ),
     );
@@ -65,28 +65,37 @@ class _RequestTile extends ConsumerWidget {
     final senderAvatar = request['senderAvatar'] as String? ?? '';
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 24,
+            backgroundColor: Colors.grey.shade200,
             backgroundImage: senderAvatar.isNotEmpty
                 ? CachedNetworkImageProvider(senderAvatar)
                 : null,
             child: senderAvatar.isEmpty
-                ? const Icon(Icons.person, color: Colors.white38)
+                ? const Icon(Icons.person, color: Colors.grey)
                 : null,
           ),
           const Gap(12),
           Expanded(
             child: Text(
               senderName,
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 14),
             ),
           ),
           GestureDetector(
@@ -109,10 +118,10 @@ class _RequestTile extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: AppColors.diamond.withOpacity(0.15),
+                color: AppColors.primary,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text("Accept", style: TextStyle(color: AppColors.diamond, fontWeight: FontWeight.w900, fontSize: 12)),
+              child: const Text("Accept", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
             ),
           ),
           const Gap(8),
@@ -136,10 +145,10 @@ class _RequestTile extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.1),
+                color: const Color(0xFFFEE2E2),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text("Decline", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900, fontSize: 12)),
+              child: const Text("Decline", style: TextStyle(color: Color(0xFFEF4444), fontWeight: FontWeight.w900, fontSize: 12)),
             ),
           ),
         ],

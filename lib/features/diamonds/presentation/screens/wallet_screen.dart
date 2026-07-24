@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import '../../../../core/router/app_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/constants/app_text_styles.dart';
@@ -320,34 +322,40 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                   ),
                 ),
 
-                // 3. Compact Banner
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                  height: 90, // More compact
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(24),
-                    image: const DecorationImage(
-                      image: NetworkImage("https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=800&auto=format&fit=crop"),
-                      fit: BoxFit.cover,
-                    ),
-                  ),
+                // 3. Invite & Earn Promo Banner
+                GestureDetector(
+                  onTap: () => context.push(AppRoutes.invite),
                   child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(24),
-                      color: Colors.black26,
-                    ),
-                    alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.only(left: 20),
-                    child: const Text(
-                      "FISHER",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.w900,
-                        fontStyle: FontStyle.italic,
-                        letterSpacing: 1,
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFF97316), Color(0xFFEA580C)],
                       ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(color: const Color(0xFFEA580C).withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 3)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 28),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text("INVITE FRIENDS & EARN WEALTH", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5)),
+                              Text("Get 100 free Beans for every friend who joins!", style: TextStyle(color: Colors.white70, fontSize: 10)),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                          child: const Text("CLAIM", style: TextStyle(color: Color(0xFFEA580C), fontWeight: FontWeight.w900, fontSize: 10)),
+                        ),
+                      ],
                     ),
                   ),
                 ),

@@ -15,6 +15,7 @@ import 'package:hello_chat/core/providers/ranking_preview_provider.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:carousel_slider/carousel_slider.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'dart:ui';
 import 'package:hello_chat/core/utils/room_navigation_helper.dart';
@@ -210,25 +211,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       );
                     },
-                    loading: () => const SizedBox(height: 120, child: Center(child: CircularProgressIndicator())),
+                    loading: () => _buildBannerShimmer(),
                     error: (e, __) => const SizedBox.shrink(),
                   ),
                 ),
 
                 const SliverToBoxAdapter(child: SizedBox(height: 8)),
-                // Category Tiles
+                // Blinkit-Style Premium Category Cards
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     child: Row(
                       children: [
-                        _buildMiniCategoryCard("Contribution", const LinearGradient(colors: [Color(0xFFFF9A8B), Color(0xFFFF6A88)]), 0, "users", "benchXP"),
-                        const SizedBox(width: 6),
-                        _buildMiniCategoryCard("Charm", const LinearGradient(colors: [Color(0xFF8BC6EC), Color(0xFF9599E2)]), 1, "users", "princeXP"),
-                        const SizedBox(width: 6),
-                        _buildMiniCategoryCard("Room", const LinearGradient(colors: [Color(0xFF21D4FD), Color(0xFFB721FF)]), 2, "rooms", "activeUsers"),
-                        const SizedBox(width: 6),
-                        _buildMiniCategoryCard("Best", const LinearGradient(colors: [Color(0xFFFACC15), Color(0xFFEAB308)]), 3, "users", "totalXP"),
+                        _buildBlinkitCategoryCard(
+                          title: "Contribution",
+                          subtitle: "Top Givers",
+                          badgeIcon: "👑",
+                          gradient: const LinearGradient(colors: [Color(0xFFFF5E62), Color(0xFFFF9966)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          collection: "users",
+                          field: "benchXP",
+                        ),
+                        const SizedBox(width: 5),
+                        _buildBlinkitCategoryCard(
+                          title: "Charm",
+                          subtitle: "Popular",
+                          badgeIcon: "💖",
+                          gradient: const LinearGradient(colors: [Color(0xFF8A2387), Color(0xFFE94057)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          collection: "users",
+                          field: "princeXP",
+                        ),
+                        const SizedBox(width: 5),
+                        _buildBlinkitCategoryCard(
+                          title: "Room",
+                          subtitle: "Hot Voice",
+                          badgeIcon: "🎙️",
+                          gradient: const LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          collection: "rooms",
+                          field: "currentUsersCount",
+                        ),
+                        const SizedBox(width: 5),
+                        _buildBlinkitCategoryCard(
+                          title: "Best",
+                          subtitle: "Stars",
+                          badgeIcon: "🏆",
+                          gradient: const LinearGradient(colors: [Color(0xFFF7971E), Color(0xFFFFD200)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          collection: "users",
+                          field: "totalXP",
+                        ),
                       ],
                     ),
                   ),
@@ -274,7 +303,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       );
                     },
-                    loading: () => const SliverToBoxAdapter(child: Center(child: CircularProgressIndicator())),
+                    loading: () => _buildRoomGridShimmer(),
                     error: (e, __) => SliverToBoxAdapter(child: Center(child: Text("Error: $e"))),
                   ),
                 ),
@@ -415,68 +444,238 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildMiniCategoryCard(String title, LinearGradient gradient, int tabIndex, String collection, String field) {
+  Widget _buildBlinkitCategoryCard({
+    required String title,
+    required String subtitle,
+    required String badgeIcon,
+    required LinearGradient gradient,
+    required String collection,
+    required String field,
+  }) {
     final avatarsAsync = ref.watch(topRankedAvatarsProvider((collection: collection, field: field)));
     
+    // High-resolution fallback avatars guaranteed to render if Firestore is empty
+    const List<String> fallbackAvatars = [
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&q=80',
+      'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&q=80',
+      'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&q=80',
+    ];
+
     return Expanded(
       child: GestureDetector(
-        onTap: () {
-          context.push(AppRoutes.leaderboard);
-        }, 
+        onTap: () => context.push(AppRoutes.leaderboard),
         child: Container(
-          height: 54, // Reduced from 60
+          height: 62,
           decoration: BoxDecoration(
             gradient: gradient,
-            borderRadius: BorderRadius.circular(12), // Slightly smaller radius
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: gradient.colors.first.withOpacity(0.2),
+                color: gradient.colors.first.withOpacity(0.3),
                 blurRadius: 8,
                 offset: const Offset(0, 3),
               ),
             ],
           ),
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                title, 
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 9, color: Colors.white, shadows: [Shadow(color: Colors.black26, blurRadius: 2)]),
-              ),
-              avatarsAsync.when(
-                data: (urls) {
-                  return Row(
-                    children: urls.take(3).map((url) => Container(
-                      margin: const EdgeInsets.only(right: 4),
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white30, width: 0.5),
-                        image: url.isNotEmpty ? DecorationImage(image: CachedNetworkImageProvider(url), fit: BoxFit.cover) : null,
-                      ),
-                    )).toList(),
-                  );
-                },
-                loading: () => Row(
-                  children: List.generate(2, (index) => Container(
-                    margin: const EdgeInsets.only(right: 4),
-                    width: 14,
-                    height: 14,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              children: [
+                // Glossy Sheen Overlay
+                Positioned(
+                  right: -15,
+                  top: -15,
+                  child: Container(
+                    width: 50,
+                    height: 50,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
+                      color: Colors.white.withOpacity(0.12),
                       shape: BoxShape.circle,
                     ),
-                  )),
+                  ),
                 ),
-                error: (e, __) => const SizedBox(height: 14),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Title & Emoji Badge Header
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                title,
+                                maxLines: 1,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 10,
+                                  color: Colors.white,
+                                  shadows: [Shadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1))],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Text(badgeIcon, style: const TextStyle(fontSize: 10)),
+                        ],
+                      ),
+                      // Overlapping Avatar Stack (Blinkit Style)
+                      avatarsAsync.when(
+                        data: (urls) {
+                          final List<String> displayUrls = [];
+                          displayUrls.addAll(urls.where((u) => u.isNotEmpty));
+                          for (int i = displayUrls.length; i < 3; i++) {
+                            displayUrls.add(fallbackAvatars[i % fallbackAvatars.length]);
+                          }
+
+                          return SizedBox(
+                            height: 18,
+                            child: Row(
+                              children: displayUrls.take(3).toList().asMap().entries.map((entry) {
+                                final idx = entry.key;
+                                final url = entry.value;
+
+                                return Transform.translate(
+                                  offset: Offset(-3.0 * idx, 0),
+                                  child: Container(
+                                    width: 18,
+                                    height: 18,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 1.0),
+                                      boxShadow: [
+                                        BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 3),
+                                      ],
+                                      image: DecorationImage(
+                                        image: CachedNetworkImageProvider(url),
+                                        fit: BoxFit.cover,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          );
+                        },
+                        loading: () => SizedBox(
+                          height: 18,
+                          child: Row(
+                            children: fallbackAvatars.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final url = entry.value;
+
+                              return Transform.translate(
+                                offset: Offset(-3.0 * idx, 0),
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 1.0),
+                                    image: DecorationImage(
+                                      image: CachedNetworkImageProvider(url),
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                        error: (e, __) => SizedBox(
+                          height: 18,
+                          child: Row(
+                            children: fallbackAvatars.asMap().entries.map((entry) {
+                              final idx = entry.key;
+                              final url = entry.value;
+
+                              return Transform.translate(
+                                offset: Offset(-3.0 * idx, 0),
+                                child: Container(
+                                  width: 18,
+                                  height: 18,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: Colors.white, width: 1.0),
+                                    image: DecorationImage(
+                                      image: CachedNetworkImageProvider(url),
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBannerShimmer() {
+    return Container(
+      height: 100,
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(16),
+      ),
+    ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70);
+  }
+
+  Widget _buildRoomGridShimmer() {
+    return SliverGrid(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 0.85,
+      ),
+      delegate: SliverChildBuilderDelegate(
+        (context, index) => Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Container(
+                  height: 12,
+                  width: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70),
+        childCount: 6,
       ),
     );
   }
@@ -625,22 +824,27 @@ class CustomBottomNavBar extends StatelessWidget {
                   onTap: () => onTap(index),
                   behavior: HitTestBehavior.opaque,
                   child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 120),
-                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                     decoration: BoxDecoration(
-                      color: isSelected ? const Color(0xFFF5F5F8) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
+                      color: isSelected ? const Color(0xFF4F46E5).withOpacity(0.06) : Colors.transparent,
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Stack(
                           clipBehavior: Clip.none,
+                          alignment: Alignment.center,
                           children: [
-                            AnimatedOpacity(
-                              opacity: isSelected ? 1.0 : 0.55,
-                              duration: const Duration(milliseconds: 120),
-                              child: _buildSvgIcon(item.svg, 24),
+                            AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              transform: Matrix4.identity()..scale(isSelected ? 1.12 : 1.0),
+                              transformAlignment: Alignment.center,
+                              child: _buildSvgIcon(item.svg, 24)
+                                  .animate(target: isSelected ? 1.0 : 0.0)
+                                  .scale(begin: const Offset(0.85, 0.85), end: const Offset(1.15, 1.15), duration: 250.ms, curve: Curves.elasticOut)
+                                  .shimmer(duration: 400.ms, color: Colors.white70),
                             ),
                             if (index == 3 && unreadCount > 0)
                               Positioned(
@@ -671,12 +875,25 @@ class CustomBottomNavBar extends StatelessWidget {
                         Text(
                           item.label,
                           style: TextStyle(
-                            color: isSelected ? _activeColor : _inactiveColor,
-                            fontSize: 8.5, // Reduced from 10
-                            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                            color: isSelected ? const Color(0xFF4F46E5) : _inactiveColor,
+                            fontSize: 9,
+                            fontWeight: isSelected ? FontWeight.w900 : FontWeight.w500,
                             letterSpacing: 0.1,
                           ),
                         ),
+                        if (isSelected)
+                          Container(
+                            margin: const EdgeInsets.only(top: 2),
+                            width: 12,
+                            height: 3,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(colors: [Color(0xFF4F46E5), Color(0xFF00E5FF)]),
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(color: const Color(0xFF4F46E5).withOpacity(0.4), blurRadius: 4, offset: const Offset(0, 1)),
+                              ],
+                            ),
+                          ).animate().scaleX(begin: 0, end: 1, duration: 200.ms),
                       ],
                     ),
                   ),
@@ -709,12 +926,16 @@ class CustomBottomNavBar extends StatelessWidget {
               height: 54,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: const Color(0xFF3B82F6),
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF4F46E5), Color(0xFF00E5FF)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
                 border: Border.all(color: Colors.white, width: 3),
                 boxShadow: [
                   BoxShadow(
-                    color: const Color(0xFF3B82F6).withOpacity(0.25),
-                    blurRadius: 12,
+                    color: const Color(0xFF4F46E5).withOpacity(0.4),
+                    blurRadius: 14,
                     offset: const Offset(0, 4),
                   ),
                 ],

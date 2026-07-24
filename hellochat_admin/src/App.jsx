@@ -14,7 +14,6 @@ import { VIPManagement } from './screens/VIPManagement';
 import { AuditLogs } from './screens/AuditLogs';
 import { AgencyManagement } from './screens/AgencyManagement';
 import { MiniGamesManagement } from './screens/MiniGamesManagement';
-import { DevTools } from './screens/DevTools';
 import { WithdrawalManagement } from './screens/WithdrawalManagement';
 import { EliteBoutiqueManagement } from './screens/EliteBoutiqueManagement';
 import { FamilyManagement } from './screens/FamilyManagement';
@@ -106,12 +105,6 @@ function App() {
           <Route path="/kyc" element={
             <AdminLayout>
               <KYCManagement />
-            </AdminLayout>
-          } />
-          <Route path="/dev" element={
-
-            <AdminLayout>
-              <DevTools />
             </AdminLayout>
           } />
           <Route path="/boutique" element={

@@ -36,6 +36,16 @@
         alert('Back clicked');
       }
     }
+
+    function handleClaimClick(threshold, reward) {
+      if (typeof FlutterApp !== 'undefined') {
+        FlutterApp.postMessage('claim:' + threshold + ':' + reward);
+      } else if (window.parent && window.parent !== window) {
+        window.parent.postMessage('claim:' + threshold + ':' + reward, '*');
+      } else {
+        alert('Claimed milestone reward: ' + reward);
+      }
+    }
   </script>
 </head>
 <body>

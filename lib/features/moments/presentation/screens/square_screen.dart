@@ -63,7 +63,7 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
         skipLoadingOnRefresh: true,
         loading: () => momentsAsync.hasValue 
           ? _buildCombinedList(momentsAsync.value!, activeFilter)
-          : const Center(child: CircularProgressIndicator()),
+          : _buildSquareShimmerLoading(),
         error: (err, stack) => Center(child: Text("Error: $err")),
         data: (moments) => _buildCombinedList(moments, activeFilter),
       ),
@@ -368,6 +368,49 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSquareShimmerLoading() {
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: 4,
+      itemBuilder: (context, index) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(color: Colors.grey.shade200, shape: BoxShape.circle),
+                ),
+                const Gap(10),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(width: 100, height: 12, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                    const Gap(6),
+                    Container(width: 60, height: 8, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                  ],
+                ),
+              ],
+            ),
+            const Gap(14),
+            Container(
+              width: double.infinity,
+              height: 180,
+              decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(14)),
+            ),
+          ],
+        ),
+      ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70),
     );
   }
 }
