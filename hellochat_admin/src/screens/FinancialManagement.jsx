@@ -240,7 +240,7 @@ export const FinancialManagement = () => {
           </div>
 
           <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">USD -> Diamond Rate (per $1 USD)</label>
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">USD &rarr; Diamond Rate (per $1 USD)</label>
             <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
               <Diamond className="text-cyan-400 mr-2" size={18} />
               <input 
