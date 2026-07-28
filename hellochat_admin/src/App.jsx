@@ -26,6 +26,8 @@ import { EventBuilder } from './screens/EventBuilder';
 import { RechargeEventManagement } from './screens/RechargeEventManagement';
 import { RelationshipManagement } from './screens/RelationshipManagement';
 
+import { SVIPManagement } from './screens/SVIPManagement';
+
 function App() {
   return (
     <Router>
@@ -55,6 +57,11 @@ function App() {
           <Route path="/vip" element={
             <AdminLayout>
               <VIPManagement />
+            </AdminLayout>
+          } />
+          <Route path="/svip" element={
+            <AdminLayout>
+              <SVIPManagement />
             </AdminLayout>
           } />
           <Route path="/agencies" element={

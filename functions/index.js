@@ -421,14 +421,19 @@ exports.adminFuelRocket = onCall({
 /**
  * --- SVIP SYSTEM (SPENDING BASED) ---
  */
+/**
+ * --- SVIP MEMBERSHIP SYSTEM (RECHARGE BASED) ---
+ * Conversion: 1 USD Gold Coin Recharge = 100 SVIP Points
+ * Validity: 60 Days per level (Server UTC Time)
+ * Reset Triggers: Reset to 0 on (1) Upgrade, (2) Renewal, (3) Downgrade, (4) Expiration, (5) Manual Reset.
+ */
 const SVIP_THRESHOLDS = [
-    { level: 1, points: 10000000 },
-    { level: 2, points: 30000000 },
-    { level: 3, points: 50000000 },
-    { level: 4, points: 100000000 },
-    { level: 5, points: 200000000 },
-    { level: 6, points: 300000000 },
-    { level: 7, points: 500000000 },
+    { level: 1, points: 5000, usd: 50.0, dailyReward: 25000 },
+    { level: 2, points: 10000, usd: 100.0, dailyReward: 50000 },
+    { level: 3, points: 20000, usd: 200.0, dailyReward: 100000 },
+    { level: 4, points: 50000, usd: 500.0, dailyReward: 250000 },
+    { level: 5, points: 100000, usd: 1000.0, dailyReward: 500000 },
+    { level: 6, points: 250000, usd: 2500.0, dailyReward: 1000000 },
 ];
 
 function calculateSVIPLevel(points) {
@@ -610,25 +615,7 @@ exports.onUserUpdate = functions.firestore.document("users/{uid}").onUpdate(asyn
 
     const updates = {};
 
-    // 1. SVIP Points (Spending based)
-    const oldDiamonds = before.diamondBalance || 0;
-    const newDiamonds = after.diamondBalance || 0;
-    if (newDiamonds < oldDiamonds) {
-        const spentAmount = oldDiamonds - newDiamonds;
-        const currentPoints = after.svipPoints || 0;
-        const newPoints = currentPoints + spentAmount;
-        
-        const currentSVIP = after.svipLevel || 0;
-        const nextSVIP = calculateSVIPLevel(newPoints);
-
-        updates.svipPoints = newPoints;
-        if (nextSVIP > currentSVIP) {
-            updates.svipLevel = nextSVIP;
-            updates.svipLastPromotionAt = admin.firestore.FieldValue.serverTimestamp();
-        }
-    }
-
-    // 2. ID Level (XP based)
+    // ID Level (XP based)
     const oldXP = before.xp || 0;
     const newXP = after.xp || 0;
     if (newXP !== oldXP) {
@@ -8897,6 +8884,522 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
     console.log(`[WITHDRAWAL_REVIEW] Request ${requestId} ${action}d by Owner ${reviewerUid}`);
     return { success: true, action: action };
 });
+
+/**
+ * ============================================================================
+ * 🌟 COMPLETE SVIP MEMBERSHIP ENGINE (OFFICIAL SPECIFICATION)
+ * ============================================================================
+ */
+
+/**
+ * 1. Process Gold Coin Top-Up Recharge & SVIP Point Credit
+ * Rule: $1 USD Gold Coin Recharge = 100 SVIP Points.
+ * Instant Upgrade Check: If points meet next level, activate instantly, reset validity to 60 days, and reset points to 0.
+ */
+exports.processGoldCoinRecharge = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = request.auth.uid;
+    const { usdAmount, coinsPurchased } = request.data || {};
+
+    const usd = parseFloat(usdAmount);
+    if (isNaN(usd) || usd <= 0) {
+        throw new HttpsError("invalid-argument", "Valid USD recharge amount required.");
+    }
+
+    const pointsEarned = Math.floor(usd * 100);
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new HttpsError("not-found", "User profile not found.");
+
+        const userData = userDoc.data();
+        const currentLevel = userData.svipLevel || 0;
+        const currentPoints = userData.svipPoints || 0;
+        let newPoints = currentPoints + pointsEarned;
+
+        // Check potential upgrade
+        let targetLevel = currentLevel;
+        for (const t of SVIP_THRESHOLDS) {
+            if (newPoints >= t.points && t.level > targetLevel) {
+                targetLevel = t.level;
+            }
+        }
+
+        const now = new Date();
+        const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+        const cycleEndDate = new Date(now.getTime() + sixtyDaysMs);
+
+        const updates = {
+            totalRechargeUsd: admin.firestore.FieldValue.increment(usd),
+            lastRechargeAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        let isUpgraded = false;
+        if (targetLevel > currentLevel) {
+            isUpgraded = true;
+            updates.svipLevel = targetLevel;
+            updates.svipPoints = 0; // RESET TO 0 UPON INSTANT UPGRADE
+            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
+            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(cycleEndDate);
+
+            // Reset SVIP 6 removal request count if entering SVIP 6
+            if (targetLevel === 6) {
+                updates.svip6CpRemoveRequestsUsed = 0;
+            }
+
+            // Audit log
+            const auditRef = db.collection("svip_audit_logs").doc();
+            transaction.set(auditRef, {
+                uid: uid,
+                type: "instant_upgrade",
+                previousLevel: currentLevel,
+                newLevel: targetLevel,
+                pointsBefore: currentPoints,
+                pointsEarned: pointsEarned,
+                pointsAfterReset: 0,
+                cycleStartDate: admin.firestore.Timestamp.fromDate(now),
+                cycleEndDate: admin.firestore.Timestamp.fromDate(cycleEndDate),
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        } else {
+            updates.svipPoints = newPoints;
+            if (!userData.svipCycleStartDate && currentLevel > 0) {
+                updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
+                updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(cycleEndDate);
+            }
+        }
+
+        transaction.update(userRef, updates);
+
+        return {
+            success: true,
+            pointsEarned: pointsEarned,
+            isUpgraded: isUpgraded,
+            svipLevel: targetLevel > currentLevel ? targetLevel : currentLevel,
+            svipPoints: isUpgraded ? 0 : newPoints,
+        };
+    });
+});
+
+/**
+ * 2. Daily Cron Job: 60-Day SVIP Cycle Expiration & Renewal Evaluation
+ * Runs daily at 00:00 UTC. Evaluates expired cycles:
+ * - Multi-Level Upgrade -> Promote, reset 60d validity, reset points to 0.
+ * - Maintain Tier -> Renew 60d validity, reset points to 0.
+ * - Tier Down -> Downgrade by 1 tier, start new 60d validity, reset points to 0.
+ * - Expiration (SVIP 1) -> Expire to normal member, revoke privileges, reset points to 0.
+ */
+exports.evaluateSvipCycles = onCall({ region: "us-central1" }, async (request) => {
+    // Admin execution or scheduled trigger
+    const now = new Date();
+    const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+
+    const snapshot = await db.collection("users")
+        .where("svipLevel", ">", 0)
+        .where("svipCycleEndDate", "<=", nowTimestamp)
+        .limit(500)
+        .get();
+
+    let processedCount = 0;
+
+    for (const doc of snapshot.docs) {
+        const userData = doc.data();
+        const uid = doc.id;
+        const currentLevel = userData.svipLevel || 1;
+        const pointsEarned = userData.svipPoints || 0;
+
+        const currentThreshold = SVIP_THRESHOLDS.find(t => t.level === currentLevel);
+        const requiredToMaintain = currentThreshold ? currentThreshold.points : 5000;
+
+        let action = "";
+        let newLevel = currentLevel;
+
+        // Check if points qualify for higher level
+        let highestQualifiedLevel = 0;
+        for (const t of SVIP_THRESHOLDS) {
+            if (pointsEarned >= t.points) {
+                highestQualifiedLevel = t.level;
+            }
+        }
+
+        if (highestQualifiedLevel > currentLevel) {
+            action = "upgrade";
+            newLevel = highestQualifiedLevel;
+        } else if (pointsEarned >= requiredToMaintain) {
+            action = "maintain";
+            newLevel = currentLevel;
+        } else if (currentLevel > 1) {
+            action = "downgrade";
+            newLevel = currentLevel - 1;
+        } else {
+            action = "expire";
+            newLevel = 0;
+        }
+
+        const newCycleStart = new Date();
+        const newCycleEnd = new Date(newCycleStart.getTime() + sixtyDaysMs);
+
+        const updates = {
+            svipLevel: newLevel,
+            svipPoints: 0, // MUST RESET TO 0 IN ALL SCENARIOS
+            svipLastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+
+        if (newLevel > 0) {
+            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(newCycleStart);
+            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(newCycleEnd);
+        } else {
+            updates.svipCycleStartDate = null;
+            updates.svipCycleEndDate = null;
+            updates.isProfileHidden = false;
+        }
+
+        await db.runTransaction(async (transaction) => {
+            transaction.update(doc.ref, updates);
+
+            const auditRef = db.collection("svip_audit_logs").doc();
+            transaction.set(auditRef, {
+                uid: uid,
+                type: `cycle_${action}`,
+                previousLevel: currentLevel,
+                newLevel: newLevel,
+                pointsEarnedInCycle: pointsEarned,
+                pointsAfterReset: 0,
+                timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        processedCount++;
+    }
+
+    console.log(`[SVIP_CRON] Processed ${processedCount} expired SVIP cycles`);
+    return { success: true, processedCount: processedCount };
+});
+
+/**
+ * 3. Daily Diamond Reward Claim (24-Hour Server UTC Cooldown)
+ */
+exports.claimSvipDailyReward = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = request.auth.uid;
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new HttpsError("not-found", "User not found.");
+
+        const userData = userDoc.data();
+        const svipLevel = userData.svipLevel || 0;
+        if (svipLevel <= 0) {
+            throw new HttpsError("failed-precondition", "Active SVIP membership required.");
+        }
+
+        const threshold = SVIP_THRESHOLDS.find(t => t.level === svipLevel);
+        const rewardAmount = threshold ? threshold.dailyReward : 25000;
+
+        const lastClaim = userData.lastSvipRewardClaimAt ? userData.lastSvipRewardClaimAt.toMillis() : 0;
+        const now = Date.now();
+        const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+
+        if (now - lastClaim < twentyFourHoursMs) {
+            const remainingMs = twentyFourHoursMs - (now - lastClaim);
+            const remainingHours = Math.ceil(remainingMs / (1000 * 60 * 60));
+            throw new HttpsError("failed-precondition", `Reward already claimed. Next claim available in ${remainingHours} hours.`);
+        }
+
+        transaction.update(userRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(rewardAmount),
+            lastSvipRewardClaimAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        const logRef = db.collection("svip_reward_logs").doc();
+        transaction.set(logRef, {
+            uid: uid,
+            svipLevel: svipLevel,
+            rewardAmount: rewardAmount,
+            claimedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true, rewardAmount: rewardAmount, svipLevel: svipLevel };
+    });
+});
+
+/**
+ * 4. Temporary ID Target Swap Request & Response Callables
+ */
+exports.requestTempIdSwap = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = request.auth.uid;
+    const { targetHelloId } = request.data || {};
+
+    if (!targetHelloId) throw new HttpsError("invalid-argument", "Target Hello ID required.");
+
+    const requesterDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterData = requesterDoc.data() || {};
+    const svipLevel = requesterData.svipLevel || 0;
+
+    if (svipLevel <= 0) throw new HttpsError("failed-precondition", "SVIP membership required.");
+
+    // Target User Lookup
+    const targetQuery = await db.collection("users").where("helloId", "==", parseInt(targetHelloId)).limit(1).get();
+    if (targetQuery.empty) throw new HttpsError("not-found", "Target user ID not found.");
+    const targetDoc = targetQuery.docs[0];
+    const targetUid = targetDoc.id;
+
+    if (targetUid === requesterUid) throw new HttpsError("invalid-argument", "Cannot target your own ID.");
+
+    // Digit limit check
+    const targetIdStr = targetHelloId.toString();
+    const len = targetIdStr.length;
+
+    const reqRef = db.collection("svip_temp_id_requests").doc();
+    await reqRef.set({
+        id: reqRef.id,
+        requesterUid: requesterUid,
+        requesterName: requesterData.displayName || "SVIP User",
+        requesterSvipLevel: svipLevel,
+        targetUid: targetUid,
+        targetHelloId: parseInt(targetHelloId),
+        idLength: len,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await sendPush(targetUid, "Temporary ID Target Request", `${requesterData.displayName} (SVIP ${svipLevel}) requested to temporarily use your ID Number.`);
+
+    return { success: true, requestId: reqRef.id };
+});
+
+exports.respondTempIdSwap = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const targetUid = request.auth.uid;
+    const { requestId, accept } = request.data || {};
+
+    const reqRef = db.collection("svip_temp_id_requests").doc(requestId);
+    return db.runTransaction(async (transaction) => {
+        const reqDoc = await transaction.get(reqRef);
+        if (!reqDoc.exists) throw new HttpsError("not-found", "Request not found.");
+
+        const reqData = reqDoc.data();
+        if (reqData.targetUid !== targetUid) throw new HttpsError("permission-denied", "Unauthorized decision.");
+        if (reqData.status !== "pending") throw new HttpsError("failed-precondition", "Request already handled.");
+
+        if (!accept) {
+            transaction.update(reqRef, { status: "rejected", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+            return { success: true, accepted: false };
+        }
+
+        // Target Accepted: Backup requester's original ID and swap
+        const requesterRef = db.collection("users").doc(reqData.requesterUid);
+        const requesterDoc = await transaction.get(requesterRef);
+        const requesterData = requesterDoc.data();
+
+        const originalId = requesterData.helloId;
+        const targetId = reqData.targetHelloId;
+
+        transaction.update(requesterRef, {
+            originalHelloId: requesterData.originalHelloId || originalId,
+            helloId: targetId,
+            isTempIdActive: true,
+            tempIdExpiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
+        });
+
+        transaction.update(reqRef, { status: "accepted", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+        return { success: true, accepted: true, tempId: targetId };
+    });
+});
+
+/**
+ * 5. SVIP 6 Exclusive Global Kick Callable
+ */
+exports.svipGlobalKick = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const kickerUid = request.auth.uid;
+    const { roomId, targetUid } = request.data || {};
+
+    if (!roomId || !targetUid) throw new HttpsError("invalid-argument", "Room ID & Target User ID required.");
+    if (kickerUid === targetUid) throw new HttpsError("invalid-argument", "Cannot kick yourself.");
+
+    const kickerDoc = await db.collection("users").doc(kickerUid).get();
+    const kickerData = kickerDoc.data() || {};
+    if ((kickerData.svipLevel || 0) < 6) {
+        throw new HttpsError("permission-denied", "Exclusive to SVIP 6 users.");
+    }
+
+    const targetDoc = await db.collection("users").doc(targetUid).get();
+    const targetData = targetDoc.data() || {};
+    if ((targetData.svipLevel || 0) === 6) {
+        throw new HttpsError("permission-denied", "SVIP 6 users cannot Kick Out another SVIP 6 user.");
+    }
+
+    // Execute Room Kick Out
+    const roomRef = db.collection("rooms").doc(roomId);
+    await roomRef.update({
+        [`kickedUsers.${targetUid}`]: admin.firestore.FieldValue.serverTimestamp(),
+        activeParticipants: admin.firestore.FieldValue.arrayRemove(targetUid)
+    });
+
+    console.log(`[SVIP6_GLOBAL_KICK] SVIP 6 ${kickerUid} kicked ${targetUid} from room ${roomId}`);
+    return { success: true };
+});
+
+/**
+ * 6. CP Lock & SVIP 6 CP Remove Request Callables
+ */
+exports.lockCp = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = request.auth.uid;
+    const { cpId, lockDuration } = request.data || {};
+
+    const userDoc = await db.collection("users").doc(uid).get();
+    const svipLevel = (userDoc.data() || {}).svipLevel || 0;
+    if (svipLevel < 3) throw new HttpsError("permission-denied", "CP Lock available for SVIP 3+ only.");
+
+    const cpRef = db.collection("cp_relationships").doc(cpId);
+    const cpDoc = await cpRef.get();
+    if (!cpDoc.exists) throw new HttpsError("not-found", "CP relationship not found.");
+
+    let durationMs = 0;
+    if (lockDuration === "24 Hours") durationMs = 24 * 60 * 60 * 1000;
+    else if (lockDuration === "72 Hours") durationMs = 72 * 60 * 60 * 1000;
+    else if (lockDuration === "7 Days") durationMs = 7 * 24 * 60 * 60 * 1000;
+    else if (lockDuration === "30 Days") durationMs = 30 * 24 * 60 * 60 * 1000;
+
+    const expiresAt = durationMs > 0 ? admin.firestore.Timestamp.fromDate(new Date(Date.now() + durationMs)) : null;
+
+    await cpRef.update({
+        isLocked: true,
+        lockDuration: lockDuration,
+        lockedByUid: uid,
+        lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lockExpiresAt: expiresAt
+    });
+
+    return { success: true, lockDuration: lockDuration };
+});
+
+exports.requestSvip6CpRemove = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = request.auth.uid;
+    const { cpId, targetUid } = request.data || {};
+
+    const requesterRef = db.collection("users").doc(requesterUid);
+    const requesterDoc = await requesterRef.get();
+    const requesterData = requesterDoc.data() || {};
+
+    if ((requesterData.svipLevel || 0) < 6) {
+        throw new HttpsError("permission-denied", "Exclusive to SVIP 6 users.");
+    }
+
+    const used = requesterData.svip6CpRemoveRequestsUsed || 0;
+    if (used >= 5) {
+        throw new HttpsError("failed-precondition", "Maximum 5 CP Removal Requests reached for this cycle.");
+    }
+
+    const reqRef = db.collection("svip_cp_remove_requests").doc();
+    await reqRef.set({
+        id: reqRef.id,
+        cpId: cpId,
+        requesterUid: requesterUid,
+        targetUid: targetUid,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await sendPush(targetUid, "Locked CP Removal Request", `${requesterData.displayName} (SVIP 6) requested to unlock and remove your CP relationship.`);
+
+    return { success: true, requestId: reqRef.id, remainingAllowance: 5 - used };
+});
+
+exports.respondSvip6CpRemove = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const targetUid = request.auth.uid;
+    const { requestId, accept } = request.data || {};
+
+    const reqRef = db.collection("svip_cp_remove_requests").doc(requestId);
+    return db.runTransaction(async (transaction) => {
+        const reqDoc = await transaction.get(reqRef);
+        if (!reqDoc.exists) throw new HttpsError("not-found", "Request not found.");
+
+        const reqData = reqDoc.data();
+        if (reqData.targetUid !== targetUid) throw new HttpsError("permission-denied", "Unauthorized decision.");
+        if (reqData.status !== "pending") throw new HttpsError("failed-precondition", "Request already handled.");
+
+        if (!accept) {
+            transaction.update(reqRef, { status: "rejected", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+            return { success: true, accepted: false };
+        }
+
+        // Target Accepted: Remove CP and increment requester usage count
+        const cpRef = db.collection("cp_relationships").doc(reqData.cpId);
+        transaction.delete(cpRef);
+
+        const requesterRef = db.collection("users").doc(reqData.requesterUid);
+        transaction.update(requesterRef, {
+            svip6CpRemoveRequestsUsed: admin.firestore.FieldValue.increment(1)
+        });
+
+        transaction.update(reqRef, { status: "accepted", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+        return { success: true, accepted: true };
+    });
+});
+
+/**
+ * 7. Banner Promotion Submission & Admin Review Callables
+ */
+exports.submitSvipBanner = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const uid = request.auth.uid;
+    const { bannerUrl, bannerText, durationHours } = request.data || {};
+
+    const userDoc = await db.collection("users").doc(uid).get();
+    const svipLevel = (userDoc.data() || {}).svipLevel || 0;
+    if (svipLevel <= 0) throw new HttpsError("permission-denied", "SVIP membership required.");
+
+    const bannerRef = db.collection("svip_banners").doc();
+    await bannerRef.set({
+        id: bannerRef.id,
+        uid: uid,
+        svipLevel: svipLevel,
+        bannerUrl: bannerUrl,
+        bannerText: bannerText || "",
+        durationHours: durationHours || 24,
+        status: "pending",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, bannerId: bannerRef.id };
+});
+
+exports.reviewSvipBanner = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const adminUid = request.auth.uid;
+    if (!(await isUserAdmin(adminUid))) throw new HttpsError("permission-denied", "Admin only.");
+
+    const { bannerId, approve } = request.data || {};
+    const bannerRef = db.collection("svip_banners").doc(bannerId);
+
+    const bannerDoc = await bannerRef.get();
+    if (!bannerDoc.exists) throw new HttpsError("not-found", "Banner not found.");
+
+    const bannerData = bannerDoc.data();
+    const durationMs = (bannerData.durationHours || 24) * 60 * 60 * 1000;
+    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + durationMs));
+
+    await bannerRef.update({
+        status: approve ? "approved" : "rejected",
+        approvedBy: adminUid,
+        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: approve ? expiresAt : null
+    });
+
+    return { success: true, approved: approve };
+});
+
 
 
 

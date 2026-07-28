@@ -307,6 +307,16 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               color: widget.participant.isMuted ? Colors.redAccent : iconColor,
                               labelColor: subTextColor,
                               onTap: () async {
+                                final svipLevel = u.svipLevel ?? 0;
+                                if (svipLevel >= 4 || u.isSvipProtected == true) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed."),
+                                      backgroundColor: Colors.amber,
+                                    ),
+                                  );
+                                  return;
+                                }
                                 await ref.read(roomServiceProvider).muteUser(widget.roomId, u.uid, !widget.participant.isMuted);
                               }
                             ),
@@ -353,6 +363,30 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               color: iconColor,
                               labelColor: subTextColor,
                               onTap: () async {
+                                final svipLevel = u.svipLevel ?? 0;
+                                final meDoc = await ref.read(currentUserProfileProvider.future);
+                                final mySvipLevel = meDoc?.svipLevel ?? 0;
+
+                                if (mySvipLevel == 6) {
+                                  if (svipLevel == 6) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text("SVIP 6 users cannot Kick Out another SVIP 6 user."),
+                                        backgroundColor: Colors.redAccent,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                } else if (svipLevel >= 4 || u.isSvipProtected == true) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text("This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed."),
+                                      backgroundColor: Colors.amber,
+                                    ),
+                                  );
+                                  return;
+                                }
+
                                 Navigator.pop(context);
                                 _showKickDialog(context, u.uid);
                               }
