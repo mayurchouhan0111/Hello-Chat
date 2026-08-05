@@ -47,6 +47,7 @@ const Sidebar = () => {
     { name: 'Gifts', icon: Gift, path: '/gifts' },
     { name: 'VIP Store', icon: Crown, path: '/vip' },
     { name: 'SVIP Engine', icon: Crown, path: '/svip' },
+    { name: 'Role & CP Frames', icon: ShieldCheck, path: '/role-frames' },
     { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
     { name: 'Resellers', icon: Store, path: '/resellers' },
     { name: 'Agencies', icon: Building2, path: '/agencies' },

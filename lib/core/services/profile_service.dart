@@ -273,14 +273,53 @@ class ProfileService extends BaseFirebaseService {
   }
 
   Future<void> equipItem(String itemId, String category) async {
-    await callFunction('equipItem', {'itemId': itemId, 'category': category});
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final Map<String, String> fieldMap = {
+      'frame': 'profileFrame',
+      'mount': 'entryAnimation',
+      'bubble': 'chatBubble',
+      'aperture': 'equippedMicWave',
+      'crown': 'equippedCrown',
+    };
+    final String targetField = fieldMap[category] ?? category;
+
+    // For local asset paths or direct frame URLs, apply direct update immediately
+    if (itemId.startsWith('assets/') || itemId == 'none') {
+      if (uid != null) {
+        await updateProfileFields(uid, {targetField: itemId == 'none' ? '' : itemId});
+      }
+      return;
+    }
+
+    try {
+      await callFunction('equipItem', {'itemId': itemId, 'category': category});
+    } catch (e) {
+      if (uid != null) {
+        await updateProfileFields(uid, {targetField: itemId});
+      }
+    }
   }
 
   Stream<List<Map<String, dynamic>>> getWarehouseItemsStream(String uid, String category) {
     return _db.collection('users').doc(uid).collection('vault')
       .where('category', isEqualTo: category)
       .snapshots()
-      .map((snap) => snap.docs.map((d) => ({...d.data(), 'id': d.id})).toList());
+      .map((snap) => snap.docs
+          .map((d) => ({...d.data(), 'id': d.id}))
+          .where((item) => !_isVaultItemExpired(item))
+          .toList());
+  }
+
+  bool _isVaultItemExpired(Map<String, dynamic> item) {
+    final expiresAt = item['expiresAt'];
+    if (expiresAt == null) return false;
+    DateTime? expiry;
+    if (expiresAt is Timestamp) {
+      expiry = expiresAt.toDate();
+    } else if (expiresAt is String) {
+      expiry = DateTime.tryParse(expiresAt);
+    }
+    return expiry != null && expiry.isBefore(DateTime.now());
   }
 
   Future<void> purchasePrestigeItem(String itemId) async {

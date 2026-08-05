@@ -51,11 +51,6 @@ void main() async {
             print('      layout: ${frame.layout?.width ?? "?"} x ${frame.layout?.height ?? "?"}');
             print('      transform: tx=${frame.transform?.tx ?? 0}, ty=${frame.transform?.ty ?? 0}, a=${frame.transform?.a ?? 1}, d=${frame.transform?.d ?? 1}');
             print('      alpha: ${frame.alpha ?? 1.0}');
-            print('      matteKey: "${frame.matteKey ?? ""}"');
-          }
-          // Check for any custom properties / tags
-          if (sprite.tags.isNotEmpty) {
-            print('      tags: ${sprite.tags}');
           }
         }
       }

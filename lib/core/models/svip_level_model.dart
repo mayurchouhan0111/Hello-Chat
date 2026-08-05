@@ -86,6 +86,9 @@ class SVIPLevelModel {
     return levels.firstWhere((l) => l.level == tier, orElse: () => levels.first);
   }
 
+  int get monthlyRechargeRequirement => requiredPoints;
+  int get svipPoints => requiredPoints;
+
   // Privilege Helpers
   int get friendHideMaxUserIds {
     switch (level) {
@@ -162,6 +165,67 @@ class SVIPLevelModel {
       case 5: return {'24h': 20, '72h': 10, '7d': 2};
       case 6: return {'24h': 25, '72h': 10, '7d': 5};
       default: return {'24h': 0, '72h': 0, '7d': 0};
+    }
+  }
+
+  // Assets Kit Mappings (assets/SVIP Kit/)
+  String get crownAsset {
+    switch (level) {
+      case 1: return 'assets/SVIP Kit/svip 1/SVIP 1 Crown.svga';
+      case 2: return 'assets/SVIP Kit/svip 2/SVIP 2 Crown.svga';
+      case 3: return 'assets/SVIP Kit/svip 3/SVIP 3 Crown.svga';
+      case 4: return 'assets/SVIP Kit/svip 4/Crown 1_SVGA.svga';
+      case 5: return 'assets/SVIP Kit/svip 5/Crown 1_SVGA_SVGA.svga';
+      case 6: return 'assets/SVIP Kit/SVIP 6/VIP 8 Crown.svga';
+      default: return '';
+    }
+  }
+
+  String get frameAsset {
+    switch (level) {
+      case 1: return 'assets/SVIP Kit/svip 1/SVIP 1 Frame.svga';
+      case 2: return 'assets/SVIP Kit/svip 2/svip2.svga';
+      case 3: return 'assets/SVIP Kit/svip 3/svip3.svga';
+      case 4: return 'assets/SVIP Kit/svip 4/svip4.svga';
+      case 5: return 'assets/SVIP Kit/svip 5/svip5.svga';
+      case 6: return 'assets/SVIP Kit/SVIP 6/SVIP 6 Frame.svga';
+      default: return '';
+    }
+  }
+
+  String get entryAnimationAsset {
+    switch (level) {
+      case 1: return 'assets/SVIP Kit/svip 1/SVIP 1 Entry.svga';
+      case 2: return 'assets/SVIP Kit/svip 2/SVIP 2 Entry_SVGA.svga';
+      case 3: return 'assets/SVIP Kit/svip 3/SVIP 3 Entry.svga';
+      case 4: return 'assets/SVIP Kit/svip 4/SVIP 4 Entry.svga';
+      case 5: return 'assets/SVIP Kit/svip 5/SVIP 5 ntry.svga';
+      case 6: return 'assets/SVIP Kit/SVIP 6/entrance_svip4_SVGA_SVGA.svga';
+      default: return '';
+    }
+  }
+
+  String get micWaveAsset {
+    switch (level) {
+      case 1: return 'assets/SVIP Kit/svip 1/SVIP 1 Ring.svga';
+      case 2: return 'assets/SVIP Kit/svip 2/svip 2.svga';
+      case 3: return 'assets/SVIP Kit/svip 3/mic_wave_svip3.svga';
+      case 4: return 'assets/SVIP Kit/svip 4/mic_wave_svip4.svga';
+      case 5: return 'assets/SVIP Kit/svip 5/mic_wave_svip4_SVGA.svga';
+      case 6: return 'assets/SVIP Kit/SVIP 6/SVIP 6 Sound Waives.svga';
+      default: return '';
+    }
+  }
+
+  String get badgeTagAsset {
+    switch (level) {
+      case 1: return 'assets/SVIP Kit/svip 1/SVIP 1 Tag.png';
+      case 2: return 'assets/SVIP Kit/svip 2/svip2b.png';
+      case 3: return 'assets/SVIP Kit/svip 3/Svip 3 Tag.png';
+      case 4: return 'assets/SVIP Kit/svip 4/Svip 4 tag.png';
+      case 5: return 'assets/SVIP Kit/svip 5/SVIP 5 Tag.png';
+      case 6: return 'assets/SVIP Kit/SVIP 6/Svip 6 tag.png';
+      default: return '';
     }
   }
 }

@@ -574,6 +574,8 @@ this.verificationStatus = 'unverified',
     return nobleExpiry!.difference(DateTime.now()).inDays.clamp(0, 30);
   }
 
+  bool get isSvipProtected => (svipLevel ?? 0) >= 4;
+
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     return UserModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});
   }

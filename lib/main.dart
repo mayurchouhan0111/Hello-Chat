@@ -134,9 +134,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   debugPrint('--- [FIREBASE INITIALIZED] ---');
-  
-  // Start preloading local VIP SVGA assets in the background
-  SvgaParserUtil.preloadVipAssets();
+
 
   // 🛡️ INITIALIZE APP CHECK
   // This resolves the [unauthenticated] error by proving the app's integrity.

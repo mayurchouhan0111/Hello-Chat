@@ -90,7 +90,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     final userAsync = ref.watch(userProfileProvider(widget.userId));
 
     return userAsync.when(
-      loading: () => const Scaffold(body: Center(child: CircularProgressIndicator())),
+      loading: () => _buildProfileDetailShimmerLoading(),
       error: (err, stack) => Scaffold(body: Center(child: Text("Error: $err"))),
       data: (userData) {
         if (userData == null) return const Scaffold(body: Center(child: Text("User not found")));
@@ -100,26 +100,31 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         final textColor = hasVipBg ? Colors.white : Colors.black87;
         final subTextColor = hasVipBg ? Colors.white70 : Colors.black45;
         
-        // Dynamic Visit Tracking (Run once per screen view)
+        // Dynamic Visit Tracking (Run once per screen view without setState during route transition)
         if (!_hasRecordedVisit) {
-          Future.microtask(() async {
+          _hasRecordedVisit = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
             final me = ref.read(currentUserProfileProvider).value;
             if (me != null && me.uid != userData.uid) {
-              setState(() => _hasRecordedVisit = true);
-              await ref.read(profileServiceProvider).recordProfileVisit(userData.uid, me.profilePhotoUrl);
+              ref.read(profileServiceProvider).recordProfileVisit(userData.uid, me.profilePhotoUrl);
             }
           });
+        }
+
+        // Precache profile photo on first build to avoid decoding stutter
+        if (userData.profilePhotoUrl.isNotEmpty) {
+          precacheImage(CachedNetworkImageProvider(userData.profilePhotoUrl), context);
         }
         
         return Scaffold(
           backgroundColor: Colors.white,
-          bottomNavigationBar: _buildBottomBar(context, userData),
+          bottomNavigationBar: RepaintBoundary(child: _buildBottomBar(context, userData)),
           body: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. Cover Photo with Overlay Actions
-                _buildCoverPhoto(context, userData),
+                RepaintBoundary(child: _buildCoverPhoto(context, userData)),
 
                 const SizedBox(height: 12),
 
@@ -127,10 +132,11 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   user: userData,
                   borderRadius: BorderRadius.zero,
                   boxShadow: const [],
+                  optimizeCrown: true,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 64),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Row(
@@ -157,12 +163,14 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                       const SizedBox(height: 12),
 
                       // 3. Badge/Achievement Chips (Restored)
-                      _buildBadgeChips(context, userData),
+                      RepaintBoundary(
+                        child: _buildBadgeChips(context, userData),
+                      ),
 
                       const SizedBox(height: 12),
 
                       // 4. Info Cards Horizontal Scroll (Family, Battle, Agency, Contribution)
-                      _buildInfoCardsScrollable(context, userData),
+                      RepaintBoundary(child: _buildInfoCardsScrollable(context, userData)),
 
                       const SizedBox(height: 16),
                     ],
@@ -183,8 +191,8 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   ),
                   child: Column(
                     children: [
-                      _buildTabs(context),
-                      _buildTabContent(context, userData),
+                      RepaintBoundary(child: _buildTabs(context)),
+                      RepaintBoundary(child: _buildTabContent(context, userData)),
                     ],
                   ),
                 ),
@@ -473,19 +481,35 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       children: [
         Container(
           width: double.infinity,
-          height: screenHeight * 0.40, // Reduced from 0.45
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              AppAvatar(
-                imageUrl: userData.profilePhotoUrl,
-                radius: 50,
-                vipTier: userData.vipTier,
-                frameUrl: userData.profileFrame,
-                userLevel: userData.level,
-                frameMultiplier: 2.0,
-              ),
-            ],
+          height: screenHeight * 0.40,
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1B4B),
+            image: userData.profilePhotoUrl.isNotEmpty
+                ? DecorationImage(
+                    image: CachedNetworkImageProvider(userData.profilePhotoUrl),
+                    fit: BoxFit.cover,
+                  )
+                : null,
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.35),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                AppAvatar(
+                  imageUrl: userData.profilePhotoUrl,
+                  radius: 50,
+                  vipTier: userData.vipTier,
+                  frameUrl: userData.profileFrame,
+                  userLevel: userData.level,
+                  frameMultiplier: 2.0,
+                  maxFps: 18.0,
+                  maxRenderSize: const Size(200, 200),
+                ),
+              ],
+            ),
           ),
         ),
         // Gradient overlay for readability
@@ -589,79 +613,39 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
+        // Line 1: User Display Name + Verified Icon + Gender Pill
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 6,
+          runSpacing: 4,
           children: [
-            const Text("🌹 ", style: TextStyle(fontSize: 16)),
-            Flexible(
-              child: Text(
-                userData.displayName,
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
-                overflow: TextOverflow.ellipsis,
+            Text(
+              userData.displayName.isEmpty ? "User" : userData.displayName,
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (userData.isVerified == true) ...[
+              const Icon(Icons.verified_rounded, color: Color(0xFF00ACC1), size: 18),
+            ],
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: userData.gender.toLowerCase() == 'male' 
+                    ? const Color(0xFF2196F3).withOpacity(0.12) 
+                    : const Color(0xFFE91E63).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                userData.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
+                color: userData.gender.toLowerCase() == 'male' ? const Color(0xFF1E88E5) : const Color(0xFFD81B60),
+                size: 13,
               ),
             ),
-            const Text(" 🔥", style: TextStyle(fontSize: 16)),
-            const Gap(6),
-            Icon(
-              userData.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
-              color: userData.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pink,
-              size: 16,
-            ),
-            if (hasCP) ...[
-              const Gap(6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFE91E63)]),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.favorite, color: Colors.white, size: 10),
-                    Gap(2),
-                    Text("CP", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
-                  ],
-                ),
-              ),
-            ] else if (hasBestie) ...[
-              const Gap(6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF2979FF)]),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.handshake_rounded, color: Colors.white, size: 10),
-                    Gap(2),
-                    Text("FRIEND", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
-                  ],
-                ),
-              ),
-            ],
-            if (userData.isReseller) ...[
-              const Gap(6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF4CAF50),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.store_rounded, color: Colors.white, size: 12),
-                    SizedBox(width: 3),
-                    Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-            ],
           ],
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
+
+        // Line 2: ID Pill + Country
         Row(
           children: [
             GestureDetector(
@@ -674,17 +658,17 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 }
               },
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                 decoration: BoxDecoration(
-                  color: hasVipBg ? Colors.white.withOpacity(0.12) : Colors.grey[100],
-                  borderRadius: BorderRadius.circular(10),
+                  color: hasVipBg ? Colors.white.withOpacity(0.15) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       "ID: ${userData.displayId}", 
-                      style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.w900)
+                      style: TextStyle(fontSize: 11, color: subTextColor, fontWeight: FontWeight.w800, fontFamily: 'monospace')
                     ),
                     const SizedBox(width: 4),
                     Icon(Icons.copy_rounded, color: subTextColor, size: 12),
@@ -692,14 +676,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 ),
               ),
             ),
-          ],
-        ),
-
-        const SizedBox(height: 2),
-        Row(
-          children: [
-            Text(userData.country.isEmpty ? 'India' : userData.country, style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w500)),
-            Icon(Icons.chevron_right_rounded, color: subTextColor, size: 14),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                userData.country.isEmpty ? 'Global' : userData.country,
+                style: TextStyle(color: subTextColor, fontSize: 11, fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
           ],
         ),
 
@@ -870,20 +855,21 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   Widget _buildStats(BuildContext context, UserModel userData, Color textColor, Color subTextColor) {
     return IntrinsicHeight(
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            _buildStatClickableItem(
-              context, userData.followerCount, "Fans", textColor, subTextColor,
-              onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Followers', 'targetUid': userData.uid})
+            Flexible(
+              child: _buildStatClickableItem(
+                context, userData.followerCount, "Fans", textColor, subTextColor,
+                onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Followers', 'targetUid': userData.uid})
+              ),
             ),
             VerticalDivider(color: textColor.withOpacity(0.2), thickness: 1, indent: 4, endIndent: 4, width: 20),
-            _buildStatClickableItem(
-              context, userData.followingCount, "Following", textColor, subTextColor,
-              onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Following', 'targetUid': userData.uid})
+            Flexible(
+              child: _buildStatClickableItem(
+                context, userData.followingCount, "Following", textColor, subTextColor,
+                onTap: () => context.push(AppRoutes.followList, extra: {'type': 'Following', 'targetUid': userData.uid})
+              ),
             ),
-            VerticalDivider(color: textColor.withOpacity(0.2), thickness: 1, indent: 4, endIndent: 4, width: 20),
-            // _buildStatClickableItem(context, userData.beansBalance, "Beans"),
-            // const VerticalDivider(color: Colors.black12, thickness: 1, indent: 4, endIndent: 4, width: 20),
-            // _buildStatClickableItem(context, userData.diamondBalance, "Diamonds"),
           ],
         ),
     );
@@ -919,6 +905,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
          icon: b.icon,
          imageAsset: b.imageAsset,
          customFrameAsset: b.customFrameAsset,
+         preferStaticFrame: true,
          margin: const EdgeInsets.only(right: 8, bottom: 8),
        ) : b;
     }).toList();
@@ -942,6 +929,14 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       ],
     );
   }
+
+  static final TextStyle _cinzelBaseStyle = GoogleFonts.cinzel(
+    fontSize: 11,
+    fontWeight: FontWeight.w900,
+    shadows: const [
+      Shadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 0.5)),
+    ],
+  );
 
   Widget _buildLevelShield(UserModel user, [Color textColor = Colors.black87]) {
     int level = LevelUtils.calculateLevel(user.xp);
@@ -968,14 +963,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
           const SizedBox(height: 4),
           Text(
             "Lv.$level",
-            style: GoogleFonts.cinzel(
-              color: textColor,
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              shadows: const [
-                Shadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 0.5)),
-              ],
-            ),
+            style: _cinzelBaseStyle.copyWith(color: textColor),
           ),
         ],
       ),
@@ -2023,6 +2011,105 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         ],
       )
     ) ?? false;
+  }
+
+  Widget _buildProfileDetailShimmerLoading() {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 1. Cover photo shimmer placeholder
+            Container(
+              width: double.infinity,
+              height: 280,
+              color: Colors.grey.shade200,
+              child: Center(
+                child: Container(
+                  width: 90,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+            const Gap(16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 2. Display Name & Level Shield Shimmer
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(width: 160, height: 22, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                          const Gap(8),
+                          Container(width: 110, height: 14, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                        ],
+                      ),
+                      Container(width: 48, height: 48, decoration: BoxDecoration(color: Colors.grey.shade200, shape: BoxShape.circle)),
+                    ],
+                  ),
+                  const Gap(20),
+
+                  // 3. Stats Row Shimmer
+                  Row(
+                    children: [
+                      Container(width: 70, height: 20, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                      const Gap(24),
+                      Container(width: 70, height: 20, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                      const Gap(24),
+                      Container(width: 70, height: 20, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(6))),
+                    ],
+                  ),
+                  const Gap(20),
+
+                  // 4. Badge Chips Shimmer
+                  Row(
+                    children: List.generate(4, (index) => Container(
+                      margin: const EdgeInsets.only(right: 8),
+                      width: 76,
+                      height: 26,
+                      decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
+                    )),
+                  ),
+                  const Gap(24),
+
+                  // 5. Info Card Scrollable Shimmer
+                  Container(
+                    width: double.infinity,
+                    height: 52,
+                    decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(14)),
+                  ),
+                  const Gap(24),
+
+                  // 6. Tabs Bar Shimmer
+                  Container(
+                    width: double.infinity,
+                    height: 44,
+                    decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(12)),
+                  ),
+                  const Gap(20),
+
+                  // 7. Bio Lines Shimmer
+                  Container(width: 220, height: 14, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                  const Gap(8),
+                  Container(width: 160, height: 14, decoration: BoxDecoration(color: Colors.grey.shade200, borderRadius: BorderRadius.circular(4))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 1200.ms, color: Colors.white70),
+    );
   }
 
 }

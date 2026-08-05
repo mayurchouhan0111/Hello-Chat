@@ -364,65 +364,13 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
   }
 
   Widget _buildTestBtn(BuildContext context, String? uid, String label, int amount) {
-    return InkWell(
-      onTap: uid == null ? null : () async {
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'monthlyRecharge': FieldValue.increment(amount),
-        }, SetOptions(merge: true));
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("Simulated +\$$amount recharge! Progress updated."),
-              duration: const Duration(seconds: 1),
-              backgroundColor: const Color(0xFF2E7D32),
-            ),
-          );
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFD700).withOpacity(0.2),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFFFD700), width: 0.8),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
+    // Simulation disabled — recharge must go through production payment gateway.
+    return const SizedBox.shrink();
   }
 
   Widget _buildResetBtn(BuildContext context, String? uid) {
-    return InkWell(
-      onTap: uid == null ? null : () async {
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'monthlyRecharge': 0,
-        }, SetOptions(merge: true));
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Reset recharge progress to \$0."),
-              duration: Duration(seconds: 1),
-              backgroundColor: Colors.redAccent,
-            ),
-          );
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.redAccent.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.redAccent, width: 0.8),
-        ),
-        child: const Text(
-          "Reset",
-          style: TextStyle(color: Colors.redAccent, fontSize: 10, fontWeight: FontWeight.bold),
-        ),
-      ),
-    );
+    // Simulation disabled — recharge must go through production payment gateway.
+    return const SizedBox.shrink();
   }
 
   Widget _buildEmptyState(BuildContext context) {

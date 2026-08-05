@@ -122,6 +122,8 @@ flutter:
   assets:
     - assets/images/
     - assets/images/super/
+    - assets/images/cp/
+    - assets/Helo chat/
     - assets/images/extracted_badges/
     - assets/images/levels/
     - assets/images/levels_new/
@@ -144,3 +146,9 @@ flutter:
     - assets/VIP/VIP 6/VIP 6/
     - assets/VIP/VIP 7/VIP 7/
     - assets/VIP/VIP 8/VIP 8/
+    - assets/SVIP Kit/svip 1/
+    - assets/SVIP Kit/svip 2/
+    - assets/SVIP Kit/svip 3/
+    - assets/SVIP Kit/svip 4/
+    - assets/SVIP Kit/svip 5/
+    - assets/SVIP Kit/SVIP 6/

@@ -25,6 +25,7 @@ import { FamilyBattleConfig } from './screens/FamilyBattleConfig';
 import { EventBuilder } from './screens/EventBuilder';
 import { RechargeEventManagement } from './screens/RechargeEventManagement';
 import { RelationshipManagement } from './screens/RelationshipManagement';
+import { RoleFrameManagement } from './screens/RoleFrameManagement';
 
 import { SVIPManagement } from './screens/SVIPManagement';
 
@@ -62,6 +63,11 @@ function App() {
           <Route path="/svip" element={
             <AdminLayout>
               <SVIPManagement />
+            </AdminLayout>
+          } />
+          <Route path="/role-frames" element={
+            <AdminLayout>
+              <RoleFrameManagement />
             </AdminLayout>
           } />
           <Route path="/agencies" element={

@@ -312,7 +312,15 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                               ),
                               const SizedBox(width: 8),
                               GestureDetector(
-                                onTap: () => _showWalletTopUpSheet(user),
+                                onTap: () {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Payment gateway coming soon. Recharge is not available at this time.'),
+                                      backgroundColor: Color(0xFF1A237E),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                },
                                 child: _buildHeaderAction(Icons.account_balance_wallet_rounded),
                               ),
                             ],
@@ -754,58 +762,27 @@ class _WalletTopUpSheetState extends ConsumerState<_WalletTopUpSheet> {
       depositAmount = parsed;
     }
 
-    setState(() => _isProcessing = true);
-
-    try {
-      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('simulateWalletTopUp');
-      await callable.call({
-        'amount': depositAmount,
-        'paymentMethod': _paymentMethod,
-      });
-
-      if (mounted) {
-        setState(() => _isProcessing = false);
-        Navigator.pop(context);
-        
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.check_circle_outline_rounded, color: Colors.green, size: 64),
-                const SizedBox(height: 16),
-                const Text("Top-Up Successful!", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 8),
-                Text(
-                  "\$${depositAmount.toStringAsFixed(2)} has been added to your wallet balance.",
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      ref.refresh(currentUserProfileProvider);
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                    child: const Text("AWESOME!", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ],
+    // Recharge is not available via simulation.
+    // Production payment gateway integration is pending.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.info_outline_rounded, color: Colors.white),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Payment gateway coming soon. Recharge is not available at this time.',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
             ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent));
-      }
-    }
+          ],
+        ),
+        backgroundColor: const Color(0xFF1A237E),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override

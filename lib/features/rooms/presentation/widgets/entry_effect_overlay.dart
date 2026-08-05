@@ -8,6 +8,7 @@ import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/svga_player.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/models/svip_level_model.dart';
 import 'dart:async';
 
 
@@ -72,12 +73,22 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
     final String noble = u?.nobleTier ?? widget.participant.nobleTier;
     final String name = (u?.displayName ?? widget.participant.displayName).trim().isEmpty ? "GUEST" : (u?.displayName ?? widget.participant.displayName);
     final String photo = u?.profilePhotoUrl ?? widget.participant.profilePhotoUrl;
-    String customAnim = u?.entryAnimation ?? widget.participant.entryAnimation;
+    String customAnim = (u?.entryAnimation ?? widget.participant.entryAnimation).trim();
+    if (customAnim.toLowerCase() == 'none') {
+      customAnim = '';
+    }
+
+    final int svipLevel = u?.svipLevel ?? 0;
     final int vipLevel = _getVipLevel(vip);
 
-    if (vipLevel >= 1 && vipLevel <= 8) {
-      customAnim = _getVipEntryPath(vipLevel);
-    } else if (customAnim.isNotEmpty) {
+    if (customAnim.isEmpty) {
+      if (svipLevel > 0) {
+        final svipModel = SVIPLevelModel.getLevelByTier(svipLevel);
+        customAnim = svipModel.entryAnimationAsset;
+      } else if (vipLevel >= 1 && vipLevel <= 8) {
+        customAnim = _getVipEntryPath(vipLevel);
+      }
+    } else {
       final lowerAnim = customAnim.toLowerCase();
       for (int i = 1; i <= 8; i++) {
         if (lowerAnim.contains('vip/vip%20$i/') || 

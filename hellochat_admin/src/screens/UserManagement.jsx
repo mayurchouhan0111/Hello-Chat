@@ -150,11 +150,11 @@ const SVIPManagementModal = ({ user, onClose, onUpdate }) => {
     setIsProcessing(true);
     try {
       const userRef = doc(db, "users", user.id || user.uid);
-      await updateDoc(userRef, {
+      await setDoc(userRef, {
         svipLevel: parseInt(level),
         svipPoints: parseInt(points),
         svipUpdatedAt: serverTimestamp()
-      });
+      }, { merge: true });
       
       alert(`Successfully updated SVIP status for ${user.displayName}`);
       onUpdate();

@@ -3,12 +3,14 @@ import {
   collection, 
   query, 
   getDocs, 
+  getDoc,
   doc, 
   setDoc, 
   updateDoc,
   onSnapshot,
   orderBy,
   where,
+  limit,
   serverTimestamp 
 } from 'firebase/firestore';
 import { db, functions } from '../firebase';
@@ -38,6 +40,7 @@ export const SVIPManagement = () => {
   const [loading, setLoading] = useState(true);
   const [auditLogs, setAuditLogs] = useState([]);
   const [banners, setBanners] = useState([]);
+  const [allUsersList, setAllUsersList] = useState([]);
   
   // User Search & Adjustment State
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,16 +66,35 @@ export const SVIPManagement = () => {
   useEffect(() => {
     // Audit Logs Listener
     const auditQuery = query(collection(db, "svip_audit_logs"), orderBy("timestamp", "desc"));
-    const unsubAudit = onSnapshot(auditQuery, (snap) => {
-      setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const unsubAudit = onSnapshot(
+      auditQuery, 
+      (snap) => {
+        setAuditLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      },
+      (err) => {
+        console.warn("Audit logs listener notice:", err.message);
+      }
+    );
 
     // Banners Listener
     const bannerQuery = query(collection(db, "svip_banners"), orderBy("createdAt", "desc"));
-    const unsubBanners = onSnapshot(bannerQuery, (snap) => {
-      setBanners(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    });
+    const unsubBanners = onSnapshot(
+      bannerQuery, 
+      (snap) => {
+        setBanners(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      (err) => {
+        console.warn("Banners listener notice:", err.message);
+        setLoading(false);
+      }
+    );
+
+    // Load recent users list for quick-select
+    const usersQuery = query(collection(db, "users"), limit(50));
+    getDocs(usersQuery).then(snap => {
+      setAllUsersList(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    }).catch(() => {});
 
     return () => {
       unsubAudit();
@@ -81,28 +103,59 @@ export const SVIPManagement = () => {
   }, []);
 
   const handleSearchUser = async (e) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
+    if (e) e.preventDefault();
+    const term = searchQuery.trim();
+    if (!term) return;
     setSearching(true);
     try {
-      let q;
-      const isNum = !isNaN(parseInt(searchQuery.trim()));
-      if (isNum) {
-        q = query(collection(db, "users"), where("helloId", "==", parseInt(searchQuery.trim())));
-      } else {
-        q = query(collection(db, "users"), where("username", "==", searchQuery.trim().toLowerCase()));
+      let foundUser = null;
+
+      // 1. Direct Document ID (UID) lookup
+      try {
+        const docRef = doc(db, "users", term);
+        const docSnap = await getDoc(docRef);
+        if (docSnap && docSnap.exists()) {
+          foundUser = { id: docSnap.id, ...docSnap.data() };
+        }
+      } catch (err) {
+        // Ignore doc ID error
       }
 
-      const snap = await getDocs(q);
-      if (snap.empty) {
-        alert("No user found with that Hello ID or Username.");
-        setSelectedUser(null);
+      // 2. Hello ID (Numeric)
+      if (!foundUser && !isNaN(parseInt(term))) {
+        try {
+          const numId = parseInt(term);
+          const qNum = query(collection(db, "users"), where("helloId", "==", numId));
+          const snapNum = await getDocs(qNum);
+          if (!snapNum.empty) {
+            foundUser = { id: snapNum.docs[0].id, ...snapNum.docs[0].data() };
+          }
+        } catch (err) {
+          // Ignore query error
+        }
+      }
+
+      // 3. Username lookup
+      if (!foundUser) {
+        try {
+          const qName = query(collection(db, "users"), where("username", "==", term.toLowerCase()));
+          const snapName = await getDocs(qName);
+          if (!snapName.empty) {
+            foundUser = { id: snapName.docs[0].id, ...snapName.docs[0].data() };
+          }
+        } catch (err) {
+          // Ignore query error
+        }
+      }
+
+      if (foundUser) {
+        setSelectedUser(foundUser);
       } else {
-        const uData = snap.docs[0].data();
-        setSelectedUser({ id: snap.docs[0].id, ...uData });
+        alert("No user found with that UID, Hello ID, or Username.");
+        setSelectedUser(null);
       }
     } catch (err) {
-      alert("User scan failed: " + err.message);
+      alert("User scan error: " + (err.message || "Failed to query user. Please try selecting from the user dropdown."));
     } finally {
       setSearching(false);
     }
@@ -118,33 +171,42 @@ export const SVIPManagement = () => {
 
     setProcessing(true);
     try {
-      const userRef = doc(db, "users", selectedUser.id);
+      const userRef = doc(db, "users", selectedUser.id || selectedUser.uid);
       let newPoints = selectedUser.svipPoints || 0;
 
       if (action === "add") newPoints += pts;
       else if (action === "deduct") newPoints = Math.max(0, newPoints - pts);
       else if (action === "reset") newPoints = 0;
 
-      await updateDoc(userRef, { svipPoints: newPoints });
+      await setDoc(userRef, { 
+        svipPoints: newPoints,
+        svipUpdatedAt: serverTimestamp()
+      }, { merge: true });
 
-      // Audit Log
-      await setDoc(doc(collection(db, "svip_audit_logs")), {
-        uid: selectedUser.id,
-        helloId: selectedUser.helloId,
-        type: `admin_${action}_points`,
-        pointsBefore: selectedUser.svipPoints || 0,
-        pointsAdjusted: action === "reset" ? -(selectedUser.svipPoints || 0) : (action === "add" ? pts : -pts),
-        pointsAfter: newPoints,
-        adminUid: currentAdmin?.uid || "ADMIN",
-        timestamp: serverTimestamp()
-      });
+      // Audit Log (non-blocking)
+      try {
+        await setDoc(doc(collection(db, "svip_audit_logs")), {
+          uid: selectedUser.id || selectedUser.uid,
+          helloId: selectedUser.helloId || selectedUser.id,
+          type: `admin_${action}_points`,
+          pointsBefore: selectedUser.svipPoints || 0,
+          pointsAdjusted: action === "reset" ? -(selectedUser.svipPoints || 0) : (action === "add" ? pts : -pts),
+          pointsAfter: newPoints,
+          adminUid: currentAdmin?.uid || "ADMIN",
+          timestamp: serverTimestamp()
+        });
+        if (logAdminAction) {
+          await logAdminAction(currentAdmin, `SVIP_POINTS_${action.toUpperCase()}`, selectedUser.id || selectedUser.uid, { newPoints });
+        }
+      } catch (e) {
+        console.warn("Audit logging notice:", e);
+      }
 
-      await logAdminAction(currentAdmin, `SVIP_POINTS_${action.toUpperCase()}`, selectedUser.id, { newPoints });
       setSelectedUser(prev => ({ ...prev, svipPoints: newPoints }));
       alert(`SVIP Points successfully updated (${action}).`);
       setPointAdjustment("");
     } catch (err) {
-      alert("Point Adjustment Failed: " + err.message);
+      alert("Point Adjustment Error: " + (err.message || "Failed to update points. Check permissions."));
     } finally {
       setProcessing(false);
     }
@@ -152,43 +214,52 @@ export const SVIPManagement = () => {
 
   const handleOverrideLevel = async () => {
     if (!selectedUser) return;
-    if (!window.confirm(`Override ${selectedUser.displayName}'s SVIP level to SVIP ${selectedOverrideLevel}?`)) return;
+    if (!window.confirm(`Override ${selectedUser.displayName || 'user'}'s SVIP level to SVIP ${selectedOverrideLevel}?`)) return;
 
     setProcessing(true);
     try {
-      const userRef = doc(db, "users", selectedUser.id);
+      const userId = selectedUser.id || selectedUser.uid;
+      const userRef = doc(db, "users", userId);
       const now = new Date();
       const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
       const cycleEnd = new Date(now.getTime() + sixtyDaysMs);
 
-      await updateDoc(userRef, {
-        svipLevel: selectedOverrideLevel,
+      // Primary User Document Update
+      await setDoc(userRef, {
+        svipLevel: parseInt(selectedOverrideLevel),
         svipPoints: 0, // Reset to 0 on level override
         svipCycleStartDate: now,
-        svipCycleEndDate: cycleEnd
-      });
+        svipCycleEndDate: cycleEnd,
+        svipUpdatedAt: serverTimestamp()
+      }, { merge: true });
 
-      // Audit Log
-      await setDoc(doc(collection(db, "svip_audit_logs")), {
-        uid: selectedUser.id,
-        helloId: selectedUser.helloId,
-        type: "admin_level_override",
-        previousLevel: selectedUser.svipLevel || 0,
-        newLevel: selectedOverrideLevel,
-        pointsAfterReset: 0,
-        adminUid: currentAdmin?.uid || "ADMIN",
-        timestamp: serverTimestamp()
-      });
+      // Audit Log (non-blocking)
+      try {
+        await setDoc(doc(collection(db, "svip_audit_logs")), {
+          uid: userId,
+          helloId: selectedUser.helloId || userId,
+          type: "admin_level_override",
+          previousLevel: selectedUser.svipLevel || 0,
+          newLevel: selectedOverrideLevel,
+          pointsAfterReset: 0,
+          adminUid: currentAdmin?.uid || "ADMIN",
+          timestamp: serverTimestamp()
+        });
+        if (logAdminAction) {
+          await logAdminAction(currentAdmin, "SVIP_LEVEL_OVERRIDE", userId, { level: selectedOverrideLevel });
+        }
+      } catch (e) {
+        console.warn("Audit logging notice:", e);
+      }
 
-      await logAdminAction(currentAdmin, "SVIP_LEVEL_OVERRIDE", selectedUser.id, { level: selectedOverrideLevel });
       setSelectedUser(prev => ({
         ...prev,
-        svipLevel: selectedOverrideLevel,
+        svipLevel: parseInt(selectedOverrideLevel),
         svipPoints: 0
       }));
-      alert(`User upgraded/downgraded to SVIP ${selectedOverrideLevel}. Points reset to 0.`);
+      alert(`✅ User successfully set to SVIP ${selectedOverrideLevel}! Points reset to 0.`);
     } catch (err) {
-      alert("Override Failed: " + err.message);
+      alert("Override Error: " + (err.message || "Permission error. Ensure you are signed into the admin console."));
     } finally {
       setProcessing(false);
     }
@@ -289,13 +360,40 @@ export const SVIPManagement = () => {
             <h3 className="text-xl font-black text-white uppercase tracking-tight flex items-center gap-3 border-b border-white/5 pb-4">
               <Search className="text-amber-400" size={20} /> User Lookup
             </h3>
+            {/* Quick Select Dropdown */}
+            {allUsersList.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-amber-400 uppercase tracking-widest">⚡ Quick Select User from Database</label>
+                <select
+                  className="input-field w-full h-14 bg-slate-950/80 text-white font-bold px-4 rounded-2xl border border-amber-500/30"
+                  onChange={e => {
+                    if (e.target.value) {
+                      const u = allUsersList.find(usr => usr.id === e.target.value);
+                      if (u) {
+                        setSelectedUser(u);
+                        setSearchQuery(u.helloId ? String(u.helloId) : u.displayName || u.id);
+                      }
+                    }
+                  }}
+                  value={selectedUser?.id || ""}
+                >
+                  <option value="" className="bg-slate-900">-- Choose a User from List ({allUsersList.length} loaded) --</option>
+                  {allUsersList.map(u => (
+                    <option key={u.id} value={u.id} className="bg-slate-900">
+                      {u.displayName || 'No Name'} • ID: {u.helloId || u.id.substring(0, 8)} (SVIP Level {u.svipLevel || 0})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <form onSubmit={handleSearchUser} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Search by Hello ID or Username</label>
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Or Search by Hello ID, Username, or UID</label>
                 <div className="flex gap-4">
                   <input
                     required
-                    placeholder="Enter Hello ID (e.g. 100234) or Username..."
+                    placeholder="Enter Hello ID (e.g. 100234), Username, or UID..."
                     className="input-field flex-1 h-14 bg-slate-950/50 text-white font-mono px-4 rounded-2xl"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}

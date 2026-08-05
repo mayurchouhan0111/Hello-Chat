@@ -1124,237 +1124,6 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
 });
 
 
-/**
- * 100. Follow User
- * Atomic transaction to update follower/following counts.
- */
-exports.followUser = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
-    const followerUid = context.auth.uid;
-    const targetUid = data.targetUid;
-
-    if (followerUid === targetUid) throw new functions.https.HttpsError("invalid-argument", "Cannot follow self.");
-
-    const followerRef = db.collection("users").doc(followerUid);
-    const targetRef = db.collection("users").doc(targetUid);
-
-    // Sub-collections
-    const subFollowerRef = targetRef.collection("followers").doc(followerUid);
-    const subFollowingRef = followerRef.collection("following").doc(targetUid);
-
-    // Check for mutual follow
-    const reverseFollowRef = followerRef.collection("followers").doc(targetUid);
-
-    return db.runTransaction(async (transaction) => {
-        const subFollowerDoc = await transaction.get(subFollowerRef);
-        if (subFollowerDoc.exists) return { message: "Already following" };
-
-        const reverseFollowDoc = await transaction.get(reverseFollowRef);
-        const isMutual = reverseFollowDoc.exists;
-
-        const timestamp = admin.firestore.FieldValue.serverTimestamp();
-
-        transaction.set(subFollowerRef, { followedAt: timestamp });
-        transaction.set(subFollowingRef, { followedAt: timestamp });
-
-        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(1) };
-        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(1) };
-
-        if (isMutual) {
-            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(1);
-            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(1);
-        }
-
-        transaction.update(followerRef, updatesFollower);
-        transaction.update(targetRef, updatesTarget);
-
-        return { success: true, isMutual: isMutual };
-    });
-});
-
-/**
- * 5. Unfollow User
- */
-exports.unfollowUser = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
-    const followerUid = context.auth.uid;
-    const targetUid = data.targetUid;
-
-    const followerRef = db.collection("users").doc(followerUid);
-    const targetRef = db.collection("users").doc(targetUid);
-
-    // Sub-collections
-    const subFollowerRef = targetRef.collection("followers").doc(followerUid);
-    const subFollowingRef = followerRef.collection("following").doc(targetUid);
-
-    // Check for mutual follow (to see if they were friends)
-    const reverseFollowRef = followerRef.collection("followers").doc(targetUid);
-
-    return db.runTransaction(async (transaction) => {
-        const subFollowerDoc = await transaction.get(subFollowerRef);
-        if (!subFollowerDoc.exists) return { message: "Not following" };
-
-        const reverseFollowDoc = await transaction.get(reverseFollowRef);
-        const wasMutual = reverseFollowDoc.exists;
-
-        transaction.delete(subFollowerRef);
-        transaction.delete(subFollowingRef);
-
-        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(-1) };
-        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(-1) };
-
-        if (wasMutual) {
-            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(-1);
-            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(-1);
-        }
-
-        transaction.update(followerRef, updatesFollower);
-        transaction.update(targetRef, updatesTarget);
-
-        return { success: true, wasMutual: wasMutual };
-    });
-});
-/**
- * 6. Create Room
- */
-exports.createRoom = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
-    const uid = context.auth.uid;
-    const { name, theme, coverUrl, isPrivate, passwordHash, capacity, backgroundMusic } = data;
-
-    const roomId = db.collection("rooms").doc().id;
-    const roomRef = db.collection("rooms").doc(roomId);
-
-    const roomData = {
-        roomId: roomId,
-        createdBy: uid,
-        ownerUid: uid,
-        name: name,
-        name_lowercase: (name || "").toLowerCase(),
-        theme: theme,
-
-        coverUrl: coverUrl || "",
-        isPrivate: isPrivate || false,
-        passwordHash: passwordHash || null,
-        capacity: capacity || 10,
-        currentUsersCount: 0,
-        backgroundMusic: backgroundMusic || false,
-        hourlyRank: 1, // Default to 1 or 99
-        isTrending: false,
-        newsStatus: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        endedAt: null,
-        status: "active",
-        admins: [uid],
-        bannedUids: [],
-
-    };
-
-    await roomRef.set(roomData);
-    return { roomId: roomId };
-});
-
-/**
- * 7. Join Room
- */
-exports.joinRoom = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
-    const uid = context.auth.uid;
-    const { roomId } = data;
-
-    return db.runTransaction(async (transaction) => {
-        const roomRef = db.collection("rooms").doc(roomId);
-        const participantRef = roomRef.collection("participants").doc(uid);
-        const userRef = db.collection("users").doc(uid);
-
-        const [roomDoc, userDoc, participantDoc] = await Promise.all([
-            transaction.get(roomRef),
-            transaction.get(userRef),
-            transaction.get(participantRef)
-        ]);
-
-        if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
-
-        const roomData = roomDoc.data();
-        if (roomData.status !== "active") throw new functions.https.HttpsError("failed-precondition", "Room has ended.");
-        if (roomData.bannedUids && roomData.bannedUids.includes(uid)) {
-            // Check if ban has expired
-            const banExpiries = roomData.banExpiries || {};
-            const banExpiry = banExpiries[uid];
-            if (banExpiry && banExpiry.toDate) {
-                if (banExpiry.toDate() <= new Date()) {
-                    // Ban expired — allow join, auto-remove from banned list
-                    const banExpiryDelete = {};
-                    banExpiryDelete["banExpiries." + uid] = admin.firestore.FieldValue.delete();
-                    transaction.update(roomRef, {
-                        bannedUids: admin.firestore.FieldValue.arrayRemove([uid]),
-                        ...banExpiryDelete
-                    });
-                } else {
-                    throw new functions.https.HttpsError("permission-denied", "You are banned until " + banExpiry.toDate().toISOString());
-                }
-            } else {
-                throw new functions.https.HttpsError("permission-denied", "You are banned.");
-            }
-        }
-
-        // Check if already in
-        if (participantDoc.exists) return { success: true, message: "Already in room" };
-
-        const userData = userDoc.exists ? userDoc.data() : {};
-
-        // Find available seat if joining as host or needs seat
-        let seatIndex = null;
-        let role = "audience";
-
-        if (uid === roomData.ownerUid) {
-            seatIndex = 0; // Host always gets seat 0
-            role = "host";
-        } else {
-            // Logic to find next available seat could be added here if needed for non-hosts
-        }
-
-        transaction.set(participantRef, {
-            joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastActive: admin.firestore.FieldValue.serverTimestamp(),
-            seatIndex: seatIndex,
-            isMuted: false,
-            role: role,
-            displayName: userData.displayName || "User",
-            profilePhotoUrl: userData.profilePhotoUrl || "",
-            vipTier: userData.vipTier || "none",
-            tags: userData.tags || [],
-        });
-
-        return { success: true };
-    });
-});
-
-/**
- * 8. Leave Room
- */
-exports.leaveRoom = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-
-    const uid = context.auth.uid;
-    const { roomId } = data;
-
-    return db.runTransaction(async (transaction) => {
-        const roomRef = db.collection("rooms").doc(roomId);
-        const participantRef = roomRef.collection("participants").doc(uid);
-
-        const [roomDoc, participantDoc] = await Promise.all([
-            transaction.get(roomRef),
-            transaction.get(participantRef)
-        ]);
-
-        return { success: true };
-    });
-});
 
 /**
  * Atomic transaction to update follower/following counts.
@@ -1687,6 +1456,24 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond balance.");
             }
 
+            // 🎲 3.5 Lucky Gift Random Reward Engine
+            let luckyRewardCoins = 0;
+            let luckyMultiplier = 0;
+            if (giftData.category === "Lucky") {
+                const roll = Math.random();
+                if (roll > 0.95) luckyMultiplier = 100;
+                else if (roll > 0.85) luckyMultiplier = 20;
+                else if (roll > 0.60) luckyMultiplier = 5;
+                else if (roll > 0.30) luckyMultiplier = 2;
+
+                if (luckyMultiplier > 0) {
+                    luckyRewardCoins = totalCost * luckyMultiplier;
+                    transaction.update(senderRef, {
+                        diamondBalance: admin.firestore.FieldValue.increment(luckyRewardCoins)
+                    });
+                }
+            }
+
             // 💎 4. Deduct & Add XP (500 diamonds = 1 XP)
             const currentSpent = senderDoc.data().totalDiamondsSpent || (senderDoc.data().xp * 500) || 0;
             const newSpent = currentSpent + totalCost;
@@ -1765,7 +1552,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     giftId: giftId,
                     quantity: qty,
                     animationUrl: giftData.lottieAssetPath,
-                    text: `Sent to ${receiverName} x${qty}`,
+                    text: `Sent to ${receiverName} x${qty}${luckyMultiplier > 0 ? ` 🎉 LUCKY WIN ${luckyMultiplier}X (+${luckyRewardCoins} Diamonds)!` : ''}`,
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                     targetUid: targetUid
                 });
@@ -1897,7 +1684,13 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
-            return { success: true, newBalance: currentBalance - totalCost };
+            return {
+                success: true,
+                newBalance: currentBalance - totalCost + luckyRewardCoins,
+                totalCost,
+                luckyRewardCoins,
+                luckyMultiplier
+            };
         });
     } catch (error) {
         console.error("🛑 Gifting Error:", error);
@@ -7134,13 +6927,29 @@ exports.dissolveCP = functions.https.onCall(async (data, context) => {
         transaction.update(relRef, { status: "ended", endedAt: admin.firestore.Timestamp.now() });
 
         for (const pUid of participants) {
-            transaction.update(db.collection("users").doc(pUid), {
+            const userDoc = await transaction.get(db.collection("users").doc(pUid));
+            const userData = userDoc.data() || {};
+            const currentFrame = (userData.profileFrame || "").toLowerCase();
+
+            const isCpFrame = currentFrame.includes("1.svga") || 
+                              currentFrame.includes("2.svga") || 
+                              currentFrame.includes("3.svga") || 
+                              currentFrame.includes("cp_frame") || 
+                              currentFrame.includes("couple");
+
+            const updates = {
                 partnerUid: admin.firestore.FieldValue.delete(),
                 partnerName: admin.firestore.FieldValue.delete(),
                 partnerAvatar: admin.firestore.FieldValue.delete(),
                 cpLevel: 0,
                 cpPoints: 0
-            });
+            };
+
+            if (isCpFrame) {
+                updates.profileFrame = "";
+            }
+
+            transaction.update(db.collection("users").doc(pUid), updates);
         }
 
         // Notify partner about dissolution
@@ -7390,18 +7199,33 @@ async function processRechargeBonusInline(uid, amount) {
         }
     }
 
-    if (totalBonus > 0) {
+    if (matchedPackage || amount > 0) {
         const userRef = db.collection("users").doc(uid);
-        await userRef.update({
-            diamondBalance: admin.firestore.FieldValue.increment(totalBonus),
-            [`event_bonuses.${event.id}`]: admin.firestore.FieldValue.increment(totalBonus)
-        });
-        await db.collection("users").doc(uid).collection("transactions").add({
-            type: "event_bonus", amount: totalBonus, currency: "diamonds",
-            eventId: event.id, eventName: event.title || "Bonus Event",
-            description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
-            timestamp: admin.firestore.Timestamp.now()
-        });
+        const userUpdates = {};
+        if (totalBonus > 0) {
+            userUpdates.diamondBalance = admin.firestore.FieldValue.increment(totalBonus);
+            userUpdates[`event_bonuses.${event.id}`] = admin.firestore.FieldValue.increment(totalBonus);
+        }
+
+        // Automatic Activation of Frame Reward with Validity Countdown
+        const validityDays = matchedPackage?.validityDays || (amount >= 100 ? 14 : (amount >= 10 ? 7 : (amount >= 5 ? 3 : 1)));
+        const frameUrl = matchedPackage?.frameUrl || 'assets/images/super/super-admin.svga';
+        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000));
+
+        userUpdates.profileFrame = frameUrl;
+        userUpdates.rechargeFrameExpiresAt = expiresAt;
+        userUpdates.rechargeFrameUrl = frameUrl;
+
+        await userRef.update(userUpdates);
+
+        if (totalBonus > 0) {
+            await db.collection("users").doc(uid).collection("transactions").add({
+                type: "event_bonus", amount: totalBonus, currency: "diamonds",
+                eventId: event.id, eventName: event.title || "Bonus Event",
+                description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
+                timestamp: admin.firestore.Timestamp.now()
+            });
+        }
     }
     return { bonus: totalBonus, eventId: event.id, package: matchedPackage };
 }
@@ -9399,6 +9223,36 @@ exports.reviewSvipBanner = onCall({ region: "us-central1" }, async (request) => 
 
     return { success: true, approved: approve };
 });
+
+
+
+/**
+ * ⏰ Scheduled / Callable Role & Recharge Frame Expiration Cleanup
+ */
+exports.checkRoleAndExpiredFrames = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const adminUid = context.auth.uid;
+    if (!(await isUserAdmin(adminUid))) throw new functions.https.HttpsError("permission-denied", "Admin only.");
+
+    const now = admin.firestore.Timestamp.now();
+    const snap = await db.collection("users")
+        .where("rechargeFrameExpiresAt", "<=", now)
+        .get();
+
+    const batch = db.batch();
+    let count = 0;
+    for (const userDoc of snap.docs) {
+        batch.update(userDoc.ref, {
+            profileFrame: "",
+            rechargeFrameExpiresAt: admin.firestore.FieldValue.delete()
+        });
+        count++;
+    }
+    await batch.commit();
+
+    return { success: true, expiredFramesCleared: count };
+});
+
 
 
 

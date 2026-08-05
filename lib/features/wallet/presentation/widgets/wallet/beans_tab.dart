@@ -309,42 +309,6 @@ class _BeansTabState extends ConsumerState<BeansTab> {
     );
   }
 
-  void _handleSimulation(int amount, String method) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 20),
-            const CircularProgressIndicator(color: Colors.orangeAccent),
-            const SizedBox(height: 24),
-            Text("Simulation: $method", style: const TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Text("Recharging $amount Beans...", style: const TextStyle(color: Colors.grey, fontSize: 13)),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
-
-    await Future.delayed(const Duration(seconds: 2));
-
-    try {
-      await ref.read(walletActionProvider.notifier).simulateBeansRecharge(amount);
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: Colors.orangeAccent,
-            content: Text("Successfully added $amount Beans!"),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) Navigator.pop(context);
-    }
-  }
+  // _handleSimulation removed — recharge simulation is permanently disabled.
+  // All recharges must go through production payment gateways.
 }

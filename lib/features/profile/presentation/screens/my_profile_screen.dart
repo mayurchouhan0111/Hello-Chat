@@ -103,6 +103,8 @@ class MyProfileScreen extends ConsumerWidget {
                 frameUrl: userData.profileFrame,
                 userLevel: userData.level,
                 frameMultiplier: 2.0,
+                maxFps: 18.0,
+                maxRenderSize: const Size(180, 180),
               ),
             ),
           ),

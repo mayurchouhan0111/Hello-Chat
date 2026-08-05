@@ -193,6 +193,20 @@ class SvgaParserUtil {
         print("🚀 SvgaParserUtil: Preloading and parsing local VIP assets into memory cache...");
         
         final assetsToPreload = [
+          // Primary Role & System Frames
+          'assets/Helo chat/Superadmin.svga',
+          'assets/Helo chat/Agency.svga',
+          'assets/Helo chat/Official.svga',
+          'assets/Helo chat/1.svga',
+          'assets/Helo chat/2.svga',
+          'assets/Helo chat/3.svga',
+          'assets/Helo chat/Rockeet_SVGA.svga',
+          'assets/Helo chat/Top 1.svga',
+          'assets/Helo chat/Top 2.svga',
+          'assets/Helo chat/Top 3.svga',
+          'assets/images/super/admin.svga',
+          'assets/images/super/reseller.svga',
+
           // VIP 1
           'assets/VIP/VIP 1/Frame.svga',
           'assets/VIP/VIP 1/Entry.svga',

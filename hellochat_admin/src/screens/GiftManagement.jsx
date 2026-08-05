@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { 
   collection, 
   query, 
@@ -11,6 +11,11 @@ import {
   orderBy,
   serverTimestamp
 } from 'firebase/firestore';
+import { 
+  ref, 
+  uploadBytesResumable, 
+  getDownloadURL 
+} from 'firebase/storage';
 import { 
   Gift, 
   Plus, 
@@ -25,7 +30,10 @@ import {
   Sparkles,
   Link as LinkIcon,
   Save,
-  X
+  X,
+  Upload,
+  Loader2,
+  Video
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Player } from '@lottiefiles/react-lottie-player';
@@ -37,15 +45,19 @@ export const GiftManagement = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingGift, setEditingGift] = useState(null);
+  const [uploadingField, setUploadingField] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const { user } = useAdmin();
   
   // New Gift State
   const [newGift, setNewGift] = useState({
     name: '',
     priceInDiamonds: 0,
-    category: 'small',
+    category: 'Normal',
     imageUrl: '',
     lottieAssetPath: '',
+    animationFormat: 'json', // json, svga, mp4, vpa
+    minSvipLevel: 0,
     isActive: true,
     sortOrder: 0
   });
@@ -59,6 +71,71 @@ export const GiftManagement = () => {
     return unsub;
   }, []);
 
+  const handleFileUpload = async (e, fieldType) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const currentForm = editingGift || newGift;
+    const format = currentForm.animationFormat || 'json';
+    const ext = file.name.split('.').pop().toLowerCase();
+
+    // Format validation
+    if (fieldType === 'image') {
+      if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
+        alert("❌ Invalid Image Format! Only PNG, JPG, JPEG, and WEBP are supported.");
+        return;
+      }
+    } else if (fieldType === 'animation') {
+      if (format === 'svga' && ext !== 'svga') {
+        alert("❌ Format Mismatch! Selected format is SVGA (.svga), but uploaded file is ." + ext);
+        return;
+      } else if (format === 'mp4' && ext !== 'mp4') {
+        alert("❌ Format Mismatch! Selected format is MP4 (.mp4), but uploaded file is ." + ext);
+        return;
+      } else if (format === 'json' && ext !== 'json') {
+        alert("❌ Format Mismatch! Selected format is Lottie JSON (.json), but uploaded file is ." + ext);
+        return;
+      } else if (format === 'vpa' && !['vpa', 'mp4', 'json'].includes(ext)) {
+        alert("❌ Format Mismatch! Selected format is VPA (.vpa).");
+        return;
+      }
+    }
+
+    setUploadingField(fieldType);
+    setUploadProgress(0);
+
+    const storageRef = ref(storage, `gifts/${fieldType}_${Date.now()}_${file.name}`);
+    const uploadTask = uploadBytesResumable(storageRef, file);
+
+    uploadTask.on(
+      'state_changed',
+      (snapshot) => {
+        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+        setUploadProgress(progress);
+      },
+      (error) => {
+        alert("Upload Failed: " + error.message);
+        setUploadingField(null);
+      },
+      () => {
+        getDownloadURL(uploadTask.snapshot.ref).then((downloadURL) => {
+          if (editingGift) {
+            setEditingGift(prev => ({
+              ...prev,
+              [fieldType === 'image' ? 'imageUrl' : 'lottieAssetPath']: downloadURL
+            }));
+          } else {
+            setNewGift(prev => ({
+              ...prev,
+              [fieldType === 'image' ? 'imageUrl' : 'lottieAssetPath']: downloadURL
+            }));
+          }
+          setUploadingField(null);
+        });
+      }
+    );
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     const data = editingGift || newGift;
@@ -68,6 +145,10 @@ export const GiftManagement = () => {
       await setDoc(doc(db, "gifts", giftId), {
         ...data,
         giftId,
+        sortOrder: Number(data.sortOrder || 0),
+        priceInDiamonds: Number(data.priceInDiamonds || 0),
+        minSvipLevel: Number(data.minSvipLevel || 0),
+        animationFormat: data.animationFormat || 'json',
         updatedAt: serverTimestamp()
       }, { merge: true });
       
@@ -77,9 +158,11 @@ export const GiftManagement = () => {
       setNewGift({
         name: '',
         priceInDiamonds: 0,
-        category: 'small',
+        category: 'Normal',
         imageUrl: '',
         lottieAssetPath: '',
+        animationFormat: 'json',
+        minSvipLevel: 0,
         isActive: true,
         sortOrder: 0
       });
@@ -288,9 +371,7 @@ export const GiftManagement = () => {
                       value={editingGift ? editingGift.name : newGift.name}
                       onChange={(e) => editingGift ? setEditingGift({...editingGift, name: e.target.value}) : setNewGift({...newGift, name: e.target.value})}
                     />
-                 </div>
-
-                 <div className="grid grid-cols-2 gap-6">
+                              <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
                        <div className="relative">
@@ -306,45 +387,104 @@ export const GiftManagement = () => {
                     <div className="space-y-3">
                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Category</label>
                        <select 
-                         className="glass-input w-full outline-none appearance-none"
+                         className="glass-input w-full outline-none appearance-none cursor-pointer bg-slate-900 text-white border border-white/10 rounded-xl px-4 h-12"
                          value={editingGift ? editingGift.category : newGift.category}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
                        >
-                          <option value="Normal">Normal</option>
-                          <option value="Vip">Vip</option>
-                          <option value="Luxury">Luxury</option>
-                          <option value="Animated">Animated</option>
+                          <option value="Normal">Normal Gift</option>
+                          <option value="Luxury">Luxury Gift (Full Screen)</option>
+                          <option value="Lucky">Lucky Gift (Random Rewards)</option>
+                          <option value="VIP">VIP Gift (VIP Only)</option>
+                          <option value="SVIP">SVIP Gift (SVIP Only)</option>
                        </select>
                     </div>
                  </div>
 
+                 <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Animation Format</label>
+                       <select 
+                         className="glass-input w-full outline-none appearance-none cursor-pointer bg-slate-900 text-white border border-white/10 rounded-xl px-4 h-12"
+                         value={editingGift ? editingGift.animationFormat || 'json' : newGift.animationFormat || 'json'}
+                         onChange={(e) => editingGift ? setEditingGift({...editingGift, animationFormat: e.target.value}) : setNewGift({...newGift, animationFormat: e.target.value})}
+                       >
+                          <option value="json">Lottie JSON (.json)</option>
+                          <option value="svga">SVGA (.svga)</option>
+                          <option value="mp4">MP4 Video (.mp4)</option>
+                          <option value="vpa">VPA Luxury (.vpa)</option>
+                       </select>
+                    </div>
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Display Order (Sort)</label>
+                       <input 
+                         type="number" min="0" placeholder="0"
+                         className="glass-input w-full h-12"
+                         value={editingGift ? editingGift.sortOrder || 0 : newGift.sortOrder || 0}
+                         onChange={(e) => editingGift ? setEditingGift({...editingGift, sortOrder: parseInt(e.target.value)}) : setNewGift({...newGift, sortOrder: parseInt(e.target.value)})}
+                       />
+                    </div>
+                 </div>
+
+                 {/* Image File Upload & URL */}
                  <div className="space-y-3">
-                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Icon URL (Static PNG)</label>
-                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                           <LinkIcon className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Gift Icon (PNG, JPG, WEBP)</label>
+                     <div className="flex gap-3">
+                        <div className="relative group flex-1">
+                           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                              <LinkIcon className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                           </div>
+                           <input 
+                             placeholder="Icon URL or upload file..."
+                             className="glass-input w-full pl-12"
+                             value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
+                             onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
+                           />
                         </div>
-                        <input 
-                          placeholder="https://..."
-                          className="glass-input w-full pl-12"
-                          value={editingGift ? editingGift.imageUrl : newGift.imageUrl}
-                          onChange={(e) => editingGift ? setEditingGift({...editingGift, imageUrl: e.target.value}) : setNewGift({...newGift, imageUrl: e.target.value})}
-                        />
+                        <div className="relative">
+                          <input 
+                            type="file" accept="image/png,image/jpeg,image/webp"
+                            onChange={(e) => handleFileUpload(e, 'image')}
+                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                            disabled={uploadingField === 'image'}
+                          />
+                          <button type="button" className="h-12 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                             {uploadingField === 'image' ? <Loader2 className="animate-spin text-[#B4E0A2]" size={16} /> : <Upload size={16} className="text-[#B4E0A2]" />}
+                             <span>Upload Icon</span>
+                          </button>
+                        </div>
                      </div>
                   </div>
 
+                  {/* Animation File Upload & URL */}
                   <div className="space-y-3">
-                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Special Effect URL (Lottie JSON)</label>
-                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                           <Sparkles className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">
+                        Animation File ({(editingGift?.animationFormat || newGift.animationFormat || 'json').toUpperCase()})
+                     </label>
+                     <div className="flex gap-3">
+                        <div className="relative group flex-1">
+                           <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                              <Sparkles className="text-slate-600 group-focus-within:text-[#B4E0A2] transition-colors" size={18} />
+                           </div>
+                           <input 
+                             className="glass-input w-full pl-12 placeholder:italic"
+                             placeholder="Animation URL or upload file..."
+                             value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
+                             onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
+                           />
                         </div>
-                        <input 
-                          className="glass-input w-full pl-12 placeholder:italic"
-                          placeholder="Optional .json animation url..."
-                          value={editingGift ? editingGift.lottieAssetPath : newGift.lottieAssetPath}
-                          onChange={(e) => editingGift ? setEditingGift({...editingGift, lottieAssetPath: e.target.value}) : setNewGift({...newGift, lottieAssetPath: e.target.value})}
-                        />
+                        <div className="relative">
+                          <input 
+                            type="file" 
+                            accept=".svga,.mp4,.json,.vpa"
+                            onChange={(e) => handleFileUpload(e, 'animation')}
+                            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+                            disabled={uploadingField === 'animation'}
+                          />
+                          <button type="button" className="h-12 px-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center gap-2 text-xs font-bold text-slate-300">
+                             {uploadingField === 'animation' ? <Loader2 className="animate-spin text-[#B4E0A2]" size={16} /> : <Upload size={16} className="text-[#B4E0A2]" />}
+                             <span>Upload Anim</span>
+                          </button>
+                        </div>
                      </div>
                   </div>
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../utils/level_utils.dart';
+import '../utils/svga_static_util.dart';
 import 'svga_player.dart';
 
 enum BadgeType {
@@ -24,6 +25,7 @@ class UserBadge extends StatelessWidget {
   final String? imageAsset;
   final String? customFrameAsset;
   final EdgeInsetsGeometry? margin;
+  final bool preferStaticFrame;
 
   const UserBadge({
     super.key,
@@ -34,114 +36,235 @@ class UserBadge extends StatelessWidget {
     this.imageAsset,
     this.customFrameAsset,
     this.margin,
+    this.preferStaticFrame = false,
   });
+
+  static final TextStyle _cinzelBase = GoogleFonts.cinzel(
+    color: Colors.white,
+    fontWeight: FontWeight.w900,
+    letterSpacing: 0.2,
+  );
+
+  TextStyle _getCinzelStyle(double fontSize, List<Shadow> shadows) {
+    return _cinzelBase.copyWith(
+      fontSize: fontSize,
+      shadows: shadows,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final double baseFontSize = (label.length > 10) ? 7.5 : 8.5;
-
-    // Get frame asset - use unified LevelUtils for level type, else fallback
-    final String frameAsset = (type == BadgeType.level && label.startsWith('Lv.'))
+    // 1. Determine frame asset if provided
+    String? frameAsset = (type == BadgeType.level && label.startsWith('Lv.'))
         ? _getLevelBadgeAsset(label)
-        : (customFrameAsset ?? _getFrameAsset());
+        : customFrameAsset;
 
-    return Container(
-      margin: margin ?? const EdgeInsets.only(right: 6),
-      height: (type == BadgeType.level) ? 22 : 38,
-      constraints: const BoxConstraints(minWidth: 85),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Positioned.fill(
-            child: frameAsset.endsWith('.svga')
-                ? (frameAsset.startsWith('http')
-                    ? SvgaPlayer(url: frameAsset, fit: BoxFit.fill)
-                    : SvgaPlayer(assetPath: frameAsset, fit: BoxFit.fill))
-                : (frameAsset.startsWith('http')
-                    ? CachedNetworkImage(
-                        imageUrl: frameAsset,
-                        fit: BoxFit.fill,
-                        errorWidget: (_, __, ___) => const SizedBox(),
-                      )
-                    : Image.asset(
-                        frameAsset,
-                        fit: BoxFit.fill,
-                        errorBuilder: (_, __, ___) => const SizedBox(),
-                      )),
-          ),
-          
-          // Content with Visual Offset Adjustment
-          Transform.translate(
-            offset: _getVisualOffset(),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (imageAsset != null) ...[
-                    Image.asset(
-                      imageAsset!, 
-                      height: 16,
-                      width: 16, 
-                      fit: BoxFit.contain,
-                    ),
-                    const SizedBox(width: 3),
-                  ] else if (icon != null && type != BadgeType.level) ...[
-                    Icon(
-                      icon, 
-                      size: 10, 
-                      color: Colors.white,
-                      shadows: const [Shadow(color: Colors.black45, blurRadius: 1.5, offset: Offset(0, 0.5))],
-                    ),
-                    const SizedBox(width: 3),
-                  ],
-                  if (prefix != null) ...[
-                    Text(
-                      prefix!,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: baseFontSize,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.1,
-                        shadows: const [Shadow(color: Colors.black45, blurRadius: 1.5, offset: Offset(0, 0.5))],
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      overflow: TextOverflow.visible,
-                      maxLines: 1,
-                      style: GoogleFonts.cinzel(
-                        color: Colors.white,
-                        fontSize: baseFontSize,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.1,
-                        shadows: const [Shadow(color: Colors.black45, blurRadius: 2, offset: Offset(0, 0.5))],
-                      ),
-                    ),
+    if (preferStaticFrame && frameAsset != null && frameAsset.endsWith('.svga')) {
+      frameAsset = SvgaStaticUtil.staticPathForSvga(frameAsset);
+    }
+
+    if (frameAsset != null && frameAsset.isNotEmpty) {
+      final bool isSvga = frameAsset.endsWith('.svga');
+      final bool isPreRenderedTag = frameAsset.contains('SVIP Kit') || frameAsset.toLowerCase().contains('tag');
+
+      if (isPreRenderedTag) {
+        return RepaintBoundary(
+          child: Container(
+            margin: margin ?? const EdgeInsets.only(right: 6, bottom: 4),
+            height: 24,
+            child: frameAsset.startsWith('http')
+                ? CachedNetworkImage(
+                    imageUrl: frameAsset,
+                    height: 24,
+                    fit: BoxFit.contain,
+                    errorWidget: (_, __, ___) => _buildDefaultGradientPill(),
+                  )
+                : Image.asset(
+                    frameAsset,
+                    height: 24,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => _buildDefaultGradientPill(),
                   ),
-                ],
+          ),
+        );
+      }
+
+      // Render frame image/SVGA with text and icon layered in center!
+      return RepaintBoundary(
+        child: Container(
+          margin: margin ?? const EdgeInsets.only(right: 6, bottom: 4),
+          height: 24,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              isSvga
+                  ? (frameAsset.startsWith('http')
+                      ? SvgaPlayer(url: frameAsset, fit: BoxFit.contain, maxFps: 15, pauseWhenInvisible: true)
+                      : SvgaPlayer(key: ValueKey(frameAsset), assetPath: frameAsset, fit: BoxFit.contain, maxFps: 15, pauseWhenInvisible: true))
+                  : (frameAsset.startsWith('http')
+                      ? CachedNetworkImage(
+                          imageUrl: frameAsset,
+                          height: 24,
+                          fit: BoxFit.contain,
+                          errorWidget: (_, __, ___) => const SizedBox(),
+                        )
+                      : Image.asset(
+                          frameAsset,
+                          height: 24,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const SizedBox(),
+                        )),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (icon != null && type != BadgeType.level) ...[
+                      Icon(
+                        icon,
+                        size: 11,
+                        color: Colors.white,
+                        shadows: const [Shadow(color: Colors.black54, blurRadius: 2, offset: Offset(0, 0.5))],
+                      ),
+                      const SizedBox(width: 3),
+                    ],
+                    Text(
+                      label,
+                      style: _getCinzelStyle(
+                        (label.length > 10) ? 8.0 : 9.5,
+                        const [Shadow(color: Colors.black54, blurRadius: 2.5, offset: Offset(0, 0.5))],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 2. Default clean gradient pill badge
+    return _buildDefaultGradientPill();
+  }
+
+  Widget _buildDefaultGradientPill() {
+    final double baseFontSize = (label.length > 12) ? 8.0 : (label.length > 8 ? 9.0 : 10.0);
+    final LinearGradient gradient = _getBadgeGradient(type);
+    final IconData effectiveIcon = icon ?? _getBadgeIcon(type);
+
+    return RepaintBoundary(
+      child: Container(
+        margin: margin ?? const EdgeInsets.only(right: 6, bottom: 4),
+        height: 24,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.35), width: 0.8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 4,
+              offset: const Offset(0, 1.5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (imageAsset != null) ...[
+              Image.asset(
+                imageAsset!,
+                height: 13,
+                width: 13,
+                fit: BoxFit.contain,
+              ),
+              const SizedBox(width: 3),
+            ] else ...[
+              Icon(
+                effectiveIcon,
+                size: 11,
+                color: Colors.white,
+                shadows: const [Shadow(color: Colors.black45, blurRadius: 1.5, offset: Offset(0, 0.5))],
+              ),
+              const SizedBox(width: 3),
+            ],
+            if (prefix != null) ...[
+              Text(
+                prefix!,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: baseFontSize,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.1,
+                  shadows: const [Shadow(color: Colors.black45, blurRadius: 1.5, offset: Offset(0, 0.5))],
+                ),
+              ),
+              const SizedBox(width: 2),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+                style: _getCinzelStyle(
+                  baseFontSize,
+                  const [Shadow(color: Colors.black45, blurRadius: 2, offset: Offset(0, 0.5))],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Offset _getVisualOffset() {
+  LinearGradient _getBadgeGradient(BadgeType type) {
     switch (type) {
       case BadgeType.wealth:
-      case BadgeType.achievement:
-        return const Offset(0, -3);
-      case BadgeType.agency:
+        return const LinearGradient(colors: [Color(0xFFFF8F00), Color(0xFFFFB300)]);
+      case BadgeType.popularity:
+        return const LinearGradient(colors: [Color(0xFFFF4081), Color(0xFFFF6E40)]);
+      case BadgeType.level:
+        return const LinearGradient(colors: [Color(0xFF7B1FA2), Color(0xFFE91E63)]);
+      case BadgeType.vip:
+        return const LinearGradient(colors: [Color(0xFF6A1B9A), Color(0xFFAB47BC)]);
+      case BadgeType.noble:
+        return const LinearGradient(colors: [Color(0xFFD84315), Color(0xFFFF8F00)]);
+      case BadgeType.role:
+        return const LinearGradient(colors: [Color(0xFF2E7D32), Color(0xFF4CAF50)]);
       case BadgeType.family:
-        return const Offset(0, 1);
-      default:
-        return Offset.zero;
+        return const LinearGradient(colors: [Color(0xFF1565C0), Color(0xFF42A5F5)]);
+      case BadgeType.agency:
+        return const LinearGradient(colors: [Color(0xFF00695C), Color(0xFF26A69A)]);
+      case BadgeType.achievement:
+        return const LinearGradient(colors: [Color(0xFFC62828), Color(0xFFFF8F00)]);
+    }
+  }
+
+  IconData _getBadgeIcon(BadgeType type) {
+    switch (type) {
+      case BadgeType.wealth:
+        return Icons.diamond_rounded;
+      case BadgeType.popularity:
+        return Icons.local_fire_department_rounded;
+      case BadgeType.level:
+        return Icons.shield_rounded;
+      case BadgeType.vip:
+        return Icons.workspace_premium_rounded;
+      case BadgeType.noble:
+        return Icons.stars_rounded;
+      case BadgeType.role:
+        return Icons.verified_rounded;
+      case BadgeType.family:
+        return Icons.groups_rounded;
+      case BadgeType.agency:
+        return Icons.business_center_rounded;
+      case BadgeType.achievement:
+        return Icons.emoji_events_rounded;
     }
   }
 
@@ -152,29 +275,5 @@ class UserBadge extends StatelessWidget {
       return LevelUtils.getLevelFrameAsset(level);
     }
     return 'assets/images/levels_new/level_badge_0.webp';
-  }
-
-  String _getFrameAsset() {
-    const basePath = 'assets/images/extracted_badges/';
-    switch (type) {
-      case BadgeType.wealth: 
-        return '${basePath}badge_frame_0_3.png'; // Gold Shield with Wings
-      case BadgeType.vip: 
-        return '${basePath}badge_frame_0_1.png'; // Gold Ornate
-      case BadgeType.level: 
-        return '${basePath}badge_frame_1_0.png'; // Green Rect with Leaves
-      case BadgeType.popularity: 
-        return '${basePath}badge_frame_1_3.png'; // Green Shield with Wings
-      case BadgeType.noble: 
-        return '${basePath}badge_frame_2_1.png'; // Blue Ornate
-      case BadgeType.role: 
-        return '${basePath}badge_frame_2_0.png'; // Blue Rect with Leaves
-      case BadgeType.family: 
-        return '${basePath}badge_frame_0_2.png'; // Gold Scroll
-      case BadgeType.agency: 
-        return '${basePath}badge_frame_2_2.png'; // Blue Scroll
-      case BadgeType.achievement: 
-        return '${basePath}badge_frame_0_3.png'; // Gold Shield (Jackpot)
-    }
   }
 }

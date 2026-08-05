@@ -52,9 +52,10 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
         final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
         final badges = getBadgesForUser(u);
         
+        final svipLevel = u.svipLevel ?? 0;
         final vipLevel = _getVipLevel(u.vipTier);
-        debugPrint('--- [VIP CROWN] vipTier="${u.vipTier}" parsedLevel=$vipLevel crownPath=${_getVipCrownPath(vipLevel)} ---');
-        final hasVipBg = vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+        debugPrint('--- [VIP CROWN] vipTier="${u.vipTier}" svipLevel=$svipLevel parsedLevel=$vipLevel crownPath=${_getVipCrownPath(vipLevel)} ---');
+        final hasVipBg = svipLevel > 0 || vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
         final textColor = hasVipBg ? Colors.white : Colors.black87;
         final subTextColor = hasVipBg ? Colors.white70 : Colors.black38;
         final iconColor = hasVipBg ? Colors.white70 : Colors.black54;
@@ -63,17 +64,39 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
           clipBehavior: Clip.none,
           alignment: Alignment.topCenter,
           children: [
-            // Main Bottom Sheet Card
+            // Main Bottom Sheet Card with full SVGA fitting
             UserProfileCard(
               user: u,
-              padding: EdgeInsets.only(top: 60, bottom: 16 + MediaQuery.of(context).padding.bottom),
+              fit: BoxFit.fill,
+              crownTop: -30,
+              crownBottom: 0,
+              padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).padding.bottom),
               borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
               boxShadow: const [
-                BoxShadow(color: Colors.black12, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
+                BoxShadow(color: Colors.black26, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
               ],
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  const Gap(24),
+                    // Centered Avatar (aligned under VIP Crown header)
+                    SizedBox(
+                      width: 124,
+                      height: 124,
+                      child: Center(
+                        child: AppAvatar(
+                          radius: 38,
+                          imageUrl: u.profilePhotoUrl,
+                          frameUrl: u.profileFrame,
+                          vipTier: u.vipTier,
+                          svipLevel: u.svipLevel,
+                          userLevel: u.level,
+                          showFrame: true,
+                          frameMultiplier: 2.0,
+                        ),
+                      ),
+                    ),
+                  const Gap(2),
 
                   // Username & Badges Row
                   Row(
@@ -81,7 +104,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     children: [
                       Text(
                         u.displayName,
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: textColor),
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: textColor),
                       ),
                       const Gap(6),
                       // Verified/Teal icon
@@ -111,7 +134,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                         ),
                     ],
                   ),
-                  const Gap(6),
+                  const Gap(4),
                   
                   // User ID
                   GestureDetector(
@@ -125,11 +148,11 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     },
                     child: Text(
                       "ID:${u.helloId ?? '...'}", 
-                      style: TextStyle(color: subTextColor, fontSize: 13, fontWeight: FontWeight.w600)
+                      style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w600)
                     ),
                   ),
                   
-                  const Gap(6),
+                  const Gap(4),
                   
                   // Badges Row
                   if (badges.isNotEmpty)
@@ -151,7 +174,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                       ),
                     ),
                   
-                  const Gap(16),
+                  const Gap(10),
                   
                   // Stats Row
                   Padding(
@@ -166,7 +189,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                   ),
                   
                   if (currentUid != u.uid) ...[
-                    const Gap(16),
+                    const Gap(10),
                     
                     // Bottom Action Bar
                     Padding(
@@ -407,11 +430,11 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
               left: 16,
               child: GestureDetector(
                 onTap: () {}, // TODO: Handle report
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.campaign_rounded, color: Colors.black54, size: 20),
-                    Gap(4),
-                    Text("REPORT", style: TextStyle(color: Colors.black54, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                    Icon(Icons.campaign_rounded, color: iconColor, size: 20),
+                    const Gap(4),
+                    Text("REPORT", style: TextStyle(color: iconColor, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                   ],
                 ),
               ),
@@ -424,57 +447,18 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: hasVipBg ? Colors.black.withOpacity(0.35) : Colors.white.withOpacity(0.9),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.purple.withOpacity(0.3)),
+                  border: Border.all(color: hasVipBg ? Colors.amber.withOpacity(0.5) : Colors.purple.withOpacity(0.3)),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Icon(Icons.card_giftcard_rounded, color: Colors.purpleAccent, size: 14),
-                    Gap(4),
-                    Text("0/12", style: TextStyle(color: Colors.purple, fontSize: 12, fontWeight: FontWeight.bold)),
-                    Gap(2),
-                    Icon(Icons.chevron_right_rounded, color: Colors.purple, size: 14),
+                    Icon(Icons.card_giftcard_rounded, color: hasVipBg ? Colors.amber : Colors.purpleAccent, size: 14),
+                    const Gap(4),
+                    Text("0/12", style: TextStyle(color: hasVipBg ? Colors.amber : Colors.purple, fontSize: 12, fontWeight: FontWeight.bold)),
+                    const Gap(2),
+                    Icon(Icons.chevron_right_rounded, color: hasVipBg ? Colors.amber : Colors.purple, size: 14),
                   ],
-                ),
-              ),
-            ),
-            
-            // VIP Crown on the curved border of the bottom sheet (behind avatar)
-            if (vipLevel >= 1 && vipLevel <= 8 && _getVipCrownPath(vipLevel) != null)
-              Positioned(
-                top: -10,
-                left: 0,
-                right: 0,
-                child: SizedBox(
-                  height: 110,
-                  child: Image.asset(
-                    _getVipCrownPath(vipLevel)!,
-                    width: double.infinity,
-                    fit: BoxFit.fitWidth,
-                    errorBuilder: (context, error, stackTrace) {
-                      return const SizedBox.shrink();
-                    },
-                  ),
-                ),
-              ),
-
-            // Centered Overlapping Avatar (Premium Frame)
-            Positioned(
-              top: -84,
-              child: SizedBox(
-                width: 176,
-                height: 176,
-                child: Center(
-                  child: AppAvatar(
-                    radius: 44,
-                    imageUrl: u.profilePhotoUrl,
-                    frameUrl: u.profileFrame,
-                    vipTier: u.vipTier,
-                    userLevel: u.level,
-                    showFrame: true,
-                    frameMultiplier: 2.0,
-                  ),
                 ),
               ),
             ),

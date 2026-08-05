@@ -324,7 +324,24 @@ class _GiftPanelState extends State<GiftPanel> {
   Future<void> _sendSelectedGift(WidgetRef ref) async {
     if (_selectedGift == null) return;
     
+    final currentUser = ref.read(currentUserProfileProvider).value;
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+    
+    // Category sending restriction validation
+    if (_selectedGift!.category.toLowerCase() == 'vip') {
+      final isVipActive = currentUser != null && currentUser.vipTier != null && currentUser.vipTier != 'none' && currentUser.vipExpiry != null && currentUser.vipExpiry!.isAfter(DateTime.now());
+      if (!isVipActive) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("👑 Only active VIP members can send VIP gifts!")));
+        return;
+      }
+    } else if (_selectedGift!.category.toLowerCase() == 'svip') {
+      final userSvipLevel = currentUser?.svipLevel ?? 0;
+      final reqLevel = _selectedGift!.minSvipLevel > 0 ? _selectedGift!.minSvipLevel : 1;
+      if (userSvipLevel < reqLevel) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("⚡ SVIP Level $reqLevel required to send this gift!")));
+        return;
+      }
+    }
     
     final finalTargets = _sendToAll 
         ? ref.read(roomParticipantsProvider(widget.roomId)).value?.where((p) => 

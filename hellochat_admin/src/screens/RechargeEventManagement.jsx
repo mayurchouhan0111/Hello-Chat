@@ -63,6 +63,8 @@ export const RechargeEventManagement = () => {
     rechargeAmount: 1,
     baseCoins: 1000000,
     bonusCoins: 2000000,
+    frameUrl: 'assets/images/super/super-admin.svga',
+    validityDays: 1,
     sortOrder: 1,
     isActive: true,
   });
@@ -222,6 +224,8 @@ export const RechargeEventManagement = () => {
       rechargeAmount: 1,
       baseCoins: 1000000,
       bonusCoins: 2000000,
+      frameUrl: 'assets/images/super/super-admin.svga',
+      validityDays: 1,
       sortOrder: 1,
       isActive: true,
     });
@@ -235,6 +239,8 @@ export const RechargeEventManagement = () => {
       rechargeAmount: pkg.rechargeAmount || 1,
       baseCoins: pkg.baseCoins || 0,
       bonusCoins: pkg.bonusCoins || 0,
+      frameUrl: pkg.frameUrl || 'assets/images/super/super-admin.svga',
+      validityDays: pkg.validityDays || (pkg.rechargeAmount >= 100 ? 14 : (pkg.rechargeAmount >= 10 ? 7 : (pkg.rechargeAmount >= 5 ? 3 : 1))),
       sortOrder: pkg.sortOrder || 1,
       isActive: pkg.isActive !== false,
     });
@@ -253,9 +259,10 @@ export const RechargeEventManagement = () => {
     const base = Number(packageForm.baseCoins);
     const bonus = Number(packageForm.bonusCoins);
     const sort = Number(packageForm.sortOrder);
+    const days = Number(packageForm.validityDays || 1);
 
-    if (amt <= 0 || base < 0 || bonus < 0 || sort < 0) {
-      showMsg('❌ Negative values are not allowed. Recharge Amount must be greater than zero.', 'error');
+    if (amt <= 0 || base < 0 || bonus < 0 || sort < 0 || days <= 0) {
+      showMsg('❌ Negative values are not allowed. Recharge Amount and Validity Days must be greater than zero.', 'error');
       return;
     }
 
@@ -277,6 +284,8 @@ export const RechargeEventManagement = () => {
         baseCoins: base,
         bonusCoins: bonus,
         totalCoins: base + bonus,
+        frameUrl: packageForm.frameUrl || 'assets/images/super/super-admin.svga',
+        validityDays: days,
         sortOrder: sort,
         isActive: packageForm.isActive,
       };
@@ -644,6 +653,25 @@ export const RechargeEventManagement = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Unlocked Frame Asset URL / Path</label>
+                      <input 
+                        type="text" placeholder="assets/images/super/super-admin.svga"
+                        className="glass-input w-full h-14"
+                        value={packageForm.frameUrl} onChange={e => setPackageForm({...packageForm, frameUrl: e.target.value})}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Frame Validity Period (Days)</label>
+                      <input 
+                        type="number" min="1" placeholder="1 (1 Day), 3, 7, 14..."
+                        className="glass-input w-full h-14"
+                        value={packageForm.validityDays} onChange={e => setPackageForm({...packageForm, validityDays: e.target.value})}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sort Order (Lower is first)</label>
                       <input 
                         type="number" min="1" placeholder="e.g. 1"
@@ -683,7 +711,7 @@ export const RechargeEventManagement = () => {
                       <th className="p-5">Recharge Amount</th>
                       <th className="p-5">Base Coins</th>
                       <th className="p-5">Bonus Coins</th>
-                      <th className="p-5">Total Coins</th>
+                      <th className="p-5">Frame Reward & Validity</th>
                       <th className="p-5">Sort Order</th>
                       <th className="p-5">Status</th>
                       <th className="p-5 text-right">Actions</th>
@@ -697,6 +725,7 @@ export const RechargeEventManagement = () => {
                     ) : (
                       packages.map((pkg) => {
                         const ev = events.find(e => e.id === pkg.eventId);
+                        const days = pkg.validityDays || (pkg.rechargeAmount >= 100 ? 14 : (pkg.rechargeAmount >= 10 ? 7 : (pkg.rechargeAmount >= 5 ? 3 : 1)));
                         return (
                           <tr key={pkg.id} className="hover:bg-white/[0.01] transition-colors">
                             <td className="p-5 font-bold text-white max-w-xs truncate">
@@ -705,7 +734,10 @@ export const RechargeEventManagement = () => {
                             <td className="p-5 text-indigo-400 font-black font-mono">${pkg.rechargeAmount} USD</td>
                             <td className="p-5 text-slate-300 font-mono">{(pkg.baseCoins || 0).toLocaleString()}</td>
                             <td className="p-5 text-amber-500 font-mono">+{(pkg.bonusCoins || 0).toLocaleString()}</td>
-                            <td className="p-5 text-emerald-400 font-black font-mono">{(pkg.totalCoins || 0).toLocaleString()}</td>
+                            <td className="p-5 text-pink-400 font-bold font-mono">
+                              <div>{pkg.frameUrl ? pkg.frameUrl.split('/').pop() : 'Default Frame'}</div>
+                              <div className="text-[10px] text-slate-400 font-normal">⏱️ {days} Day{days > 1 ? 's' : ''} Validity</div>
+                            </td>
                             <td className="p-5 text-slate-400 font-mono">{pkg.sortOrder}</td>
                             <td className="p-5">
                               {pkg.isActive ? (

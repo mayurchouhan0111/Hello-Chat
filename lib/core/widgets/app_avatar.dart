@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/providers/vip_provider.dart';
 import '../../utils/level_utils.dart';
+import '../models/svip_level_model.dart';
+import '../utils/svga_static_util.dart';
 import 'svga_player.dart';
 
 class AppAvatar extends ConsumerWidget {
@@ -13,10 +13,14 @@ class AppAvatar extends ConsumerWidget {
   final String? badgeUrl;
   final List<String>? tags;
   final String? vipTier;
+  final int? svipLevel;
   final int? userLevel;
   final double radius;
   final bool showFrame;
   final double frameMultiplier;
+  final bool staticFrame;
+  final double? maxFps;
+  final Size? maxRenderSize;
 
   const AppAvatar({
     super.key,
@@ -25,10 +29,14 @@ class AppAvatar extends ConsumerWidget {
     this.badgeUrl,
     this.tags,
     this.vipTier,
+    this.svipLevel,
     this.userLevel,
     this.radius = 20.0,
     this.showFrame = true,
     this.frameMultiplier = 1.5, // Increased size
+    this.staticFrame = false,
+    this.maxFps,
+    this.maxRenderSize,
   });
 
   @override
@@ -48,17 +56,31 @@ class AppAvatar extends ConsumerWidget {
       finalFrameUrl = '';
     } else if (hasExplicitFrame) {
       // USER-EXPLICIT FRAME: Highest priority per VIP policy.
-      // VIP cosmetics are OPTIONAL — user MUST NOT be forced to display VIP items.
-      // If user equipped Rocket/Admin/Custom/VIP frame via Warehouse, it displays.
       final lowerUrl = finalFrameUrl.toLowerCase();
-      if (lowerUrl.contains('rocket_frame') || lowerUrl.contains('rocket.svga')) {
-        finalFrameUrl = 'assets/ref/frames/frames/rocket.svga';
-      } else if (lowerUrl.contains('super-admin.png') || lowerUrl.contains('superadmin.png') || lowerUrl.contains('super_admin.png')) {
-        finalFrameUrl = 'assets/images/super/super-admin.svga';
-      } else if (lowerUrl.contains('admin.png') && !lowerUrl.contains('super')) {
+      if (lowerUrl.contains('rocket_frame') || lowerUrl.contains('rockeet_svga') || lowerUrl.contains('rocket.svga')) {
+        finalFrameUrl = 'assets/Helo chat/Rockeet_SVGA.svga';
+      } else if (lowerUrl.contains('super-admin') || lowerUrl.contains('superadmin')) {
+        finalFrameUrl = 'assets/Helo chat/Superadmin.svga';
+      } else if (lowerUrl.contains('admin') && !lowerUrl.contains('super')) {
         finalFrameUrl = 'assets/images/super/admin.svga';
-      } else if (lowerUrl.contains('reseller.png')) {
+      } else if (lowerUrl.contains('reseller')) {
         finalFrameUrl = 'assets/images/super/reseller.svga';
+      } else if (lowerUrl.contains('agency')) {
+        finalFrameUrl = 'assets/Helo chat/Agency.svga';
+      } else if (lowerUrl.contains('official')) {
+        finalFrameUrl = 'assets/Helo chat/Official.svga';
+      } else if (lowerUrl.contains('cp_frame_3') || lowerUrl.contains('3.svga')) {
+        finalFrameUrl = 'assets/Helo chat/3.svga';
+      } else if (lowerUrl.contains('cp_frame_2') || lowerUrl.contains('2.svga')) {
+        finalFrameUrl = 'assets/Helo chat/2.svga';
+      } else if (lowerUrl.contains('cp_frame_1') || lowerUrl.contains('cp_frame') || lowerUrl.contains('cp.svga') || lowerUrl.contains('1.svga')) {
+        finalFrameUrl = 'assets/Helo chat/1.svga';
+      } else if (lowerUrl.contains('top 1') || lowerUrl.contains('top1')) {
+        finalFrameUrl = 'assets/Helo chat/Top 1.svga';
+      } else if (lowerUrl.contains('top 2') || lowerUrl.contains('top2')) {
+        finalFrameUrl = 'assets/Helo chat/Top 2.svga';
+      } else if (lowerUrl.contains('top 3') || lowerUrl.contains('top3')) {
+        finalFrameUrl = 'assets/Helo chat/Top 3.svga';
       } else {
         final lowerFrame = finalFrameUrl.toLowerCase();
         bool matched = false;
@@ -77,20 +99,31 @@ class AppAvatar extends ConsumerWidget {
         }
       }
     }
-    // NO implicit VIP frame fallback — VIP frames are OPTIONAL per policy.
-    // User must explicitly equip from Warehouse to show VIP frame.
+
+    // Resolve SVIP Kit Frame asset if user has active svipLevel
+    if (finalFrameUrl.isEmpty && (svipLevel ?? 0) > 0) {
+      final svipModel = SVIPLevelModel.getLevelByTier(svipLevel!);
+      finalFrameUrl = svipModel.frameAsset;
+    }
 
     // Only apply tag-based frames if no frame is already resolved
     if (finalFrameUrl.isEmpty && tags != null) {
       if (tags!.contains('SuperAdmin')) {
-        finalFrameUrl = 'assets/images/super/super-admin.svga';
+        finalFrameUrl = 'assets/Helo chat/Superadmin.svga';
       } else if (tags!.contains('Admin')) {
         finalFrameUrl = 'assets/images/super/admin.svga';
+      } else if (tags!.contains('Agency')) {
+        finalFrameUrl = 'assets/Helo chat/Agency.svga';
       } else if (tags!.contains('Reseller')) {
         finalFrameUrl = 'assets/images/super/reseller.svga';
       } else if (tags!.contains('Official')) {
-        finalFrameUrl = 'assets/images/super/official.png';
+        finalFrameUrl = 'assets/Helo chat/Official.svga';
       }
+    }
+
+    // Resolve static frame if requested
+    if (staticFrame && finalFrameUrl.toLowerCase().endsWith('.svga')) {
+      finalFrameUrl = SvgaStaticUtil.staticPathForSvga(finalFrameUrl, category: 'frame');
     }
 
     // Now calculate sizes
@@ -100,10 +133,15 @@ class AppAvatar extends ConsumerWidget {
     }
 
     if (finalFrameUrl.toLowerCase().endsWith('.svga')) {
-      // SVGA frames don't have as much internal padding as the old PNGs.
-      // We scale them down so they fit snugly around the avatar circle.
-      // This forces the multiplier to be around 1.35.
-      customFrameMultiplier = 1.35; 
+      // SVGA frames don't have as much internal padding as PNGs.
+      // Scale proportionally with frameMultiplier so SVGA frames match requested avatar sizes.
+      customFrameMultiplier = (frameMultiplier * 0.85).clamp(1.2, 1.85); 
+    }
+
+    final String lowerFrame = finalFrameUrl.toLowerCase();
+    final bool isSvip1Frame = (svipLevel == 1) || lowerFrame.contains('svip 1') || lowerFrame.contains('svip_1') || lowerFrame.contains('svip1');
+    if (isSvip1Frame && lowerFrame.contains('frame')) {
+      customFrameMultiplier *= 0.84; // Reduced frame radius specifically for SVIP 1 frame per user request
     }
 
     final double avatarSize = radius * 2;
@@ -148,8 +186,6 @@ class AppAvatar extends ConsumerWidget {
                   ? CachedNetworkImage(
                       imageUrl: imageUrl,
                       fit: BoxFit.cover,
-                      memCacheWidth: (radius * 3.0).toInt().clamp(60, 300),
-                      memCacheHeight: (radius * 3.0).toInt().clamp(60, 300),
                       placeholder: (_, __) => Container(color: Colors.grey[100]),
                       errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
                     )
@@ -176,14 +212,27 @@ class AppAvatar extends ConsumerWidget {
                     height: frameSize,
                     child: finalFrameUrl.startsWith('assets/')
                       ? finalFrameUrl.toLowerCase().endsWith('.svga')
-                          ? SvgaPlayer(key: ValueKey(finalFrameUrl), assetPath: finalFrameUrl)
+                          ? SvgaPlayer(
+                              key: ValueKey(finalFrameUrl),
+                              assetPath: finalFrameUrl,
+                              maxFps: maxFps,
+                              maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
+                              pauseWhenInvisible: true,
+                            )
                           : Image.asset(
                               finalFrameUrl,
                               fit: BoxFit.contain,
+                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                             )
                       : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
                         ? finalFrameUrl.toLowerCase().endsWith('.svga')
-                            ? SvgaPlayer(key: ValueKey(finalFrameUrl), url: finalFrameUrl)
+                            ? SvgaPlayer(
+                                key: ValueKey(finalFrameUrl),
+                                url: finalFrameUrl,
+                                maxFps: maxFps,
+                                maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
+                                pauseWhenInvisible: true,
+                              )
                             : CachedNetworkImage(
                                 imageUrl: finalFrameUrl,
                                 fit: BoxFit.contain,
@@ -192,8 +241,7 @@ class AppAvatar extends ConsumerWidget {
                                 errorWidget: (_, __, ___) => const SizedBox.shrink(),
                               )
                         : const SizedBox.shrink(),
-                  ).animate(onPlay: (c) => c.repeat(reverse: true))
-                   .scale(begin: const Offset(1, 1), end: const Offset(1.03, 1.03), duration: 2.seconds),
+                  ),
                 ),
               ),
             ),

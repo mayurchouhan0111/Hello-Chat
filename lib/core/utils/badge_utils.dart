@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
+import '../models/svip_level_model.dart';
 import '../widgets/user_badge.dart';
 import '../../utils/level_utils.dart';
 
@@ -32,16 +33,22 @@ List<Widget> getBadgesForUser(UserModel user) {
     final level = _getVipLevel(user.vipTier);
     if (level >= 1 && level <= 8) {
       if (level == 1) {
-        customBadge = 'assets/VIP/VIP 1/Badge.svga';
+        customBadge = 'assets/VIP/VIP 1/Badge.webp';
+      } else if (level == 2 || level == 5 || level == 7) {
+        customBadge = 'assets/VIP/VIP $level/VIP $level/Badge.png';
       } else {
-        customBadge = 'assets/VIP/VIP $level/VIP $level/Badge.svga';
+        customBadge = 'assets/VIP/VIP $level/VIP $level/Badge.webp';
       }
     } else if (user.badgeIcon.isNotEmpty) {
       final lowerBadge = user.badgeIcon.toLowerCase();
       if (lowerBadge.startsWith('http') && lowerBadge.contains('vip/')) {
         for (int i = 1; i <= 8; i++) {
           if (lowerBadge.contains('vip%20$i/') || lowerBadge.contains('vip $i/')) {
-            customBadge = i == 1 ? 'assets/VIP/VIP 1/Badge.svga' : 'assets/VIP/VIP $i/VIP $i/Badge.svga';
+            customBadge = (i == 1)
+                ? 'assets/VIP/VIP 1/Badge.webp'
+                : ((i == 2 || i == 5 || i == 7)
+                    ? 'assets/VIP/VIP $i/VIP $i/Badge.png'
+                    : 'assets/VIP/VIP $i/VIP $i/Badge.webp');
             break;
           }
         }
@@ -75,7 +82,13 @@ List<Widget> getBadgesForUser(UserModel user) {
 
   // 8. Wealth Tier (SVIP)
   if ((user.svipLevel ?? 0) > 0) {
-    badges.add(UserBadge(label: "Wealth ${user.svipLevel}", type: BadgeType.noble, icon: Icons.stars));
+    final svipModel = SVIPLevelModel.getLevelByTier(user.svipLevel ?? 1);
+    badges.add(UserBadge(
+      label: "SVIP ${user.svipLevel}", 
+      type: BadgeType.noble, 
+      customFrameAsset: svipModel.badgeTagAsset,
+      icon: Icons.stars,
+    ));
   }
 
   // 9. Jackpot King
