@@ -39,6 +39,15 @@ export default function OwnerTagConfig() {
     level5: '#FFD700',
   });
 
+  const getContrastTextColor = (hexColor) => {
+    if (!hexColor || !hexColor.startsWith('#') || hexColor.length < 7) return '#FFFFFF';
+    const r = parseInt(hexColor.slice(1, 3), 16);
+    const g = parseInt(hexColor.slice(3, 5), 16);
+    const b = parseInt(hexColor.slice(5, 7), 16);
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq >= 128 ? '#000000' : '#FFFFFF';
+  };
+
   useEffect(() => {
     fetchConfig();
   }, []);
@@ -174,7 +183,7 @@ export default function OwnerTagConfig() {
                       padding: '4px 10px',
                       borderRadius: '10px',
                       background: hostColors[`level${lvl}`],
-                      color: '#fff',
+                      color: getContrastTextColor(hostColors[`level${lvl}`]),
                       fontSize: '11px',
                       fontWeight: 'bold'
                     }}>
@@ -249,7 +258,7 @@ export default function OwnerTagConfig() {
                       padding: '4px 10px',
                       borderRadius: '10px',
                       background: agencyColors[`level${lvl}`],
-                      color: '#fff',
+                      color: getContrastTextColor(agencyColors[`level${lvl}`]),
                       fontSize: '11px',
                       fontWeight: 'bold'
                     }}>

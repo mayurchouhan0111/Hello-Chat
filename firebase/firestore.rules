@@ -164,6 +164,10 @@ service cloud.firestore {
         );
         allow write: if false; // Server functions only
       }
+      match /gift_leaderboard/{period}/{bucket}/{uid} {
+        allow read: if true;
+        allow write: if false; // Server functions only
+      }
     }
 
     // Direct Chats

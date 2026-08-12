@@ -13,7 +13,103 @@ class GlobalNotificationOverlay extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return child;
+    final user = ref.watch(authStateProvider).value;
+
+    return Stack(
+      children: [
+        child,
+        if (user != null)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            left: 16,
+            right: 16,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('global_notifications')
+                  .orderBy('createdAt', descending: true)
+                  .limit(1)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+
+                final doc = snapshot.data!.docs.first;
+                final data = doc.data() as Map<String, dynamic>;
+                final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
+
+                // Auto-dismiss banners older than 12 seconds
+                if (createdAt != null && DateTime.now().difference(createdAt).inSeconds > 12) {
+                  return const SizedBox.shrink();
+                }
+
+                return _GlobalLuckyBagBanner(doc: doc, data: data);
+              },
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _GlobalLuckyBagBanner extends ConsumerWidget {
+  final QueryDocumentSnapshot doc;
+  final Map<String, dynamic> data;
+
+  const _GlobalLuckyBagBanner({required this.doc, required this.data});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final roomId = data['roomId'] as String? ?? '';
+    final message = data['message'] as String? ?? '🎉 A Lucky Bag was dropped! Join & Claim Now!';
+
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFFD81B60), Color(0xFF8E24AA)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(color: Colors.pink.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 5)),
+          ],
+          border: Border.all(color: Colors.amberAccent, width: 1.5),
+        ),
+        child: Row(
+          children: [
+            const Text("🧧", style: TextStyle(fontSize: 26)),
+            const Gap(12),
+            Expanded(
+              child: Text(
+                message,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+            const Gap(10),
+            ElevatedButton(
+              onPressed: () {
+                if (roomId.isNotEmpty) {
+                  RoomNavigationHelper.joinRoom(context, ref, roomId);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              child: const Text("Claim", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

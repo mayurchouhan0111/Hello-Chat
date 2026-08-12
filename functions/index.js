@@ -1398,6 +1398,50 @@ exports.leaveRoom = functions.https.onCall(async (data, context) => {
 // Deprecated: use sendGiftWithCombo
 
 /**
+ * 🏆 Room Gift Leaderboard helpers
+ * Tracks sender diamond contributions per room across daily/weekly/monthly buckets.
+ * Bucket keyed documents avoid reset races: each gift increments the doc for the
+ * current period bucket, and clients query only the active bucket.
+ */
+
+/** ISO week key (e.g. "2026-W33") computed in UTC. */
+function isoWeekKey(date) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
+/**
+ * Increment per-room gift leaderboard buckets inside a transaction.
+ * Data shape: rooms/{roomId}/gift_leaderboard/{period}/{bucket}/{uid}
+ */
+function trackRoomGiftLeaderboard(transaction, roomId, senderUid, totalCost, senderData, now) {
+    const ts = now || new Date();
+    const buckets = {
+        daily: ts.toISOString().slice(0, 10),          // YYYY-MM-DD
+        weekly: isoWeekKey(ts),                          // YYYY-Www
+        monthly: ts.toISOString().slice(0, 7),           // YYYY-MM
+    };
+    const senderName = (senderData && senderData.displayName) || "User";
+    const senderPhoto = (senderData && senderData.profilePhotoUrl) || "";
+
+    for (const [period, bucket] of Object.entries(buckets)) {
+        const ref = db.collection("rooms").doc(roomId)
+            .collection("gift_leaderboard").doc(period)
+            .collection(bucket).doc(senderUid);
+        transaction.set(ref, {
+            amount: admin.firestore.FieldValue.increment(totalCost),
+            name: senderName,
+            photoUrl: senderPhoto,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+}
+
+/**
  * 12. Send Gift with Combo & XP
  * Handles diamond deduction, beans addition, XP calculation, combo tracking, and PK score updates.
  */
@@ -1440,6 +1484,22 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
             const giftData = giftDoc.data();
             const totalCost = (giftData.priceInDiamonds || 0) * qty;
+
+            // 👑 Server-side VIP / SVIP Category Enforcement
+            const senderData = senderDoc.data();
+            const giftCat = (giftData.category || '').toLowerCase().trim();
+            if (giftCat === 'vip') {
+                const isVip = senderData.vipTier && senderData.vipTier !== 'none';
+                if (!isVip) {
+                    throw new functions.https.HttpsError("permission-denied", "👑 Only active VIP members can send VIP gifts!");
+                }
+            } else if (giftCat === 'svip') {
+                const userSvipLevel = senderData.svipLevel || 0;
+                const reqLevel = giftData.minSvipLevel || 1;
+                if (userSvipLevel < reqLevel) {
+                    throw new functions.https.HttpsError("permission-denied", `⚡ SVIP Level ${reqLevel} required to send this gift!`);
+                }
+            }
 
             // 🔍 2.5 Preliminary Agency Read (Transactions must read before write)
             let agencyDoc = null;
@@ -1683,6 +1743,14 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 totalCoins: admin.firestore.FieldValue.increment(totalCost),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+
+            // 🏆 Room Gift Leaderboard: track sender diamond contributions per period
+            try {
+                trackRoomGiftLeaderboard(transaction, roomId, senderUid, totalCost, senderDoc.data(), new Date());
+            } catch (lbErr) {
+                // Don't fail the gift if leaderboard tracking fails
+                console.warn(`[GIFT_LEADERBOARD] Error tracking gift:`, lbErr.message);
+            }
 
             return {
                 success: true,
@@ -2806,8 +2874,42 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
 
         // --- GLOBAL OUTCOME DETERMINATION ---
-        let roundResult = currentStats.lastGlobalRound === roundId ? currentStats.lastGlobalOutcome : null;
-        
+        let activeRoundId = currentStats.activeRoundId;
+        let activeRoundOutcome = currentStats.activeRoundOutcome;
+        let lastGlobalRound = currentStats.lastGlobalRound || "";
+        let lastGlobalOutcome = currentStats.lastGlobalOutcome || null;
+        let recentResults = currentStats.recentResults || [];
+
+        // First, check if a previous active round is now ready to be revealed
+        const activeRoundStartMs = activeRoundId ? (Number(activeRoundId) * ROUND_DURATION_MS) : 0;
+        const activeRoundRevealMs = activeRoundStartMs + 35000;
+
+        if (activeRoundId && activeRoundOutcome && (roundId !== activeRoundId || now >= activeRoundRevealMs)) {
+            if (lastGlobalRound !== activeRoundId) {
+                lastGlobalRound = activeRoundId;
+                lastGlobalOutcome = activeRoundOutcome;
+                recentResults.unshift({
+                    roundId: activeRoundId,
+                    emoji: activeRoundOutcome.emoji,
+                    label: activeRoundOutcome.label,
+                    type: activeRoundOutcome.type,
+                    name: activeRoundOutcome.name,
+                    multiplier: activeRoundOutcome.multiplier,
+                    timestamp: activeRoundStartMs + ROUND_DURATION_MS
+                });
+                if (recentResults.length > 20) {
+                    recentResults = recentResults.slice(0, 20);
+                }
+            }
+        }
+
+        let roundResult = null;
+        if (activeRoundId === roundId && activeRoundOutcome) {
+            roundResult = activeRoundOutcome;
+        } else if (lastGlobalRound === roundId && lastGlobalOutcome) {
+            roundResult = lastGlobalOutcome;
+        }
+
         if (!roundResult) {
             const todayStr = new Date().toISOString().split('T')[0];
             let saladHits = currentStats.todaySaladHits || 0;
@@ -2913,25 +3015,22 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             startOfDayUTC.setUTCHours(0, 0, 0, 0);
             const currentRoundToday = Math.floor((startOfRoundEpochMs - startOfDayUTC.getTime()) / ROUND_DURATION_MS) + 1;
 
-            // Maintain a list of the last 20 outcomes in Firestore
-            let recentResults = currentStats.recentResults || [];
-            recentResults.unshift({
-                roundId: roundId,
-                emoji: roundResult.emoji,
-                label: roundResult.label,
-                type: roundResult.type,
-                name: roundResult.name,
-                multiplier: roundResult.multiplier,
-                timestamp: now
-            });
-            if (recentResults.length > 20) {
-                recentResults = recentResults.slice(0, 20);
-            }
+            activeRoundId = roundId;
+            activeRoundOutcome = roundResult;
 
-            // Update Global Stats
+            // 🛡️ Store private outcome securely (Admin/Server read only)
+            const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
+            transaction.set(privateStatsRef, {
+                roundId,
+                outcome: activeRoundOutcome,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Update Global Stats (Strictly omit activeRoundOutcome from public statsRef to prevent client prediction leaks)
             const statsUpdate = {
-                lastGlobalRound: roundId,
-                lastGlobalOutcome: roundResult,
+                activeRoundId: activeRoundId,
+                lastGlobalRound: lastGlobalRound,
+                lastGlobalOutcome: lastGlobalOutcome,
                 currentRound: currentRoundToday,
                 todaySaladHits: saladHits,
                 todayPizzaHits: pizzaHits,
@@ -3126,10 +3225,14 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
         // Log History (Only if the user actually placed a bet)
         if (totalBet > 0) {
+            const currentBetCount = Number(userDoc.data().totalGameCount || 0) + 1;
+            transaction.update(userRef, { totalGameCount: currentBetCount });
+
             const orderId = `NLOT_${roundId}_${uid.substring(0, 5)}_${now}_${Math.floor(1000 + Math.random() * 9000)}`;
             const logRef = userRef.collection("game_history").doc();
             transaction.set(logRef, {
                 game: "spin_wheel",
+                serialNumber: currentBetCount,
                 roundId: roundId,
                 bets: bets,
                 totalBet: totalBet,
@@ -6181,6 +6284,43 @@ exports.getServerTime = functions.https.onCall(async (data, context) => {
     const now = admin.firestore.Timestamp.now();
     return { serverTime: now.toMillis() };
 });
+
+/**
+ * 🧹 Cleanup: Purge old Room Gift Leaderboard buckets.
+ * Daily run — keeps the last 90 days of daily buckets, 26 weekly buckets and
+ * 12 monthly buckets to bound storage growth.
+ */
+exports.cleanupRoomGiftLeaderboard = functions.pubsub.schedule("0 3 * * *").onRun(async (context) => {
+    const now = new Date();
+    const dailyCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const weeklyCutoff = isoWeekKey(new Date(now.getTime() - 26 * 7 * 24 * 60 * 60 * 1000));
+    const monthlyCutoff = new Date(now.getTime() - 12 * 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7);
+
+    let deleted = 0;
+    const roomsSnap = await db.collection("rooms").select("name").get();
+
+    for (const roomDoc of roomsSnap.docs) {
+        const roomRef = db.collection("rooms").doc(roomDoc.id);
+        for (const [period, cutoff] of [["daily", dailyCutoff], ["weekly", weeklyCutoff], ["monthly", monthlyCutoff]]) {
+            const periodSnap = await roomRef.collection("gift_leaderboard").doc(period).listCollections();
+            for (const bucketColl of periodSnap) {
+                if (bucketColl.id < cutoff) {
+                    const docs = await bucketColl.get();
+                    const batch = db.batch();
+                    docs.docs.forEach((d) => batch.delete(d.ref));
+                    await batch.commit();
+                    deleted += docs.size;
+                    // Recursively delete the now-empty bucket document
+                    await bucketColl.parent.delete().catch(() => {});
+                }
+            }
+        }
+    }
+
+    console.log(`[GIFT_LEADERBOARD_CLEANUP] Deleted ${deleted} stale leaderboard entries.`);
+    return { deleted };
+});
+
 
 /**
  * 999. Scheduled: VIP Expiry Check & Auto-Demotion
@@ -9251,6 +9391,156 @@ exports.checkRoleAndExpiredFrames = functions.https.onCall(async (data, context)
     await batch.commit();
 
     return { success: true, expiredFramesCleared: count };
+});
+
+/**
+ * 🧧 1. Send Lucky Bag (Hongbao Random Diamond Pool Distribution)
+ */
+exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const senderUid = context.auth.uid;
+    const { roomId, totalDiamonds, winnerCount, message } = data;
+
+    const amount = Math.max(1000, parseInt(totalDiamonds) || 50000);
+    const winners = Math.max(1, parseInt(winnerCount) || 10);
+
+    return await db.runTransaction(async (transaction) => {
+        const senderRef = db.collection("users").doc(senderUid);
+        const roomRef = db.collection("rooms").doc(roomId);
+
+        const [senderDoc, roomDoc] = await Promise.all([
+            transaction.get(senderRef),
+            transaction.get(roomRef)
+        ]);
+
+        if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender user profile not found.");
+        const currentBalance = senderDoc.data().diamondBalance || 0;
+        if (currentBalance < amount) {
+            throw new functions.https.HttpsError("failed-precondition", `Insufficient Diamond balance. Available: ${currentBalance}`);
+        }
+
+        // Generate Hongbao Red-Envelope Random Diamond Distribution Algorithm
+        let remainingAmount = amount;
+        let remainingWinners = winners;
+        const rewardPool = [];
+
+        for (let i = 0; i < winners - 1; i++) {
+            const maxAllocation = (remainingAmount / remainingWinners) * 2;
+            const slice = Math.max(1, Math.floor(Math.random() * maxAllocation));
+            rewardPool.push(slice);
+            remainingAmount -= slice;
+            remainingWinners--;
+        }
+        rewardPool.push(remainingAmount); // Last winner gets remaining remainder
+
+        // Shuffle slices randomly
+        rewardPool.sort(() => Math.random() - 0.5);
+
+        // Deduct sender balance
+        transaction.update(senderRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(-amount),
+            totalDiamondsSpent: admin.firestore.FieldValue.increment(amount)
+        });
+
+        // Create Lucky Bag Document
+        const bagRef = db.collection("lucky_bags").doc();
+        const roomName = roomDoc.exists ? (roomDoc.data().name || "Live Room") : "Live Room";
+        const senderName = senderDoc.data().displayName || senderDoc.data().username || "User";
+
+        transaction.set(bagRef, {
+            bagId: bagRef.id,
+            roomId,
+            roomName,
+            senderUid,
+            senderName,
+            senderAvatar: senderDoc.data().profilePhotoUrl || "",
+            totalDiamonds: amount,
+            winnerCount: winners,
+            remainingWinners: winners,
+            rewardPool,
+            claimedUids: [],
+            claims: [],
+            message: message || "Join and claim your Lucky Bag!",
+            status: "active",
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Push Global Lucky Bag Banner Notification across all rooms
+        const notifRef = db.collection("global_notifications").doc();
+        transaction.set(notifRef, {
+            id: notifRef.id,
+            type: "lucky_bag",
+            roomId,
+            title: "🎉 Lucky Bag Drop!",
+            message: `🎉 ${senderName} sent a Lucky Bag (${amount.toLocaleString()} 💎) in ${roomName}! Tap to Join & Claim Now!`,
+            senderName,
+            totalDiamonds: amount,
+            createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        return { success: true, bagId: bagRef.id, totalDiamonds: amount };
+    });
+});
+
+/**
+ * 🧧 2. Claim Lucky Bag Slice
+ */
+exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const claimantUid = context.auth.uid;
+    const { bagId } = data;
+
+    if (!bagId) throw new functions.https.HttpsError("invalid-argument", "Missing bagId.");
+
+    return await db.runTransaction(async (transaction) => {
+        const bagRef = db.collection("lucky_bags").doc(bagId);
+        const claimantRef = db.collection("users").doc(claimantUid);
+
+        const [bagDoc, claimantDoc] = await Promise.all([
+            transaction.get(bagRef),
+            transaction.get(claimantRef)
+        ]);
+
+        if (!bagDoc.exists) throw new functions.https.HttpsError("not-found", "Lucky Bag expired or not found.");
+        const bagData = bagDoc.data();
+
+        if (bagData.status !== "active" || bagData.rewardPool.length === 0) {
+            throw new functions.https.HttpsError("failed-precondition", "This Lucky Bag is fully claimed!");
+        }
+
+        const claimedUids = bagData.claimedUids || [];
+        if (claimedUids.includes(claimantUid)) {
+            throw new functions.https.HttpsError("already-exists", "You have already claimed a reward from this Lucky Bag!");
+        }
+
+        // Draw next random slice from reward pool
+        const rewardPool = [...bagData.rewardPool];
+        const rewardDiamonds = rewardPool.pop();
+
+        // Update Claimant Diamond Balance
+        transaction.update(claimantRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(rewardDiamonds)
+        });
+
+        const updatedClaimed = [...claimedUids, claimantUid];
+        const isDepleted = rewardPool.length === 0;
+
+        transaction.update(bagRef, {
+            rewardPool,
+            claimedUids: updatedClaimed,
+            remainingWinners: rewardPool.length,
+            status: isDepleted ? "depleted" : "active",
+            claims: admin.firestore.FieldValue.arrayUnion({
+                uid: claimantUid,
+                name: claimantDoc.data()?.displayName || "User",
+                avatar: claimantDoc.data()?.profilePhotoUrl || "",
+                diamonds: rewardDiamonds,
+                claimedAt: Date.now()
+            })
+        });
+
+        return { success: true, rewardDiamonds, isDepleted };
+    });
 });
 
 

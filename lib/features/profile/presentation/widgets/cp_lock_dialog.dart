@@ -57,7 +57,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('🔒 CP Relationship locked for $_selectedDuration!'),
-              backgroundColor: Colors.emerald,
+              backgroundColor: const Color(0xFF10B981),
             ),
           );
         }
@@ -90,7 +90,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('✅ Removal request sent to CP partner! ($remaining requests left)'),
-              backgroundColor: Colors.emerald,
+              backgroundColor: const Color(0xFF10B981),
             ),
           );
         }
@@ -141,7 +141,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
           if (widget.isLocked) {
             return Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: Crossstart,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'This CP relationship is currently locked. The "Break CP" option is hidden for both partners.',
@@ -202,8 +202,8 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
             final svipLevel = user?.svipLevel ?? 0;
             if (widget.isLocked && svipLevel == 6) {
               return ElevatedButton(
-                onPressed: _isSubmitting ? null : _requestSvip6CpRemove,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.rose, foregroundColor: Colors.white),
+                onPressed: _isSubmitting ? null : _requestSvip6Remove,
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.pinkAccent, foregroundColor: Colors.white),
                 child: const Text('REQUEST CP REMOVAL', style: TextStyle(fontWeight: FontWeight.bold)),
               );
             } else if (!widget.isLocked && svipLevel >= 3) {

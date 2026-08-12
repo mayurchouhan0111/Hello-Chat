@@ -1,0 +1,41 @@
+name: Build Release APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Flutter APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: 🚀 Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 📦 Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: 🏗️ Build Release APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: 📤 Upload Release APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HelloChat-Release-APK
+          path: build/app/outputs/flutter-apk/app-release.apk

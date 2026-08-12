@@ -9,6 +9,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/router/app_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 class EditProfileScreen extends ConsumerStatefulWidget {
@@ -206,6 +207,13 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                 isReadOnly: true,
               ),
               _buildModernListTile("Location", profile.country.isEmpty ? "Unknown" : profile.country, showArrow: false, isReadOnly: true),
+              
+              _buildSectionHeader("Exclusive Features"),
+              _buildModernListTile(
+                "Level 50+ Custom Gift", 
+                "Submit MP4 Video", 
+                onTap: () => context.push(AppRoutes.customGiftRequest),
+              ),
               
               const Gap(60),
             ],

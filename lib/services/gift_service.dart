@@ -36,20 +36,20 @@ class GiftService extends BaseFirebaseService {
   /// Migrates local assets to Cloudinary and saves to Firestore
   Future<void> migrateLocalGiftsToCloudinary() async {
     final List<Map<String, dynamic>> localGifts = [
-      {'id': 'rose', 'name': 'Rose', 'price': 50, 'cat': 'small', 'img': '🌹', 'file': 'Rose.json'},
-      {'id': 'balloon', 'name': 'Balloon', 'price': 20, 'cat': 'small', 'img': '🎈', 'file': 'balloon.json'},
-      {'id': 'cake', 'name': 'Pink Cake', 'price': 150, 'cat': 'small', 'img': '🎂', 'file': 'pink cake.json'},
-      {'id': 'diamond', 'name': 'Red Diamond', 'price': 500, 'cat': 'luxury', 'img': '💎', 'file': 'Red Diamond.json'},
-      {'id': 'cat', 'name': 'Lucky Cat', 'price': 800, 'cat': 'luxury', 'img': '🐱', 'file': 'cat.json'},
-      {'id': 'crown', 'name': 'Gold Crown', 'price': 1000, 'cat': 'luxury', 'img': '👑', 'file': 'Premium Gold.json'},
-      {'id': 'celebration', 'name': 'Celebration', 'price': 100, 'cat': 'special', 'img': '🎉', 'file': 'Celebration.json'},
-      {'id': 'rocket', 'name': 'Rocket', 'price': 5000, 'cat': 'special', 'img': '🚀', 'file': 'Rocket loader.json'},
-      {'id': 'car', 'name': 'Red Sport Car', 'price': 20000, 'cat': 'special', 'img': '🏎️', 'file': 'Red Car.json'},
-      {'id': 'airplane', 'name': 'Airplane', 'price': 30000, 'cat': 'special', 'img': '✈️', 'file': 'airplane.json'},
+      {'id': 'rose', 'name': 'Rose', 'price': 50, 'cat': 'Relationship', 'img': '🌹', 'file': 'Rose.json'},
+      {'id': 'balloon', 'name': 'Balloon', 'price': 0, 'cat': 'Gift', 'img': '🎈', 'file': 'balloon.json'},
+      {'id': 'cake', 'name': 'Celebration Cake', 'price': 300, 'cat': 'Gift', 'img': '🎂', 'file': 'pink cake.json'},
+      {'id': 'lucky_star', 'name': 'Lucky Star', 'price': 200, 'cat': 'Lucky', 'img': '⭐', 'file': 'Celebration.json'},
+      {'id': 'lucky_bell', 'name': 'Lucky Bell', 'price': 1000, 'cat': 'Lucky', 'img': '🔔', 'file': 'Celebration.json'},
+      {'id': 'lucky_chest', 'name': 'Lucky Chest', 'price': 100000, 'cat': 'Lucky', 'img': '🧰', 'file': 'Celebration.json'},
+      {'id': 'lucky_fruit', 'name': 'Lucky Fruit', 'price': 500, 'cat': 'Lucky fruit', 'img': '🍉', 'file': 'Celebration.json'},
+      {'id': 'car_king', 'name': 'Car King', 'price': 400000, 'cat': 'Luxury', 'img': '🏎️', 'file': 'Red Car.json'},
+      {'id': 'crown', 'name': 'Gold Crown', 'price': 1000, 'cat': 'VIP', 'img': '👑', 'file': 'Premium Gold.json'},
+      {'id': 'rocket', 'name': 'Rocket', 'price': 5000, 'cat': 'Luxury', 'img': '🚀', 'file': 'Rocket loader.json'},
       // ── SVGA Premium Gifts ─────────────────────────────────
-      {'id': 'mystic_rings', 'name': 'Mystic Rings', 'price': 1200, 'cat': 'special', 'img': '💍', 'file': 'mystic_rings.svga'},
-      {'id': 'royal_carriage', 'name': 'Royal Carriage', 'price': 8000, 'cat': 'luxury', 'img': '🎠', 'file': '235.svga'},
-      {'id': 'crystal_palace', 'name': 'Crystal Palace', 'price': 15000, 'cat': 'luxury', 'img': '🏰', 'file': '100_optimized.svga'},
+      {'id': 'mystic_rings', 'name': 'Mystic Rings', 'price': 1200, 'cat': 'Relationship', 'img': '💍', 'file': 'mystic_rings.svga'},
+      {'id': 'royal_carriage', 'name': 'Royal Carriage', 'price': 8000, 'cat': 'SVIP', 'img': '🎠', 'file': '235.svga'},
+      {'id': 'crystal_palace', 'name': 'Crystal Palace', 'price': 15000, 'cat': 'SVIP', 'img': '🏰', 'file': '100_optimized.svga'},
     ];
 
     final tempDir = await getTemporaryDirectory();
@@ -194,5 +194,37 @@ class GiftService extends BaseFirebaseService {
       .orderBy('sortOrder', descending: false)
       .get();
     return snapshot.docs.map((doc) => GiftModel.fromMap(doc.data(), doc.id)).toList();
+  }
+
+  Future<Map<String, dynamic>> sendLuckyBag({
+    required String roomId,
+    required int totalDiamonds,
+    required int winnerCount,
+    String? message,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("User not authenticated.");
+    await user.getIdToken(false);
+
+    final result = await callFunction('sendLuckyBag', {
+      'roomId': roomId,
+      'totalDiamonds': totalDiamonds,
+      'winnerCount': winnerCount,
+      'message': message ?? "Join and claim your Lucky Bag!",
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  Future<Map<String, dynamic>> claimLuckyBag({
+    required String bagId,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("User not authenticated.");
+    await user.getIdToken(false);
+
+    final result = await callFunction('claimLuckyBag', {
+      'bagId': bagId,
+    });
+    return Map<String, dynamic>.from(result);
   }
 }

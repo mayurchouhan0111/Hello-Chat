@@ -73,7 +73,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
           'SVIP CENTER',
           style: TextStyle(
             color: Colors.amber,
-            fontWeight: FontWeight.black,
+            fontWeight: FontWeight.w900,
             letterSpacing: 1.5,
           ),
         ),
@@ -102,7 +102,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
           final pointsTarget = nextLevelModel.requiredPoints;
           final progress = pointsTarget > 0 ? (svipPoints / pointsTarget).clamp(0.0, 1.0) : 1.0;
 
-          final cycleEndDate = user?.svipCycleEndDate?.toDate();
+          final cycleEndDate = user?.vipExpiry;
           final remainingDays = cycleEndDate != null
               ? cycleEndDate.difference(DateTime.now()).inDays.clamp(0, 60)
               : 60;
@@ -137,7 +137,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.between,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -149,7 +149,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                                 'SVIP $svipLevel',
                                 style: const TextStyle(
                                   color: Colors.black,
-                                  fontWeight: FontWeight.black,
+                                  fontWeight: FontWeight.w900,
                                   fontSize: 14,
                                 ),
                               ),
@@ -166,7 +166,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                         ),
                         const SizedBox(height: 16),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.between,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
                               '$svipPoints PTS',
@@ -217,7 +217,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                         border: Border.all(color: Colors.amber.withOpacity(0.2)),
                       ),
                       child: Row(
-                        mainAxisAlignment: MainAxisAlignment.between,
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -251,7 +251,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                                     height: 18,
                                     child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                   )
-                                : const Text('CLAIM', style: TextStyle(fontWeight: FontWeight.black)),
+                                : const Text('CLAIM', style: TextStyle(fontWeight: FontWeight.w900)),
                           ),
                         ],
                       ),
@@ -263,7 +263,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                     'UNLOCKED PRIVILEGES',
                     style: TextStyle(
                       color: Colors.amber,
-                      fontWeight: FontWeight.black,
+                      fontWeight: FontWeight.w900,
                       fontSize: 14,
                       letterSpacing: 1.2,
                     ),
@@ -309,8 +309,8 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
                         color: const Color(0xFF1E1C16),
                         child: ListTile(
                           title: Text('\$$usd USD Recharge', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          subtitle: Text(date != null ? date.toLocaleString() : 'Recent', style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                          trailing: Text('+$pts PTS', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.black, fontSize: 14)),
+                          subtitle: Text(date != null ? date.toString().split('.')[0] : 'Recent', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                          trailing: Text('+$pts PTS', style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.w900, fontSize: 14)),
                         ),
                       );
                     },

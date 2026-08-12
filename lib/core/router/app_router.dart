@@ -56,6 +56,7 @@ import '../../features/moments/presentation/screens/add_moment_screen.dart';
 import '../../features/leaderboards/presentation/screens/celebrity_ranking_screen.dart';
 import '../../features/leaderboards/presentation/screens/contribution_ranking_screen.dart';
 import '../../features/leaderboards/presentation/screens/leaderboard_screen.dart';
+import '../../features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
 import '../../features/moments/presentation/screens/moment_detail_screen.dart';
 import '../../features/games/presentation/screens/spin_wheel_screen.dart';
 import '../../features/rooms/presentation/screens/create_room_screen.dart';
@@ -72,10 +73,13 @@ import '../../features/vip/presentation/screens/vip_rewards_screen.dart';
 import '../../features/recharge_event/presentation/screens/recharge_event_detail_screen.dart';
 import '../../features/events/presentation/screens/dynamic_event_screen.dart';
 
+import '../../features/profile/presentation/screens/custom_gift_request_screen.dart';
+
 class AppRoutes {
   // Auth
   static const splash          = '/';
   static const login           = '/login';
+  static const customGiftRequest = '/custom-gift-request';
   static const otpVerify       = '/otp-verify';
   static const forgotPassword  = '/forgot-password';
   static const profileSetup    = '/profile-setup';
@@ -129,6 +133,7 @@ class AppRoutes {
   static const withdrawBeans     = '/withdraw-beans';
   static const commissionWallet  = '/commission-wallet';
   static const roomSupport       = '/room-support';
+  static const roomGiftLeaderboard = '/room-gift-leaderboard';
   static const inbox             = '/inbox';
   static const vipRewards        = '/vip-rewards';
   static const rechargeEventDetail = '/recharge-event-detail';
@@ -471,6 +476,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: AppRoutes.roomGiftLeaderboard,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>?;
+          return RoomGiftLeaderboardScreen(
+            roomId: extra?['roomId'] as String? ?? '',
+            roomName: extra?['roomName'] as String?,
+          );
+        },
+      ),
+      GoRoute(
         path: AppRoutes.inbox,
         builder: (context, state) => const InboxScreen(),
       ),
@@ -505,6 +520,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.relationshipRanking,
         builder: (context, state) => const RelationshipRankingScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.customGiftRequest,
+        builder: (context, state) => const CustomGiftRequestScreen(),
       ),
     ],
   );

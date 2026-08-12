@@ -1565,6 +1565,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
             // Games icon
             _buildPillIcon(Icons.grid_view_rounded, const Color(0xFF64748B), _showGamesPanel),
+            const SizedBox(width: 8),
+
+            // Room gift leaderboard icon
+            _buildPillIcon(Icons.emoji_events_rounded, const Color(0xFFF59E0B), _openRoomGiftLeaderboard),
             const SizedBox(width: 4),
 
             // Rightmost glowing gift button
@@ -1845,50 +1849,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     });
   }
 
-  void _showRoomRankingSheet() {
-    final participantsAsync = ref.read(roomParticipantsProvider(widget.roomId));
-    participantsAsync.whenData((pts) {
-      final topContributors = pts.where((p) => p.role != 'host').toList();
-      
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.transparent,
-        builder: (context) => Container(
-          padding: const EdgeInsets.all(24),
-          decoration: const BoxDecoration(
-            color: Color(0xFF1E1E1E),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text("Room Ranking", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-              const Gap(16),
-              if (topContributors.isEmpty)
-                const Center(child: Text("No contributors yet", style: TextStyle(color: Colors.white54)))
-              else
-                Container(
-                  constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.4),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: topContributors.length,
-                    itemBuilder: (context, index) {
-                      final p = topContributors[index];
-                      return ListTile(
-                        leading: Text("#${index + 1}", style: TextStyle(color: index < 3 ? Colors.amber : Colors.white54, fontWeight: FontWeight.bold)),
-                        title: Text(p.displayName.isNotEmpty ? p.displayName : "User", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                        subtitle: Text("ID: ${p.uid}", style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                        trailing: const Icon(Icons.stars_rounded, color: Colors.amberAccent),
-                      );
-                    },
-                  ),
-                ),
-              const Gap(24),
-            ],
-          ),
-        ),
-      );
-    });
+  void _openRoomGiftLeaderboard() {
+    context.push(AppRoutes.roomGiftLeaderboard, extra: {'roomId': widget.roomId});
   }
 
   void _showAdminSettingsSheet() {

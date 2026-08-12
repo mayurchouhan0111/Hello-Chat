@@ -115,10 +115,17 @@ final luckySpinStatsProvider = StreamProvider.autoDispose<Map<String, dynamic>>(
       .collection('games_meta')
       .doc('lucky_spin')
       .snapshots()
-      .map((snap) => snap.exists ? snap.data()! : {
-        'currentRound': 1,
-        'totalPool': 0,
-        'todayWinners': [],
+      .map((snap) {
+        if (!snap.exists) {
+          return {
+            'currentRound': 1,
+            'totalPool': 0,
+            'todayWinners': [],
+          };
+        }
+        final data = Map<String, dynamic>.from(snap.data()!);
+        data.remove('activeRoundOutcome');
+        return data;
       });
 });
 

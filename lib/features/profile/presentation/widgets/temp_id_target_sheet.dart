@@ -69,7 +69,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('✅ Temporary ID swap request sent! Awaiting target user approval.'),
-              backgroundColor: Colors.emerald,
+              backgroundColor: const Color(0xFF10B981),
             ),
           );
         }
@@ -131,7 +131,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
                       'Temporary ID Swap',
                       style: TextStyle(
                         color: Colors.white,
-                        fontWeight: FontWeight.black,
+                        fontWeight: FontWeight.w900,
                         fontSize: 20,
                       ),
                     ),
@@ -145,7 +145,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
                       ),
                       child: Text(
                         'SVIP $svipLevel',
-                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.black, fontSize: 12),
+                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.w900, fontSize: 12),
                       ),
                     ),
                   ],
@@ -204,7 +204,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
                           )
                         : const Text(
                             'SEND SWAP REQUEST',
-                            style: TextStyle(fontWeight: FontWeight.black, letterSpacing: 1.2),
+                            style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
                           ),
                   ),
                 ),

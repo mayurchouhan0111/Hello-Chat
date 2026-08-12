@@ -63,6 +63,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   bool _isBottomSheetOpen = false;
   Route? _bottomSheetRoute;
   DateTime? _bottomSheetOpenTime;
+  String? _currentRoundId;
 
   int _roundTransitionCountdown = 0;
   bool _showRoundTransition = false;
@@ -322,11 +323,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       final now = _synchronizedTimeMs;
       const serverRoundMs = 40000;
-      final currentRoundIdStr = (now ~/ serverRoundMs).toString();
+      final _currentRoundId = (now ~/ serverRoundMs).toString();
       final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
 
       // Only recover if the saved state is for the current round and betting is not locked yet
-      if (savedRoundId != currentRoundIdStr || secondsIntoCycle >= 25) {
+      if (savedRoundId != _currentRoundId || secondsIntoCycle >= 25) {
         await GameRecoveryService().clearBetState();
         return;
       }
@@ -449,7 +450,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final secondsIntoCycle = (now % serverRoundDurationMs) ~/ 1000;
       final msIntoCycle = now % serverRoundDurationMs;
       final currentRoundVal = _calculateCurrentRound();
-      final currentRoundIdStr = (now ~/ serverRoundDurationMs).toString();
+      _currentRoundId = (now ~/ serverRoundDurationMs).toString();
 
       // Rollover / Invalidations on a new round
       if (_lastCalculatedRound != null && currentRoundVal != _lastCalculatedRound) {
@@ -463,7 +464,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _hasSpunForRound = null;
           _hasStartedFallbackCall = false;
           _hasShownResultForRound = null;
-          if (_resultPendingRoundId != currentRoundIdStr) {
+          if (_resultPendingRoundId != _currentRoundId) {
             _pendingRoundResult = null;
             _hasPendingResult = false;
             _resultPendingRoundId = null;
@@ -545,30 +546,30 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       }
       // PHASE 2: SPINNING PHASE
       else if (secondsIntoCycle >= serverBettingPhaseSec && secondsIntoCycle < serverBettingPhaseSec + serverSpinPhaseSec) {
-        if (_gameState != SpinGameState.spinning && !_isSpinning && _hasSpunForRound != currentRoundIdStr) {
+        if (_gameState != SpinGameState.spinning && !_isSpinning && _hasSpunForRound != _currentRoundId) {
           setState(() {
             _gameState = SpinGameState.spinning;
           });
         }
 
-        if (_hasSpunForRound != currentRoundIdStr && !_isSpinning) {
+        if (_hasSpunForRound != _currentRoundId && !_isSpinning) {
           final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
 
           // 1. Bettor: Submit bets immediately!
           if (totalBet > 0) {
             _handleSpin();
-            _hasSpunForRound = currentRoundIdStr;
+            _hasSpunForRound = _currentRoundId;
           }
           // 2. Spectator: Use pending result from local storage, else fallback call
           else {
-            if (_hasPendingResult && _resultPendingRoundId == currentRoundIdStr) {
+            if (_hasPendingResult && _resultPendingRoundId == _currentRoundId) {
               _startSpin(_pendingRoundResult!);
-              _hasSpunForRound = currentRoundIdStr;
+              _hasSpunForRound = _currentRoundId;
               _hasPendingResult = false;
             } else if (msIntoCycle >= serverBettingPhaseSec * 1000 + 1500 && !_hasStartedFallbackCall) {
               _hasStartedFallbackCall = true;
               _handleSpin();
-              _hasSpunForRound = currentRoundIdStr;
+              _hasSpunForRound = _currentRoundId;
             }
           }
         }
@@ -582,21 +583,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         }
 
         // Show stored result from spin animation
-        if (_storedWinItem != null && _hasShownResultForRound != currentRoundIdStr) {
-          _hasShownResultForRound = currentRoundIdStr;
+        if (_storedWinItem != null && _hasShownResultForRound != _currentRoundId) {
+          _hasShownResultForRound = _currentRoundId;
           _showStoredResult();
         }
 
         // Late Join / Spectator Catch-up: prefer pending result, fallback to stream
-        if (!_resultLock && !_isSpinning && _storedWinItem == null && _hasShownResultForRound != currentRoundIdStr) {
+        if (!_resultLock && !_isSpinning && _storedWinItem == null && _hasShownResultForRound != _currentRoundId) {
           Map<String, dynamic>? outcome;
-          if (_hasPendingResult && _resultPendingRoundId == currentRoundIdStr) {
+          if (_hasPendingResult && _resultPendingRoundId == _currentRoundId) {
             outcome = _pendingRoundResult;
           } else {
             final statsAsync = ref.read(luckySpinStatsProvider);
             final stats = statsAsync.value;
             final lastGlobalRound = stats?['lastGlobalRound']?.toString();
-            if (lastGlobalRound == currentRoundIdStr) {
+            if (lastGlobalRound == _currentRoundId) {
               outcome = stats?['lastGlobalOutcome'] as Map<String, dynamic>?;
             }
           }
@@ -612,7 +613,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
             // Try to recover user's actual bet result from their game history if they were a player
             final history = ref.read(userGameHistoryProvider).value ?? [];
-            final matchedHistory = history.where((h) => h['roundId']?.toString() == currentRoundIdStr).firstOrNull;
+            final matchedHistory = history.where((h) => h['roundId']?.toString() == _currentRoundId).firstOrNull;
             if (matchedHistory != null) {
               prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
               wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
@@ -637,12 +638,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             );
 
             final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
-            final roundIdVal = outcome['roundId']?.toString() ?? currentRoundIdStr;
+            final roundIdVal = outcome['roundId']?.toString() ?? _currentRoundId ?? '';
 
-            _hasSpunForRound = currentRoundIdStr;
+            _hasSpunForRound = _currentRoundId;
             _resultLock = true;
             _hasPendingResult = false;
-            _hasShownResultForRound = currentRoundIdStr;
+            _hasShownResultForRound = _currentRoundId;
             WidgetsBinding.instance.addPostFrameCallback((_) {
                if (mounted) {
                  _showResultBottomSheet(
@@ -799,11 +800,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
     final outcomeRoundId = outcome['roundId']?.toString();
-    final currentRoundIdStr = (now ~/ serverRoundMs).toString();
+    final _currentRoundId = (now ~/ serverRoundMs).toString();
     final msIntoCycle = now % serverRoundMs;
 
     double targetSpinDuration;
-    if (outcomeRoundId != null && outcomeRoundId != currentRoundIdStr) {
+    if (outcomeRoundId != null && outcomeRoundId != _currentRoundId) {
       // Outcome is for a past round, spin quickly
       targetSpinDuration = 600.0;
     } else if (msIntoCycle >= 35000) {
@@ -1518,8 +1519,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     String? lastWinnerLabel;
     String? lastWinnerEmoji;
     if (stats != null && stats['lastGlobalOutcome'] != null) {
-      lastWinnerLabel = stats['lastGlobalOutcome']['label'];
-      lastWinnerEmoji = stats['lastGlobalOutcome']['emoji'];
+      final lastRoundStr = stats['lastGlobalRound']?.toString();
+      if (lastRoundStr == null || _currentRoundId == null || lastRoundStr != _currentRoundId.toString()) {
+        lastWinnerLabel = stats['lastGlobalOutcome']['label'];
+        lastWinnerEmoji = stats['lastGlobalOutcome']['emoji'];
+      }
     }
 
     return Positioned(
@@ -1708,6 +1712,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final settings = ref.read(gameSettingsProvider).value;
     final segments = settings?['segments'] as List? ?? [];
 
+    final visibleHistory = history.where((rec) {
+      final roundIdStr = rec['roundId']?.toString();
+      if (roundIdStr != null && _currentRoundId != null && roundIdStr == _currentRoundId.toString()) {
+        return false;
+      }
+      return true;
+    }).toList();
+
     return Container(
       width: double.infinity,
       padding: EdgeInsets.symmetric(vertical: 2 * scale),
@@ -1723,9 +1735,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: history.map((rec) {
+                children: visibleHistory.map((rec) {
                   final emoji = rec['emoji'] ?? '🎡';
-                  bool isNew = history.indexOf(rec) == 0;
+                  bool isNew = visibleHistory.indexOf(rec) == 0;
 
                   return Container(
                     margin: EdgeInsets.symmetric(horizontal: 4 * scale),
@@ -2177,6 +2189,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                               final stampColor = isWin ? const Color(0xFFF43F5E) : Colors.white30;
                               final stampText = isWin ? "WIN" : "LOSE";
 
+                              final serialNo = h['serialNumber'] ?? (history.length - index);
+
                               return Container(
                                 margin: const EdgeInsets.only(bottom: 16),
                                 padding: const EdgeInsets.all(16),
@@ -2201,8 +2215,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                           children: [
                                             Expanded(
                                               child: Text(
-                                                "Round: ${_getRelativeRoundNumber(h['roundId'])}",
-                                                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                                                "S/N: #$serialNo · Round: ${_getRelativeRoundNumber(h['roundId'])}",
+                                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
                                                 overflow: TextOverflow.ellipsis,
                                               ),
                                             ),

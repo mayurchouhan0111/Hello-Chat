@@ -42,6 +42,7 @@ import { logAdminAction } from './AuditLogs';
 
 export const GiftManagement = () => {
   const [gifts, setGifts] = useState([]);
+  const [pendingCustomGifts, setPendingCustomGifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingGift, setEditingGift] = useState(null);
@@ -68,8 +69,43 @@ export const GiftManagement = () => {
       setGifts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
-    return unsub;
+
+    const unsubCustom = onSnapshot(collection(db, "custom_gift_requests"), (snap) => {
+      setPendingCustomGifts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsub(); unsubCustom(); };
   }, []);
+
+  const handleApproveCustom = async (req, price) => {
+    try {
+      const giftId = `custom_${req.userId}_${Date.now()}`;
+      await setDoc(doc(db, "gifts", giftId), {
+        giftId,
+        name: req.giftName || `${req.userName || 'User'}'s Custom Gift`,
+        priceInDiamonds: Number(price || 10000),
+        category: 'Custom',
+        imageUrl: req.thumbnailUrl || req.videoUrl || '',
+        lottieAssetPath: req.videoUrl || '',
+        animationFormat: 'mp4',
+        isActive: true,
+        sortOrder: 1,
+        creatorUid: req.userId,
+        createdAt: serverTimestamp()
+      });
+      await setDoc(doc(db, "custom_gift_requests", req.id), { status: 'approved', approvedAt: serverTimestamp() }, { merge: true });
+      await logAdminAction(user, "CUSTOM_GIFT_APPROVE", req.id, { name: req.giftName, price });
+      alert("✅ Custom Gift approved and added to store!");
+    } catch (e) {
+      alert("Approval Error: " + e.message);
+    }
+  };
+
+  const handleRejectCustom = async (reqId) => {
+    if (!window.confirm("Reject this Custom Gift request?")) return;
+    await setDoc(doc(db, "custom_gift_requests", reqId), { status: 'rejected', rejectedAt: serverTimestamp() }, { merge: true });
+    await logAdminAction(user, "CUSTOM_GIFT_REJECT", reqId);
+  };
 
   const handleFileUpload = async (e, fieldType) => {
     const file = e.target.files[0];
@@ -221,6 +257,54 @@ export const GiftManagement = () => {
         
         {/* Gift List Table */}
         <div className="lg:col-span-2 space-y-6">
+           {/* Level 50 Custom Gift Applications Queue */}
+           {pendingCustomGifts.filter(r => r.status === 'pending').length > 0 && (
+             <div className="card-glass p-6 bg-amber-500/10 border-amber-500/30 rounded-2xl space-y-4">
+               <div className="flex items-center justify-between">
+                 <h3 className="text-sm font-black text-amber-400 uppercase tracking-widest flex items-center gap-2">
+                   <Sparkles size={16} /> Level 50+ Custom Gift Submissions ({pendingCustomGifts.filter(r => r.status === 'pending').length})
+                 </h3>
+               </div>
+               <div className="space-y-3">
+                 {pendingCustomGifts.filter(r => r.status === 'pending').map((req) => (
+                   <div key={req.id} className="p-4 bg-slate-900/80 rounded-xl border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                     <div>
+                       <p className="text-xs font-black text-white">{req.giftName || 'Custom Video Gift'}</p>
+                       <p className="text-[10px] text-slate-400 font-bold">User: {req.userName || req.userId} (Lv.{req.userLevel || 50})</p>
+                       {req.videoUrl && (
+                         <video src={req.videoUrl} controls className="w-48 h-28 object-cover rounded-lg mt-2 border border-white/10" />
+                       )}
+                     </div>
+                     <div className="flex items-center gap-2">
+                       <input 
+                         type="number" 
+                         placeholder="Price (Diamonds)" 
+                         id={`price_${req.id}`}
+                         defaultValue={10000}
+                         className="glass-input !w-32 !py-2 text-xs"
+                       />
+                       <button 
+                         onClick={() => {
+                           const priceVal = document.getElementById(`price_${req.id}`).value;
+                           handleApproveCustom(req, priceVal);
+                         }}
+                         className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-black font-black text-[10px] uppercase rounded-xl"
+                       >
+                         Approve
+                       </button>
+                       <button 
+                         onClick={() => handleRejectCustom(req.id)}
+                         className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 font-black text-[10px] uppercase rounded-xl border border-red-500/30"
+                       >
+                         Reject
+                       </button>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+             </div>
+           )}
+
            <div className="card-glass p-0 bg-[#18181B]/40 border-white/5 overflow-hidden shadow-2xl">
               <table className="w-full text-left">
                  <thead className="bg-white/5 border-b border-white/5 text-[10px] uppercase font-black tracking-widest text-slate-500">
@@ -371,9 +455,10 @@ export const GiftManagement = () => {
                       value={editingGift ? editingGift.name : newGift.name}
                       onChange={(e) => editingGift ? setEditingGift({...editingGift, name: e.target.value}) : setNewGift({...newGift, name: e.target.value})}
                     />
-                              <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3">
-                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
+                  </div>
+                  <div className="grid grid-cols-2 gap-6">
+                     <div className="space-y-3">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Cost (Diamonds)</label>
                        <div className="relative">
                           <Coins className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-400" size={16} />
                           <input 
@@ -392,8 +477,11 @@ export const GiftManagement = () => {
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
                        >
                           <option value="Normal">Normal Gift</option>
+                          <option value="Gift">Standard Gift</option>
                           <option value="Luxury">Luxury Gift (Full Screen)</option>
                           <option value="Lucky">Lucky Gift (Random Rewards)</option>
+                          <option value="Lucky fruit">Lucky fruit Gift</option>
+                          <option value="Relationship">Relationship Gift</option>
                           <option value="VIP">VIP Gift (VIP Only)</option>
                           <option value="SVIP">SVIP Gift (SVIP Only)</option>
                        </select>

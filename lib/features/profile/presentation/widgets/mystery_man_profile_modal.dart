@@ -51,7 +51,7 @@ class MysteryManProfileModal extends StatelessWidget {
             'Mystery Man',
             style: TextStyle(
               color: Colors.white,
-              fontWeight: FontWeight.black,
+              fontWeight: FontWeight.w900,
               fontSize: 22,
               letterSpacing: 1.1,
             ),
@@ -88,7 +88,7 @@ class MysteryManProfileModal extends StatelessWidget {
               ),
               child: const Text(
                 'CLOSE',
-                style: TextStyle(fontWeight: FontWeight.black, letterSpacing: 1.2),
+                style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 1.2),
               ),
             ),
           ),

@@ -35,6 +35,7 @@ class _GiftPanelState extends State<GiftPanel> {
   bool _isSending = false;
   List<String> _selectedTargetUids = [];
   bool _sendToAll = false;
+  String _selectedCategory = 'Gift';
 
   @override
   void initState() {
@@ -53,9 +54,9 @@ class _GiftPanelState extends State<GiftPanel> {
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
 
         return Container(
-          height: 560, // Adjusted for recipient row
+          height: 580, // Adjusted for recipient row and category tabs
           decoration: const BoxDecoration(
-            color: Color(0xFF1A1A1A),
+            color: Color(0xFF14141E),
             borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -68,13 +69,26 @@ class _GiftPanelState extends State<GiftPanel> {
                 loading: () => const SizedBox(height: 60),
                 error: (_, __) => const SizedBox(height: 60),
               ),
-              const Divider(color: Colors.white10, height: 24),
+              const Divider(color: Colors.white10, height: 16),
+              _buildCategoryTabs(),
+              const SizedBox(height: 10),
               Expanded(
                 child: giftsAsync.when(
                   data: (gifts) {
                     if (gifts.isEmpty) {
                       return const Center(child: Text("No gifts available", style: TextStyle(color: Colors.white54)));
                     }
+
+                    final filteredGifts = gifts.where((g) {
+                      if (_selectedCategory == 'All') return true;
+                      final cat = g.category.toLowerCase().trim();
+                      final sel = _selectedCategory.toLowerCase().trim();
+                      if (sel == 'gift') return cat == 'gift' || cat == 'normal' || cat == 'standard';
+                      if (sel == 'lucky fruit') return cat.contains('fruit');
+                      return cat.contains(sel);
+                    }).toList();
+
+                    final displayGifts = filteredGifts.isNotEmpty ? filteredGifts : gifts;
 
                     return GridView.builder(
                       physics: const BouncingScrollPhysics(),
@@ -84,9 +98,9 @@ class _GiftPanelState extends State<GiftPanel> {
                         crossAxisSpacing: 10,
                         childAspectRatio: 0.7,
                       ),
-                      itemCount: gifts.length,
+                      itemCount: displayGifts.length,
                       itemBuilder: (context, index) {
-                        final gift = gifts[index];
+                        final gift = displayGifts[index];
                         return _GiftTile(
                           gift: gift, 
                           isSelected: _selectedGift?.giftId == gift.giftId,
@@ -98,7 +112,7 @@ class _GiftPanelState extends State<GiftPanel> {
                       },
                     );
                   },
-                  loading: () => const SizedBox.shrink(), // Silent background load, no spinner!
+                  loading: () => const SizedBox.shrink(),
                   error: (err, _) => Center(child: Text("Error: $err", style: const TextStyle(color: Colors.white70))),
                 ),
               ),
@@ -109,6 +123,45 @@ class _GiftPanelState extends State<GiftPanel> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildCategoryTabs() {
+    final categories = ['Gift', 'Lucky', 'Lucky fruit', 'Relationship', 'VIP', 'Custom', 'All'];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: categories.map((cat) {
+          final isSelected = _selectedCategory.toLowerCase() == cat.toLowerCase();
+          return GestureDetector(
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _selectedCategory = cat);
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: const EdgeInsets.only(right: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: isSelected ? Colors.amber : Colors.transparent,
+                    width: 2.5,
+                  ),
+                ),
+              ),
+              child: Text(
+                cat,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white54,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
@@ -277,6 +330,11 @@ class _GiftPanelState extends State<GiftPanel> {
         Row(
           children: [
             TextButton.icon(
+              onPressed: () => _showLuckyBagDialog(context, ref),
+              icon: const Text("🧧", style: TextStyle(fontSize: 14)),
+              label: const Text("Lucky Bag", style: TextStyle(color: Colors.pinkAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+            TextButton.icon(
               onPressed: () => _feedSampleGifts(context, ref),
               icon: const Icon(Icons.refresh, size: 16, color: Colors.amber),
               label: const Text("Feed Gifts", style: TextStyle(color: Colors.amber, fontSize: 12)),
@@ -285,6 +343,102 @@ class _GiftPanelState extends State<GiftPanel> {
           ],
         ),
       ],
+    );
+  }
+
+  void _showLuckyBagDialog(BuildContext context, WidgetRef ref) {
+    final amountController = TextEditingController(text: '50000');
+    final winnersController = TextEditingController(text: '10');
+    bool isDropping = false;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDlgState) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1C2A),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Row(
+            children: [
+              Text("🧧", style: TextStyle(fontSize: 24)),
+              SizedBox(width: 8),
+              Text("Send Lucky Bag", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: amountController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
+                decoration: const InputDecoration(
+                  labelText: "Total Diamond Pool",
+                  labelStyle: TextStyle(color: Colors.white70),
+                  prefixIcon: Icon(Icons.diamond_outlined, color: Colors.amber),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: winnersController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                decoration: const InputDecoration(
+                  labelText: "Number of Winners (e.g. 10, 20, 50)",
+                  labelStyle: TextStyle(color: Colors.white70),
+                  prefixIcon: Icon(Icons.group_outlined, color: Colors.indigoAccent),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.amber,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+              onPressed: isDropping ? null : () async {
+                final amt = int.tryParse(amountController.text) ?? 50000;
+                final win = int.tryParse(winnersController.text) ?? 10;
+                setDlgState(() => isDropping = true);
+
+                try {
+                  await ref.read(giftServiceProvider).sendLuckyBag(
+                    roomId: widget.roomId,
+                    totalDiamonds: amt,
+                    winnerCount: win,
+                  );
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text("🎉 Dropped Lucky Bag ($amt 💎) to room!"),
+                        backgroundColor: Colors.amber[800],
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (ctx.mounted) {
+                    setDlgState(() => isDropping = false);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                    );
+                  }
+                }
+              },
+              child: isDropping 
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                  : const Text("DROP BAG", style: TextStyle(fontWeight: FontWeight.w900)),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -406,6 +560,8 @@ class _GiftTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isLucky = gift.category.toLowerCase().contains('lucky');
+
     return GestureDetector(
       onTap: onSelect,
       child: Container(
@@ -418,20 +574,41 @@ class _GiftTile extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: gift.imageUrl.startsWith('http') 
-                ? CachedNetworkImage(
-                    imageUrl: gift.imageUrl,
-                    placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white10),
-                    errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24),
-                  )
-                : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 30))),
+            Stack(
+              alignment: Alignment.topCenter,
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: gift.imageUrl.startsWith('http') 
+                    ? CachedNetworkImage(
+                        imageUrl: gift.imageUrl,
+                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white10),
+                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24),
+                      )
+                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 30))),
+                ),
+                if (isLucky)
+                  Positioned(
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.redAccent,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        "JACKPOT",
+                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 6),
           Text(
