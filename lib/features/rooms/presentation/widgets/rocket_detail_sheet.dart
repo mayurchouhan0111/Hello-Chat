@@ -57,15 +57,11 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     super.dispose();
   }
 
-  int _getTargetForLevel(int level) {
-    switch (level) {
-      case 0: return 1000000;
-      case 1: return 2000000;
-      case 2: return 3000000;
-      case 3: return 5000000;
-      case 4: return 10000000;
-      default: return 10000000;
+  int _getTargetForLevel(int level, List<int> targets) {
+    if (level >= 0 && level < targets.length) {
+      return targets[level];
     }
+    return 10000000;
   }
 
   @override
@@ -73,7 +69,9 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.room.roomId));
     final room = roomAsync.value ?? widget.room;
 
-    final target = _getTargetForLevel(_selectedLevel);
+    final targetsAsync = ref.watch(rocketSettingsProvider);
+    final targets = targetsAsync.valueOrNull ?? const [1000000, 2000000, 3000000, 5000000, 10000000];
+    final target = _getTargetForLevel(_selectedLevel, targets);
     final fuel = _selectedLevel == room.rocketLevel ? room.rocketFuel : (_selectedLevel < room.rocketLevel ? target : 0);
     final progress = (fuel / target).clamp(0.0, 1.0);
 

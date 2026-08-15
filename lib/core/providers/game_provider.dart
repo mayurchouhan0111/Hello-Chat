@@ -181,16 +181,14 @@ final luckySpinCurrentRoundWinnersProvider = StreamProvider.family.autoDispose<L
       .where('roundId', isEqualTo: roundId)
       .snapshots()
       .map((snap) {
-        final list = snap.docs.map((d) => d.data()).toList();
+        final list = snap.docs
+            .map((d) => d.data())
+            .where((a) => ((a['winnings'] as num?)?.toInt() ?? 0) > 0)
+            .toList();
         list.sort((a, b) {
           final aWinnings = (a['winnings'] as num?)?.toInt() ?? 0;
           final bWinnings = (b['winnings'] as num?)?.toInt() ?? 0;
-          if (aWinnings != bWinnings) {
-            return bWinnings.compareTo(aWinnings);
-          }
-          final aAmount = (a['amount'] as num?)?.toInt() ?? 0;
-          final bAmount = (b['amount'] as num?)?.toInt() ?? 0;
-          return bAmount.compareTo(aAmount);
+          return bWinnings.compareTo(aWinnings);
         });
         return list.take(3).toList();
       });

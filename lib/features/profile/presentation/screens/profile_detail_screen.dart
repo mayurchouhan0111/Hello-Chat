@@ -1034,7 +1034,13 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     return contributorsAsync.when(
       data: (contributors) {
         return GestureDetector(
-          onTap: () => context.push(AppRoutes.leaderboard),
+          onTap: () => context.push(
+            AppRoutes.userContributionRanking,
+            extra: {
+              'targetUid': userData.uid,
+              'targetUserName': userData.displayName,
+            },
+          ),
           child: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(

@@ -126,9 +126,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     } catch (_) {}
   }
 
-  void _placeBet(String itemName, List<SpinItem> items) {
+  void _placeBet(String itemName, List<SpinItem> items) async {
     if (_isBetLocked) return;
-    if (_isOffline) return;
+
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none || _isOffline) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Cannot place bet while offline. Please check your connection."),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     final lowerName = itemName.toLowerCase().trim();
     if (lowerName == 'salad' || lowerName == 'pizza') {
@@ -187,6 +200,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   Future<void> _autoSubmitBets() async {
     if (_currentBets.isEmpty || _isBetLocked) return;
+
+    final connectivityResult = await Connectivity().checkConnectivity();
+    if (connectivityResult == ConnectivityResult.none || _isOffline) {
+      debugPrint("⚠️ Offline detected — blocking auto-submit of bet.");
+      return;
+    }
 
     final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     if (totalBet <= 0) return;
@@ -1162,7 +1181,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _idleController.dispose();
     _audioPlayer.dispose();
     _effectPlayer.dispose();
-    GameRecoveryService().clearBetState();
+    // Do NOT clear bet state here so accepted bets persist if user leaves the screen before round completion
     super.dispose();
   }
 
@@ -2958,9 +2977,12 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
     ];
     final rankBadgeLabel = "${index + 1}";
 
-    final avatarUrl = winner != null ? (winner['avatar'] ?? winner['photoUrl'] ?? "").toString() : "";
-    final name = winner != null ? (winner['name'] ?? winner['username'] ?? "User").toString() : "Empty";
-    final amount = winner != null ? ((winner['winnings'] ?? winner['amount'] ?? 0) as num).toInt() : 0;
+    final winningsVal = winner != null ? ((winner['winnings'] as num?)?.toInt() ?? 0) : 0;
+    final isValidWinner = winner != null && winningsVal > 0;
+
+    final avatarUrl = isValidWinner ? (winner['avatar'] ?? winner['photoUrl'] ?? "").toString() : "";
+    final name = isValidWinner ? (winner['name'] ?? winner['username'] ?? "User").toString() : "Empty";
+    final amount = isValidWinner ? winningsVal : 0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,

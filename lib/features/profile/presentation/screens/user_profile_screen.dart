@@ -11,6 +11,7 @@ import '../../../../utils/number_formatter.dart';
 import '../../../chats/presentation/screens/private_chat_screen.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
+import 'user_contribution_ranking_screen.dart';
 
 class UserProfileScreen extends ConsumerWidget {
   final String uid;
@@ -55,7 +56,52 @@ class UserProfileScreen extends ConsumerWidget {
                           _buildStatItem(userData.followingCount, "Follows"),
                         ],
                       ),
-                      const Gap(32),
+                      const Gap(20),
+
+                      // 🏆 Top Senders / Contribution Ranking Button
+                      InkWell(
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (c) => UserContributionRankingScreen(
+                                targetUid: userData.uid,
+                                targetUserName: userData.displayName,
+                              ),
+                            ),
+                          );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [const Color(0xFF8E54E9).withOpacity(0.08), const Color(0xFF4776E6).withOpacity(0.08)],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFF8E54E9).withOpacity(0.25)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.emoji_events_rounded, color: Color(0xFFFF9100), size: 22),
+                                  const Gap(10),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text("Top Senders Ranking", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14, color: Colors.black87)),
+                                      Text("View top 100 contributors for ${userData.displayName}", style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.black38),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const Gap(24),
 
                       // Action Buttons
                       if (!isMe)

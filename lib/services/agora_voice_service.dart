@@ -12,6 +12,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   RtcEngine? _engine;
   bool _isInitialized = false;
   bool _isMuted = false;
+  bool _isRoomMuted = false;
   bool _isSpeakerPhone = true;
   bool _isVideoEnabled = false;
   
@@ -400,11 +401,29 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   }
 
   @override
+  Future<void> muteRoomAudio(bool mute) async {
+    if (_engine != null) {
+      try {
+        _isRoomMuted = mute;
+        await _engine!.muteAllRemoteAudioStreams(mute);
+        debugPrint("🔊 AGORA ROOM MUTE: $mute (Local incoming audio muted: $mute)");
+      } catch (e) {
+        debugPrint("⚠️ AGORA ROOM MUTE ERROR: $e");
+      }
+    }
+  }
+
+  @override
   Future<void> muteLocalAudio(bool mute) async {
     if (_engine != null) {
       try {
-        await _engine!.muteLocalAudioStream(mute);
         _isMuted = mute;
+        await _engine!.muteLocalAudioStream(mute);
+        if (_currentRole == ClientRoleType.clientRoleBroadcaster) {
+          await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
+            publishMicrophoneTrack: !mute,
+          ));
+        }
       } catch (e) {
         debugPrint("⚠️ AGORA MUTE ERROR: $e");
       }
@@ -427,11 +446,13 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
     if (_engine != null) {
       try {
         _currentRole = ClientRoleType.clientRoleBroadcaster;
+        await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           clientRoleType: ClientRoleType.clientRoleBroadcaster,
           publishMicrophoneTrack: !_isMuted,
           autoSubscribeAudio: true,
         ));
+        await _engine!.muteLocalAudioStream(_isMuted);
         await _engine!.setEnableSpeakerphone(true);
       } catch (e) {
         debugPrint("⚠️ AGORA SET BROADCASTER ERROR: $e");
@@ -444,11 +465,13 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
     if (_engine != null) {
       try {
         _currentRole = ClientRoleType.clientRoleAudience;
+        await _engine!.setClientRole(role: ClientRoleType.clientRoleAudience);
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
           clientRoleType: ClientRoleType.clientRoleAudience,
           publishMicrophoneTrack: false,
           autoSubscribeAudio: true,
         ));
+        await _engine!.muteLocalAudioStream(true);
         await _engine!.setEnableSpeakerphone(true);
       } catch (e) {
         debugPrint("⚠️ AGORA SET AUDIENCE ERROR: $e");

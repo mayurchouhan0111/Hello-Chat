@@ -161,6 +161,18 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   bool _showExplosionOverlay = false;
   Map<String, int> _launchContributions = {};
   Timer? _landingTimer;
+  final List<int> _rocketLaunchQueue = [];
+
+  void _processNextRocketQueueItem() {
+    if (!mounted) return;
+    if (_isRocketNotificationShowing || _isRocketFlying || _isRocketLaunching || _isRocketLanding || _showExplosionOverlay) {
+      return;
+    }
+    if (_rocketLaunchQueue.isNotEmpty) {
+      final nextLevel = _rocketLaunchQueue.removeAt(0);
+      _showRocketLaunchAnimation(nextLevel);
+    }
+  }
   bool _isMinimizing = false;
   bool _hasJoinedRoom = false;
   bool _hasShownMyOwnEntry = false;
@@ -248,6 +260,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       if (!mounted) return;
       final banners = ref.read(roomBannersProvider).valueOrNull ?? [];
       if (banners.isEmpty) return;
+      if (!_bannerPageController.hasClients) return;
       final nextPage = (_bannerCurrentPage + 1) % banners.length;
       _bannerPageController.animateToPage(
         nextPage,
@@ -481,24 +494,29 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             }
           }
 
-          // 🚀 Rocket Launch Trigger
+          // 🚀 Rocket Launch Trigger with Multi-Rocket Queueing
           if (prevRoom != null) {
-    if (room.rocketLevel > prevRoom.rocketLevel) {
-        // Use lastRocketResults (server-written accurate top 3) instead of prevRoom.rocketContributions
-        // which gets wiped by the server after launch
-        if (room.lastRocketResults != null) {
-          final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
-          _launchContributions = {};
-          for (final entry in top3) {
-            if (entry is Map && entry['uid'] != null && entry['amount'] != null) {
-              _launchContributions[entry['uid'] as String] = (entry['amount'] as num).toInt();
+            if (room.rocketLevel > prevRoom.rocketLevel) {
+              // Use lastRocketResults (server-written accurate top 3) instead of prevRoom.rocketContributions
+              // which gets wiped by the server after launch
+              if (room.lastRocketResults != null) {
+                final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
+                _launchContributions = {};
+                for (final entry in top3) {
+                  if (entry is Map && entry['uid'] != null && entry['amount'] != null) {
+                    _launchContributions[entry['uid'] as String] = (entry['amount'] as num).toInt();
+                  }
+                }
+              } else {
+                _launchContributions = Map<String, int>.from(prevRoom.rocketContributions ?? {});
+              }
+              for (int lv = prevRoom.rocketLevel; lv < room.rocketLevel; lv++) {
+                if (!_rocketLaunchQueue.contains(lv)) {
+                  _rocketLaunchQueue.add(lv);
+                }
+              }
+              _processNextRocketQueueItem();
             }
-          }
-        } else {
-          _launchContributions = Map<String, int>.from(prevRoom.rocketContributions ?? {});
-        }
-        _showRocketLaunchAnimation(prevRoom.rocketLevel);
-    }
           }
         }
       }
@@ -645,178 +663,232 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             child: Scaffold(
             backgroundColor: Colors.black,
             resizeToAvoidBottomInset: false,
-            body: GiftAnimationOverlay(
-              roomId: widget.roomId,
-              child: Stack(
-                children: [
-                  Positioned.fill(
-                    child: RepaintBoundary(
-                      child: CachedNetworkImage(
-                        imageUrl: room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/600/1200" : room.coverUrl,
-                        fit: BoxFit.cover,
-                        memCacheWidth: 600,
-                        memCacheHeight: 1200,
-                        errorWidget: (_, __, ___) => Container(color: Colors.black),
-                      ),
-                    ),
-                  ),
-                  Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
-
-                  // BACKGROUND LAYER (Seats, Video - Stays fixed)
-                  SafeArea(
-                    child: Column(
-                      children: [
-                        _buildRoomAppBar(room),
-                        Expanded(
-                          child: Column(
-                                children: [
-                                YouTubeRoomPlayer(room: room, myUid: myUid),
-                                  if (!room.isYoutubeActive) ...[
-                                    const SizedBox(height: 8),
-                                    Consumer(
-                                      key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}'),
-                                      builder: (context, ref, child) {
-                                        final pts = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
-                                        final hostPart = pts.firstWhere(
-                                          (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
-                                          orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'owner', seatIndex: 0),
-                                        );
-                                        return _buildHostSeat(hostPart, room);
-                                      },
-                                    ),
-                                  ],
-                                  Expanded(
-                                    child: SeatGrid(
-                                      key: ValueKey('seatgrid_${widget.roomId}_${room.isYoutubeActive}'),
-                                      roomId: widget.roomId,
-                                      capacity: room.capacity,
-                                      lockedSeats: room.lockedSeats,
-                                      isYoutubeActive: room.isYoutubeActive,
-                                      ownerUid: room.ownerUid,
-                                      onSeatTap: (idx) {
-                                        final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
-                                        _onSeatTap(idx, pts, room);
-                                      },
-                                      onSeatLongPress: (idx) => _onSeatLongPress(idx, room),
-                                      onUserLongPress: _showUserOptions,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ═══════════════════════════════════════════════════════════
-                  // LAYER 2: SCROLLABLE CHAT MESSAGES + BROADCASTS
-                  // ═══════════════════════════════════════════════════════════
-                  Positioned(
-                    bottom: 56 + 8 + MediaQuery.of(context).padding.bottom,
-                    left: 4,
-                    right: 70,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: (MediaQuery.of(context).size.height * 0.24).clamp(160.0, 220.0),
-                      ),
-                      child: Consumer(
-                        builder: (context, ref, child) {
-                          final messagesAsync = ref.watch(roomMessagesProvider(widget.roomId));
-                          final broadcasts = ref.watch(activeBroadcastsProvider).value ?? [];
-                          
-                          return messagesAsync.when(
-                            data: (msgs) {
-                              return ChatWidget(
-                                messages: msgs,
-                                broadcasts: broadcasts.isNotEmpty ? [broadcasts.first] : [],
-                                onUserTap: (uid) {
-                                  final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
-                                  final p = pts.firstWhere(
-                                    (p) => p.uid == uid, 
-                                    orElse: () => Participant(
-                                      uid: uid, 
-                                      joinedAt: DateTime.now(), 
-                                      lastActive: DateTime.now(), 
-                                      isMuted: false, 
-                                      role: 'audience',
-                                    )
-                                  );
-                                  _showUserOptions(p);
-                                },
-                              );
-                            },
-                            loading: () => const SizedBox.shrink(),
-                            error: (_, __) => const SizedBox.shrink(),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-
-                  // ═══════════════════════════════════════════════════════════
-                  // LAYER 3: BOTTOM INPUT BAR + ACTION BUTTONS
-                  // Moves up with keyboard, everything else stays
-                  // ═══════════════════════════════════════════════════════════
-                  Positioned(
-                    bottom: MediaQuery.of(context).viewInsets.bottom,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      top: false,
-                      child: _buildBottomBar(room),
-                    ),
-                  ),
-
-                  // ═══════════════════════════════════════════════════════════
-                  // LAYER 4: ROCKET WIDGET + BANNER CAROUSEL (fixed, right side)
-                  // ═══════════════════════════════════════════════════════════
-                  Positioned(
-                    bottom: 60 + MediaQuery.of(context).padding.bottom,
-                    right: 12,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildRoomBannerCarousel(),
-                        const SizedBox(height: 8),
-                        RocketProgressWidget(room: room),
-                      ],
-                    ),
-                  ),
-
-                  // PK CHALLENGE BANNER (conditional)
-                  if (!room.pkActive && room.pkChallenge != null)
-                    Positioned(
-                      top: 100, left: 20, right: 20,
-                      child: PKChallengeBanner(room: room),
-                    ),
-                  _buildRocketNotificationOverlay(),
-                  _buildRocketFlyingOverlay(),
-                  _buildRocketOverlay(),
-                  _buildRocketLandingOverlay(room),
-                  _buildExplosionOverlay(room),
-                  if (_entryParticipant != null)
-                    EntryEffectOverlay(
-                      key: ValueKey('entry_${_entryParticipant!.uid}_${_entryParticipant!.joinedAt.millisecondsSinceEpoch}'),
-                      participant: _entryParticipant!,
-                      onEnd: () {
-                        if (mounted) {
-                          setState(() => _entryParticipant = null);
-                        }
-                      },
-                    ),
-                  if (_isUploadingImage)
-                    Positioned.fill(
-                      child: Container(
-                        color: Colors.black54,
-                        child: const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF00E5FF),
+            body: Stack(
+              children: [
+                GiftAnimationOverlay(
+                  roomId: widget.roomId,
+                  child: Stack(
+                    children: [
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: CachedNetworkImage(
+                            imageUrl: room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/600/1200" : room.coverUrl,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 600,
+                            memCacheHeight: 1200,
+                            errorWidget: (_, __, ___) => Container(color: Colors.black),
                           ),
                         ),
                       ),
-                    ),
-                ],
-              ),
+                      Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
+
+                      // BACKGROUND LAYER (Seats, Video - Stays fixed)
+                      SafeArea(
+                        child: Column(
+                          children: [
+                            _buildRoomAppBar(room),
+                            Expanded(
+                              child: Column(
+                                    children: [
+                                    YouTubeRoomPlayer(room: room, myUid: myUid),
+                                      if (!room.isYoutubeActive) ...[
+                                        const SizedBox(height: 8),
+                                        Consumer(
+                                          key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}'),
+                                          builder: (context, ref, child) {
+                                            final pts = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+                                            final hostPart = pts.firstWhere(
+                                              (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
+                                              orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'owner', seatIndex: 0),
+                                            );
+                                            return _buildHostSeat(hostPart, room);
+                                          },
+                                        ),
+                                      ],
+                                      Expanded(
+                                        child: SeatGrid(
+                                          key: ValueKey('seatgrid_${widget.roomId}_${room.isYoutubeActive}'),
+                                          roomId: widget.roomId,
+                                          capacity: room.capacity,
+                                          lockedSeats: room.lockedSeats,
+                                          isYoutubeActive: room.isYoutubeActive,
+                                          ownerUid: room.ownerUid,
+                                          onSeatTap: (idx) {
+                                            final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
+                                            _onSeatTap(idx, pts, room);
+                                          },
+                                          onSeatLongPress: (idx) => _onSeatLongPress(idx, room),
+                                          onUserLongPress: _showUserOptions,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // ═══════════════════════════════════════════════════════════
+                      // LAYER 2: SCROLLABLE CHAT MESSAGES + BROADCASTS
+                      // ═══════════════════════════════════════════════════════════
+                      Positioned(
+                        bottom: 56 + 8 + MediaQuery.of(context).padding.bottom,
+                        left: 4,
+                        right: 70,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: (MediaQuery.of(context).size.height * 0.24).clamp(160.0, 220.0),
+                          ),
+                          child: Consumer(
+                            builder: (context, ref, child) {
+                              final messagesAsync = ref.watch(roomMessagesProvider(widget.roomId));
+                              final broadcasts = ref.watch(activeBroadcastsProvider).value ?? [];
+                              
+                              return messagesAsync.when(
+                                data: (msgs) {
+                                  return ChatWidget(
+                                    messages: msgs,
+                                    broadcasts: broadcasts.isNotEmpty ? [broadcasts.first] : [],
+                                    onUserTap: (uid) {
+                                      final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
+                                      final p = pts.firstWhere(
+                                        (p) => p.uid == uid, 
+                                        orElse: () => Participant(
+                                          uid: uid, 
+                                          joinedAt: DateTime.now(), 
+                                          lastActive: DateTime.now(), 
+                                          isMuted: false, 
+                                          role: 'audience',
+                                        )
+                                      );
+                                      _showUserOptions(p);
+                                    },
+                                  );
+                                },
+                                loading: () => const SizedBox.shrink(),
+                                error: (_, __) => const SizedBox.shrink(),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      // ═══════════════════════════════════════════════════════════
+                      // LAYER 3: INTERACTIVE ROOM BOTTOM BAR (Chat input, Gift, Mute, PK, YouTube)
+                      // ═══════════════════════════════════════════════════════════
+                      Positioned(
+                        bottom: MediaQuery.of(context).padding.bottom + 4,
+                        left: 0,
+                        right: 0,
+                        child: _buildBottomBar(room),
+                      ),
+
+                      // ═══════════════════════════════════════════════════════════
+                      // LAYER 4: RIGHT FLOATING ACTION COLUMN (Room Support & Rocket)
+                      // ═══════════════════════════════════════════════════════════
+                      Positioned(
+                        bottom: 120 + MediaQuery.of(context).padding.bottom,
+                        right: 10,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            GestureDetector(
+                              onTap: () {
+                                context.push('/room-support', extra: {'roomId': widget.roomId});
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.45),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(
+                                    color: const Color(0xFFFF9D00).withOpacity(0.8),
+                                    width: 1.5,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFFF6D00).withOpacity(0.35),
+                                      blurRadius: 12,
+                                      spreadRadius: 1,
+                                    ),
+                                  ],
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 34,
+                                      height: 34,
+                                      decoration: const BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [Color(0xFFFFB700), Color(0xFFFF3D00)],
+                                          begin: Alignment.topLeft,
+                                          end: Alignment.bottomRight,
+                                        ),
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Color(0xFFFF5500),
+                                            blurRadius: 6,
+                                          ),
+                                        ],
+                                      ),
+                                      child: const Icon(Icons.shield_rounded, color: Colors.white, size: 20),
+                                    ),
+                                    const Gap(4),
+                                    const Text(
+                                      "SUPPORT",
+                                      style: TextStyle(
+                                        color: Color(0xFFFFD700),
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 0.8,
+                                        shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(
+                                duration: 3.seconds,
+                                color: Colors.amber.withOpacity(0.3),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            RocketProgressWidget(room: room),
+                          ],
+                        ),
+                      ),
+
+                      if (_entryParticipant != null)
+                        EntryEffectOverlay(
+                          key: ValueKey('entry_${_entryParticipant!.uid}_${_entryParticipant!.joinedAt.millisecondsSinceEpoch}'),
+                          participant: _entryParticipant!,
+                          onEnd: () {
+                            if (mounted) {
+                              setState(() => _entryParticipant = null);
+                            }
+                          },
+                        ),
+                      if (_isUploadingImage)
+                        Positioned.fill(
+                          child: Container(
+                            color: Colors.black54,
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                color: Color(0xFF00E5FF),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                // 🚀 ROCKET OVERLAY LAYER (Renders ABOVE GiftAnimationOverlay so rockets are never hidden)
+                _buildRocketNotificationOverlay(),
+                _buildRocketFlyingOverlay(),
+                _buildRocketOverlay(),
+                _buildRocketLandingOverlay(room),
+                _buildExplosionOverlay(room),
+              ],
             ),
           ),
         ),
@@ -887,7 +959,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       decoration: const BoxDecoration(
         color: Colors.transparent,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(10)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(10)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1038,7 +1110,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           // 2. Bottom Row: Tags & Viewers
           Row(
             children: [
-              _buildAppBarTag("Popularity Rank", Icons.favorite_rounded, const Color(0xFFFFD700)),
+              GestureDetector(
+                onTap: _openRoomGiftLeaderboard,
+                child: _buildAppBarTag(
+                  room.weeklyEarnings > 0 ? "${_formatDiamondCount(room.weeklyEarnings)} >" : "Top List >",
+                  Icons.emoji_events_rounded,
+                  const Color(0xFFFFD700),
+                ),
+              ),
               const Gap(8),
               RoomStarProgressWidget(room: room),
               const Spacer(),
@@ -1544,13 +1623,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             _buildPillIcon(Icons.videocam_rounded, const Color(0xFFFF3B30), _showYouTubePanel),
             const SizedBox(width: 8),
 
-            // Speaker toggle
+            // Speaker toggle (Room Mute: Mutes incoming audio for self)
             _buildPillIcon(
               _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
               const Color(0xFFFF9500),
               () {
-                setState(() => _isSpeakerOn = !_isSpeakerOn);
-                ref.read(voiceServiceProvider).toggleSpeakerphone(_isSpeakerOn);
+                final nextSpeakerState = !_isSpeakerOn;
+                setState(() => _isSpeakerOn = nextSpeakerState);
+                ref.read(voiceServiceProvider).muteRoomAudio(!nextSpeakerState);
               },
             ),
             const SizedBox(width: 8),
@@ -1565,10 +1645,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
             // Games icon
             _buildPillIcon(Icons.grid_view_rounded, const Color(0xFF64748B), _showGamesPanel),
-            const SizedBox(width: 8),
-
-            // Room gift leaderboard icon
-            _buildPillIcon(Icons.emoji_events_rounded, const Color(0xFFF59E0B), _openRoomGiftLeaderboard),
             const SizedBox(width: 4),
 
             // Rightmost glowing gift button
@@ -1705,26 +1781,27 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                           ),
                         ),
                       ),
-                      Positioned(
-                        top: -10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isOwnerOnline ? const Color(0xFFFFD700) : const Color(0xFF475569),
-                            borderRadius: BorderRadius.circular(4),
-                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                          ),
-                          child: Text(
-                            isOwnerOnline ? "OWNER" : "OFFLINE",
-                            style: TextStyle(
-                              color: isOwnerOnline ? Colors.black : Colors.white70,
-                              fontSize: 8,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
+                      if (activeHost.uid.isEmpty)
+                        Positioned(
+                          top: -10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isOwnerOnline ? const Color(0xFFFFD700) : const Color(0xFF475569),
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                            ),
+                            child: Text(
+                              isOwnerOnline ? "OWNER" : "OFFLINE",
+                              style: TextStyle(
+                                color: isOwnerOnline ? Colors.black : Colors.white70,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                       if (activeHost.isMuted)
                         Positioned(
                           top: 0,
@@ -2001,17 +2078,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         const SnackBar(
           content: Text("Only the room owner can take the host seat"),
           backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    if (room.ownerUid == uid && index != 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("As Room Owner, your seat is the top Host Seat (Seat 0)."),
-          backgroundColor: Colors.amber,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -2732,8 +2798,18 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         });
         ref.invalidate(walletBalanceProvider);
         ref.invalidate(currentUserProfileProvider);
+        Future.delayed(const Duration(milliseconds: 500), () {
+          _processNextRocketQueueItem();
+        });
       },
     );
+  }
+
+  String _formatDiamondCount(int n) {
+    if (n >= 1000000000) return '${(n / 1000000000).toStringAsFixed(1)}B';
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return n.toString();
   }
 }
 

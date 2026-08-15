@@ -132,6 +132,7 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
         children: periods
             .map((p) => _LeaderboardTab(
                   stream: _leaderboardStream(p),
+                  roomId: widget.roomId,
                   accentColor: p == 'daily'
                       ? const Color(0xFFFF6A88)
                       : p == 'weekly'
@@ -146,44 +147,85 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
 
 class _LeaderboardTab extends StatelessWidget {
   final Stream<QuerySnapshot> stream;
+  final String roomId;
   final Color accentColor;
 
-  const _LeaderboardTab({required this.stream, required this.accentColor});
+  const _LeaderboardTab({
+    required this.stream,
+    required this.roomId,
+    required this.accentColor,
+  });
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<QuerySnapshot>(
       stream: stream,
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return const Center(
-            child: Text("Couldn't load rankings", style: TextStyle(color: Colors.black38)),
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          final docs = snapshot.data!.docs;
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              final data = docs[index].data() as Map<String, dynamic>;
+              return _RankRow(
+                uid: docs[index].id,
+                rank: index + 1,
+                name: (data['name'] as String?)?.isNotEmpty == true ? data['name'] as String : 'User',
+                photoUrl: (data['photoUrl'] as String?) ?? '',
+                amount: (data['amount'] as num?)?.toInt() ?? 0,
+                accentColor: accentColor,
+              ).animate().fadeIn(delay: Duration(milliseconds: (index * 40).clamp(0, 1000)));
+            },
           );
         }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
-        }
 
-        final docs = snapshot.data!.docs;
-        if (docs.isEmpty) {
-          return const _EmptyState();
-        }
+        // Fallback: Read real-time room contributions directly from rooms/{roomId}
+        return StreamBuilder<DocumentSnapshot>(
+          stream: FirebaseFirestore.instance.collection('rooms').doc(roomId).snapshots(),
+          builder: (context, roomSnap) {
+            if (!roomSnap.hasData || !roomSnap.data!.exists) {
+              return const _EmptyState();
+            }
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final data = docs[index].data() as Map<String, dynamic>;
-            return _RankRow(
-              uid: docs[index].id,
-              rank: index + 1,
-              name: (data['name'] as String?)?.isNotEmpty == true
-                  ? data['name'] as String
-                  : 'User',
-              photoUrl: (data['photoUrl'] as String?) ?? '',
-              amount: (data['amount'] as num?)?.toInt() ?? 0,
-              accentColor: accentColor,
-            ).animate().fadeIn(delay: Duration(milliseconds: (index * 40).clamp(0, 1000)));
+            final roomData = roomSnap.data!.data() as Map<String, dynamic>? ?? {};
+            final Map<String, dynamic> rawContribs = (roomData['rocketContributions'] as Map<String, dynamic>?) ??
+                (roomData['pkContributions'] as Map<String, dynamic>?) ?? {};
+
+            if (rawContribs.isEmpty) {
+              return const _EmptyState();
+            }
+
+            final sortedEntries = rawContribs.entries.toList()
+              ..sort((a, b) => ((b.value as num).toInt()).compareTo((a.value as num).toInt()));
+
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              itemCount: sortedEntries.length,
+              itemBuilder: (context, index) {
+                final entry = sortedEntries[index];
+                final uid = entry.key;
+                final amount = (entry.value as num).toInt();
+
+                return StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
+                  builder: (context, userSnap) {
+                    final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
+                    final name = (userData['displayName'] as String?) ?? 'User';
+                    final photoUrl = (userData['profilePhotoUrl'] as String?) ?? '';
+
+                    return _RankRow(
+                      uid: uid,
+                      rank: index + 1,
+                      name: name,
+                      photoUrl: photoUrl,
+                      amount: amount,
+                      accentColor: accentColor,
+                    );
+                  },
+                );
+              },
+            );
           },
         );
       },

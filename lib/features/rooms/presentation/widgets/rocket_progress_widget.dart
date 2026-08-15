@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/core/utils/rocket_vap_config.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
 import '../../../../core/models/room_model.dart';
 import './rocket_detail_sheet.dart';
 
-class RocketProgressWidget extends StatefulWidget {
+class RocketProgressWidget extends ConsumerStatefulWidget {
   final RoomModel room;
   const RocketProgressWidget({super.key, required this.room});
 
   @override
-  State<RocketProgressWidget> createState() => _RocketProgressWidgetState();
+  ConsumerState<RocketProgressWidget> createState() => _RocketProgressWidgetState();
 }
 
-class _RocketProgressWidgetState extends State<RocketProgressWidget> with SingleTickerProviderStateMixin {
+class _RocketProgressWidgetState extends ConsumerState<RocketProgressWidget> with SingleTickerProviderStateMixin {
   SVGAAnimationController? _controller;
   bool _isLoading = true;
   int _currentLevel = -1;
@@ -63,20 +65,12 @@ class _RocketProgressWidgetState extends State<RocketProgressWidget> with Single
     super.dispose();
   }
 
-  int _getTargetForLevel(int level) {
-    switch (level) {
-      case 0: return 1000000;
-      case 1: return 2000000;
-      case 2: return 3000000;
-      case 3: return 5000000;
-      case 4: return 10000000;
-      default: return 10000000;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final target = _getTargetForLevel(widget.room.rocketLevel);
+    final targetsAsync = ref.watch(rocketSettingsProvider);
+    final targets = targetsAsync.valueOrNull ?? const [1000000, 2000000, 3000000, 5000000, 10000000];
+    final levelIdx = widget.room.rocketLevel.clamp(0, 4);
+    final target = levelIdx < targets.length ? targets[levelIdx] : 10000000;
     final progress = (widget.room.rocketFuel / target).clamp(0.0, 1.0);
     final isCooldown = widget.room.rocketStatus == "cooldown" && 
                        widget.room.rocketCooldownUntil != null &&
@@ -95,52 +89,97 @@ class _RocketProgressWidgetState extends State<RocketProgressWidget> with Single
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: isCooldown ? const Color(0xFF1E293B).withOpacity(0.9) : Colors.black.withOpacity(0.4),
-          borderRadius: BorderRadius.circular(12),
-          border: isCooldown ? Border.all(color: Colors.cyanAccent.withOpacity(0.5), width: 1.5) : null,
-          boxShadow: isCooldown ? [
-            BoxShadow(color: Colors.cyanAccent.withOpacity(0.2), blurRadius: 10, spreadRadius: 1)
-          ] : null,
+          color: isCooldown
+              ? const Color(0xFF0F172A).withOpacity(0.9)
+              : Colors.black.withOpacity(0.45),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isCooldown
+                ? Colors.cyanAccent.withOpacity(0.8)
+                : const Color(0xFF8E54E9).withOpacity(0.8),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isCooldown
+                  ? Colors.cyanAccent.withOpacity(0.35)
+                  : const Color(0xFF8E54E9).withOpacity(0.35),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
         ),
-        child: Row(
+        child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Rocket & Progress Stack
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isCooldown)
-                  _buildCooldownTimer()
-                else ...[
-                  // Dynamic SVGA Rocket Logo
-                  SizedBox(
-                    width: 50,
-                    height: 50,
-                    child: _isLoading
-                        ? const Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
-                        : (_controller?.videoItem != null)
-                            ? SVGAImage(_controller!)
-                            : const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 40),
-                  ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
-                  
-                  const SizedBox(height: 6),
-
-                  // Slim Progress Bar
-                  SizedBox(
-                    width: 60,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        backgroundColor: Colors.white24,
-                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00FF00)),
-                        minHeight: 5,
-                      ),
-                    ),
+            if (isCooldown)
+              _buildCooldownTimer()
+            else ...[
+              // Level Badge Pill
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF8E54E9), Color(0xFF4776E6)],
                   ),
-                ],
-              ],
-            ),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "LV.${levelIdx + 1}",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+
+              // Dynamic SVGA Rocket Logo
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: _isLoading
+                    ? const Center(
+                        child: SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        ),
+                      )
+                    : (_controller?.videoItem != null)
+                        ? SVGAImage(_controller!)
+                        : const Icon(Icons.rocket_launch_rounded, color: Colors.amberAccent, size: 34),
+              ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
+              
+              const SizedBox(height: 4),
+
+              // Slim Gradient Progress Bar
+              SizedBox(
+                width: 52,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: Colors.white24,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF00FF87)),
+                    minHeight: 5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 3),
+              const Text(
+                "ROCKET",
+                style: TextStyle(
+                  color: Color(0xFFB8C0FF),
+                  fontSize: 8,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                ),
+              ),
+            ],
           ],
         ),
       ),

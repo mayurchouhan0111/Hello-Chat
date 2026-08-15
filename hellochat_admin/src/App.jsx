@@ -26,6 +26,7 @@ import { EventBuilder } from './screens/EventBuilder';
 import { RechargeEventManagement } from './screens/RechargeEventManagement';
 import { RelationshipManagement } from './screens/RelationshipManagement';
 import { RoleFrameManagement } from './screens/RoleFrameManagement';
+import { RocketManagement } from './screens/RocketManagement';
 
 import { SVIPManagement } from './screens/SVIPManagement';
 
@@ -38,6 +39,11 @@ function App() {
           <Route path="/" element={
             <AdminLayout>
               <DashboardHome />
+            </AdminLayout>
+          } />
+          <Route path="/rocket-management" element={
+            <AdminLayout>
+              <RocketManagement />
             </AdminLayout>
           } />
           <Route path="/users" element={

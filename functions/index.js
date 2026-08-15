@@ -285,6 +285,158 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     transaction.update(db.collection("rooms").doc(roomId), roomUpdate);
 }
 
+async function getRocketTargets(transaction = null) {
+    const defaultTargets = [1000000, 2000000, 3000000, 5000000, 10000000];
+    try {
+        const configRef = db.collection("system_configs").doc("rocket_settings");
+        const doc = transaction ? await transaction.get(configRef) : await configRef.get();
+        if (doc.exists && Array.isArray(doc.data()?.targets) && doc.data().targets.length === 5) {
+            return doc.data().targets.map(t => parseInt(t) || 0);
+        }
+    } catch (e) {
+        console.error("[ROCKET_CONFIG] Failed to load dynamic targets, fallback to default:", e);
+    }
+    return defaultTargets;
+}
+
+async function processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost) {
+    let currentLevel = roomData.rocketLevel || 0;
+    let currentFuel = roomData.rocketFuel || 0;
+    const status = roomData.rocketStatus || "active";
+    const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
+    const now = Date.now();
+
+    // 🕰️ Handle Cooldown & Reset
+    if (status === "cooldown") {
+        if (now < cooldownUntil) {
+            console.log(`[ROCKET] Room ${roomId} is in cooldown. Skipping fueling.`);
+            return;
+        } else {
+            // Cooldown expired! Reset to Level 0
+            console.log(`[ROCKET] Cooldown expired for room ${roomId}. Resetting to level 0.`);
+            currentLevel = 0;
+            currentFuel = 0;
+            transaction.update(roomRef, {
+                rocketLevel: 0,
+                rocketFuel: 0,
+                rocketStatus: "active",
+                rocketContributions: {}
+            });
+            roomData.rocketLevel = 0;
+            roomData.rocketFuel = 0;
+            roomData.rocketStatus = "active";
+            roomData.rocketContributions = {};
+        }
+    } else if (currentLevel >= 5) {
+        transaction.update(roomRef, { rocketLevel: 0, rocketFuel: 0, rocketStatus: "active", rocketContributions: {} });
+        currentLevel = 0;
+        currentFuel = 0;
+        roomData.rocketLevel = 0;
+        roomData.rocketFuel = 0;
+        roomData.rocketStatus = "active";
+        roomData.rocketContributions = {};
+    }
+
+    const rocketTargets = await getRocketTargets(transaction);
+    let remainingCost = totalCost;
+    let localContributions = { ...(roomData.rocketContributions || {}) };
+
+    while (remainingCost > 0 && currentLevel < 5) {
+        const nextTarget = rocketTargets[currentLevel] || 10000000;
+        const fuelNeeded = nextTarget - currentFuel;
+
+        if (remainingCost >= fuelNeeded) {
+            // Reached threshold for currentLevel!
+            remainingCost -= fuelNeeded;
+
+            const currentContrib = (localContributions[senderUid] || 0) + fuelNeeded;
+            localContributions[senderUid] = currentContrib;
+            const updatedRoomData = {
+                ...roomData,
+                rocketLevel: currentLevel,
+                rocketFuel: currentFuel + fuelNeeded,
+                rocketContributions: localContributions
+            };
+
+            console.log(`[ROCKET] Sequential Launch: Room ${roomId} launched Level ${currentLevel + 1}! Remaining diamonds to process: ${remainingCost}`);
+            await processRocketLaunch(transaction, roomId, currentLevel, updatedRoomData, senderUid, fuelNeeded);
+
+            currentLevel++;
+            currentFuel = 0;
+            localContributions = {};
+            roomData.rocketLevel = currentLevel;
+            roomData.rocketFuel = 0;
+            roomData.rocketContributions = {};
+
+            if (currentLevel >= 5) {
+                break;
+            }
+        } else {
+            const currentContrib = (localContributions[senderUid] || 0) + remainingCost;
+            localContributions[senderUid] = currentContrib;
+            currentFuel += remainingCost;
+
+            transaction.update(roomRef, {
+                rocketFuel: admin.firestore.FieldValue.increment(remainingCost),
+                [`rocketContributions.${senderUid}`]: admin.firestore.FieldValue.increment(remainingCost)
+            });
+            remainingCost = 0;
+        }
+    }
+}
+
+/**
+ * --- ADMIN: ROCKET SETTINGS MANAGEMENT ---
+ */
+exports.getRocketSettings = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    try {
+        const configSnap = await db.collection("system_configs").doc("rocket_settings").get();
+        if (configSnap.exists) {
+            return { success: true, settings: configSnap.data() };
+        }
+    } catch (e) {
+        console.error("[ROCKET_CONFIG] Error getting settings:", e);
+    }
+    return {
+        success: true,
+        settings: {
+            targets: ROCKET_SYSTEM.targets,
+            rewards: ROCKET_SYSTEM.rewards,
+            updatedAt: null
+        }
+    };
+});
+
+exports.updateRocketSettings = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    
+    const adminStatus = await isUserAdmin(context.auth.uid);
+    if (!adminStatus) throw new functions.https.HttpsError("permission-denied", "Admin access required.");
+
+    const { targets } = data || {};
+    if (!Array.isArray(targets) || targets.length !== 5) {
+        throw new functions.https.HttpsError("invalid-argument", "Targets must be an array of 5 numbers.");
+    }
+
+    const sanitizedTargets = targets.map((t, idx) => {
+        const val = parseInt(t);
+        if (isNaN(val) || val <= 0) {
+            throw new functions.https.HttpsError("invalid-argument", `Invalid threshold for Rocket ${idx + 1}`);
+        }
+        return val;
+    });
+
+    await db.collection("system_configs").doc("rocket_settings").set({
+        targets: sanitizedTargets,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedBy: context.auth.uid
+    }, { merge: true });
+
+    console.log(`[ROCKET_CONFIG] Updated targets by ${context.auth.uid}:`, sanitizedTargets);
+    return { success: true, targets: sanitizedTargets };
+});
+
 /**
  * 1. onCreate Auth User Trigger
  * Creates a basic skeletal user document when they sign up.
@@ -363,52 +515,9 @@ exports.adminFuelRocket = onCall({
             }
 
             const roomData = roomDoc.data();
-            let currentFuel = roomData.rocketFuel || 0;
-            let currentLevel = roomData.rocketLevel || 0;
-            const status = roomData.rocketStatus || "active";
-            const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
-            const now = Date.now();
+            await processRocketFueling(transaction, roomId, roomRef, roomData, "SYSTEM_ADMIN", amt);
 
-            // 🕰️ Handle Cooldown & Reset
-            if (status === "cooldown") {
-                if (now < cooldownUntil) {
-                    const remaining = Math.ceil((cooldownUntil - now) / 1000);
-                    throw new HttpsError("failed-precondition", `Rocket is in cooldown. Please wait ${remaining}s.`);
-                } else {
-                    // Cooldown expired! Reset to Level 0
-                    console.log(`[ADMIN_FUEL] Cooldown expired. Resetting rocket for room ${roomId}`);
-                    currentLevel = 0;
-                    currentFuel = 0;
-                    // We'll update the room state in the increment block or launch block
-                    transaction.update(roomRef, {
-                        rocketLevel: 0,
-                        rocketFuel: 0,
-                        rocketStatus: "active",
-                        rocketContributions: {}
-                    });
-                }
-            } else if (currentLevel >= 5) {
-                // If it somehow stuck at level 5 without cooldown, force reset
-                transaction.update(roomRef, { rocketLevel: 0, rocketFuel: 0, rocketStatus: "active", rocketContributions: {} });
-                currentLevel = 0;
-                currentFuel = 0;
-            }
-
-            const nextTarget = ROCKET_SYSTEM.targets[currentLevel] || 10000000;
-            const newFuel = currentFuel + amt;
-
-            if (newFuel >= nextTarget && currentLevel < 5) {
-                console.log(`[ADMIN_FUEL] Threshold reached! Launching Level ${currentLevel + 1}`);
-                await processRocketLaunch(transaction, roomId, currentLevel, roomData, "SYSTEM_ADMIN", amt);
-            } else {
-                console.log(`[ADMIN_FUEL] Incrementing fuel to ${newFuel}`);
-                transaction.update(roomRef, {
-                    rocketFuel: admin.firestore.FieldValue.increment(amt),
-                    'rocketContributions.SYSTEM_ADMIN': admin.firestore.FieldValue.increment(amt)
-                });
-            }
-
-            return { success: true, newFuel: newFuel };
+            return { success: true };
         });
     } catch (err) {
         console.error("[ADMIN_FUEL] Transaction failed:", err);
@@ -1442,6 +1551,42 @@ function trackRoomGiftLeaderboard(transaction, roomId, senderUid, totalCost, sen
 }
 
 /**
+ * 🏆 Per-User Sender Ranking Tracker
+ * Records sender diamond contributions for a target User ID across Daily, Weekly, Monthly, and Total buckets.
+ * Data shape: users/{targetUid}/sender_rankings/{period}/{bucket}/{senderUid}
+ */
+function trackUserSenderRanking(transaction, targetUid, senderUid, totalCost, senderData, now) {
+    const ts = now || new Date();
+    const buckets = {
+        daily: ts.toISOString().slice(0, 10),          // YYYY-MM-DD
+        weekly: isoWeekKey(ts),                          // YYYY-Www
+        monthly: ts.toISOString().slice(0, 7),           // YYYY-MM
+        total: "overall"
+    };
+    const senderName = (senderData && senderData.displayName) || "User";
+    const senderPhoto = (senderData && senderData.profilePhotoUrl) || "";
+    const gender = (senderData && senderData.gender) || "male";
+    const level = (senderData && senderData.level) || 1;
+    const vipTier = (senderData && senderData.vipTier) || "none";
+
+    for (const [period, bucket] of Object.entries(buckets)) {
+        const ref = db.collection("users").doc(targetUid)
+            .collection("sender_rankings").doc(period)
+            .collection(bucket).doc(senderUid);
+        transaction.set(ref, {
+            senderUid: senderUid,
+            amount: admin.firestore.FieldValue.increment(totalCost),
+            displayName: senderName,
+            profilePhotoUrl: senderPhoto,
+            gender: gender,
+            level: level,
+            vipTier: vipTier,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+    }
+}
+
+/**
  * 12. Send Gift with Combo & XP
  * Handles diamond deduction, beans addition, XP calculation, combo tracking, and PK score updates.
  */
@@ -1692,48 +1837,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 // 🚀 8. Rocket Fuel Logic (Integrated)
                 if (!isMoment) {
                     const roomData = roomDoc.data();
-                    let currentFuel = roomData.rocketFuel || 0;
-                    let currentLevel = roomData.rocketLevel || 0;
-                    const status = roomData.rocketStatus || "active";
-                    const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
-                    const now = Date.now();
-
-                    let canFuel = true;
-
-                    // 🕰️ Handle Cooldown & Reset
-                    if (status === "cooldown") {
-                        if (now < cooldownUntil) {
-                            canFuel = false; // Don't fuel during cooldown
-                        } else {
-                            // Cooldown expired! Reset to Level 0
-                            currentLevel = 0;
-                            currentFuel = 0;
-                            transaction.update(roomRef, {
-                                rocketLevel: 0,
-                                rocketFuel: 0,
-                                rocketStatus: "active",
-                                rocketContributions: {}
-                            });
-                        }
-                    } else if (currentLevel >= 5) {
-                        transaction.update(roomRef, { rocketLevel: 0, rocketFuel: 0, rocketStatus: "active", rocketContributions: {} });
-                        currentLevel = 0;
-                        currentFuel = 0;
-                    }
-
-                    if (canFuel) {
-                        const nextTarget = ROCKET_SYSTEM.targets[currentLevel] || 10000000;
-                        const newFuel = currentFuel + totalCost;
-                        
-                        if (newFuel >= nextTarget && currentLevel < 5) {
-                            await processRocketLaunch(transaction, roomId, currentLevel, roomData, senderUid, totalCost);
-                        } else {
-                            transaction.update(roomRef, {
-                                rocketFuel: admin.firestore.FieldValue.increment(totalCost),
-                                [`rocketContributions.${senderUid}`]: admin.firestore.FieldValue.increment(totalCost)
-                            });
-                        }
-                    }
+                    await processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost);
                 }
             }
 
@@ -1750,6 +1854,13 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             } catch (lbErr) {
                 // Don't fail the gift if leaderboard tracking fails
                 console.warn(`[GIFT_LEADERBOARD] Error tracking gift:`, lbErr.message);
+            }
+
+            // 🏆 Per-User Sender Ranking: track sender diamond contributions for targetUid
+            try {
+                trackUserSenderRanking(transaction, targetUid, senderUid, totalCost, senderDoc.data(), new Date());
+            } catch (usrLbErr) {
+                console.warn(`[USER_SENDER_RANKING] Error tracking gift for target ${targetUid}:`, usrLbErr.message);
             }
 
             return {
@@ -6048,13 +6159,26 @@ exports.resetMonthlyRankings = functions.pubsub.schedule('0 0 1 * *').onRun(asyn
 
 const ROOM_SUPPORT = {
     levels: [
-        { level: 1, coinsTarget: 500000, partnerSlots: 4, ownerReward: 25000, partnerReward: 5000, totalReward: 45000 },
-        { level: 2, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 50000, partnerReward: 10000, totalReward: 90000 },
-        { level: 3, coinsTarget: 3000000, partnerSlots: 6, ownerReward: 150000, partnerReward: 25000, totalReward: 225000 },
-        { level: 4, coinsTarget: 5000000, partnerSlots: 7, ownerReward: 250000, partnerReward: 50000, totalReward: 450000 },
-        { level: 5, coinsTarget: 10000000, partnerSlots: 7, ownerReward: 500000, partnerReward: 100000, totalReward: 900000 },
-        { level: 6, coinsTarget: 20000000, partnerSlots: 7, ownerReward: 1000000, partnerReward: 200000, totalReward: 1800000 },
-        { level: 7, coinsTarget: 50000000, partnerSlots: 7, ownerReward: 2500000, partnerReward: 500000, totalReward: 4500000 },
+        { level: 1, coinsTarget: 100000, partnerSlots: 4, ownerReward: 11250, partnerReward: 1875, totalReward: 15000 },
+        { level: 2, coinsTarget: 300000, partnerSlots: 4, ownerReward: 32850, partnerReward: 4050, totalReward: 45000 },
+        { level: 3, coinsTarget: 500000, partnerSlots: 4, ownerReward: 49700, partnerReward: 5075, totalReward: 70000 },
+        { level: 4, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 96600, partnerReward: 8680, totalReward: 140000 },
+        { level: 5, coinsTarget: 2000000, partnerSlots: 5, ownerReward: 200000, partnerReward: 18000, totalReward: 290000 },
+        { level: 6, coinsTarget: 3500000, partnerSlots: 6, ownerReward: 360000, partnerReward: 30000, totalReward: 540000 },
+        { level: 7, coinsTarget: 5000000, partnerSlots: 6, ownerReward: 525000, partnerReward: 45000, totalReward: 795000 },
+        { level: 8, coinsTarget: 8000000, partnerSlots: 7, ownerReward: 840000, partnerReward: 70000, totalReward: 1330000 },
+        { level: 9, coinsTarget: 12000000, partnerSlots: 7, ownerReward: 1280000, partnerReward: 100000, totalReward: 1980000 },
+        { level: 10, coinsTarget: 18000000, partnerSlots: 8, ownerReward: 1950000, partnerReward: 150000, totalReward: 3150000 },
+        { level: 11, coinsTarget: 25000000, partnerSlots: 8, ownerReward: 2750000, partnerReward: 200000, totalReward: 4350000 },
+        { level: 12, coinsTarget: 35000000, partnerSlots: 9, ownerReward: 3900000, partnerReward: 280000, totalReward: 6420000 },
+        { level: 13, coinsTarget: 50000000, partnerSlots: 9, ownerReward: 5600000, partnerReward: 400000, totalReward: 9200000 },
+        { level: 14, coinsTarget: 75000000, partnerSlots: 10, ownerReward: 8500000, partnerReward: 600000, totalReward: 14500000 },
+        { level: 15, coinsTarget: 100000000, partnerSlots: 10, ownerReward: 11500000, partnerReward: 850000, totalReward: 20000000 },
+        { level: 16, coinsTarget: 150000000, partnerSlots: 11, ownerReward: 17500000, partnerReward: 1250000, totalReward: 31250000 },
+        { level: 17, coinsTarget: 200000000, partnerSlots: 11, ownerReward: 23500000, partnerReward: 1700000, totalReward: 42200000 },
+        { level: 18, coinsTarget: 300000000, partnerSlots: 12, ownerReward: 35500000, partnerReward: 2500000, totalReward: 65500000 },
+        { level: 19, coinsTarget: 450000000, partnerSlots: 12, ownerReward: 54000000, partnerReward: 3800000, totalReward: 99600000 },
+        { level: 20, coinsTarget: 600000000, partnerSlots: 12, ownerReward: 72000000, partnerReward: 5000000, totalReward: 132000000 },
     ]
 };
 

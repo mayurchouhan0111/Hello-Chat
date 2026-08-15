@@ -26,6 +26,7 @@ import {
   Image,
   Swords,
   Layers,
+  Rocket,
 } from 'lucide-react';
 import logo from '../assets/logo.webp';
 
@@ -42,6 +43,7 @@ const Sidebar = () => {
 
   const fullMenu = [
     { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
+    { name: 'Rocket Config', icon: Rocket, path: '/rocket-management' },
     { name: 'Users', icon: Users, path: '/users' },
     { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
     { name: 'Gifts', icon: Gift, path: '/gifts' },

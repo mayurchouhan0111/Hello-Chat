@@ -230,6 +230,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           gradient: const LinearGradient(colors: [Color(0xFFFF5E62), Color(0xFFFF9966)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                           collection: "users",
                           field: "benchXP",
+                          tabIndex: 0,
                         ),
                         const SizedBox(width: 5),
                         _buildBlinkitCategoryCard(
@@ -239,6 +240,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           gradient: const LinearGradient(colors: [Color(0xFF8A2387), Color(0xFFE94057)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                           collection: "users",
                           field: "princeXP",
+                          tabIndex: 1,
                         ),
                         const SizedBox(width: 5),
                         _buildBlinkitCategoryCard(
@@ -248,6 +250,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           gradient: const LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                           collection: "rooms",
                           field: "currentUsersCount",
+                          tabIndex: 2,
                         ),
                         const SizedBox(width: 5),
                         _buildBlinkitCategoryCard(
@@ -257,6 +260,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           gradient: const LinearGradient(colors: [Color(0xFFF7971E), Color(0xFFFFD200)], begin: Alignment.topLeft, end: Alignment.bottomRight),
                           collection: "users",
                           field: "totalXP",
+                          tabIndex: 3,
                         ),
                       ],
                     ),
@@ -391,53 +395,73 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   Widget _buildBannerCard(BannerModel banner) {
     final showButton = banner.buttonText != null && banner.buttonText!.isNotEmpty;
-    
+
     return GestureDetector(
       onTap: () => _handleBannerAction(context, banner),
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFFFF9900).withOpacity(0.2),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+          border: Border.all(color: Colors.white.withOpacity(0.3), width: 1),
           image: DecorationImage(
             image: CachedNetworkImageProvider(banner.imageUrl),
             fit: BoxFit.cover,
+            alignment: Alignment.center,
           ),
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            gradient: LinearGradient(
-              colors: [
-                Colors.black.withOpacity(showButton ? 0.3 : 0.1),
-                Colors.transparent
-              ],
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.black.withOpacity(0.4),
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.2),
+                ],
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+              ),
             ),
-          ),
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              if (showButton)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFEA00),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        banner.buttonText!,
-                        style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 11),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (showButton)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFEA00), Color(0xFFFF9900)],
                       ),
-                    ],
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFF9900).withOpacity(0.5),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      banner.buttonText!,
+                      style: const TextStyle(
+                        color: Color(0xFF1E1E1E),
+                        fontWeight: FontWeight.w900,
+                        fontSize: 11,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -451,6 +475,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required LinearGradient gradient,
     required String collection,
     required String field,
+    int tabIndex = 0,
   }) {
     final avatarsAsync = ref.watch(topRankedAvatarsProvider((collection: collection, field: field)));
     
@@ -463,7 +488,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     return Expanded(
       child: GestureDetector(
-        onTap: () => context.push(AppRoutes.leaderboard),
+        onTap: () => context.push(AppRoutes.leaderboard, extra: tabIndex),
         child: Container(
           height: 62,
           decoration: BoxDecoration(

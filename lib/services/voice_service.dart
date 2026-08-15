@@ -3,6 +3,7 @@ abstract class VoiceService {
   Future<void> joinRoom(String roomId, String userId);
   Future<void> leaveRoom();
   Future<void> muteLocalAudio(bool mute);
+  Future<void> muteRoomAudio(bool mute);
   Future<void> toggleSpeakerphone(bool enable);
   Future<void> setBroadcasterRole();
   Future<void> setAudienceRole();

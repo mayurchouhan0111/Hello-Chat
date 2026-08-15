@@ -54,24 +54,46 @@ class _GiftPanelState extends State<GiftPanel> {
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
 
         return Container(
-          height: 580, // Adjusted for recipient row and category tabs
+          height: 600,
           decoration: const BoxDecoration(
-            color: Color(0xFF14141E),
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(20), topRight: Radius.circular(20)),
+            gradient: LinearGradient(
+              colors: [Color(0xFF0F0F1A), Color(0xFF181726)],
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            boxShadow: [
+              BoxShadow(color: Colors.black54, blurRadius: 20, offset: Offset(0, -6)),
+            ],
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: EdgeInsets.only(
+            left: 14, right: 14, top: 10,
+            bottom: 8 + MediaQuery.of(context).padding.bottom,
+          ),
           child: Column(
             children: [
+              // Top Drag Handle Indicator
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
               _buildHeader(context, ref),
-              Gap(8),
+              const Gap(8),
               participantsAsync.when(
                 data: (pts) => _buildRecipientSelector(pts),
-                loading: () => const SizedBox(height: 60),
-                error: (_, __) => const SizedBox(height: 60),
+                loading: () => const SizedBox(height: 52),
+                error: (_, __) => const SizedBox(height: 52),
               ),
-              const Divider(color: Colors.white10, height: 16),
+              const Divider(color: Colors.white12, height: 14),
               _buildCategoryTabs(),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Expanded(
                 child: giftsAsync.when(
                   data: (gifts) {
@@ -94,9 +116,9 @@ class _GiftPanelState extends State<GiftPanel> {
                       physics: const BouncingScrollPhysics(),
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 0.7,
+                        mainAxisSpacing: 8,
+                        crossAxisSpacing: 8,
+                        childAspectRatio: 0.75,
                       ),
                       itemCount: displayGifts.length,
                       itemBuilder: (context, index) {
@@ -116,7 +138,7 @@ class _GiftPanelState extends State<GiftPanel> {
                   error: (err, _) => Center(child: Text("Error: $err", style: const TextStyle(color: Colors.white70))),
                 ),
               ),
-              const Divider(color: Colors.white10),
+              const Divider(color: Colors.white12, height: 12),
               _buildComboRow(),
               _buildFooter(diamondBalance, ref),
             ],
@@ -130,6 +152,7 @@ class _GiftPanelState extends State<GiftPanel> {
     final categories = ['Gift', 'Lucky', 'Lucky fruit', 'Relationship', 'VIP', 'Custom', 'All'];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
       child: Row(
         children: categories.map((cat) {
           final isSelected = _selectedCategory.toLowerCase() == cat.toLowerCase();
@@ -140,22 +163,21 @@ class _GiftPanelState extends State<GiftPanel> {
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: isSelected ? Colors.amber : Colors.transparent,
-                    width: 2.5,
-                  ),
-                ),
+                gradient: isSelected
+                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
+                    : null,
+                color: isSelected ? null : Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(16),
               ),
               child: Text(
                 cat,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.white54,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  fontSize: 14,
+                  color: isSelected ? Colors.black : Colors.white70,
+                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -168,12 +190,10 @@ class _GiftPanelState extends State<GiftPanel> {
   Widget _buildRecipientSelector(List<Participant> participants) {
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
 
-    // Filter to show Host + Anyone on Seats + Target User (exclude current user - no self-gifting)
     final recipients = participants.where((p) => 
       (p.role == 'host' || p.seatIndex != -1 || p.uid == widget.targetUid) && p.uid != currentUserUid
     ).toList();
 
-    // If no selection yet, default to host
     if (_selectedTargetUids.isEmpty && !_sendToAll && recipients.isNotEmpty) {
       final host = recipients.firstWhere(
         (p) => p.role == 'host',
@@ -182,7 +202,6 @@ class _GiftPanelState extends State<GiftPanel> {
       _selectedTargetUids = [host.uid];
     }
 
-    // Move selected targets to the front
     recipients.sort((a, b) {
       if (_selectedTargetUids.contains(a.uid) && !_selectedTargetUids.contains(b.uid)) return -1;
       if (!_selectedTargetUids.contains(a.uid) && _selectedTargetUids.contains(b.uid)) return 1;
@@ -190,9 +209,10 @@ class _GiftPanelState extends State<GiftPanel> {
     });
 
     return SizedBox(
-      height: 60,
+      height: 52,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
         itemCount: recipients.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
@@ -206,23 +226,26 @@ class _GiftPanelState extends State<GiftPanel> {
               },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.only(right: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: _sendToAll ? const Color(0xFF00E5FF) : Colors.transparent, 
-                    width: 2
+                    color: _sendToAll ? const Color(0xFF00E5FF) : Colors.white12, 
+                    width: _sendToAll ? 2 : 1
                   ),
-                  color: _sendToAll ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.white12,
+                  color: _sendToAll ? const Color(0xFF00E5FF).withOpacity(0.15) : Colors.white.withOpacity(0.06),
+                  boxShadow: _sendToAll
+                      ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 8)]
+                      : [],
                 ),
                 child: Center(
                   child: Text(
                     "All", 
                     style: TextStyle(
                       color: _sendToAll ? const Color(0xFF00E5FF) : Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13
                     ),
                   ),
                 ),
@@ -247,26 +270,29 @@ class _GiftPanelState extends State<GiftPanel> {
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.all(4),
+              margin: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(16),
                 border: Border.all(
-                  color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent, 
-                  width: 2
+                  color: isSelected ? const Color(0xFF00E5FF) : Colors.white12, 
+                  width: isSelected ? 2 : 1
                 ),
-                color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.transparent,
+                color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.15) : Colors.white.withOpacity(0.04),
+                boxShadow: isSelected
+                    ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 8)]
+                    : [],
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircleAvatar(
-                    radius: 18,
+                    radius: 16,
                     backgroundImage: CachedNetworkImageProvider(
                       p.profilePhotoUrl.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : p.profilePhotoUrl
                     ),
                   ),
-                  Gap(8),
+                  const Gap(6),
                   Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -282,11 +308,11 @@ class _GiftPanelState extends State<GiftPanel> {
                       if (p.role == 'host')
                         const Text(
                           "Host", 
-                          style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold)
+                          style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.w900)
                         ),
                     ],
                   ),
-                  Gap(8),
+                  const Gap(4),
                 ],
               ),
             ),
@@ -300,47 +326,96 @@ class _GiftPanelState extends State<GiftPanel> {
     final combos = [1, 5, 10, 99, 520, 1314];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
-        children: combos.map((q) => GestureDetector(
-          onTap: () {
-            HapticFeedback.lightImpact();
-            setState(() => _selectedQuantity = q);
-          },
-          child: Container(
-            margin: const EdgeInsets.only(right: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: _selectedQuantity == q ? const Color(0xFFFFD700).withOpacity(0.2) : Colors.white.withOpacity(0.05),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _selectedQuantity == q ? const Color(0xFFFFD700) : Colors.transparent),
+        children: combos.map((q) {
+          final isSel = _selectedQuantity == q;
+          return GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              setState(() => _selectedQuantity = q);
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.only(right: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                gradient: isSel
+                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
+                    : null,
+                color: isSel ? null : Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSel ? const Color(0xFFFFD700) : Colors.white10,
+                ),
+              ),
+              child: Text(
+                "×$q",
+                style: TextStyle(
+                  color: isSel ? Colors.black : Colors.white70,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
             ),
-            child: Text("×$q", style: TextStyle(color: _selectedQuantity == q ? const Color(0xFFFFD700) : Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
-          ),
-        )).toList(),
+          );
+        }).toList(),
       ),
     );
   }
 
   Widget _buildHeader(BuildContext context, WidgetRef ref) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text("Send Gift", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-        Row(
-          children: [
-            TextButton.icon(
-              onPressed: () => _showLuckyBagDialog(context, ref),
-              icon: const Text("🧧", style: TextStyle(fontSize: 14)),
-              label: const Text("Lucky Bag", style: TextStyle(color: Colors.pinkAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+        const Text(
+          "Send Gift",
+          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.3),
+        ),
+        const Spacer(),
+        GestureDetector(
+          onTap: () => _showLuckyBagDialog(context, ref),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.pink.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.pinkAccent.withOpacity(0.4)),
             ),
-            TextButton.icon(
-              onPressed: () => _feedSampleGifts(context, ref),
-              icon: const Icon(Icons.refresh, size: 16, color: Colors.amber),
-              label: const Text("Feed Gifts", style: TextStyle(color: Colors.amber, fontSize: 12)),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text("🧧", style: TextStyle(fontSize: 12)),
+                Gap(4),
+                Text("Lucky Bag", style: TextStyle(color: Colors.pinkAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+              ],
             ),
-            IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.pop(context)),
-          ],
+          ),
+        ),
+        const Gap(6),
+        GestureDetector(
+          onTap: () => _feedSampleGifts(context, ref),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.amber.withOpacity(0.15),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.amber.withOpacity(0.4)),
+            ),
+            child: const Icon(Icons.refresh_rounded, size: 15, color: Colors.amber),
+          ),
+        ),
+        const Gap(6),
+        GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.white10,
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.close_rounded, size: 16, color: Colors.white70),
+          ),
         ),
       ],
     );
@@ -349,126 +424,373 @@ class _GiftPanelState extends State<GiftPanel> {
   void _showLuckyBagDialog(BuildContext context, WidgetRef ref) {
     final amountController = TextEditingController(text: '50000');
     final winnersController = TextEditingController(text: '10');
+    int currentStep = 1; // Step 1: Diamond Pool, Step 2: Winner Count
     bool isDropping = false;
+
+    final quickPools = [10000, 50000, 100000, 500000];
+    final quickWinners = [5, 10, 20, 50];
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) => AlertDialog(
-          backgroundColor: const Color(0xFF1E1C2A),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Row(
-            children: [
-              Text("🧧", style: TextStyle(fontSize: 24)),
-              SizedBox(width: 8),
-              Text("Send Lucky Bag", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: amountController,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
-                decoration: const InputDecoration(
-                  labelText: "Total Diamond Pool",
-                  labelStyle: TextStyle(color: Colors.white70),
-                  prefixIcon: Icon(Icons.diamond_outlined, color: Colors.amber),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: winnersController,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                decoration: const InputDecoration(
-                  labelText: "Number of Winners (e.g. 10, 20, 50)",
-                  labelStyle: TextStyle(color: Colors.white70),
-                  prefixIcon: Icon(Icons.group_outlined, color: Colors.indigoAccent),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              onPressed: isDropping ? null : () async {
-                final amt = int.tryParse(amountController.text) ?? 50000;
-                final win = int.tryParse(winnersController.text) ?? 10;
-                setDlgState(() => isDropping = true);
+        builder: (ctx, setDlgState) {
+          final amt = int.tryParse(amountController.text) ?? 50000;
+          final win = int.tryParse(winnersController.text) ?? 10;
+          final perWinner = win > 0 ? (amt / win).round() : 0;
 
-                try {
-                  await ref.read(giftServiceProvider).sendLuckyBag(
-                    roomId: widget.roomId,
-                    totalDiamonds: amt,
-                    winnerCount: win,
-                  );
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text("🎉 Dropped Lucky Bag ($amt 💎) to room!"),
-                        backgroundColor: Colors.amber[800],
+          return AlertDialog(
+            backgroundColor: const Color(0xFF141221),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Step Indicator Header
+                  Row(
+                    children: [
+                      const Text("🧧", style: TextStyle(fontSize: 26)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              currentStep == 1 ? "Step 1: Diamond Pool" : "Step 2: Winner Count",
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                            ),
+                            Text(
+                              currentStep == 1 ? "Select total diamonds to drop" : "Select number of lucky winners",
+                              style: const TextStyle(color: Colors.white54, fontSize: 11),
+                            ),
+                          ],
+                        ),
                       ),
-                    );
-                  }
-                } catch (e) {
-                  if (ctx.mounted) {
-                    setDlgState(() => isDropping = false);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
-                    );
-                  }
-                }
-              },
-              child: isDropping 
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                  : const Text("DROP BAG", style: TextStyle(fontWeight: FontWeight.w900)),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 20),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // Step Progress Bar
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFD700),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: currentStep == 2 ? const Color(0xFFFFD700) : Colors.white24,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  // STEP 1 CONTENT: Diamond Pool
+                  if (currentStep == 1) ...[
+                    const Text(
+                      "Quick Select Pool:",
+                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: quickPools.map((pool) {
+                        final isSel = amt == pool;
+                        return GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setDlgState(() => amountController.text = pool.toString());
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSel ? const Color(0xFFFFD700).withOpacity(0.2) : Colors.white.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: isSel ? const Color(0xFFFFD700) : Colors.white12),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const PremiumDiamond(size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  "${(pool / 1000).toStringAsFixed(0)}K",
+                                  style: TextStyle(
+                                    color: isSel ? const Color(0xFFFFD700) : Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.w900, fontSize: 16),
+                      onChanged: (_) => setDlgState(() {}),
+                      decoration: InputDecoration(
+                        labelText: "Custom Pool Amount",
+                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                        prefixIcon: const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700)),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.05),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFFD700),
+                          foregroundColor: Colors.black,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                        ),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          setDlgState(() => currentStep = 2);
+                        },
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text("Next Step", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
+                            SizedBox(width: 6),
+                            Icon(Icons.arrow_forward_rounded, size: 18),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    // STEP 2 CONTENT: Winner Count & Summary
+                    const Text(
+                      "Quick Select Winners:",
+                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: quickWinners.map((w) {
+                        final isSel = win == w;
+                        return GestureDetector(
+                          onTap: () {
+                            HapticFeedback.selectionClick();
+                            setDlgState(() => winnersController.text = w.toString());
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 180),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isSel ? const Color(0xFFFF4081).withOpacity(0.2) : Colors.white.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: isSel ? const Color(0xFFFF4081) : Colors.white12),
+                            ),
+                            child: Text(
+                              "$w Winners",
+                              style: TextStyle(
+                                color: isSel ? const Color(0xFFFF4081) : Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: winnersController,
+                      keyboardType: TextInputType.number,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
+                      onChanged: (_) => setDlgState(() {}),
+                      decoration: InputDecoration(
+                        labelText: "Custom Winner Count",
+                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                        prefixIcon: const Icon(Icons.group_rounded, color: Color(0xFFFF4081)),
+                        filled: true,
+                        fillColor: Colors.white.withOpacity(0.05),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Summary Box
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.amber.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text("Estimated Payout", style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 2),
+                              Text("~$perWinner 💎 / winner", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                          Text("$win Winners", style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.white24),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                              ),
+                              onPressed: () => setDlgState(() => currentStep = 1),
+                              child: const Text("Back", style: TextStyle(fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          flex: 2,
+                          child: SizedBox(
+                            height: 44,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFFD700),
+                                foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                              ),
+                              onPressed: isDropping ? null : () async {
+                                setDlgState(() => isDropping = true);
+                                try {
+                                  await ref.read(giftServiceProvider).sendLuckyBag(
+                                    roomId: widget.roomId,
+                                    totalDiamonds: amt,
+                                    winnerCount: win,
+                                  );
+                                  if (ctx.mounted) {
+                                    Navigator.pop(ctx);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text("🎉 Dropped Lucky Bag ($amt 💎) to room!"),
+                                        backgroundColor: Colors.amber[800],
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (ctx.mounted) {
+                                    setDlgState(() => isDropping = false);
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                                    );
+                                  }
+                                }
+                              },
+                              child: isDropping 
+                                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                                  : const Text("DROP BAG 🧧", style: TextStyle(fontWeight: FontWeight.w900)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
 
   Widget _buildFooter(int diamondBalance, WidgetRef ref) {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          const PremiumDiamond(size: 18),
-          const SizedBox(width: 6),
-          Text(
-            "$diamondBalance",
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const PremiumDiamond(size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  "$diamondBalance",
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
+                ),
+                const SizedBox(width: 6),
+                const Text(
+                  "Top-up >",
+                  style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 11),
+                ),
+              ],
+            ),
           ),
           const Spacer(),
-          const Text("Top-up", style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold)),
-          const Icon(Icons.chevron_right, color: Color(0xFFFFD700), size: 18),
-          const SizedBox(width: 16),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFFD700),
-              foregroundColor: Colors.black,
-              minimumSize: const Size(80, 36),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-              elevation: 0,
+          GestureDetector(
+            onTap: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              height: 42,
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              decoration: BoxDecoration(
+                gradient: (_selectedGift != null && !_isSending)
+                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
+                    : LinearGradient(colors: [Colors.grey.shade700, Colors.grey.shade800]),
+                borderRadius: BorderRadius.circular(22),
+                boxShadow: (_selectedGift != null && !_isSending)
+                    ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 10)]
+                    : [],
+              ),
+              alignment: Alignment.center,
+              child: _isSending 
+                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
+                  : const Text(
+                      "Send",
+                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14),
+                    ),
             ),
-            onPressed: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
-            child: _isSending 
-                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
-                : const Text("Send", style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -481,7 +803,6 @@ class _GiftPanelState extends State<GiftPanel> {
     final currentUser = ref.read(currentUserProfileProvider).value;
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
     
-    // Category sending restriction validation
     if (_selectedGift!.category.toLowerCase() == 'vip') {
       final isVipActive = currentUser != null && currentUser.vipTier != null && currentUser.vipTier != 'none' && currentUser.vipExpiry != null && currentUser.vipExpiry!.isAfter(DateTime.now());
       if (!isVipActive) {
@@ -564,72 +885,84 @@ class _GiftTile extends StatelessWidget {
 
     return GestureDetector(
       onTap: onSelect,
-      child: Container(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.1) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: isSelected ? const Color(0xFF00E5FF) : Colors.transparent, width: 1.5),
+          color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.12) : const Color(0xFF1B1B26),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.06),
+            width: isSelected ? 2.0 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10)]
+              : [],
         ),
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(6),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Stack(
               alignment: Alignment.topCenter,
               clipBehavior: Clip.none,
               children: [
-                Container(
-                  width: 50,
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                SizedBox(
+                  width: 48,
+                  height: 48,
                   child: gift.imageUrl.startsWith('http') 
                     ? CachedNetworkImage(
                         imageUrl: gift.imageUrl,
-                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white10),
-                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24),
+                        fit: BoxFit.contain,
+                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 28),
+                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 28),
                       )
-                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 30))),
+                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 32))),
                 ),
                 if (isLucky)
                   Positioned(
-                    top: -6,
+                    top: -8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                       decoration: BoxDecoration(
-                        color: Colors.redAccent,
-                        borderRadius: BorderRadius.circular(4),
+                        gradient: const LinearGradient(colors: [Color(0xFFFF0055), Color(0xFFFF5000)]),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 4)],
                       ),
                       child: const Text(
                         "JACKPOT",
-                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900),
+                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900, letterSpacing: 0.5),
                       ),
                     ),
                   ),
               ],
             ),
             const SizedBox(height: 6),
-          Text(
-            gift.name, 
-            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w500), 
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                "${gift.priceInDiamonds} ", 
-                style: const TextStyle(color: Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.bold),
-              ),
-              const PremiumDiamond(size: 10),
-            ],
-          ),
-        ],
+            Text(
+              gift.name, 
+              style: TextStyle(
+                color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+              ), 
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "${gift.priceInDiamonds}", 
+                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(width: 2),
+                const PremiumDiamond(size: 10),
+              ],
+            ),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }

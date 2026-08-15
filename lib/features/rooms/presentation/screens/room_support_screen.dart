@@ -274,7 +274,16 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
           // Cycle Timer Bar
           if (_phaseText.isNotEmpty) _buildCountdownPhaseCard(),
 
-          const Gap(20),
+          const Gap(18),
+
+          // Partner Assignment Grid Card (+ Add slots)
+          if (roomId != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: _buildPartnerGridCard(roomId, isOwner),
+            ),
+
+          const Gap(18),
 
           // "My Room" Table Card
           Padding(
@@ -290,14 +299,10 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
             child: _buildTargetAndRewardCard(),
           ),
 
-          const Gap(18),
+          const Gap(24),
 
-          // Partner Assignment Controls (Room Owners)
-          if (roomId != null && isOwner)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: _buildPartnerManagementCard(roomId),
-            ),
+          // Rules Section
+          _buildRulesSection(),
         ],
       ),
     );
@@ -418,32 +423,51 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   Widget _buildCountdownPhaseCard() {
     String timeText = "";
     if (_timeLeft.inDays > 0) {
-      timeText = "${_timeLeft.inDays}d ${_timeLeft.inHours.remainder(24)}h ${_timeLeft.inMinutes.remainder(60)}m ${_timeLeft.inSeconds.remainder(60)}s";
+      timeText = "${_timeLeft.inDays}Day ${_timeLeft.inHours.remainder(24).toString().padLeft(2, '0')}:${_timeLeft.inMinutes.remainder(60).toString().padLeft(2, '0')}:${_timeLeft.inSeconds.remainder(60).toString().padLeft(2, '0')}";
     } else {
       String twoDigits(int n) => n.toString().padLeft(2, '0');
-      timeText = "${twoDigits(_timeLeft.inHours)}h ${twoDigits(_timeLeft.inMinutes.remainder(60))}m ${twoDigits(_timeLeft.inSeconds.remainder(60))}s";
+      timeText = "${twoDigits(_timeLeft.inHours)}:${twoDigits(_timeLeft.inMinutes.remainder(60))}:${twoDigits(_timeLeft.inSeconds.remainder(60))}";
     }
+
+    final isFillIn = _phaseText.toLowerCase().contains("distribute") || _phaseText.toLowerCase().contains("fill");
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 14),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: borderGold),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderGold, width: 1.2),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 10, offset: const Offset(0, 4)),
+        ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
         children: [
-          const Icon(Icons.timer_outlined, color: textGoldSub, size: 16),
-          const Gap(8),
-          Text(
-            "${_phaseText.toUpperCase()}: ",
-            style: GoogleFonts.plusJakartaSans(color: textGoldSub, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+            decoration: BoxDecoration(
+              gradient: metallicBadgeGradient,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(isFillIn ? Icons.edit_note_rounded : Icons.access_time_filled_rounded, color: const Color(0xFF2A1D04), size: 18),
+                const Gap(8),
+                Text(
+                  isFillIn ? "fill in countdown $timeText" : "this week countdown $timeText",
+                  style: GoogleFonts.plusJakartaSans(color: const Color(0xFF2A1D04), fontSize: 13.5, fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
           ),
+          const Gap(10),
           Text(
-            timeText,
-            style: GoogleFonts.plusJakartaSans(color: textGoldBright, fontSize: 13, fontWeight: FontWeight.w900),
+            "Last week Room Partner can be fill in from every Monday 00:00 to Tuesday 24:00 (UTC+0), rewards will be sent every Wednesday",
+            textAlign: TextAlign.center,
+            style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 11.5, height: 1.4),
           ),
         ],
       ),
@@ -453,10 +477,44 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   // ─── 5. MY ROOM CARD ───────────────────────────────────────────────────────
   Widget _buildMyRoomCard(String? roomId, bool isOwner) {
     final cycle = roomId != null ? ref.watch(roomSupportCycleProvider(roomId)).valueOrNull ?? {} : {};
-    final totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? 0;
-    final roomLevel = cycle['level'] ?? 0;
-    final visitors = (cycle['visitorCount'] as num?)?.toInt() ?? 0;
-    final rewardCoins = (cycle['predictedRewardCoins'] as num?)?.toInt() ?? 0;
+    final roomAsync = roomId != null ? ref.watch(currentRoomStreamProvider(roomId)) : null;
+    final room = roomAsync?.valueOrNull;
+    final historyAsync = roomId != null ? ref.watch(roomSupportHistoryProvider(roomId)) : null;
+    final historyDocs = historyAsync?.valueOrNull ?? [];
+
+    int totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? 0;
+    if (totalCoins == 0 && room != null) {
+      totalCoins = room.weeklyEarnings;
+    }
+
+    int visitors = (cycle['visitorCount'] as num?)?.toInt() ?? 0;
+    if (visitors == 0 && room != null) {
+      visitors = room.currentUsersCount;
+    }
+
+    int roomLevel = cycle['level'] ?? 0;
+    if (roomLevel == 0 && totalCoins > 0) {
+      final levels = _full20Levels();
+      for (final lvl in levels) {
+        if (totalCoins >= (lvl['coinsTarget'] as num).toInt()) {
+          roomLevel = lvl['level'] as int;
+          break;
+        }
+      }
+    }
+
+    int rewardCoins = (cycle['predictedRewardCoins'] as num?)?.toInt() ?? 0;
+    if (rewardCoins == 0 && roomLevel > 0) {
+      final levels = _full20Levels();
+      final targetLvl = levels.firstWhere((l) => l['level'] == roomLevel, orElse: () => levels.last);
+      rewardCoins = (targetLvl['totalReward'] as num).toInt();
+    }
+
+    final lastWeek = historyDocs.isNotEmpty ? historyDocs.first : {};
+    final lastWeekCoins = (lastWeek['totalCoins'] as num?)?.toInt() ?? 0;
+    final lastWeekReward = (lastWeek['rewardCoins'] as num?)?.toInt() ?? 0;
+    final lastWeekVisitors = (lastWeek['visitorCount'] as num?)?.toInt() ?? 0;
+    final lastWeekLevel = (lastWeek['level'] as num?)?.toInt() ?? 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -530,10 +588,10 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                   decoration: const BoxDecoration(color: tableRowBgOdd),
                   children: [
                     _buildCell("Last week"),
-                    _buildCell("0"),
-                    _buildCell("0"),
-                    _buildCell("0"),
-                    _buildCell("0"),
+                    _buildCell("$lastWeekLevel"),
+                    _buildCell(_formatNum(lastWeekReward)),
+                    _buildCell(_formatNum(lastWeekVisitors)),
+                    _buildCell(_formatNum(lastWeekCoins)),
                   ],
                 ),
               ],
@@ -561,7 +619,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   Widget _buildTargetAndRewardCard() {
     final configAsync = ref.watch(roomSupportConfigProvider);
     final config = configAsync.valueOrNull;
-    final levels = (config?['levels'] as List<dynamic>?) ?? _full31Levels();
+    final levels = (config?['levels'] as List<dynamic>?) ?? _full20Levels();
 
     return Container(
       decoration: BoxDecoration(
@@ -664,7 +722,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                       decoration: BoxDecoration(color: isEven ? tableRowBgEven : tableRowBgOdd),
                       children: [
                         _buildCell("$levelNum", isGold: true),
-                        _buildCell("≥${_formatNum(coinsTarget)}M"),
+                        _buildCell("≥${_formatNum(coinsTarget)}"),
                         _buildCell("$partnerSlots"),
                         _buildCell(_formatNum(ownerReward)),
                         _buildCell(_formatNum(partnerReward)),
@@ -737,6 +795,139 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
               style: ElevatedButton.styleFrom(
                 backgroundColor: textGoldBright,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── PARTNER AVATAR SLOT GRID CARD (+ ADD SLOTS) ──────────────────────────
+  Widget _buildPartnerGridCard(String roomId, bool isOwner) {
+    final partnersAsync = ref.watch(roomSupportPartnersProvider(roomId));
+    final partners = partnersAsync.valueOrNull ?? [];
+    const maxSlots = 10; // 3x4 grid matching Photo 3 reference
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderGold, width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.8,
+            ),
+            itemCount: maxSlots,
+            itemBuilder: (context, index) {
+              if (index < partners.length) {
+                final p = partners[index];
+                final partnerUid = p['partnerUid'] as String? ?? p['id'] as String;
+                return StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance.collection('users').doc(partnerUid).snapshots(),
+                  builder: (context, snap) {
+                    final u = snap.data?.data() as Map<String, dynamic>? ?? {};
+                    final name = u['displayName'] as String? ?? p['displayName'] as String? ?? 'Partner';
+                    final photoUrl = u['profilePhotoUrl'] as String? ?? p['photoUrl'] as String? ?? '';
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AppAvatar(imageUrl: photoUrl, radius: 24, showFrame: false),
+                        const Gap(4),
+                        Text(
+                          name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.plusJakartaSans(color: textGoldHeader, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              } else {
+                return GestureDetector(
+                  onTap: isOwner ? () => _showPartnerPickerDialog(roomId) : null,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: textGoldSub.withOpacity(0.5), width: 1.5),
+                          color: Colors.black38,
+                        ),
+                        child: const Icon(Icons.add_rounded, color: textGoldBright, size: 22),
+                      ),
+                      const Gap(4),
+                      Text(
+                        "Add",
+                        style: GoogleFonts.plusJakartaSans(color: textGoldSub, fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── RULES SECTION (1 TO 6) ──────────────────────────────────────────────
+  Widget _buildRulesSection() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Rules:",
+            style: GoogleFonts.cinzel(color: textGoldBright, fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          const Gap(12),
+          _buildRuleItem(1, "Weekly Room Coins is counted from ", "Monday 00:00 to Sunday 23:59 (UTC+0)", ";"),
+          _buildRuleItem(2, "Reaching the Room Level need to ", "Room Coins target", ";"),
+          _buildRuleItem(3, "Room Owner need to fill in ", "Room Partner from Monday 00:00 to Tuesday 24:00 (UTC+0)", ", otherwise the reward will expire;"),
+          _buildRuleItem(4, "Rewards will be sent ", "every Wednesday", ";"),
+          _buildRuleItem(5, "Each user can only receive 1 reward per week, the reward will be sent according to the highest target reached by the user, whether it is Owner or Partner, for example: the user is both the Owner of his room and a Partner in other rooms, or Partner in multiple rooms at the same time, the reward with the most coins will be sent.", "", ""),
+          _buildRuleItem(6, "Cheating and violations are prohibited. Once discovered, all rewards will be cancelled.", "", ""),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRuleItem(int index, String textBefore, String goldText, String textAfter) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text("$index. ", style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: GoogleFonts.plusJakartaSans(color: Colors.white70, fontSize: 12, height: 1.4),
+                children: [
+                  TextSpan(text: textBefore),
+                  if (goldText.isNotEmpty)
+                    TextSpan(text: goldText, style: const TextStyle(color: textGoldBright, fontWeight: FontWeight.bold)),
+                  if (textAfter.isNotEmpty)
+                    TextSpan(text: textAfter),
+                ],
               ),
             ),
           ),
@@ -873,46 +1064,35 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   String _formatNum(num n) {
-    if (n >= 1000000000) return '${(n / 1000000000).toStringAsFixed(0)}M';
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(0)}';
+    if (n >= 1000000000) return '${(n / 1000000000).toStringAsFixed(0)}B';
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(0)}M';
     if (n >= 1000) return '${(n / 1000).toStringAsFixed(0)}K';
     return n.toString();
   }
 
-  // 31-tier dataset matching HiChat reference specification
-  List<Map<String, dynamic>> _full31Levels() {
+  // 20-tier dataset matching client specification
+  List<Map<String, dynamic>> _full20Levels() {
     return [
-      {'level': 31, 'coinsTarget': 16000000000, 'partnerSlots': 22, 'ownerReward': 880000000, 'partnerReward': 40000000, 'totalReward': 1760000000},
-      {'level': 30, 'coinsTarget': 14500000000, 'partnerSlots': 22, 'ownerReward': 797500000, 'partnerReward': 36250000, 'totalReward': 1595000000},
-      {'level': 29, 'coinsTarget': 13000000000, 'partnerSlots': 21, 'ownerReward': 715000000, 'partnerReward': 34047619, 'totalReward': 1430000000},
-      {'level': 28, 'coinsTarget': 11500000000, 'partnerSlots': 21, 'ownerReward': 632500000, 'partnerReward': 30119048, 'totalReward': 1265000000},
-      {'level': 27, 'coinsTarget': 10000000000, 'partnerSlots': 20, 'ownerReward': 550000000, 'partnerReward': 27500000, 'totalReward': 1100000000},
-      {'level': 26, 'coinsTarget': 9000000000, 'partnerSlots': 20, 'ownerReward': 495000000, 'partnerReward': 24750000, 'totalReward': 990000000},
-      {'level': 25, 'coinsTarget': 8000000000, 'partnerSlots': 19, 'ownerReward': 440000000, 'partnerReward': 23157894, 'totalReward': 880000000},
-      {'level': 24, 'coinsTarget': 7000000000, 'partnerSlots': 19, 'ownerReward': 385000000, 'partnerReward': 20263157, 'totalReward': 770000000},
-      {'level': 23, 'coinsTarget': 6000000000, 'partnerSlots': 18, 'ownerReward': 330000000, 'partnerReward': 18333333, 'totalReward': 660000000},
-      {'level': 22, 'coinsTarget': 5000000000, 'partnerSlots': 18, 'ownerReward': 275000000, 'partnerReward': 15277777, 'totalReward': 550000000},
-      {'level': 21, 'coinsTarget': 4000000000, 'partnerSlots': 17, 'ownerReward': 220000000, 'partnerReward': 12941176, 'totalReward': 440000000},
-      {'level': 20, 'coinsTarget': 3000000000, 'partnerSlots': 17, 'ownerReward': 165000000, 'partnerReward': 9705882, 'totalReward': 330000000},
-      {'level': 19, 'coinsTarget': 2500000000, 'partnerSlots': 16, 'ownerReward': 137500000, 'partnerReward': 8593750, 'totalReward': 275000000},
-      {'level': 18, 'coinsTarget': 2000000000, 'partnerSlots': 16, 'ownerReward': 110000000, 'partnerReward': 6875000, 'totalReward': 220000000},
-      {'level': 17, 'coinsTarget': 1600000000, 'partnerSlots': 15, 'ownerReward': 88000000, 'partnerReward': 5866666, 'totalReward': 176000000},
-      {'level': 16, 'coinsTarget': 1300000000, 'partnerSlots': 15, 'ownerReward': 71500000, 'partnerReward': 4766666, 'totalReward': 143000000},
-      {'level': 15, 'coinsTarget': 1000000000, 'partnerSlots': 14, 'ownerReward': 55000000, 'partnerReward': 3928571, 'totalReward': 110000000},
-      {'level': 14, 'coinsTarget': 800000000, 'partnerSlots': 14, 'ownerReward': 44000000, 'partnerReward': 3142857, 'totalReward': 88000000},
-      {'level': 13, 'coinsTarget': 600000000, 'partnerSlots': 13, 'ownerReward': 33000000, 'partnerReward': 2538461, 'totalReward': 66000000},
-      {'level': 12, 'coinsTarget': 450000000, 'partnerSlots': 13, 'ownerReward': 24750000, 'partnerReward': 1903846, 'totalReward': 49500000},
-      {'level': 11, 'coinsTarget': 300000000, 'partnerSlots': 12, 'ownerReward': 16500000, 'partnerReward': 1375000, 'totalReward': 33000000},
-      {'level': 10, 'coinsTarget': 200000000, 'partnerSlots': 12, 'ownerReward': 11000000, 'partnerReward': 916666, 'totalReward': 22000000},
-      {'level': 9, 'coinsTarget': 150000000, 'partnerSlots': 11, 'ownerReward': 8250000, 'partnerReward': 750000, 'totalReward': 16500000},
-      {'level': 8, 'coinsTarget': 100000000, 'partnerSlots': 11, 'ownerReward': 5500000, 'partnerReward': 500000, 'totalReward': 11000000},
-      {'level': 7, 'coinsTarget': 70000000, 'partnerSlots': 10, 'ownerReward': 3850000, 'partnerReward': 385000, 'totalReward': 7700000},
-      {'level': 6, 'coinsTarget': 50000000, 'partnerSlots': 9, 'ownerReward': 2750000, 'partnerReward': 305555, 'totalReward': 5500000},
-      {'level': 5, 'coinsTarget': 35000000, 'partnerSlots': 8, 'ownerReward': 1925000, 'partnerReward': 240625, 'totalReward': 3850000},
-      {'level': 4, 'coinsTarget': 20000000, 'partnerSlots': 7, 'ownerReward': 1100000, 'partnerReward': 157142, 'totalReward': 2200000},
-      {'level': 3, 'coinsTarget': 10000000, 'partnerSlots': 6, 'ownerReward': 550000, 'partnerReward': 91666, 'totalReward': 1100000},
-      {'level': 2, 'coinsTarget': 5000000, 'partnerSlots': 5, 'ownerReward': 275000, 'partnerReward': 55000, 'totalReward': 550000},
-      {'level': 1, 'coinsTarget': 1000000, 'partnerSlots': 4, 'ownerReward': 55000, 'partnerReward': 13750, 'totalReward': 110000},
+      {'level': 1, 'coinsTarget': 100000, 'partnerSlots': 4, 'ownerReward': 11250, 'partnerReward': 1875, 'totalReward': 15000},
+      {'level': 2, 'coinsTarget': 300000, 'partnerSlots': 4, 'ownerReward': 32850, 'partnerReward': 4050, 'totalReward': 45000},
+      {'level': 3, 'coinsTarget': 500000, 'partnerSlots': 4, 'ownerReward': 49700, 'partnerReward': 5075, 'totalReward': 70000},
+      {'level': 4, 'coinsTarget': 1000000, 'partnerSlots': 5, 'ownerReward': 96600, 'partnerReward': 8680, 'totalReward': 140000},
+      {'level': 5, 'coinsTarget': 2000000, 'partnerSlots': 5, 'ownerReward': 200000, 'partnerReward': 18000, 'totalReward': 290000},
+      {'level': 6, 'coinsTarget': 3500000, 'partnerSlots': 6, 'ownerReward': 360000, 'partnerReward': 30000, 'totalReward': 540000},
+      {'level': 7, 'coinsTarget': 5000000, 'partnerSlots': 6, 'ownerReward': 525000, 'partnerReward': 45000, 'totalReward': 795000},
+      {'level': 8, 'coinsTarget': 8000000, 'partnerSlots': 7, 'ownerReward': 840000, 'partnerReward': 70000, 'totalReward': 1330000},
+      {'level': 9, 'coinsTarget': 12000000, 'partnerSlots': 7, 'ownerReward': 1280000, 'partnerReward': 100000, 'totalReward': 1980000},
+      {'level': 10, 'coinsTarget': 18000000, 'partnerSlots': 8, 'ownerReward': 1950000, 'partnerReward': 150000, 'totalReward': 3150000},
+      {'level': 11, 'coinsTarget': 25000000, 'partnerSlots': 8, 'ownerReward': 2750000, 'partnerReward': 200000, 'totalReward': 4350000},
+      {'level': 12, 'coinsTarget': 35000000, 'partnerSlots': 9, 'ownerReward': 3900000, 'partnerReward': 280000, 'totalReward': 6420000},
+      {'level': 13, 'coinsTarget': 50000000, 'partnerSlots': 9, 'ownerReward': 5600000, 'partnerReward': 400000, 'totalReward': 9200000},
+      {'level': 14, 'coinsTarget': 75000000, 'partnerSlots': 10, 'ownerReward': 8500000, 'partnerReward': 600000, 'totalReward': 14500000},
+      {'level': 15, 'coinsTarget': 100000000, 'partnerSlots': 10, 'ownerReward': 11500000, 'partnerReward': 850000, 'totalReward': 20000000},
+      {'level': 16, 'coinsTarget': 150000000, 'partnerSlots': 11, 'ownerReward': 17500000, 'partnerReward': 1250000, 'totalReward': 31250000},
+      {'level': 17, 'coinsTarget': 200000000, 'partnerSlots': 11, 'ownerReward': 23500000, 'partnerReward': 1700000, 'totalReward': 42200000},
+      {'level': 18, 'coinsTarget': 300000000, 'partnerSlots': 12, 'ownerReward': 35500000, 'partnerReward': 2500000, 'totalReward': 65500000},
+      {'level': 19, 'coinsTarget': 450000000, 'partnerSlots': 12, 'ownerReward': 54000000, 'partnerReward': 3800000, 'totalReward': 99600000},
+      {'level': 20, 'coinsTarget': 600000000, 'partnerSlots': 12, 'ownerReward': 72000000, 'partnerReward': 5000000, 'totalReward': 132000000},
     ];
   }
 }

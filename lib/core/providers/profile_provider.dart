@@ -108,6 +108,21 @@ final adminFramesProvider = StreamProvider<Map<String, String>>((ref) {
       });
 });
 
+final rocketSettingsProvider = StreamProvider<List<int>>((ref) {
+  return FirebaseFirestore.instance
+      .collection('system_configs')
+      .doc('rocket_settings')
+      .snapshots()
+      .map((snap) {
+        final defaultTargets = [1000000, 2000000, 3000000, 5000000, 10000000];
+        final data = snap.data();
+        if (data == null || data['targets'] == null) return defaultTargets;
+        final list = (data['targets'] as List<dynamic>).map((e) => (e as num).toInt()).toList();
+        if (list.length == 5) return list;
+        return defaultTargets;
+      });
+});
+
 final warehouseItemsProvider = StreamProvider.family<List<Map<String, dynamic>>, String>((ref, category) {
   final authState = ref.watch(authStateProvider);
   final uid = authState.value?.uid;
@@ -265,9 +280,71 @@ final topContributorsProvider = StreamProvider.family<List<Map<String, dynamic>>
   return FirebaseFirestore.instance
       .collection('users')
       .doc(targetUid)
-      .collection('contributors')
+      .collection('sender_rankings')
+      .doc('total')
+      .collection('overall')
       .orderBy('amount', descending: true)
       .limit(3)
       .snapshots()
       .map((snapshot) => snapshot.docs.map((doc) => ({...doc.data(), 'uid': doc.id})).toList());
+});
+
+String _getIsoWeekKey(DateTime date) {
+  final utc = DateTime.utc(date.year, date.month, date.day);
+  final dayNum = utc.weekday;
+  final d = utc.add(Duration(days: 4 - dayNum));
+  final yearStart = DateTime.utc(d.year, 1, 1);
+  final weekNo = ((d.difference(yearStart).inDays) / 7).floor() + 1;
+  return "${d.year}-W${weekNo.toString().padLeft(2, '0')}";
+}
+
+final userSenderRankingsProvider = StreamProvider.family<List<Map<String, dynamic>>, ({String targetUid, String period})>((ref, arg) {
+  if (arg.targetUid.isEmpty) return Stream.value([]);
+
+  final now = DateTime.now().toUtc();
+  String bucket = 'overall';
+  if (arg.period == 'daily') {
+    bucket = now.toIso8601String().substring(0, 10);
+  } else if (arg.period == 'weekly') {
+    bucket = _getIsoWeekKey(now);
+  } else if (arg.period == 'monthly') {
+    bucket = now.toIso8601String().substring(0, 7);
+  } else {
+    bucket = 'overall';
+  }
+
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(arg.targetUid)
+      .collection('sender_rankings')
+      .doc(arg.period)
+      .collection(bucket)
+      .orderBy('amount', descending: true)
+      .limit(100)
+      .snapshots()
+      .map((snapshot) {
+        final docs = snapshot.docs;
+        final nowMs = DateTime.now().millisecondsSinceEpoch;
+        final thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+
+        List<Map<String, dynamic>> results = [];
+        for (var doc in docs) {
+          final data = doc.data();
+          
+          // 🛡️ Inactive Sender Rule: Filter out senders who haven't sent gifts to this target user ID in 30 consecutive days
+          final updatedAt = data['updatedAt'];
+          if (updatedAt != null && updatedAt is Timestamp) {
+            final updatedMs = updatedAt.toDate().millisecondsSinceEpoch;
+            if ((nowMs - updatedMs) > thirtyDaysMs) {
+              continue; // Exclude inactive sender
+            }
+          }
+
+          results.add({
+            ...data,
+            'senderUid': doc.id,
+          });
+        }
+        return results;
+      });
 });

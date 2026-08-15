@@ -178,8 +178,8 @@ class OccupiedSeatWidget extends ConsumerWidget {
                       clipBehavior: Clip.none,
                       children: [
                         OverflowBox(
-                          maxWidth: 200,
-                          maxHeight: 200,
+                          maxWidth: radius * 3.2,
+                          maxHeight: radius * 3.2,
                           child: AppAvatar(
                             imageUrl: u.profilePhotoUrl,
                             frameUrl: displayFrame,
@@ -188,7 +188,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
                             tags: u.tags,
                             radius: radius,
                             showFrame: true,
-                            frameMultiplier: 2.3,
+                            frameMultiplier: 2.1,
                           ),
                         ),
                         if (participant.isMuted)
@@ -208,19 +208,6 @@ class OccupiedSeatWidget extends ConsumerWidget {
                           ),
                       ],
                     ),
-                    if (participant.role == 'host' || participant.role == 'owner')
-                      Positioned(
-                        top: -10,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700),
-                            borderRadius: BorderRadius.circular(4),
-                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                          ),
-                          child: Text("OWNER", style: TextStyle(color: Colors.black, fontSize: radius > 22 ? 8 : 6, fontWeight: FontWeight.bold)),
-                        ),
-                      ),
                     SeatEmojiReactionWidget(uid: participant.uid),
                   ],
                 );
@@ -435,7 +422,7 @@ class EmptySeatWidget extends StatelessWidget {
             child: Center(
               child: isLocked 
                   ? Text("Locked", style: TextStyle(color: Colors.redAccent.withOpacity(0.6), fontSize: fontSize, fontWeight: FontWeight.bold))
-                  : Text("${index + 1}", style: TextStyle(color: Colors.white70, fontSize: fontSize)),
+                  : Text(index == 0 ? "Owner" : "$index", style: TextStyle(color: Colors.white70, fontSize: fontSize, fontWeight: FontWeight.bold)),
             ),
           ),
         ],

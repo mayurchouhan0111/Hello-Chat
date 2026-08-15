@@ -6,7 +6,8 @@ import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
-import '../../../../core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/features/profile/presentation/screens/user_contribution_ranking_screen.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/user_profile_card.dart';
@@ -45,60 +46,58 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final followingAsync = ref.watch(followingStreamProvider(currentUid ?? ''));
 
-    return userAsync.when(
-      data: (user) {
-        if (user == null) return const SizedBox.shrink();
-        final u = user as UserModel;
-        final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
-        final badges = getBadgesForUser(u);
-        
-        final svipLevel = u.svipLevel ?? 0;
-        final vipLevel = _getVipLevel(u.vipTier);
-        debugPrint('--- [VIP CROWN] vipTier="${u.vipTier}" svipLevel=$svipLevel parsedLevel=$vipLevel crownPath=${_getVipCrownPath(vipLevel)} ---');
-        final hasVipBg = svipLevel > 0 || vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
-        final textColor = hasVipBg ? Colors.white : Colors.black87;
-        final subTextColor = hasVipBg ? Colors.white70 : Colors.black38;
-        final iconColor = hasVipBg ? Colors.white70 : Colors.black54;
-        
-        return Stack(
+    final fetchedUser = userAsync.valueOrNull;
+    final u = fetchedUser ?? UserModel(
+      uid: widget.participant.uid,
+      createdAt: widget.participant.joinedAt,
+      phoneNumber: null,
+      username: widget.participant.displayName.isNotEmpty ? widget.participant.displayName : 'User',
+      displayName: widget.participant.displayName.isNotEmpty ? widget.participant.displayName : 'User',
+      profilePhotoUrl: widget.participant.profilePhotoUrl,
+      profileFrame: widget.participant.profileFrame,
+      vipTier: widget.participant.vipTier,
+      level: widget.participant.level,
+      tags: widget.participant.tags,
+      helloId: widget.participant.helloId,
+      lastActive: widget.participant.lastActive,
+      role: widget.participant.role,
+    );
+
+    final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
+    final badges = getBadgesForUser(u);
+    
+    final svipLevel = u.svipLevel ?? 0;
+    final vipLevel = _getVipLevel(u.vipTier);
+    final hasVipBg = svipLevel > 0 || vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+    final textColor = hasVipBg ? Colors.white : Colors.black87;
+    final subTextColor = hasVipBg ? Colors.white70 : Colors.black38;
+    final iconColor = hasVipBg ? Colors.white70 : Colors.black54;
+    
+    return Stack(
           clipBehavior: Clip.none,
           alignment: Alignment.topCenter,
           children: [
-            // Main Bottom Sheet Card with full SVGA fitting
-            UserProfileCard(
-              user: u,
-              fit: BoxFit.fill,
-              crownTop: -30,
-              crownBottom: 0,
-              padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).padding.bottom),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-              boxShadow: const [
-                BoxShadow(color: Colors.black26, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
-              ],
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Gap(24),
-                    // Centered Avatar (aligned under VIP Crown header)
-                    SizedBox(
-                      width: 124,
-                      height: 124,
-                      child: Center(
-                        child: AppAvatar(
-                          radius: 38,
-                          imageUrl: u.profilePhotoUrl,
-                          frameUrl: u.profileFrame,
-                          vipTier: u.vipTier,
-                          svipLevel: u.svipLevel,
-                          userLevel: u.level,
-                          showFrame: true,
-                          frameMultiplier: 2.0,
-                        ),
-                      ),
-                    ),
-                  const Gap(2),
+            // Main Bottom Sheet Card (positioned with top margin so avatar floats over top edge)
+            Padding(
+              padding: const EdgeInsets.only(top: 48),
+              child: UserProfileCard(
+                user: u,
+                fit: BoxFit.fitWidth,
+                crownTop: -54,
+                crownBottom: null,
+                crownLeft: -25,
+                crownRight: -25,
+                padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).padding.bottom),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+                boxShadow: const [
+                  BoxShadow(color: Colors.black26, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
+                ],
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Gap(46), // Compact gap inside card below top edge for floating avatar
 
-                  // Username & Badges Row
+                    // Username & Badges Row
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -419,14 +418,36 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                       ),
                     ),
                   ],
-                ],
+                  ],
+                ),
+              ),
+            ),
+
+            // Floating Centered Avatar (floats halfway over the sheet top edge, matching reference images 2, 4, 7)
+            Positioned(
+              top: 0,
+              child: SizedBox(
+                width: 104,
+                height: 104,
+                child: Center(
+                  child: AppAvatar(
+                    radius: 36,
+                    imageUrl: u.profilePhotoUrl,
+                    frameUrl: u.profileFrame,
+                    vipTier: u.vipTier,
+                    svipLevel: u.svipLevel,
+                    userLevel: u.level,
+                    showFrame: true,
+                    frameMultiplier: 1.8,
+                  ),
+                ),
               ),
             ),
 
             // Corner Actions Icons
             // Top Left: REPORT
             Positioned(
-              top: 16,
+              top: 60,
               left: 16,
               child: GestureDetector(
                 onTap: () {}, // TODO: Handle report
@@ -440,34 +461,43 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
               ),
             ),
             
-            // Top Right: Gift Status
+            // Top Right: Gift Status (Top Senders List)
             Positioned(
-              top: 16,
+              top: 60,
               right: 16,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: hasVipBg ? Colors.black.withOpacity(0.35) : Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: hasVipBg ? Colors.amber.withOpacity(0.5) : Colors.purple.withOpacity(0.3)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.card_giftcard_rounded, color: hasVipBg ? Colors.amber : Colors.purpleAccent, size: 14),
-                    const Gap(4),
-                    Text("0/12", style: TextStyle(color: hasVipBg ? Colors.amber : Colors.purple, fontSize: 12, fontWeight: FontWeight.bold)),
-                    const Gap(2),
-                    Icon(Icons.chevron_right_rounded, color: hasVipBg ? Colors.amber : Colors.purple, size: 14),
-                  ],
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => UserContributionRankingScreen(
+                        targetUid: u.uid,
+                        targetUserName: u.displayName,
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: hasVipBg ? Colors.black.withOpacity(0.35) : Colors.white.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: hasVipBg ? Colors.amber.withOpacity(0.5) : Colors.purple.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.card_giftcard_rounded, color: hasVipBg ? Colors.amber : Colors.purpleAccent, size: 14),
+                      const Gap(4),
+                      Text("Top List", style: TextStyle(color: hasVipBg ? Colors.amber : Colors.purple, fontSize: 12, fontWeight: FontWeight.bold)),
+                      const Gap(2),
+                      Icon(Icons.chevron_right_rounded, color: hasVipBg ? Colors.amber : Colors.purple, size: 14),
+                    ],
+                  ),
                 ),
               ),
             ),
           ],
         );
-      },
-      loading: () => const SizedBox(height: 400, child: Center(child: CircularProgressIndicator())),
-      error: (_, __) => const SizedBox(height: 400, child: Center(child: Text("Error fetching profile"))),
-    );
   }
 
   void _showKickDialog(BuildContext context, String targetUid) {

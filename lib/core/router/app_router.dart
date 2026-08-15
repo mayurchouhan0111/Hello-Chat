@@ -57,6 +57,7 @@ import '../../features/leaderboards/presentation/screens/celebrity_ranking_scree
 import '../../features/leaderboards/presentation/screens/contribution_ranking_screen.dart';
 import '../../features/leaderboards/presentation/screens/leaderboard_screen.dart';
 import '../../features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
+import '../../features/profile/presentation/screens/user_contribution_ranking_screen.dart';
 import '../../features/moments/presentation/screens/moment_detail_screen.dart';
 import '../../features/games/presentation/screens/spin_wheel_screen.dart';
 import '../../features/rooms/presentation/screens/create_room_screen.dart';
@@ -142,6 +143,7 @@ class AppRoutes {
   static const friendRequests     = '/friend-requests';
   static const friendshipPortal   = '/friendship-portal';
   static const relationshipRanking = '/relationship-ranking';
+  static const userContributionRanking = '/user-contribution-ranking';
 }
 
 class GoRouterRefreshStream extends ChangeNotifier {
@@ -242,7 +244,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.leaderboard,
-        builder: (context, state) => const LeaderboardScreen(),
+        builder: (context, state) {
+          final index = state.extra is int ? state.extra as int : 0;
+          return LeaderboardScreen(initialIndex: index);
+        },
       ),
       GoRoute(
         path: AppRoutes.profileSetup,
@@ -524,6 +529,16 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.customGiftRequest,
         builder: (context, state) => const CustomGiftRequestScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.userContributionRanking,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return UserContributionRankingScreen(
+            targetUid: extra['targetUid'] as String? ?? '',
+            targetUserName: extra['targetUserName'] as String? ?? '',
+          );
+        },
       ),
     ],
   );

@@ -81,9 +81,12 @@ class RoomService with BaseFirebaseService {
       'bannedUids': [],
     };
 
-    final batch = _db.batch();
-    batch.set(roomRef, roomData);
-    
+    // Split into two commits: the room doc MUST exist before writing the
+    // owner's participant doc, because Firestore rules evaluate batch writes
+    // against pre-batch state (get()/exists() on the room would see it as
+    // missing, causing the owner seat-0 participant write to be denied).
+    await roomRef.set(roomData);
+
     final userDoc = await _db.collection('users').doc(uid).get();
     final userDataProfile = userDoc.data() as Map<String, dynamic>?;
 
@@ -106,17 +109,18 @@ class RoomService with BaseFirebaseService {
       'helloId': userDataProfile?['helloId'],
     };
 
-    batch.set(roomRef.collection('participants').doc(uid), participantData);
+    final participantBatch = _db.batch();
+    participantBatch.set(roomRef.collection('participants').doc(uid), participantData);
 
     // 3. Send Join Message
-    batch.set(roomRef.collection('messages').doc(), {
+    participantBatch.set(roomRef.collection('messages').doc(), {
       'uid': uid,
       'text': '${userDataProfile?['displayName'] ?? 'Host'} joined the room',
       'type': 'system',
       'createdAt': FieldValue.serverTimestamp(),
     });
 
-    await batch.commit();
+    await participantBatch.commit();
     return roomId;
   }
 

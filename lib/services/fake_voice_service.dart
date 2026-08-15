@@ -47,6 +47,11 @@ class FakeVoiceService implements VoiceService {
   }
 
   @override
+  Future<void> muteRoomAudio(bool mute) async {
+    print("Fake voice room mute toggled: $mute");
+  }
+
+  @override
   Future<void> setBroadcasterRole() async {
     print("Fake voice: set broadcaster role");
   }

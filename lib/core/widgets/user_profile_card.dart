@@ -12,7 +12,7 @@ class UserProfileCard extends StatelessWidget {
   final Color backgroundColor;
   final BoxFit fit;
   final double crownTop;
-  final double crownBottom;
+  final double? crownBottom;
   final double crownLeft;
   final double crownRight;
   final bool optimizeCrown;
@@ -45,9 +45,8 @@ class UserProfileCard extends StatelessWidget {
 
   String? _getVipCrownPath(int level) {
     if (level < 1 || level > 8) return null;
-    if (level == 1) return 'assets/VIP/VIP 1/Crown 2.webp';
-    if (level == 5) return 'assets/VIP/VIP 5/VIP 5/5.webp';
-    return 'assets/VIP/VIP $level/VIP $level/Crown 2.webp';
+    if (level == 1) return 'assets/VIP/VIP 1/Crown 1.svga';
+    return 'assets/VIP/VIP $level/VIP $level/Crown 1.svga';
   }
 
   @override
@@ -61,6 +60,8 @@ class UserProfileCard extends StatelessWidget {
     if (svipLevel > 0) {
       final svipModel = SVIPLevelModel.getLevelByTier(svipLevel);
       crownPath = svipModel.crownAsset;
+    } else if (user.profileFrame.isNotEmpty && user.profileFrame.toLowerCase().endsWith('.svga')) {
+      crownPath = user.profileFrame;
     } else {
       crownPath = _getVipCrownPath(vipLevel);
     }
@@ -68,9 +69,9 @@ class UserProfileCard extends StatelessWidget {
     Color effectiveBg = backgroundColor;
     if (backgroundColor == Colors.white && hasVipBg) {
       if (svipLevel > 0) {
-        effectiveBg = const Color(0xFF061D15); // SVIP Dark Emerald Green
+        effectiveBg = const Color(0xFF0C241B); // Rich SVIP Dark Emerald
       } else if (vipLevel > 0) {
-        effectiveBg = const Color(0xFF0C0020); // VIP Royal Dark Violet
+        effectiveBg = const Color(0xFF18102E); // Rich VIP Royal Violet
       }
     }
 

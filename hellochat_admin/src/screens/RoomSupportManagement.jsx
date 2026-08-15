@@ -4,17 +4,30 @@ import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, addDoc, up
 import { RefreshCw, Save, Server, Image, Layers, Plus, Trash2, ToggleLeft, ToggleRight, ExternalLink, Navigation, GripVertical } from 'lucide-react';
 
 const DEFAULT_LEVELS = [
-  { level: 1, coinsTarget: 500000, partnerSlots: 4, ownerReward: 25000, partnerReward: 5000, totalReward: 45000 },
-  { level: 2, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 50000, partnerReward: 10000, totalReward: 90000 },
-  { level: 3, coinsTarget: 3000000, partnerSlots: 6, ownerReward: 150000, partnerReward: 25000, totalReward: 225000 },
-  { level: 4, coinsTarget: 5000000, partnerSlots: 7, ownerReward: 250000, partnerReward: 50000, totalReward: 450000 },
-  { level: 5, coinsTarget: 10000000, partnerSlots: 7, ownerReward: 500000, partnerReward: 100000, totalReward: 900000 },
-  { level: 6, coinsTarget: 20000000, partnerSlots: 7, ownerReward: 1000000, partnerReward: 200000, totalReward: 1800000 },
-  { level: 7, coinsTarget: 50000000, partnerSlots: 7, ownerReward: 2500000, partnerReward: 500000, totalReward: 4500000 },
+  { level: 1, coinsTarget: 100000, partnerSlots: 4, ownerReward: 11250, partnerReward: 1875, totalReward: 15000 },
+  { level: 2, coinsTarget: 300000, partnerSlots: 4, ownerReward: 32850, partnerReward: 4050, totalReward: 45000 },
+  { level: 3, coinsTarget: 500000, partnerSlots: 4, ownerReward: 49700, partnerReward: 5075, totalReward: 70000 },
+  { level: 4, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 96600, partnerReward: 8680, totalReward: 140000 },
+  { level: 5, coinsTarget: 2000000, partnerSlots: 5, ownerReward: 200000, partnerReward: 18000, totalReward: 290000 },
+  { level: 6, coinsTarget: 3500000, partnerSlots: 6, ownerReward: 360000, partnerReward: 30000, totalReward: 540000 },
+  { level: 7, coinsTarget: 5000000, partnerSlots: 6, ownerReward: 525000, partnerReward: 45000, totalReward: 795000 },
+  { level: 8, coinsTarget: 8000000, partnerSlots: 7, ownerReward: 840000, partnerReward: 70000, totalReward: 1330000 },
+  { level: 9, coinsTarget: 12000000, partnerSlots: 7, ownerReward: 1280000, partnerReward: 100000, totalReward: 1980000 },
+  { level: 10, coinsTarget: 18000000, partnerSlots: 8, ownerReward: 1950000, partnerReward: 150000, totalReward: 3150000 },
+  { level: 11, coinsTarget: 25000000, partnerSlots: 8, ownerReward: 2750000, partnerReward: 200000, totalReward: 4350000 },
+  { level: 12, coinsTarget: 35000000, partnerSlots: 9, ownerReward: 3900000, partnerReward: 280000, totalReward: 6420000 },
+  { level: 13, coinsTarget: 50000000, partnerSlots: 9, ownerReward: 5600000, partnerReward: 400000, totalReward: 9200000 },
+  { level: 14, coinsTarget: 75000000, partnerSlots: 10, ownerReward: 8500000, partnerReward: 600000, totalReward: 14500000 },
+  { level: 15, coinsTarget: 100000000, partnerSlots: 10, ownerReward: 11500000, partnerReward: 850000, totalReward: 20000000 },
+  { level: 16, coinsTarget: 150000000, partnerSlots: 11, ownerReward: 17500000, partnerReward: 1250000, totalReward: 31250000 },
+  { level: 17, coinsTarget: 200000000, partnerSlots: 11, ownerReward: 23500000, partnerReward: 1700000, totalReward: 42200000 },
+  { level: 18, coinsTarget: 300000000, partnerSlots: 12, ownerReward: 35500000, partnerReward: 2500000, totalReward: 65500000 },
+  { level: 19, coinsTarget: 450000000, partnerSlots: 12, ownerReward: 54000000, partnerReward: 3800000, totalReward: 99600000 },
+  { level: 20, coinsTarget: 600000000, partnerSlots: 12, ownerReward: 72000000, partnerReward: 5000000, totalReward: 132000000 },
 ];
 
 const TABS = [
-  { id: 'levels', label: 'Levels Config', icon: Layers },
+  { id: 'levels', label: 'Levels Config (20 Targets)', icon: Layers },
   { id: 'banners', label: 'Room Banners', icon: Image },
 ];
 
@@ -23,18 +36,37 @@ function LevelsTab({ levels, setLevels, loading, handleSeed, handleSave, saving,
     const copy = [...levels];
     const num = parseInt(value) || 0;
     copy[idx] = { ...copy[idx], [field]: num };
-    if (field === 'coinsTarget' || field === 'ownerReward' || field === 'partnerReward') {
+    if (field === 'coinsTarget' || field === 'ownerReward' || field === 'partnerReward' || field === 'partnerSlots') {
       copy[idx].totalReward = copy[idx].ownerReward + copy[idx].partnerReward * copy[idx].partnerSlots;
     }
     setLevels(copy);
   }
 
+  function addLevel() {
+    const nextLevelNum = levels.length + 1;
+    const lastLvl = levels[levels.length - 1] || { coinsTarget: 100000, partnerSlots: 4, ownerReward: 10000, partnerReward: 2000 };
+    const newLvl = {
+      level: nextLevelNum,
+      coinsTarget: Math.round(lastLvl.coinsTarget * 1.5),
+      partnerSlots: Math.min(12, lastLvl.partnerSlots + 1),
+      ownerReward: Math.round(lastLvl.ownerReward * 1.4),
+      partnerReward: Math.round(lastLvl.partnerReward * 1.4),
+      totalReward: 0,
+    };
+    newLvl.totalReward = newLvl.ownerReward + (newLvl.partnerReward * newLvl.partnerSlots);
+    setLevels([...levels, newLvl]);
+  }
+
   return (
     <div>
-      <div className="flex gap-3 mb-6">
+      <div className="flex gap-3 mb-6 flex-wrap">
         <button onClick={handleSeed} disabled={saving}
           className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">
-          <Server size={16} /> Seed Defaults
+          <Server size={16} /> Seed 20 Defaults
+        </button>
+        <button onClick={addLevel} disabled={saving}
+          className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50">
+          <Plus size={16} /> Add Target Level
         </button>
         <button onClick={() => window.location.reload()}
           className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700">
@@ -346,8 +378,19 @@ export function RoomSupportManagement() {
     setLoading(true);
     try {
       const snap = await getDoc(doc(db, 'room_support_configs', 'settings'));
-      if (snap.exists() && snap.data().levels) {
-        setLevels(snap.data().levels.map((l, i) => ({ ...DEFAULT_LEVELS[i], ...l })));
+      if (snap.exists() && snap.data().levels && snap.data().levels.length > 0) {
+        const loaded = snap.data().levels;
+        const merged = DEFAULT_LEVELS.map((defLvl, idx) => {
+          return loaded[idx] ? { ...defLvl, ...loaded[idx] } : defLvl;
+        });
+        if (loaded.length > DEFAULT_LEVELS.length) {
+          for (let i = DEFAULT_LEVELS.length; i < loaded.length; i++) {
+            merged.push(loaded[i]);
+          }
+        }
+        setLevels(merged);
+      } else {
+        setLevels([...DEFAULT_LEVELS]);
       }
     } catch (e) { console.error(e); }
     setLoading(false);
