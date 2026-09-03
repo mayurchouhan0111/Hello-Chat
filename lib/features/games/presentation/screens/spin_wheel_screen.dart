@@ -715,15 +715,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             int wager = 0;
             Map<String, int>? betsCopy;
 
-            // Try to recover user's actual bet result from their game history if they were a player
-            final history = ref.read(userGameHistoryProvider).value ?? [];
-            final matchedHistory = history.where((h) => h['roundId']?.toString() == _currentRoundId).firstOrNull;
-            if (matchedHistory != null) {
-              prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
-              wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
-              betsCopy = (matchedHistory['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
-            }
-
             final resultName = outcome['name'] as String? ?? "";
             final resultEmoji = outcome['emoji'] as String? ?? "";
             final resultCategory = outcome['category'] as String?;
@@ -731,12 +722,45 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
             final matchingSegment = segmentsMap.firstWhere(
               (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
-              orElse: () => segmentsMap[serverSectorIndex],
+              orElse: () => (serverSectorIndex >= 0 && serverSectorIndex < segmentsMap.length)
+                  ? segmentsMap[serverSectorIndex]
+                  : {},
             );
+
+            final winMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
+                (matchingSegment['multiplier'] as num?)?.toInt() ??
+                0;
+
+            // Prioritize authoritative _submittedSpinResult if user placed a bet
+            if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+              prize = (_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0;
+              wager = (_submittedSpinResult!['totalBet'] as num?)?.toInt() ??
+                  _confirmedBets.values.fold(0, (sum, val) => sum + val);
+              betsCopy = _confirmedBets.isNotEmpty ? Map<String, int>.from(_confirmedBets) : null;
+            } else {
+              // Try to recover user's actual bet result from their game history if they were a player
+              final history = ref.read(userGameHistoryProvider).value ?? [];
+              final matchedHistory = history.where((h) => h['roundId']?.toString() == _currentRoundId).firstOrNull;
+              if (matchedHistory != null) {
+                prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
+                wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
+                betsCopy = (matchedHistory['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+              } else if (_confirmedBets.isNotEmpty) {
+                wager = _confirmedBets.values.fold(0, (sum, val) => sum + val);
+                betsCopy = Map<String, int>.from(_confirmedBets);
+                prize = calculateSpinWheelPrize(
+                  bets: _confirmedBets,
+                  winningName: matchingSegment['name'] ?? resultName,
+                  winningCategory: resultCategory ?? matchingSegment['category'],
+                  roundType: outcome['type'] as String? ?? 'standard',
+                  multiplier: winMultiplier,
+                );
+              }
+            }
 
             final winningItem = SpinItem(
               name: matchingSegment['name'] ?? resultName,
-              multiplier: wager > 0 ? (prize / wager).round() : 0,
+              multiplier: winMultiplier,
               emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
               category: resultCategory ?? matchingSegment['category']
             );
@@ -952,7 +976,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final settings = ref.read(gameSettingsProvider).value;
     final segmentsMap = (settings?['segments'] as List? ?? []);
 
-    final prize = (outcome['prize'] as num?)?.toInt() ?? 0;
+    // Do NOT overwrite user's actual winnings with public outcome['prize'].
+    // Public RTDB outcome never contains private user prizes.
+    final outcomeRoundId = outcome['roundId']?.toString();
+    int prize = 0;
+    if (_submittedSpinResult != null &&
+        (_submittedSpinResult!['roundId']?.toString() == outcomeRoundId || outcomeRoundId == null)) {
+      prize = (_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0;
+    } else if (outcome['prize'] != null) {
+      prize = (outcome['prize'] as num).toInt();
+    }
     final label = outcome['label'] as String? ?? "0x";
     final type = outcome['type'] as String? ?? "standard";
     _lastResultType = type;
@@ -962,7 +995,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final int startIdx = _currentSegment;
     
     // Calculate dynamic deceleration to finish exactly before results phase
-    final outcomeRoundId = outcome['roundId']?.toString();
     final activeRoundId = (now ~/ serverRoundMs).toString();
     final msIntoCycle = now % serverRoundMs;
 
@@ -1053,17 +1085,24 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
         final roundId = outcome['roundId']?.toString() ?? "";
 
-        // STRICT SERVER AUTHORITY: Only recognize bets and calculate winnings if the server
-        // confirmed this user's bet for this round. Otherwise user is strictly a spectator.
-        final bool hasConfirmedBet = _submittedSpinResult != null &&
-            _submittedSpinResult!['roundId']?.toString() == roundId &&
-            _confirmedBets.isNotEmpty;
+        // Authoritative Bet & Prize resolution:
+        final bool hasServerResult = _submittedSpinResult != null &&
+            (_submittedSpinResult!['roundId']?.toString() == roundId || roundId.isEmpty);
 
-        final totalBet = hasConfirmedBet
-            ? _confirmedBets.values.fold(0, (sum, val) => sum + val)
-            : 0;
-        final betsCopy = hasConfirmedBet ? Map<String, int>.from(_confirmedBets) : null;
-        final effectivePrize = hasConfirmedBet ? prize : 0;
+        final Map<String, int> activeBets = _confirmedBets.isNotEmpty
+            ? _confirmedBets
+            : (_currentBets.isNotEmpty ? _currentBets : {});
+
+        final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty;
+
+        final totalBet = activeBets.values.fold(0, (sum, val) => sum + val);
+        final effectiveTotalBet = totalBet > 0
+            ? totalBet
+            : (hasServerResult ? ((_submittedSpinResult?['totalBet'] as num?)?.toInt() ?? 0) : 0);
+
+        final betsCopy = activeBets.isNotEmpty
+            ? Map<String, int>.from(activeBets)
+            : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
 
         final resultName = outcome['name'] as String? ?? "";
         final resultEmoji = outcome['emoji'] as String? ?? "";
@@ -1071,33 +1110,58 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
         final matchingSegment = segmentsMap.firstWhere(
           (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
-          orElse: () => segmentsMap[targetIdx],
+          orElse: () => (targetIdx >= 0 && targetIdx < segmentsMap.length) ? segmentsMap[targetIdx] : {},
         );
+
+        final itemMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
+            (matchingSegment['multiplier'] as num?)?.toInt() ??
+            0;
 
         final winningItem = SpinItem(
           name: matchingSegment['name'] ?? resultName,
-          multiplier: totalBet > 0 ? (effectivePrize / totalBet).round() : 0,
+          multiplier: itemMultiplier,
           emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
-          category: resultCategory ?? matchingSegment['category']
+          category: resultCategory ?? matchingSegment['category'],
         );
+
+        // AUTHORITATIVE PRIZE:
+        // 1. Prioritize _submittedSpinResult['prize'] as authoritative server receipt
+        // 2. If temporarily unavailable, calculate fallback: confirmed bet * multiplier
+        // 3. If losing bet or spectator, 0
+        int effectivePrize = 0;
+        if (hasConfirmedBet && effectiveTotalBet > 0) {
+          if (hasServerResult && _submittedSpinResult!['prize'] != null) {
+            effectivePrize = (_submittedSpinResult!['prize'] as num).toInt();
+          } else if (prize > 0) {
+            effectivePrize = prize;
+          } else {
+            effectivePrize = calculateSpinWheelPrize(
+              bets: activeBets,
+              winningName: winningItem.name,
+              winningCategory: winningItem.category,
+              roundType: type,
+              multiplier: itemMultiplier,
+            );
+          }
+        }
 
         final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
 
         setState(() {
           _spinCompleted = true;
           _currentSegment = targetIdx;
-          if (totalBet > 0) {
-            _todayProfits += (effectivePrize - totalBet);
+          if (effectiveTotalBet > 0) {
+            _todayProfits += (effectivePrize - effectiveTotalBet);
           }
           _isSpinning = false;
           _isProcessingSpin = false;
           _currentBets = {};
           _betClickCounts = {};
           _confirmedBets = {};
-          _submittedSpinResult = null;
+          // Do not clear _submittedSpinResult until result dialog completely finishes using it!
           _storedWinItem = winningItem;
           _storedPrize = effectivePrize;
-          _storedWager = totalBet;
+          _storedWager = effectiveTotalBet;
           _storedWinners = roundWinners;
           _storedRoundId = roundId;
           _storedBets = betsCopy;
@@ -1179,7 +1243,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final winners = _storedWinners;
       final roundId = _storedRoundId;
       final bets = _storedBets;
-      _clearStoredResult();
+      _storedWinItem = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           _showResultBottomSheet(
@@ -1203,6 +1267,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _storedWinners = [];
     _storedRoundId = '';
     _storedBets = null;
+    _submittedSpinResult = null;
   }
 
   void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings, int wager, List<dynamic> winners, String roundId, {Map<String, int>? bets}) {
@@ -2724,6 +2789,88 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       ),
     );
   }
+}
+
+int calculateSpinWheelPrize({
+  required Map<String, int> bets,
+  required String winningName,
+  String? winningCategory,
+  String? roundType,
+  required int multiplier,
+}) {
+  if (bets.isEmpty) return 0;
+
+  int totalPrize = 0;
+  final normalizedBets = <String, int>{};
+  bets.forEach((key, val) {
+    if (key.isNotEmpty && val > 0) {
+      normalizedBets[key.toLowerCase().trim()] = val;
+    }
+  });
+
+  final winnerName = winningName.toLowerCase().trim();
+  final winnerCat = (winningCategory ?? '').toLowerCase().trim();
+  final rType = (roundType ?? 'standard').toLowerCase().trim();
+  final winnerLabel = '${multiplier}x';
+
+  final paidKeys = <String>{};
+
+  const saladItems = ['tomato', 'cabbage', 'corn', 'carrot', 'salad'];
+  const pizzaItems = ['pizza', 'steak'];
+
+  final isWinningSaladItem = saladItems.contains(winnerName) || winnerCat == 'salad';
+  final isWinningPizzaItem = pizzaItems.contains(winnerName) || winnerCat == 'pizza';
+
+  // 1. Category Payouts
+  if (isWinningSaladItem) {
+    final betOnSalad = normalizedBets['salad'] ?? 0;
+    if (betOnSalad > 0 && !paidKeys.contains('salad')) {
+      totalPrize += betOnSalad * 5;
+      paidKeys.add('salad');
+    }
+  }
+
+  if (isWinningPizzaItem) {
+    final betOnPizza = normalizedBets['pizza'] ?? 0;
+    if (betOnPizza > 0 && !paidKeys.contains('pizza')) {
+      totalPrize += betOnPizza * 45;
+      paidKeys.add('pizza');
+    }
+  }
+
+  // 2. Special Celebration Round Payouts
+  if (rType == 'salad') {
+    for (final item in ['tomato', 'cabbage', 'corn', 'carrot']) {
+      if (!paidKeys.contains(item)) {
+        final betOnItem = normalizedBets[item] ?? 0;
+        if (betOnItem > 0) {
+          totalPrize += betOnItem * 5;
+          paidKeys.add(item);
+        }
+      }
+    }
+  } else if (rType == 'pizza') {
+    for (final item in ['pizza', 'steak']) {
+      if (!paidKeys.contains(item)) {
+        final betOnItem = normalizedBets[item] ?? 0;
+        if (betOnItem > 0) {
+          totalPrize += betOnItem * 45;
+          paidKeys.add(item);
+        }
+      }
+    }
+  }
+
+  // 3. Exact segment bet
+  if (!paidKeys.contains(winnerName)) {
+    final betOnWinner = normalizedBets[winnerName] ?? normalizedBets[winnerLabel] ?? 0;
+    if (betOnWinner > 0) {
+      totalPrize += betOnWinner * multiplier;
+      paidKeys.add(winnerName);
+    }
+  }
+
+  return totalPrize;
 }
 
 class SpinItem {
