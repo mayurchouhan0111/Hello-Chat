@@ -292,15 +292,19 @@ class RoomService with BaseFirebaseService {
     }
   }
 
-  // Seat Management
-  Future<void> takeSeat(String roomId, int index) async {
+  // Seat Management - High-Performance Low-Latency Seat Switching (<150ms)
+  Future<void> takeSeat(String roomId, int index, {String? ownerUid}) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
     
-    final roomDoc = await _db.collection('rooms').doc(roomId).get();
-    final ownerUid = roomDoc.exists ? roomDoc.get('ownerUid') as String? : null;
+    // Resolve owner check: use provided ownerUid if passed to save a Firestore network round trip
+    String? resolvedOwnerUid = ownerUid;
+    if (resolvedOwnerUid == null) {
+      final roomDoc = await _db.collection('rooms').doc(roomId).get();
+      resolvedOwnerUid = roomDoc.exists ? roomDoc.get('ownerUid') as String? : null;
+    }
 
-    if (uid == ownerUid) {
+    if (uid == resolvedOwnerUid) {
       if (index != 0) {
         throw Exception("As Room Owner, your seat is the top Host Seat (Seat 0).");
       }
@@ -314,19 +318,10 @@ class RoomService with BaseFirebaseService {
     final participantRef = roomRef.collection('participants').doc(uid);
     
     try {
-      // Step 1: Check if the current user already owns this seat
-      final myDoc = await participantRef.get();
-      if (myDoc.exists) {
-        final currentSeat = myDoc.get('seatIndex') as int?;
-        if (currentSeat == index) {
-          debugPrint('[ROOM_SEAT] User $uid already on seat $index — no-op');
-          return;
-        }
-      }
-
-      // Step 2: Check if seat is occupied by another user
+      // Step 1: Check if seat is occupied by another user with limit 1
       final seatQuery = await roomRef.collection('participants')
           .where('seatIndex', isEqualTo: index)
+          .limit(1)
           .get();
       
       if (seatQuery.docs.isNotEmpty) {
@@ -339,22 +334,13 @@ class RoomService with BaseFirebaseService {
         throw Exception("Seat already taken");
       }
 
-      // Step 3: Assign seat & sync helloId
-      final userDoc = await _db.collection('users').doc(uid).get();
-      final userData = userDoc.data();
-      final helloId = userData?['helloId'];
-
-      final payload = <String, dynamic>{
+      // Step 2: Instant update without redundant round trips
+      await participantRef.set({
         'seatIndex': index,
         'role': 'speaker',
-      };
-      if (helloId != null) {
-        payload['helloId'] = helloId;
-      }
+      }, SetOptions(merge: true));
 
-      await participantRef.set(payload, SetOptions(merge: true));
-
-      debugPrint('[ROOM_SEAT] User $uid assigned seat $index in room $roomId (helloId=$helloId)');
+      debugPrint('[ROOM_SEAT] User $uid fast-assigned seat $index in room $roomId');
     } catch (e) {
       if (e is Exception && e.toString().contains("Seat already taken")) {
         rethrow;

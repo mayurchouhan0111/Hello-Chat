@@ -1833,6 +1833,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const giftData = giftDoc.data();
             const totalCost = (giftData.priceInDiamonds || 0) * qty;
             const isLuckyCategory = (giftData.category || '').toLowerCase().trim() === "lucky" || giftData.isLucky === true || (giftData.name || '').toLowerCase().includes("bell");
+            let rocketWinners = [];
 
             // 👑 Server-side VIP / SVIP Category Enforcement
             const senderData = senderDoc.data();
@@ -2105,7 +2106,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 }
 
                 // 🚀 8. Rocket Fuel Logic (Integrated)
-                let rocketWinners = [];
                 if (!isMoment) {
                     const roomData = roomDoc.data();
                     rocketWinners = await processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost);

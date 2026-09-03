@@ -27,6 +27,57 @@ class AppToast {
     show(context, message: message, title: title ?? "Heads Up", type: ToastType.warning);
   }
 
+  static OverlayEntry? _activeOverlay;
+
+  /// Displays a floating toast directly on top of all modal dialogs and bottom sheets
+  static void showOverlay(
+    BuildContext context, {
+    required String message,
+    String? title,
+    ToastType type = ToastType.info,
+    Duration duration = const Duration(seconds: 3),
+  }) {
+    _activeOverlay?.remove();
+    _activeOverlay = null;
+
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) {
+      show(context, message: message, title: title, type: type, duration: duration);
+      return;
+    }
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (ctx) => Positioned(
+        top: MediaQuery.of(ctx).padding.top + 16,
+        left: 16,
+        right: 16,
+        child: Material(
+          color: Colors.transparent,
+          child: _ToastWidget(
+            title: title,
+            message: message,
+            type: type,
+            onDismiss: () {
+              if (entry.mounted) entry.remove();
+              if (_activeOverlay == entry) _activeOverlay = null;
+            },
+          ),
+        ),
+      ),
+    );
+
+    _activeOverlay = entry;
+    overlay.insert(entry);
+
+    Future.delayed(duration, () {
+      if (entry.mounted) {
+        entry.remove();
+        if (_activeOverlay == entry) _activeOverlay = null;
+      }
+    });
+  }
+
   static void show(
     BuildContext context, {
     required String message,

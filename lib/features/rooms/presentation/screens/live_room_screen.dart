@@ -2328,12 +2328,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         return;
       }
       try {
-        await ref.read(roomServiceProvider).takeSeat(widget.roomId, index);
-        await ref.read(voiceServiceProvider).setBroadcasterRole();
+        final takeSeatFuture = ref.read(roomServiceProvider).takeSeat(widget.roomId, index, ownerUid: room.ownerUid);
+        final voiceFuture = ref.read(voiceServiceProvider).setBroadcasterRole();
+        await Future.wait([takeSeatFuture, voiceFuture]);
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+          AppToast.showOverlay(
+            context,
+            message: e.toString().replaceAll('Exception: ', '').replaceAll('Exception:', '').trim(),
+            type: ToastType.error,
           );
         }
       }

@@ -6,12 +6,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/services/gift_service.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
-import 'package:hello_chat/core/models/user_model.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 
 import 'bell_winning_dialog.dart';
 
@@ -884,7 +883,11 @@ class _GiftPanelState extends State<GiftPanel> {
         : _selectedTargetUids;
 
     if (finalTargets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one recipient!")));
+      AppToast.showOverlay(
+        context,
+        message: "Please select at least one recipient!",
+        type: ToastType.warning,
+      );
       return;
     }
 
@@ -932,7 +935,17 @@ class _GiftPanelState extends State<GiftPanel> {
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+      if (mounted) {
+        final cleanMsg = e.toString()
+            .replaceAll('Exception:', '')
+            .replaceAll('FirebaseFunctionsException:', '')
+            .trim();
+        AppToast.showOverlay(
+          context,
+          message: cleanMsg.isNotEmpty ? cleanMsg : "Failed to send gift. Please try again.",
+          type: ToastType.error,
+        );
+      }
     } finally {
       if (mounted) setState(() => _isSending = false);
     }
@@ -942,11 +955,11 @@ class _GiftPanelState extends State<GiftPanel> {
     try {
       await ref.read(giftServiceProvider).feedSampleGifts();
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sample gifts seeded successfully!")));
+        AppToast.showOverlay(context, message: "Sample gifts seeded successfully!", type: ToastType.success);
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        AppToast.showOverlay(context, message: "Error: $e", type: ToastType.error);
       }
     }
   }

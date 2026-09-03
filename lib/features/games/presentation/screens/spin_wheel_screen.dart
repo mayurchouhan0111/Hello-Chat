@@ -1376,13 +1376,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final effectivePlatform = _platformHasNetwork;
 
     final wasOffline = _isOffline;
-    // User is immediately offline if mobile data/Wi-Fi is disconnected,
-    // or if the server RTDB connection failed (preventing server clock sync).
-    _isOffline = !effectivePlatform || !effectiveRtdb;
+    // Platform network (WiFi / Mobile Data) is the definitive authority on network availability.
+    // When platform has no network, the user is immediately offline.
+    _isOffline = !_platformHasNetwork;
 
     if (_isOffline != wasOffline) {
       debugPrint('[SPIN_WHEEL] Offline state changed: $_isOffline '
-          '(rtdb=$effectiveRtdb, platform=$effectivePlatform)');
+          '(platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
       if (_isOffline) {
         _debounceTimer?.cancel();
         // Immediately abort any unconfirmed local bets so fake bets are not left on screen
