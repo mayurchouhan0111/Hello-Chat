@@ -20,6 +20,7 @@ class SeatGrid extends ConsumerWidget {
   final List<int> lockedSeats;
   final bool isYoutubeActive;
   final String ownerUid;
+  final int? optimisticMySeatIndex;
 
   const SeatGrid({
     super.key,
@@ -31,6 +32,7 @@ class SeatGrid extends ConsumerWidget {
     this.lockedSeats = const [],
     this.isYoutubeActive = false,
     this.ownerUid = '',
+    this.optimisticMySeatIndex,
   });
 
   @override
@@ -40,8 +42,12 @@ class SeatGrid extends ConsumerWidget {
     
     // Batch fetch all participant profiles in a single Firestore query
     final occupiedUids = participants.where((p) => p.uid.isNotEmpty).map((p) => p.uid).toList();
+    if (currentUid != null && !occupiedUids.contains(currentUid)) {
+      occupiedUids.add(currentUid);
+    }
     final profilesAsync = ref.watch(batchedProfilesProvider(occupiedUids));
     final profiles = profilesAsync.value ?? {};
+    final myProfile = currentUid != null ? ref.watch(userProfileProvider(currentUid)).value : null;
     
     int crossAxisCount = 4;
     double avatarRadius = capacity == 8 ? 24 : (capacity <= 12 ? 22 : 20);
@@ -97,13 +103,40 @@ class SeatGrid extends ConsumerWidget {
             orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'audience')
           );
 
+          // ⚡ Optimistic local override for instant 0ms visual seat switching
+          Participant effectiveParticipant = participant;
+          if (optimisticMySeatIndex != null && currentUid != null) {
+            if (index == optimisticMySeatIndex) {
+              // Show current user immediately on the tapped seat
+              effectiveParticipant = Participant(
+                uid: currentUid,
+                seatIndex: index,
+                joinedAt: DateTime.now(),
+                lastActive: DateTime.now(),
+                isMuted: participant.uid == currentUid ? participant.isMuted : false,
+                role: 'speaker',
+              );
+            } else if (participant.uid == currentUid) {
+              // Current user has moved away from this seat
+              effectiveParticipant = Participant(
+                uid: '',
+                joinedAt: DateTime.now(),
+                lastActive: DateTime.now(),
+                isMuted: true,
+                role: 'audience',
+              );
+            }
+          }
+
           final isLocked = lockedSeats.contains(index);
-          final isOccupied = participant.uid.isNotEmpty;
+          final isOccupied = effectiveParticipant.uid.isNotEmpty;
 
           if (isOccupied) {
+            final effectiveProfile = profiles[effectiveParticipant.uid] ??
+                (effectiveParticipant.uid == currentUid ? myProfile : null);
             return OccupiedSeatWidget(
-              key: ValueKey('occupied_${index}_${participant.uid}'),
-              participant: participant,
+              key: ValueKey('occupied_${index}_${effectiveParticipant.uid}'),
+              participant: effectiveParticipant,
               index: index,
               radius: avatarRadius,
               iconSize: iconSize,
@@ -111,7 +144,7 @@ class SeatGrid extends ConsumerWidget {
               currentUid: currentUid,
               onSeatTap: onSeatTap,
               onSeatLongPress: onSeatLongPress,
-              userProfile: profiles[participant.uid],
+              userProfile: effectiveProfile,
             );
           }
 

@@ -181,6 +181,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   bool _hasJoinedRoom = false;
   bool _hasShownMyOwnEntry = false;
   bool _isUploadingImage = false;
+  int? _optimisticSeatIndex;
 
   final PageController _bannerPageController = PageController();
   Timer? _bannerTimer;
@@ -692,6 +693,25 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       }
     });
     
+    ref.listen<AsyncValue<List<Participant>>>(roomParticipantsProvider(widget.roomId), (prev, next) {
+      if (_optimisticSeatIndex != null) {
+        final pts = next.value ?? [];
+        final myUid = ref.read(authStateProvider).value?.uid;
+        if (myUid != null) {
+          if (_optimisticSeatIndex == -1) {
+            final me = pts.firstWhere((p) => p.uid == myUid, orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: false, role: 'none'));
+            if (me.uid.isEmpty || me.seatIndex == null || me.seatIndex! < 0) {
+              setState(() => _optimisticSeatIndex = null);
+            }
+          } else {
+            if (pts.any((p) => p.uid == myUid && p.seatIndex == _optimisticSeatIndex)) {
+              setState(() => _optimisticSeatIndex = null);
+            }
+          }
+        }
+      }
+    });
+
     return roomAsync.when(
       data: (room) {
         if (room == null) {
@@ -777,6 +797,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                           lockedSeats: room.lockedSeats,
                                           isYoutubeActive: room.isYoutubeActive,
                                           ownerUid: room.ownerUid,
+                                          optimisticMySeatIndex: _optimisticSeatIndex,
                                           onSeatTap: (idx) {
                                             final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
                                             _onSeatTap(idx, pts, room);
@@ -2322,17 +2343,35 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     if (participantOnSeat.uid.isEmpty) {
       if (room.lockedSeats.contains(index)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("This seat is locked by host")),
+        AppToast.showOverlay(
+          context,
+          message: "This seat is locked by host",
+          type: ToastType.error,
         );
         return;
       }
+
+      final bool wasAlreadyBroadcaster = myParticipation.seatIndex != null && myParticipation.seatIndex! >= 0;
+
+      // ⚡ INSTANT OPTIMISTIC UI: Move avatar to seat immediately in 0ms!
+      setState(() {
+        _optimisticSeatIndex = index;
+      });
+
       try {
         final takeSeatFuture = ref.read(roomServiceProvider).takeSeat(widget.roomId, index, ownerUid: room.ownerUid);
-        final voiceFuture = ref.read(voiceServiceProvider).setBroadcasterRole();
-        await Future.wait([takeSeatFuture, voiceFuture]);
+        if (!wasAlreadyBroadcaster) {
+          final voiceFuture = ref.read(voiceServiceProvider).setBroadcasterRole();
+          await Future.wait([takeSeatFuture, voiceFuture]);
+        } else {
+          // Already broadcasting! Skip Agora role switch to eliminate audio delays
+          await takeSeatFuture;
+        }
       } catch (e) {
         if (mounted) {
+          setState(() {
+            _optimisticSeatIndex = null;
+          });
           AppToast.showOverlay(
             context,
             message: e.toString().replaceAll('Exception: ', '').replaceAll('Exception:', '').trim(),
@@ -2439,6 +2478,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               title: const Text("Leave Seat", style: TextStyle(color: Colors.redAccent)),
               onTap: () async {
                 Navigator.pop(context);
+                setState(() {
+                  _optimisticSeatIndex = -1;
+                });
                 await ref.read(voiceServiceProvider).muteLocalAudio(true);
                 await ref.read(voiceServiceProvider).setAudienceRole();
                 await ref.read(roomServiceProvider).leaveSeat(widget.roomId);

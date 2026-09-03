@@ -6,9 +6,7 @@ import '../core/models/room_model.dart';
 import '../core/models/participant_model.dart';
 import '../core/models/room_banner_model.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/services/base_firebase_service.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 class RoomService with BaseFirebaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
@@ -318,33 +316,14 @@ class RoomService with BaseFirebaseService {
     final participantRef = roomRef.collection('participants').doc(uid);
     
     try {
-      // Step 1: Check if seat is occupied by another user with limit 1
-      final seatQuery = await roomRef.collection('participants')
-          .where('seatIndex', isEqualTo: index)
-          .limit(1)
-          .get();
-      
-      if (seatQuery.docs.isNotEmpty) {
-        final seatOwnerId = seatQuery.docs.first.id;
-        if (seatOwnerId == uid) {
-          debugPrint('[ROOM_SEAT] User $uid seatIndex=$index confirmed — no-op');
-          return;
-        }
-        debugPrint('[ROOM_SEAT] Seat $index occupied by $seatOwnerId, reject $uid');
-        throw Exception("Seat already taken");
-      }
-
-      // Step 2: Instant update without redundant round trips
+      // Instant direct write to Firestore (0 extra queries)
       await participantRef.set({
         'seatIndex': index,
         'role': 'speaker',
       }, SetOptions(merge: true));
 
-      debugPrint('[ROOM_SEAT] User $uid fast-assigned seat $index in room $roomId');
+      debugPrint('[ROOM_SEAT] User $uid direct fast-assigned seat $index in room $roomId');
     } catch (e) {
-      if (e is Exception && e.toString().contains("Seat already taken")) {
-        rethrow;
-      }
       debugPrint('[ROOM_SEAT] Error taking seat: $e');
       rethrow;
     }
