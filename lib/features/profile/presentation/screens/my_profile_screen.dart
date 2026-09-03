@@ -34,13 +34,13 @@ class MyProfileScreen extends ConsumerWidget {
             physics: const BouncingScrollPhysics(),
             child: Column(
               children: [
-                _buildHeader(context, userData),
+                RepaintBoundary(child: _buildHeader(context, userData)),
                 const Gap(12),
-                _buildStatsRow(userData, context),
+                RepaintBoundary(child: _buildStatsRow(userData, context)),
                 const Gap(16),
-                _buildShortcutCards(context, userData),
+                RepaintBoundary(child: _buildShortcutCards(context, userData)),
                 const Gap(16),
-                _buildMenuList(context, userData),
+                RepaintBoundary(child: _buildMenuList(context, userData)),
                 const Gap(60), // Bottom nav spacer
               ],
             ),
@@ -77,6 +77,7 @@ class MyProfileScreen extends ConsumerWidget {
               children: [
                 _buildProfileSetupPill(context, userData),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
                       icon: const Icon(Icons.settings_outlined, color: Colors.black87, size: 22),
@@ -108,41 +109,49 @@ class MyProfileScreen extends ConsumerWidget {
               ),
             ),
           ),
-          const Gap(16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                userData.displayName,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.black,
-                ),
-              ),
-              if (userData.isVerified == true) ...[
-                const Gap(6),
-                const Icon(Icons.verified_rounded, color: Color(0xFF00ACC1), size: 18),
-              ],
-              if (userData.isReseller) ...[
-                const Gap(6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF4CAF50),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.store_rounded, color: Colors.white, size: 12),
-                      SizedBox(width: 3),
-                      Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
-                    ],
+          const Gap(20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: Text(
+                    userData.displayName,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.black,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
+                if (userData.isVerified == true) ...[
+                  const Gap(6),
+                  const Icon(Icons.verified_rounded, color: Color(0xFF00ACC1), size: 18),
+                ],
+                if (userData.isReseller) ...[
+                  const Gap(6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.store_rounded, color: Colors.white, size: 12),
+                        SizedBox(width: 3),
+                        Text("RESELLER", style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ],
       ),
@@ -239,7 +248,7 @@ class MyProfileScreen extends ConsumerWidget {
     else index = 0;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           _buildShortcutCard(
@@ -250,7 +259,7 @@ class MyProfileScreen extends ConsumerWidget {
             isLevel: true,
             onTap: () => context.push(AppRoutes.levelDetail),
           ),
-          const Gap(8),
+          const Gap(6),
           _buildShortcutCard(
             label: "VIP",
             icon: Icons.workspace_premium_outlined,
@@ -258,7 +267,7 @@ class MyProfileScreen extends ConsumerWidget {
             iconColor: const Color(0xFFEA580C),
             onTap: () => context.push(AppRoutes.vipShop),
           ),
-          const Gap(8),
+          const Gap(6),
           _buildShortcutCard(
             label: "Withdraw",
             icon: Icons.account_balance_wallet_rounded,
@@ -266,7 +275,7 @@ class MyProfileScreen extends ConsumerWidget {
             iconColor: const Color(0xFF7C3AED),
             onTap: () => context.push(AppRoutes.withdrawBeans),
           ),
-          const Gap(8),
+          const Gap(6),
           _buildShortcutCard(
             label: "Family",
             icon: Icons.groups_2_outlined,
@@ -274,7 +283,7 @@ class MyProfileScreen extends ConsumerWidget {
             iconColor: const Color(0xFF059669),
             onTap: () => context.push(userData.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
           ),
-          const Gap(8),
+          const Gap(6),
           _buildShortcutCard(
             label: "Invite",
             icon: Icons.person_add_alt_1_rounded,
@@ -301,67 +310,57 @@ class MyProfileScreen extends ConsumerWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          height: 80,
+          height: 78,
           decoration: BoxDecoration(
             color: isLevel ? null : color,
             gradient: isLevel ? LinearGradient(
-              colors: [color, color.withOpacity(0.7)],
+              colors: [color, color.withOpacity(0.85)],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ) : null,
             borderRadius: BorderRadius.circular(16),
             boxShadow: isLevel ? [
-              BoxShadow(color: color.withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 4)),
-              BoxShadow(
-                color: Colors.white.withOpacity(0.2),
-                blurRadius: 2,
-                spreadRadius: -1,
-                offset: const Offset(0, 1),
-              ),
+              BoxShadow(color: color.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 3)),
             ] : null,
-            border: isLevel ? Border.all(
-              color: Colors.white.withOpacity(0.2),
-              width: 0.5,
-            ) : null,
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: BackdropFilter(
-              filter: isLevel ? ImageFilter.blur(sigmaX: 4, sigmaY: 4) : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (imageAsset != null)
-                    SizedBox(
-                      height: 40, 
-                      width: 40,
-                      child: Image.asset(imageAsset, fit: BoxFit.contain),
-                    )
-                  else if (isFamily)
-                    const Icon(Icons.groups_rounded, color: Color(0xFFFFB300), size: 30)
-                  else
-                    CircleAvatar(
-                      radius: 18,
-                      backgroundColor: isLevel ? Colors.white.withOpacity(0.2) : Colors.white,
-                      child: Icon(icon, color: isLevel ? Colors.white : iconColor, size: 20),
-                    ),
-                  const Gap(8),
-                  Text(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (imageAsset != null)
+                SizedBox(
+                  height: 36, 
+                  width: 36,
+                  child: Image.asset(imageAsset, fit: BoxFit.contain),
+                )
+              else if (isFamily)
+                const Icon(Icons.groups_rounded, color: Color(0xFFFFB300), size: 28)
+              else
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: isLevel ? Colors.white.withOpacity(0.25) : Colors.white,
+                  child: Icon(icon, color: isLevel ? Colors.white : iconColor, size: 18),
+                ),
+              const Gap(6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
                     label,
                     style: TextStyle(
-                      color: isLevel ? Colors.white : iconColor.withOpacity(0.8),
-                      fontSize: 12,
+                      color: isLevel ? Colors.white : iconColor.withOpacity(0.9),
+                      fontSize: 11,
                       fontWeight: FontWeight.w900,
-                      shadows: isLevel ? [
-                        const Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
+                      shadows: isLevel ? const [
+                        Shadow(color: Colors.black26, offset: Offset(0, 1), blurRadius: 2),
                       ] : null,
                     ),
                     textAlign: TextAlign.center,
                     maxLines: 1,
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         ),
       ),
@@ -444,31 +443,31 @@ class MyProfileScreen extends ConsumerWidget {
           iconColor: Colors.amber[700]!,
           onTap: () => context.push(AppRoutes.salaryHistory),
         ),
-        _buildMenuTile(
-          icon: Icons.stars_rounded,
-          label: "Prestige Store",
-          iconColor: const Color(0xFFFFD54F),
-          onTap: () => context.push(AppRoutes.prestigeStore),
-        ),
-        _buildMenuTile(
-          icon: Icons.military_tech_rounded,
-          label: "Medal",
-          iconColor: const Color(0xFFFFB74D),
-          onTap: () {},
-        ),
-        _buildMenuTile(
-          icon: Icons.emoji_events_rounded,
-          label: "Noble Hall",
-          iconColor: const Color(0xFFFFF176),
-          trailing: _buildNotificationDot(color: Colors.amber),
-          onTap: () => context.push(AppRoutes.nobleHall),
-        ),
-        _buildMenuTile(
-          icon: Icons.account_balance_rounded,
-          label: "Prestige Vault",
-          iconColor: const Color(0xFF64B5F6),
-          onTap: () => context.push(AppRoutes.prestigeVault),
-        ),
+        // _buildMenuTile(
+        //   icon: Icons.stars_rounded,
+        //   label: "Prestige Store",
+        //   iconColor: const Color(0xFFFFD54F),
+        //   onTap: () => context.push(AppRoutes.prestigeStore),
+        // ),
+        // _buildMenuTile(
+        //   icon: Icons.military_tech_rounded,
+        //   label: "Medal",
+        //   iconColor: const Color(0xFFFFB74D),
+        //   onTap: () {},
+        // ),
+        // _buildMenuTile(
+        //   icon: Icons.emoji_events_rounded,
+        //   label: "Noble Hall",
+        //   iconColor: const Color(0xFFFFF176),
+        //   trailing: _buildNotificationDot(color: Colors.amber),
+        //   onTap: () => context.push(AppRoutes.nobleHall),
+        // ),
+        // _buildMenuTile(
+        //   icon: Icons.account_balance_rounded,
+        //   label: "Prestige Vault",
+        //   iconColor: const Color(0xFF64B5F6),
+        //   onTap: () => context.push(AppRoutes.prestigeVault),
+        // ),
         _buildMenuTile(
           icon: Icons.stars_rounded,
           label: "SVIP Privileges",

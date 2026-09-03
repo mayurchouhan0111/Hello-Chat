@@ -13,6 +13,7 @@ import {
   Volume2, 
   ShieldAlert,
   ShieldCheck,
+  Shield,
   Gift,
   Crown,
   HeartHandshake,
@@ -27,12 +28,13 @@ import {
   Swords,
   Layers,
   Rocket,
+  Sparkles,
 } from 'lucide-react';
 import logo from '../assets/logo.webp';
 
 
 const Sidebar = () => {
-  const { logout, isAdmin, isAgencyOwner } = useAdmin();
+  const { logout, isAdmin, isAgencyOwner, isOwner, isSuperAdmin, isAdminRole, role } = useAdmin();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -41,38 +43,65 @@ const Sidebar = () => {
     navigate('/login');
   };
 
-  const fullMenu = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
-    { name: 'Rocket Config', icon: Rocket, path: '/rocket-management' },
-    { name: 'Users', icon: Users, path: '/users' },
-    { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
-    { name: 'Gifts', icon: Gift, path: '/gifts' },
-    { name: 'VIP Store', icon: Crown, path: '/vip' },
-    { name: 'SVIP Engine', icon: Crown, path: '/svip' },
-    { name: 'Role & CP Frames', icon: ShieldCheck, path: '/role-frames' },
-    { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
-    { name: 'Resellers', icon: Store, path: '/resellers' },
-    { name: 'Agencies', icon: Building2, path: '/agencies' },
-    { name: 'Families', icon: UsersRound, path: '/families' },
-    { name: 'Financials', icon: Coins, path: '/financials' },
-    { name: 'Reports', icon: ShieldAlert, path: '/reports' },
-    { name: 'Moments', icon: Image, path: '/moments' },
-    { name: 'Moderation', icon: Flag, path: '/moderation' },
-    { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
-    { name: 'Family Battle', icon: Swords, path: '/family-battle-config' },
-    { name: 'Room Support', icon: HeartHandshake, path: '/room-support' },
-    { name: 'Recharge Event', icon: Coins, path: '/recharge-event' },
-    { name: 'Event Builder', icon: Layers, path: '/events' },
-    { name: 'Relationships', icon: HeartHandshake, path: '/relationships' },
-    { name: 'Settings', icon: Settings, path: '/settings' },
-    { name: 'Audit Trail', icon: History, path: '/logs' },
-    { name: 'Withdrawals', icon: ArrowRightLeft, path: '/withdrawals' },
-    { name: 'KYC Verification', icon: ShieldCheck, path: '/kyc' },
-  ];
+  let menu = [];
 
-  const menu = (isAgencyOwner && !isAdmin) 
-    ? [{ name: 'Agency Portal', icon: Building2, path: '/agencies' }] 
-    : fullMenu;
+  if (isAgencyOwner && !isAdmin && !isSuperAdmin && !isOwner) {
+    menu = [{ name: 'Agency Portal', icon: Building2, path: '/agencies' }];
+  } else if (isSuperAdmin && !isOwner) {
+    // Super Admin: Branch sandboxed view (no company financial policies, no global settings, no audit logs)
+    menu = [
+      { name: 'Branch Dashboard', icon: LayoutDashboard, path: '/' },
+      { name: 'Branch Hierarchy', icon: Shield, path: '/hierarchy' },
+      { name: 'Branch Users', icon: Users, path: '/users' },
+      { name: 'Branch Agencies', icon: Building2, path: '/agencies' },
+      { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
+      { name: 'Withdrawal Approvals', icon: ArrowRightLeft, path: '/withdrawals' },
+      { name: 'Reports', icon: ShieldAlert, path: '/reports' },
+    ];
+  } else if (isAdminRole && !isSuperAdmin && !isOwner) {
+    // Admin: Supervised scope
+    menu = [
+      { name: 'Admin Dashboard', icon: LayoutDashboard, path: '/' },
+      { name: 'My Agencies', icon: Building2, path: '/agencies' },
+      { name: 'My Hosts', icon: Users, path: '/users' },
+      { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
+      { name: 'Reports', icon: ShieldAlert, path: '/reports' },
+    ];
+  } else {
+    // Owner / Global Admin: Complete access
+    menu = [
+      { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
+      { name: 'Hierarchy & Branches', icon: Shield, path: '/hierarchy' },
+      { name: 'Rocket Config', icon: Rocket, path: '/rocket-management' },
+      { name: 'Users', icon: Users, path: '/users' },
+      { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
+      { name: 'Gifts', icon: Gift, path: '/gifts' },
+      { name: 'Lucky Gift Config', icon: Sparkles, path: '/winning-config' },
+      { name: 'VIP Store', icon: Crown, path: '/vip' },
+      { name: 'SVIP Engine', icon: Crown, path: '/svip' },
+      { name: 'Role & CP Frames', icon: ShieldCheck, path: '/role-frames' },
+      { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
+      { name: 'Resellers', icon: Store, path: '/resellers' },
+      { name: 'Agencies', icon: Building2, path: '/agencies' },
+      { name: 'Families', icon: UsersRound, path: '/families' },
+      { name: 'Financials & Policies', icon: Coins, path: '/financials' },
+      { name: 'Reports', icon: ShieldAlert, path: '/reports' },
+      { name: 'Moments', icon: Image, path: '/moments' },
+      { name: 'Moderation', icon: Flag, path: '/moderation' },
+      { name: 'Mini Games', icon: Gamepad2, path: '/minigames' },
+      { name: 'Family Battle', icon: Swords, path: '/family-battle-config' },
+      { name: 'Room Support', icon: HeartHandshake, path: '/room-support' },
+      { name: 'Recharge Event', icon: Coins, path: '/recharge-event' },
+      { name: 'Event Builder', icon: Layers, path: '/events' },
+      { name: 'Relationships', icon: HeartHandshake, path: '/relationships' },
+      { name: 'Settings', icon: Settings, path: '/settings' },
+      { name: 'Audit Trail', icon: History, path: '/logs' },
+      { name: 'Withdrawals', icon: ArrowRightLeft, path: '/withdrawals' },
+      { name: 'KYC Verification', icon: ShieldCheck, path: '/kyc' },
+    ];
+  }
+
+  const roleTitle = isOwner ? 'OWNER' : isSuperAdmin ? 'SUPER ADMIN' : isAdminRole ? 'ADMIN' : isAgencyOwner ? 'AGENCY' : 'HELLO';
 
   return (
     <div className="w-72 bg-[#0C0C0C] h-screen text-gray-500 flex flex-col border-r border-white/[0.03] shadow-2xl z-50">
@@ -88,7 +117,7 @@ const Sidebar = () => {
           </div>
           <div>
             <h1 className="text-xl font-black text-white leading-none tracking-tighter">
-              {isAdmin ? 'HELLO' : 'AGENCY'}
+              {roleTitle}
             </h1>
             <p className="text-[9px] font-black text-[#B4E0A2] tracking-[0.3em] mt-2 uppercase">Platform</p>
           </div>

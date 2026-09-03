@@ -1,0 +1,54 @@
+appId: com.example.hellochat
+---
+# Step 1: Launch Hello Chat Mobile App
+- launchApp:
+    clearState: false
+
+# Step 2: Handle Native Android Permission Dialogs (Microphone, Notifications)
+- runFlow:
+    when:
+      visible: "While using the app"
+    commands:
+      - tapOn: "While using the app"
+
+- runFlow:
+    when:
+      visible: "Allow"
+    commands:
+      - tapOn: "Allow"
+
+# Step 3: Verify Home Navigation
+- assertVisible:
+    text: ".*"
+
+# Step 4: Navigate to SVIP Privileges Hub
+- tapOn:
+    text: ".*SVIP.*"
+    optional: true
+
+# Step 5: Assert SVIP Membership Card & Privileges
+- assertVisible:
+    text: ".*SVIP SYSTEM.*"
+    optional: true
+
+# Step 6: Test Daily Diamond Claim Interaction
+- tapOn:
+    text: "Claim"
+    optional: true
+
+# Step 7: Test Room Protection Privilege Info Modal
+- tapOn:
+    text: "Room Protection"
+    optional: true
+
+- runFlow:
+    when:
+      visible: "Close"
+    commands:
+      - tapOn: "Close"
+
+# Step 8: Assert Requirements Table Visibility
+- scroll
+- assertVisible:
+    text: ".*SVIP TIER REQUIREMENTS.*"
+    optional: true

@@ -32,15 +32,15 @@ class ChatListScreen extends ConsumerWidget {
         elevation: 0,
         scrolledUnderElevation: 0,
         title: const Text("Chats", style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 18)),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search, color: Colors.black),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.person_add_rounded, color: Colors.black, size: 22),
-            onPressed: () {},
-          ),
+        actions: const [
+          // IconButton(
+          //   icon: Icon(Icons.search, color: Colors.black),
+          //   onPressed: () {},
+          // ),
+          // IconButton(
+          //   icon: Icon(Icons.person_add_rounded, color: Colors.black, size: 22),
+          //   onPressed: () {},
+          // ),
         ],
       ),
       body: chatsAsync.when(
@@ -210,18 +210,23 @@ class _ChatListItem extends ConsumerWidget {
         ),
         child: Row(
           children: [
-            // 1. Avatar
-            profileAsync.when(
-              data: (user) => AppAvatar(
-                imageUrl: user?.profilePhotoUrl ?? '',
-                radius: 24,
-                vipTier: user?.vipTier,
-                frameUrl: user?.profileFrame,
-                userLevel: user?.level,
-                tags: user?.tags,
+            // 1. Avatar (Tappable to view profile)
+            GestureDetector(
+              onTap: () {
+                context.push(AppRoutes.userProfile, extra: otherUid);
+              },
+              child: profileAsync.when(
+                data: (user) => AppAvatar(
+                  imageUrl: user?.profilePhotoUrl ?? '',
+                  radius: 24,
+                  vipTier: user?.vipTier,
+                  frameUrl: user?.profileFrame,
+                  userLevel: user?.level,
+                  tags: user?.tags,
+                ),
+                loading: () => CircleAvatar(radius: 24, backgroundColor: Colors.grey[100]),
+                error: (_, __) => const CircleAvatar(radius: 24, child: Icon(Icons.person)),
               ),
-              loading: () => CircleAvatar(radius: 24, backgroundColor: Colors.grey[100]),
-              error: (_, __) => const CircleAvatar(radius: 24, child: Icon(Icons.person)),
             ),
             const Gap(14),
             // 2. Content

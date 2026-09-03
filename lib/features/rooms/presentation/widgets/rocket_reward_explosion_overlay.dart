@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
-import 'package:lottie/lottie.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/profile_provider.dart';
 
@@ -23,23 +22,6 @@ class RocketRewardExplosionOverlay extends ConsumerStatefulWidget {
 }
 
 class _RocketRewardExplosionOverlayState extends ConsumerState<RocketRewardExplosionOverlay> {
-  bool _showLottie = true;
-  bool _showPanel = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // Play explosion Lottie first, then show the results panel
-    Future.delayed(const Duration(milliseconds: 2500), () {
-      if (mounted) {
-        setState(() {
-          _showLottie = false;
-          _showPanel = true;
-        });
-      }
-    });
-  }
-
   Map<String, dynamic> _getRewards() {
     const frameDuration = ['24h', '24h', '24h', '24h', '72h'];
     switch (widget.level) {
@@ -69,21 +51,8 @@ class _RocketRewardExplosionOverlayState extends ConsumerState<RocketRewardExplo
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // Lottie Explosion effect
-            if (_showLottie)
-              Center(
-                child: Lottie.asset(
-                  'assets/animations/lottie/Celebration.json',
-                  repeat: false,
-                  fit: BoxFit.contain,
-                  width: double.infinity,
-                  height: double.infinity,
-                ),
-              ),
-
             // Detailed reward summaries
-            if (_showPanel)
-              Container(
+            Container(
                 width: MediaQuery.of(context).size.width * 0.88,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(

@@ -197,7 +197,7 @@ class _SquareScreenState extends ConsumerState<SquareScreen> {
                       height: 260, // Compacted from 300
                       fit: BoxFit.cover,
                       placeholder: (context, url) => Container(color: Colors.grey[100]),
-                      errorWidget: (context, url, error) => const Icon(Icons.error),
+                      errorWidget: (context, url, error) => Container(color: Colors.grey[200], child: const Icon(Icons.broken_image_rounded, color: Colors.grey)),
                     ),
                   ),
                 ),

@@ -1571,59 +1571,126 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
     if (uid == null) return;
 
-    if (isEquipped) {
-      setState(() => _loadingItemId = id);
-      try {
-        if (category == 'id' || category == 'aperture' || category == 'personal_page' || category == 'crown') {
-          setState(() {
-            if (category == 'id') _equippedMockId = 'none';
-            if (category == 'aperture') _equippedMockAperture = 'none';
-            if (category == 'personal_page') _equippedMockTheme = 'none';
-            if (category == 'crown') _equippedMockCrown = 'none';
-          });
-        } else if (category == 'official_frame') {
-          setState(() {
-            _equippedMockOfficial = 'none';
-          });
-          await ref.read(profileServiceProvider).updateProfileFields(uid, {
-            'profileFrame': '',
-          });
-        } else {
-          await ref.read(profileServiceProvider).equipItem('none', category);
+    // Map category to the exact Firestore UserModel field
+    final Map<String, String> fieldMap = {
+      'frame': 'profileFrame',
+      'official_frame': 'profileFrame',
+      'mount': 'entryAnimation',
+      'bubble': 'chatBubble',
+      'aperture': 'equippedMicWave',
+      'crown': 'equippedCrown',
+      'personal_page': 'profileTheme',
+      'id': 'prettyId',
+    };
+    final String targetField = fieldMap[category] ?? category;
+
+    setState(() => _loadingItemId = id);
+    try {
+      if (isEquipped) {
+        // UNEQUIP ITEM
+        setState(() {
+          if (category == 'id') _equippedMockId = 'none';
+          if (category == 'aperture') _equippedMockAperture = 'none';
+          if (category == 'personal_page') _equippedMockTheme = 'none';
+          if (category == 'crown') _equippedMockCrown = 'none';
+          if (category == 'official_frame') _equippedMockOfficial = 'none';
+        });
+
+        final unequipMap = <String, dynamic>{
+          targetField: '',
+        };
+        if (category == 'crown') {
+          unequipMap['badgeIcon'] = '';
+          unequipMap['equippedCrown'] = '';
         }
-      } finally {
-        setState(() => _loadingItemId = null);
+        await ref.read(profileServiceProvider).updateProfileFields(uid, unequipMap);
+        await ref.read(profileServiceProvider).equipItem('none', category);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.remove_circle_outline_rounded, color: Colors.amberAccent, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "Removed ${item['name'] ?? 'Decoration'}",
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E293B),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // EQUIP ITEM
+        final String itemUrl = (item['imageUrl'] ?? '').toString();
+        final String valueToSave = itemUrl.isNotEmpty ? itemUrl : id;
+
+        setState(() {
+          if (category == 'id') _equippedMockId = id;
+          if (category == 'aperture') _equippedMockAperture = id;
+          if (category == 'personal_page') _equippedMockTheme = id;
+          if (category == 'crown') _equippedMockCrown = id;
+          if (category == 'official_frame') _equippedMockOfficial = id;
+        });
+
+        final equipMap = <String, dynamic>{
+          targetField: valueToSave,
+        };
+        if (category == 'crown') {
+          equipMap['badgeIcon'] = valueToSave;
+          equipMap['equippedCrown'] = valueToSave;
+        }
+        await ref.read(profileServiceProvider).updateProfileFields(uid, equipMap);
+        await ref.read(profileServiceProvider).equipItem(valueToSave, category);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF4ADE80), size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      "Applied ${item['name'] ?? 'Decoration'} successfully!",
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: const Color(0xFF1E293B),
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
-    } else {
-      setState(() => _loadingItemId = id);
-      try {
-        if (category == 'id' || category == 'aperture' || category == 'personal_page' || category == 'crown') {
-          setState(() {
-            if (category == 'id') _equippedMockId = id;
-            if (category == 'aperture') _equippedMockAperture = id;
-            if (category == 'personal_page') _equippedMockTheme = id;
-            if (category == 'crown') _equippedMockCrown = id;
-          });
-        } else if (category == 'official_frame') {
-          final String itemUrl = item['imageUrl'] ?? '';
-          setState(() {
-            _equippedMockOfficial = id;
-          });
-          await ref.read(profileServiceProvider).updateProfileFields(uid, {
-            'profileFrame': itemUrl,
-          });
-        } else {
-          final String itemUrl = item['imageUrl'] ?? '';
-          if (id.startsWith('vip_')) {
-            final field = category == 'bubble' ? 'chatBubble' : (category == 'mount' ? 'entryAnimation' : 'profileFrame');
-            await ref.read(profileServiceProvider).updateProfileFields(uid, {
-              field: item['imageUrl'],
-            });
-          } else {
-            await ref.read(profileServiceProvider).equipItem(itemUrl.isNotEmpty ? itemUrl : id, category);
-          }
-        }
-      } finally {
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Failed to update decoration: $e"),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        ref.invalidate(currentUserProfileProvider);
         setState(() => _loadingItemId = null);
       }
     }

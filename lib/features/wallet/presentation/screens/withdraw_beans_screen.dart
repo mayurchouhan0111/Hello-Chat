@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -19,59 +20,142 @@ class WithdrawBeansScreen extends ConsumerStatefulWidget {
 class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
   final _amountController = TextEditingController();
   final _accountController = TextEditingController();
+  final _accountHolderController = TextEditingController();
   final _ifscController = TextEditingController();
+  
   String _selectedMethod = 'Bank Transfer';
   bool _isLoading = false;
   bool _isAgencyWithdrawal = false;
 
-  final List<String> _methods = [
-    'Bank Transfer',
-    'Bkash',
-    'Nagad',
-    'Payoneer',
-    'Wise',
-    'Crypto (USDT)'
-  ];
+  // Preset quick chips
+  final List<int> _presetAmounts = [1000, 5000, 10000, 50000];
 
-  // Sophisticated Fintech Palette
-  static const Color primaryNavy = Color(0xFF00246B); // Deep Navy
-  static const Color softBlue = Color(0xFFCADCFC); // Soft Light Blue
-  static const Color creamColor = Color(0xFFFDFBF7); // Sophisticated Cream
-  
-  static const Color bgColor = Color(0xFF001A4D); // Darker Navy for Background
-  static const Color surfaceColor = Color(0xFF00246B); // Main Navy for Surfaces
-  static const Color textMain = Color(0xFFFDFBF7); // Cream for readability
-  static const Color textSub = Color(0xFFCADCFC); // Light Blue for subtext
+  final List<Map<String, dynamic>> _methodsData = [
+    {
+      'id': 'Bank Transfer',
+      'name': 'Bank Wire',
+      'sub': 'SWIFT / IFSC / Wire',
+      'icon': Icons.account_balance_rounded,
+      'color': const Color(0xFF2563EB),
+      'badge': 'Verified Direct',
+    },
+    {
+      'id': 'Bkash',
+      'name': 'bKash',
+      'sub': 'Mobile Wallet',
+      'icon': Icons.phone_android_rounded,
+      'color': const Color(0xFFE11D48),
+      'badge': 'Instant Payout',
+    },
+    {
+      'id': 'Nagad',
+      'name': 'Nagad',
+      'sub': 'Digital Wallet',
+      'icon': Icons.bolt_rounded,
+      'color': const Color(0xFFEA580C),
+      'badge': 'Fast Transfer',
+    },
+    {
+      'id': 'Payoneer',
+      'name': 'Payoneer',
+      'sub': 'Global USD Account',
+      'icon': Icons.language_rounded,
+      'color': const Color(0xFFE11D48),
+      'badge': 'Global Wire',
+    },
+    {
+      'id': 'Wise',
+      'name': 'Wise',
+      'sub': 'Multi-Currency',
+      'icon': Icons.currency_exchange_rounded,
+      'color': const Color(0xFF059669),
+      'badge': 'Lowest Fee',
+    },
+    {
+      'id': 'Crypto (USDT)',
+      'name': 'USDT TRC20',
+      'sub': 'Blockchain Payout',
+      'icon': Icons.token_rounded,
+      'color': const Color(0xFF0891B2),
+      'badge': 'Decentralized',
+    },
+  ];
 
   // Conversion: 1000 Beans = $10 ($0.01 per Bean)
   static const double _conversionRate = 0.01;
+
+  @override
+  void dispose() {
+    _amountController.dispose();
+    _accountController.dispose();
+    _accountHolderController.dispose();
+    _ifscController.dispose();
+    super.dispose();
+  }
+
+  int _getCurrentBalance() {
+    if (_isAgencyWithdrawal) {
+      return ref.read(myAgencyProvider).value?.beansBalance ?? 0;
+    }
+    return ref.read(currentUserProfileProvider).value?.beansBalance ?? 0;
+  }
+
+  void _onQuickSelect(int amount) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _amountController.text = amount.toString();
+    });
+  }
+
+  void _onSelectMax() {
+    HapticFeedback.mediumImpact();
+    final bal = _getCurrentBalance();
+    setState(() {
+      _amountController.text = bal.toString();
+    });
+  }
+
+  Future<void> _pasteToAccountField() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (data?.text != null && data!.text!.trim().isNotEmpty) {
+      HapticFeedback.lightImpact();
+      setState(() {
+        _accountController.text = data.text!.trim();
+      });
+      _showCuteNotification("Pasted from clipboard! 📋");
+    }
+  }
 
   void _submitRequest() async {
     final amountText = _amountController.text.trim();
     final accountText = _accountController.text.trim();
     
     if (amountText.isEmpty || accountText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill all details")),
-      );
+      _showCuteNotification("Please fill in all settlement fields ✍️", isError: true);
       return;
     }
 
     final amount = int.tryParse(amountText) ?? 0;
     if (amount < 1000) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Minimum withdrawal is 1000 Beans")),
-      );
+      _showCuteNotification("Minimum settlement threshold is 1,000 Beans 🌱", isError: true);
+      return;
+    }
+
+    final currentBal = _getCurrentBalance();
+    if (amount > currentBal) {
+      _showCuteNotification("Amount exceeds available balance ($currentBal Beans) ⚠️", isError: true);
+      return;
+    }
+
+    if (_selectedMethod == 'Bank Transfer' && _ifscController.text.trim().isEmpty) {
+      _showCuteNotification("Please provide Bank Routing / IFSC / SWIFT code 🏦", isError: true);
       return;
     }
 
     final user = ref.read(currentUserProfileProvider).value;
 
-    // 🛡️ Security Check: Banned status
     if (user?.isBanned == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Your account is restricted. Contact support.")),
-      );
+      _showCuteNotification("Your account is currently restricted. Please contact support.", isError: true);
       return;
     }
 
@@ -80,92 +164,221 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
       return;
     }
 
-    _showOtpDialog();
+    _showOtpBottomSheet();
   }
 
-  void _showVerificationPrompt() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28), side: const BorderSide(color: Colors.white10)),
-        title: Text("Verification Required", style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.bold)),
-        content: Text(
-          "To comply with financial regulations, you must verify your identity before withdrawing funds.",
-          style: GoogleFonts.plusJakartaSans(color: textSub),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("LATER", style: GoogleFonts.plusJakartaSans(color: textSub)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              context.push(AppRoutes.verification);
-            },
-            child: Text("VERIFY NOW", style: GoogleFonts.plusJakartaSans(color: softBlue, fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showOtpDialog() {
-    final otpController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: surfaceColor,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28), side: const BorderSide(color: Colors.white10)),
-        title: Text("Confirm Settlement", style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+  void _showCuteNotification(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
           children: [
-            Text(
-              "A verification code has been sent to your registered contact. Please enter it below to authorize this withdrawal.",
-              style: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 13),
+            Icon(
+              isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+              color: Colors.white,
+              size: 20,
             ),
-            const Gap(20),
-            TextField(
-              controller: otpController,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.plusJakartaSans(color: softBlue, fontSize: 24, fontWeight: FontWeight.bold, letterSpacing: 8),
-              decoration: _inputDecoration("000000").copyWith(counterText: ""),
+            const Gap(10),
+            Expanded(
+              child: Text(
+                message,
+                style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+              ),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text("CANCEL", style: GoogleFonts.plusJakartaSans(color: textSub)),
-          ),
-          TextButton(
-            onPressed: () {
-              // Simulating OTP validation (e.g. 123456)
-              if (otpController.text.length == 6) {
-                Navigator.pop(context);
-                _executeWithdrawal();
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Invalid OTP")));
-              }
-            },
-            child: Text("AUTHORIZE", style: GoogleFonts.plusJakartaSans(color: softBlue, fontWeight: FontWeight.bold)),
-          ),
-        ],
+        backgroundColor: isError ? const Color(0xFFEF4444) : const Color(0xFF0284C7),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        duration: const Duration(seconds: 3),
       ),
     );
   }
 
-  void _executeWithdrawal() async {
+  void _showVerificationPrompt() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+            ),
+            const Gap(24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFBFDBFE)),
+              ),
+              child: const Icon(Icons.verified_user_rounded, color: Color(0xFF2563EB), size: 36),
+            ),
+            const Gap(16),
+            Text(
+              "KYC Verification Required",
+              style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+            ),
+            const Gap(8),
+            Text(
+              "To protect your earnings and comply with financial standards, please verify your identity before processing your first settlement.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontSize: 13, height: 1.5),
+            ),
+            const Gap(24),
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: Text("Later", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontWeight: FontWeight.w700)),
+                  ),
+                ),
+                const Gap(12),
+                Expanded(
+                  flex: 2,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      context.push(AppRoutes.verification);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                    child: Text("Verify Account ✨", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14)),
+                  ),
+                ),
+              ],
+            ),
+            const Gap(8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showOtpBottomSheet() {
+    final otpController = TextEditingController();
+    final enteredBeans = int.tryParse(_amountController.text) ?? 0;
+    final convertedUsd = enteredBeans * _conversionRate;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 28),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+              ),
+              const Gap(20),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                ),
+                child: const Icon(Icons.shield_rounded, color: Color(0xFF16A34A), size: 32),
+              ),
+              const Gap(14),
+              Text(
+                "Authorize Settlement",
+                style: GoogleFonts.plusJakartaSans(fontSize: 18, fontWeight: FontWeight.w800, color: const Color(0xFF0F172A)),
+              ),
+              const Gap(6),
+              Text(
+                "Confirm payout of ${enteredBeans.toString()} Beans (\$$convertedUsd USD) to $_selectedMethod.",
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontSize: 13, height: 1.4),
+              ),
+              const Gap(20),
+              TextField(
+                controller: otpController,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.plusJakartaSans(
+                  color: const Color(0xFF0F172A),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 10,
+                ),
+                decoration: InputDecoration(
+                  hintText: "••••••",
+                  hintStyle: GoogleFonts.plusJakartaSans(color: const Color(0xFFCBD5E1), letterSpacing: 10),
+                  counterText: "",
+                  filled: true,
+                  fillColor: const Color(0xFFF8FAFC),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+                ),
+              ),
+              const Gap(20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () {
+                    if (otpController.text.length == 6) {
+                      Navigator.pop(ctx);
+                      _processWithdrawal();
+                    } else {
+                      _showCuteNotification("Please enter 6-digit security code", isError: true);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  child: Text("Confirm & Transfer 🚀", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _processWithdrawal() async {
+    setState(() => _isLoading = true);
     final amountText = _amountController.text.trim();
     final accountText = _accountController.text.trim();
     final amount = int.tryParse(amountText) ?? 0;
     final user = ref.read(currentUserProfileProvider).value;
-
-    setState(() => _isLoading = true);
 
     try {
       final accountDetails = {
@@ -175,6 +388,9 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
       
       if (_selectedMethod == 'Bank Transfer') {
         accountDetails['ifsc'] = _ifscController.text.trim();
+        if (_accountHolderController.text.trim().isNotEmpty) {
+          accountDetails['accountHolder'] = _accountHolderController.text.trim();
+        }
       }
 
       await ref.read(walletServiceProvider).requestWithdrawal(
@@ -186,37 +402,93 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
       );
       
       if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            backgroundColor: surfaceColor,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28), side: const BorderSide(color: Colors.white10)),
-            title: Text("Settlement Initiated", style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.bold)),
-            content: Text(
-              "Your request has been successfully logged in our secure system. Expect processing within 24-48 business hours.",
-              style: GoogleFonts.plusJakartaSans(color: textSub),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context); // Close dialog
-                  Navigator.pop(context); // Go back
-                }, 
-                child: Text("CONFIRM", style: GoogleFonts.plusJakartaSans(color: softBlue, fontWeight: FontWeight.bold))
-              )
-            ],
-          ),
-        );
+        _showSuccessDialog(amount);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString().split(']').last}")),
-        );
+        _showCuteNotification("Settlement failed: ${e.toString().split(']').last.trim()}", isError: true);
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  void _showSuccessDialog(int amount) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF10B981), Color(0xFF059669)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(color: const Color(0xFF10B981).withOpacity(0.35), blurRadius: 16, offset: const Offset(0, 6)),
+                ],
+              ),
+              child: const Icon(Icons.check_rounded, color: Colors.white, size: 36),
+            ),
+            const Gap(18),
+            Text(
+              "Settlement Initiated! 🎉",
+              style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontWeight: FontWeight.w900, fontSize: 18),
+            ),
+            const Gap(8),
+            Text(
+              "Your request for $amount Beans (\$${(amount * _conversionRate).toStringAsFixed(2)} USD) has been submitted to automated clearance.",
+              textAlign: TextAlign.center,
+              style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontSize: 13, height: 1.4),
+            ),
+            const Gap(16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.schedule_rounded, size: 15, color: Color(0xFF0284C7)),
+                  const Gap(6),
+                  Text("Est. Delivery: 24 - 48 Hours", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontSize: 11, fontWeight: FontWeight.w800)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                elevation: 0,
+              ),
+              child: Text("Done", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w800, fontSize: 14)),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -224,23 +496,62 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
     final userAsync = ref.watch(currentUserProfileProvider);
     final agencyAsync = ref.watch(myAgencyProvider);
 
+    final enteredBeans = int.tryParse(_amountController.text) ?? 0;
+    final convertedUsd = enteredBeans * _conversionRate;
+
     return Scaffold(
-      backgroundColor: bgColor,
+      backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
         elevation: 0,
+        scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: textMain, size: 20),
+          icon: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF0F172A), size: 15),
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         centerTitle: true,
         title: Text(
-          "SECURE SETTLEMENT", 
-          style: GoogleFonts.plusJakartaSans(color: softBlue, fontWeight: FontWeight.w800, fontSize: 12, letterSpacing: 2)
+          "SECURE SETTLEMENT",
+          style: GoogleFonts.plusJakartaSans(
+            color: const Color(0xFF0F172A),
+            fontWeight: FontWeight.w900,
+            fontSize: 14,
+            letterSpacing: 1.1,
+          ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.history_rounded, color: softBlue),
+            icon: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F9FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBAE6FD)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.history_rounded, color: Color(0xFF0284C7), size: 16),
+                  const Gap(4),
+                  Text(
+                    "History",
+                    style: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF0284C7),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            tooltip: "Settlement History",
             onPressed: () => context.push(AppRoutes.withdrawalHistory),
           ),
           const Gap(8),
@@ -248,253 +559,568 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
       ),
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Branding Animation
-            Center(
-              child: Column(
-                children: [
-                  Text(
-                    "Hello Chat",
-                    style: GoogleFonts.windSong(
-                      fontSize: 48,
-                      color: softBlue,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ).animate().fadeIn(duration: 800.ms).slideY(begin: 0.3, end: 0),
-                  const Gap(4),
-                  Container(
-                    height: 2,
-                    width: 50,
-                    decoration: BoxDecoration(
-                      color: softBlue,
-                      borderRadius: BorderRadius.circular(1),
-                    ),
-                  ).animate().scaleX(duration: 1000.ms, curve: Curves.easeOut),
-                ],
-              ),
-            ),
-
-            const Gap(40),
-
-            // 0. Withdrawal Type Toggle
+            // 0. Host vs Agency Asset Toggle
             userAsync.when(
               data: (user) {
                 if (user?.isAgencyOwner != true) return const SizedBox.shrink();
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  child: Row(
-                    children: [
-                      _buildTypeToggle("HOST ASSETS", !_isAgencyWithdrawal, () => setState(() => _isAgencyWithdrawal = false)),
-                      const Gap(12),
-                      _buildTypeToggle("AGENCY ASSETS", _isAgencyWithdrawal, () => setState(() => _isAgencyWithdrawal = true)),
-                    ],
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Row(
+                      children: [
+                        _buildAssetTabItem(
+                          label: "👑 Host Earnings",
+                          isSelected: !_isAgencyWithdrawal,
+                          onTap: () => setState(() => _isAgencyWithdrawal = false),
+                        ),
+                        _buildAssetTabItem(
+                          label: "🏢 Agency Vault",
+                          isSelected: _isAgencyWithdrawal,
+                          onTap: () => setState(() => _isAgencyWithdrawal = true),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
               loading: () => const SizedBox.shrink(),
               error: (_, __) => const SizedBox.shrink(),
-            ).animate().fadeIn(delay: 200.ms),
+            ),
 
-            // 1. Balance Overview (Sophisticated Navy Card)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(32),
-              decoration: BoxDecoration(
-                color: surfaceColor,
-                borderRadius: BorderRadius.circular(32),
-                border: Border.all(color: Colors.white.withOpacity(0.05), width: 1.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.4),
-                    blurRadius: 40,
-                    offset: const Offset(0, 20),
+            // 1. Hero Balance Card (Luxurious Obsidian & Cyan Glow)
+            RepaintBoundary(
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [
+                      Color(0xFF0B132B),
+                      Color(0xFF1C2541),
+                      Color(0xFF0A0E1A),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0284C7).withOpacity(0.18),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.10),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withOpacity(0.12)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
+                              ),
+                              const Gap(6),
+                              Text(
+                                _isAgencyWithdrawal ? "AGENCY REVENUE" : "HOST NET EARNINGS",
+                                style: GoogleFonts.plusJakartaSans(
+                                  color: const Color(0xFFE2E8F0),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF10B981).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFF10B981).withOpacity(0.25)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.shield_rounded, color: Color(0xFF34D399), size: 12),
+                              const Gap(4),
+                              Text("256-Bit SSL", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.w800)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Gap(16),
+
+                    // Balance Numbers
+                    if (_isAgencyWithdrawal)
+                      agencyAsync.when(
+                        data: (agency) => _buildHeroBalance(agency?.beansBalance ?? 0),
+                        loading: () => const CircularProgressIndicator(color: Color(0xFF38BDF8)),
+                        error: (_, __) => _buildHeroBalance(0),
+                      )
+                    else
+                      userAsync.when(
+                        data: (user) => _buildHeroBalance(user?.beansBalance ?? 0),
+                        loading: () => const CircularProgressIndicator(color: Color(0xFF38BDF8)),
+                        error: (_, __) => _buildHeroBalance(0),
+                      ),
+
+                    const Gap(16),
+
+                    // Conversion Rate Capsule
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.06),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white.withOpacity(0.08)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.auto_awesome_rounded, color: Color(0xFFFBBF24), size: 14),
+                          const Gap(6),
+                          Flexible(
+                            child: Text(
+                              "1,000 Beans = \$10.00 USD  •  Fee: 0% Free",
+                              style: GoogleFonts.plusJakartaSans(
+                                color: const Color(0xFFCBD5E1),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.05, end: 0),
+
+            const Gap(20),
+
+            // 2. Settlement Amount Input Card
+            _buildSectionHeader("SETTLEMENT AMOUNT", Icons.payments_outlined),
+            const Gap(8),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 3)),
                 ],
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        _isAgencyWithdrawal ? "AGENCY TOTAL BALANCE" : "HOST NET EARNINGS",
-                        style: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                        "Amount in Beans",
+                        style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w700),
                       ),
-                      const Icon(Icons.verified_user_rounded, color: Colors.greenAccent, size: 16),
+                      GestureDetector(
+                        onTap: _onSelectMax,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            "USE MAX",
+                            style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0284C7), fontSize: 11, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
                     ],
                   ),
-                  const Gap(24),
-                  if (_isAgencyWithdrawal)
-                    agencyAsync.when(
-                      data: (agency) => _buildBalanceText("${agency?.beansBalance ?? 0}"),
-                      loading: () => const CircularProgressIndicator(color: softBlue),
-                      error: (_, __) => _buildBalanceText("0"),
-                    )
-                  else
-                    userAsync.when(
-                      data: (user) => _buildBalanceText("${user?.beansBalance ?? 0}"),
-                      loading: () => const CircularProgressIndicator(color: softBlue),
-                      error: (_, __) => _buildBalanceText("0"),
+                  const Gap(10),
+                  
+                  TextField(
+                    controller: _amountController,
+                    keyboardType: TextInputType.number,
+                    onChanged: (_) => setState(() {}),
+                    style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontWeight: FontWeight.w900, fontSize: 22),
+                    decoration: InputDecoration(
+                      hintText: "Min. 1,000",
+                      hintStyle: GoogleFonts.plusJakartaSans(color: const Color(0xFF94A3B8), fontWeight: FontWeight.w600, fontSize: 16),
+                      prefixIcon: Container(
+                        margin: const EdgeInsets.only(right: 10, left: 4),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF3C7),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.stars_rounded, color: Color(0xFFD97706), size: 22),
+                      ),
+                      suffixIcon: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        margin: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFBBF7D0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.attach_money_rounded, color: Color(0xFF16A34A), size: 15),
+                            Text(
+                              convertedUsd.toStringAsFixed(2),
+                              style: GoogleFonts.plusJakartaSans(color: const Color(0xFF16A34A), fontWeight: FontWeight.w900, fontSize: 14),
+                            ),
+                          ],
+                        ),
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFFF8FAFC),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
                     ),
-                  const Gap(16),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.03),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      "Trusted Financial Asset Management", 
-                      style: GoogleFonts.plusJakartaSans(color: textSub.withOpacity(0.5), fontSize: 9, fontWeight: FontWeight.w600, letterSpacing: 0.5)
-                    ),
+                  ),
+
+                  const Gap(12),
+
+                  // Quick Preset Chips Row
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: _presetAmounts.map((amt) {
+                      final isSelected = enteredBeans == amt;
+                      return GestureDetector(
+                        onTap: () => _onQuickSelect(amt),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 180),
+                          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFF0284C7) : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: isSelected ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
+                          ),
+                          child: Text(
+                            "+${amt >= 1000 ? '${(amt / 1000).toInt()}k' : amt} (\$${(amt * _conversionRate).toInt()})",
+                            style: GoogleFonts.plusJakartaSans(
+                              color: isSelected ? Colors.white : const Color(0xFF475569),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ],
               ),
-            ).animate().fadeIn(delay: 400.ms).slideY(begin: 0.1, end: 0),
+            ),
 
-            const Gap(40),
+            const Gap(20),
 
-            // 2. Input Section
-            Text(
-              "SETTLEMENT OPTIONS", 
-              style: GoogleFonts.plusJakartaSans(color: softBlue.withOpacity(0.4), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)
-            ).animate().fadeIn(delay: 600.ms),
-            const Gap(24),
-            
-            _buildInputLabel("Settlement Amount"),
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-              style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.bold, fontSize: 18),
-              decoration: _inputDecoration("Minimum 1,000").copyWith(
-                suffixIcon: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+            // 3. Payment Gateway Selection
+            _buildSectionHeader("PAYOUT GATEWAY", Icons.account_balance_wallet_outlined),
+            const Gap(8),
+
+            _buildModernPaymentMethodGrid(),
+
+            const Gap(20),
+
+            // 4. Beneficiary Information Card
+            _buildSectionHeader("BENEFICIARY ACCOUNT", Icons.person_outline_rounded),
+            const Gap(8),
+
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 8, offset: const Offset(0, 3)),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_selectedMethod == 'Bank Transfer') ...[
+                    Text("Account Holder Name", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF475569), fontSize: 12, fontWeight: FontWeight.w700)),
+                    const Gap(6),
+                    TextField(
+                      controller: _accountHolderController,
+                      style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 14),
+                      decoration: _modernInputDecoration("Legal account name as in bank", Icons.person_rounded),
+                    ),
+                    const Gap(14),
+                  ],
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        "≈ \$${((int.tryParse(_amountController.text) ?? 0) * _conversionRate).toStringAsFixed(2)}",
-                        style: GoogleFonts.plusJakartaSans(color: softBlue, fontWeight: FontWeight.w900, fontSize: 16),
+                      Text(_getAccountLabel(), style: GoogleFonts.plusJakartaSans(color: const Color(0xFF475569), fontSize: 12, fontWeight: FontWeight.w700)),
+                      GestureDetector(
+                        onTap: _pasteToAccountField,
+                        child: Row(
+                          children: [
+                            const Icon(Icons.content_paste_rounded, size: 13, color: Color(0xFF0284C7)),
+                            const Gap(3),
+                            Text("Paste", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0284C7), fontSize: 11, fontWeight: FontWeight.w800)),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ).animate().fadeIn(delay: 700.ms),
-            
-            const Gap(24),
-            
-            _buildInputLabel("Payout Institution"),
-            _buildMethodSelector().animate().fadeIn(delay: 800.ms),
-            
-            const Gap(24),
-            
-            _buildInputLabel(_getAccountLabel()),
-            TextField(
-              controller: _accountController,
-              style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.w600),
-              decoration: _inputDecoration(_getAccountHint()),
-            ).animate().fadeIn(delay: 900.ms),
-            
-            if (_selectedMethod == 'Bank Transfer') ...[
-              const Gap(24),
-              _buildInputLabel("Bank Routing / Swift / IFSC"),
-              TextField(
-                controller: _ifscController,
-                style: GoogleFonts.plusJakartaSans(color: textMain, fontWeight: FontWeight.w600),
-                decoration: _inputDecoration("Required for Transfer"),
-              ).animate().fadeIn(delay: 1000.ms),
-            ],
+                  const Gap(6),
+                  TextField(
+                    controller: _accountController,
+                    style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 14),
+                    decoration: _modernInputDecoration(_getAccountHint(), _getMethodIcon()),
+                  ),
 
-            const Gap(48),
-
-            // 3. Submit Button (Cream / Navy Style)
-            SizedBox(
-              width: double.infinity,
-              height: 64,
-              child: ElevatedButton(
-                onPressed: _isLoading ? null : _submitRequest,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: softBlue,
-                  foregroundColor: primaryNavy,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                  elevation: 0,
-                ),
-                child: _isLoading 
-                  ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: primaryNavy, strokeWidth: 2))
-                  : Text("INITIATE SETTLEMENT", style: GoogleFonts.plusJakartaSans(fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 1)),
+                  if (_selectedMethod == 'Bank Transfer') ...[
+                    const Gap(14),
+                    Text("Bank Routing / SWIFT / IFSC Code", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF475569), fontSize: 12, fontWeight: FontWeight.w700)),
+                    const Gap(6),
+                    TextField(
+                      controller: _ifscController,
+                      style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontWeight: FontWeight.w700, fontSize: 14),
+                      decoration: _modernInputDecoration("e.g. SBIN0001234 / SWIFT Code", Icons.pin_outlined),
+                    ),
+                  ],
+                ],
               ),
-            ).animate().fadeIn(delay: 1100.ms).scale(begin: const Offset(0.98, 0.98)),
-            
-            const Gap(32),
-            Center(
-              child: Opacity(
-                opacity: 0.6,
+            ),
+
+            const Gap(20),
+
+            // 5. Mini Settlement Summary Receipt Box
+            if (enteredBeans >= 1000) ...[
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
                 child: Column(
                   children: [
-                    Text(
-                      "Secure SSL Encrypted Channel",
-                      style: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 10, fontWeight: FontWeight.bold),
-                    ),
+                    _buildSummaryRow("Settlement Request", "$enteredBeans Beans"),
                     const Gap(6),
-                    Text(
-                      "Settlement timeframe: 24 - 48 business hours",
-                      style: GoogleFonts.plusJakartaSans(color: textSub.withOpacity(0.5), fontSize: 9),
+                    _buildSummaryRow("Payout Gateway", _selectedMethod),
+                    const Gap(6),
+                    _buildSummaryRow("Processing Fee", "\$0.00 (100% Free)"),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Divider(height: 1, color: Color(0xFFCBD5E1)),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text("Net Payout to Receive", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontSize: 13, fontWeight: FontWeight.w800)),
+                        Text(
+                          "\$${convertedUsd.toStringAsFixed(2)} USD",
+                          style: GoogleFonts.plusJakartaSans(color: const Color(0xFF16A34A), fontSize: 16, fontWeight: FontWeight.w900),
+                        ),
+                      ],
                     ),
                   ],
                 ),
+              ).animate().fadeIn(duration: 250.ms),
+              const Gap(20),
+            ],
+
+            // 6. Action Button
+            Container(
+              width: double.infinity,
+              height: 54,
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0284C7), Color(0xFF0EA5E9)],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0284C7).withOpacity(0.32),
+                    blurRadius: 14,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
               ),
-            ).animate().fadeIn(delay: 1200.ms),
-            const Gap(40),
+              child: ElevatedButton(
+                onPressed: _isLoading ? null : _submitRequest,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+                child: _isLoading
+                    ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.lock_outline_rounded, color: Colors.white, size: 17),
+                          const Gap(8),
+                          Text(
+                            "CONFIRM & SETTLE PAYOUT",
+                            style: GoogleFonts.plusJakartaSans(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14, letterSpacing: 0.6),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+
+            const Gap(16),
+
+            // 7. Security Trust Assurance
+            Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 16),
+                    const Gap(6),
+                    Text("Automated Bank-Grade Security • 24-48 Hours Clearance", style: GoogleFonts.plusJakartaSans(color: const Color(0xFF475569), fontSize: 10, fontWeight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+            ),
+            const Gap(32),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildBalanceText(String text) {
+  Widget _buildSummaryRow(String label, String value) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
+        Text(label, style: GoogleFonts.plusJakartaSans(color: const Color(0xFF64748B), fontSize: 12, fontWeight: FontWeight.w600)),
+        Text(value, style: GoogleFonts.plusJakartaSans(color: const Color(0xFF0F172A), fontSize: 12, fontWeight: FontWeight.w700)),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Icon(icon, size: 15, color: const Color(0xFF0284C7)),
+        const Gap(6),
         Text(
-          text,
-          style: GoogleFonts.plusJakartaSans(color: creamColor, fontSize: 54, fontWeight: FontWeight.w900, letterSpacing: -2),
-        ),
-        const Gap(8),
-        Text(
-          "BEANS",
-          style: GoogleFonts.plusJakartaSans(color: softBlue, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 1),
+          title,
+          style: GoogleFonts.plusJakartaSans(
+            color: const Color(0xFF475569),
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1.1,
+          ),
         ),
       ],
     );
   }
 
-  Widget _buildTypeToggle(String label, bool isSelected, VoidCallback onTap) {
+  Widget _buildHeroBalance(int balance) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  balance.toString(),
+                  style: GoogleFonts.plusJakartaSans(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1,
+                  ),
+                ),
+              ),
+            ),
+            const Gap(8),
+            Text(
+              "BEANS",
+              style: GoogleFonts.plusJakartaSans(
+                color: const Color(0xFF38BDF8),
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+          ],
+        ),
+        const Gap(4),
+        Text(
+          "≈ \$${(balance * _conversionRate).toStringAsFixed(2)} USD Available for Payout",
+          style: GoogleFonts.plusJakartaSans(color: const Color(0xFF94A3B8), fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAssetTabItem({required String label, required bool isSelected, required VoidCallback onTap}) {
     return Expanded(
       child: GestureDetector(
         onTap: onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 9),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: isSelected ? softBlue : Colors.white.withOpacity(0.03),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: isSelected ? Colors.transparent : Colors.white.withOpacity(0.05)),
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 6, offset: const Offset(0, 2)),
+                  ]
+                : [],
           ),
           child: Text(
             label,
             style: GoogleFonts.plusJakartaSans(
-              color: isSelected ? primaryNavy : textSub, 
-              fontWeight: FontWeight.w900, 
-              fontSize: 10,
-              letterSpacing: 1,
+              color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
             ),
           ),
         ),
@@ -502,70 +1128,85 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
     );
   }
 
-  String _getAccountLabel() {
-    switch (_selectedMethod) {
-      case 'Bkash':
-      case 'Nagad': return "Account Number (Mobile)";
-      case 'Payoneer':
-      case 'Wise': return "Receiver Email Address";
-      case 'Crypto (USDT)': return "Wallet Address (TRC20)";
-      case 'Bank Transfer': return "Full Account Number";
-      default: return "Payment Details";
-    }
-  }
-
-  String _getAccountHint() {
-    switch (_selectedMethod) {
-      case 'Bkash':
-      case 'Nagad': return "01XXXXXXXXX";
-      case 'Payoneer':
-      case 'Wise': return "user@institution.com";
-      case 'Crypto (USDT)': return "T...";
-      default: return "Enter here";
-    }
-  }
-
-  Widget _buildInputLabel(String label) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 12),
-      child: Text(label, style: GoogleFonts.plusJakartaSans(color: textSub, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
-    );
-  }
-
-  InputDecoration _inputDecoration(String hint) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.plusJakartaSans(color: Colors.white10, fontWeight: FontWeight.w500),
-      filled: true,
-      fillColor: Colors.white.withOpacity(0.02),
-      contentPadding: const EdgeInsets.all(22),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide.none),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Colors.white10, width: 1)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: softBlue, width: 1.5)),
-    );
-  }
-
-  Widget _buildMethodSelector() {
+  Widget _buildModernPaymentMethodGrid() {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
       child: Row(
-        children: _methods.map((m) {
-          final isSelected = _selectedMethod == m;
+        children: _methodsData.map((m) {
+          final isSelected = _selectedMethod == m['id'];
+          final Color color = m['color'] as Color;
+
           return GestureDetector(
-            onTap: () => setState(() => _selectedMethod = m),
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _selectedMethod = m['id']);
+            },
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.only(right: 10),
+              width: 136,
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isSelected ? softBlue.withOpacity(0.1) : Colors.white.withOpacity(0.02),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: isSelected ? softBlue : Colors.white10),
+                color: isSelected ? color.withOpacity(0.08) : Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: isSelected ? color : const Color(0xFFE2E8F0),
+                  width: isSelected ? 2 : 1,
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(color: color.withOpacity(0.18), blurRadius: 8, offset: const Offset(0, 3)),
+                      ]
+                    : [
+                        BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                      ],
               ),
-              child: Text(
-                m,
-                style: GoogleFonts.plusJakartaSans(color: isSelected ? softBlue : textMain, fontWeight: FontWeight.w700, fontSize: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: color.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(m['icon'] as IconData, color: color, size: 18),
+                      ),
+                      if (isSelected)
+                        Container(
+                          padding: const EdgeInsets.all(3),
+                          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+                          child: const Icon(Icons.check, color: Colors.white, size: 9),
+                        ),
+                    ],
+                  ),
+                  const Gap(10),
+                  Text(
+                    m['name'],
+                    style: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF0F172A),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 13,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const Gap(2),
+                  Text(
+                    m['sub'],
+                    style: GoogleFonts.plusJakartaSans(
+                      color: const Color(0xFF64748B),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ),
             ),
           );
@@ -573,5 +1214,65 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
       ),
     );
   }
-}
 
+  IconData _getMethodIcon() {
+    switch (_selectedMethod) {
+      case 'Bkash':
+      case 'Nagad':
+        return Icons.phone_android_rounded;
+      case 'Payoneer':
+      case 'Wise':
+        return Icons.alternate_email_rounded;
+      case 'Crypto (USDT)':
+        return Icons.qr_code_2_rounded;
+      default:
+        return Icons.credit_card_rounded;
+    }
+  }
+
+  String _getAccountLabel() {
+    switch (_selectedMethod) {
+      case 'Bkash':
+      case 'Nagad':
+        return "bKash / Nagad Mobile Number";
+      case 'Payoneer':
+      case 'Wise':
+        return "Registered Account Email Address";
+      case 'Crypto (USDT)':
+        return "USDT TRC20 Wallet Address";
+      case 'Bank Transfer':
+        return "Bank Account Number / IBAN";
+      default:
+        return "Payment Account Details";
+    }
+  }
+
+  String _getAccountHint() {
+    switch (_selectedMethod) {
+      case 'Bkash':
+      case 'Nagad':
+        return "e.g. 017XXXXXXXX";
+      case 'Payoneer':
+      case 'Wise':
+        return "e.g. yourname@domain.com";
+      case 'Crypto (USDT)':
+        return "Paste TRC20 address (starts with T...)";
+      default:
+        return "Enter full account number";
+    }
+  }
+
+  InputDecoration _modernInputDecoration(String hint, IconData icon) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: GoogleFonts.plusJakartaSans(color: const Color(0xFF94A3B8), fontWeight: FontWeight.w500, fontSize: 13),
+      prefixIcon: Icon(icon, color: const Color(0xFF64748B), size: 18),
+      filled: true,
+      fillColor: const Color(0xFFF8FAFC),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFFE2E8F0))),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5)),
+    );
+  }
+}

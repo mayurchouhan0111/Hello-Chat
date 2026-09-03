@@ -15,7 +15,7 @@ import 'package:hello_chat/core/providers/family_provider.dart';
 import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/services/cloudinary_service.dart';
-import 'package:hello_chat/core/constants/app_colors.dart';
+import 'package:hello_chat/core/constants/family_light_theme.dart';
 import 'package:hello_chat/providers/wallet_provider.dart';
 
 class FamilyBattleScreen extends ConsumerStatefulWidget {
@@ -70,7 +70,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
     final activeBattleAsync = ref.watch(activeBattleProvider(widget.myFamilyId));
 
     return Scaffold(
-      backgroundColor: AppColors.familyBg,
+      backgroundColor: FamilyLight.pageBg,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text('CLAN ARENA',
@@ -78,7 +78,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 fontWeight: FontWeight.w900,
                 fontSize: 15,
                 letterSpacing: 3,
-                color: AppColors.familyText)),
+                color: FamilyLight.ink)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
@@ -87,12 +87,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           icon: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: AppColors.familySurface.withOpacity(0.6),
+              color: FamilyLight.card.withOpacity(0.6),
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white12),
+              border: Border.all(color: FamilyLight.border),
             ),
             child: const Icon(Icons.close_rounded,
-                color: AppColors.familyText, size: 18),
+                color: FamilyLight.ink, size: 18),
           ),
         ),
       ),
@@ -105,7 +105,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 return const Center(
                     child: Text("Family not found",
                         style:
-                            TextStyle(color: AppColors.familyTextSecondary)));
+                            TextStyle(color: FamilyLight.muted)));
               }
               return activeBattleAsync.when(
                 data: (battle) {
@@ -116,17 +116,17 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 },
                 loading: () => const Center(
                     child: CircularProgressIndicator(
-                        color: AppColors.familyGold)),
+                        color: FamilyLight.gold)),
                 error: (_, __) => _buildTabs(family),
               );
             },
             loading: () => const Center(
                 child: CircularProgressIndicator(
-                    color: AppColors.familyGold)),
+                    color: FamilyLight.gold)),
             error: (_, __) => const Center(
                 child: Text("Could not load family",
                     style:
-                        TextStyle(color: AppColors.familyTextSecondary))),
+                        TextStyle(color: FamilyLight.muted))),
           ),
         ],
       ),
@@ -136,7 +136,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
   Widget _buildBackground() {
     return Stack(
       children: [
-        Container(color: AppColors.familyBg),
+        Container(color: FamilyLight.pageBg),
         Positioned(
           top: -80,
           right: -60,
@@ -147,8 +147,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  AppColors.familyGold.withOpacity(0.08),
-                  AppColors.familyGold.withOpacity(0),
+                  FamilyLight.gold.withOpacity(0.08),
+                  FamilyLight.gold.withOpacity(0),
                 ],
               ),
             ),
@@ -164,8 +164,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  AppColors.familyRed.withOpacity(0.06),
-                  AppColors.familyRed.withOpacity(0),
+                  FamilyLight.red.withOpacity(0.06),
+                  FamilyLight.red.withOpacity(0),
                 ],
               ),
             ),
@@ -185,9 +185,9 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             margin: const EdgeInsets.symmetric(horizontal: 16),
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: AppColors.familySurface.withOpacity(0.6),
+              color: FamilyLight.card.withOpacity(0.6),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: FamilyLight.border),
             ),
             child: Row(
               children: [
@@ -222,12 +222,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? AppColors.familyGold : Colors.transparent,
+            color: selected ? FamilyLight.gold : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: AppColors.familyGold.withOpacity(0.3),
+                      color: FamilyLight.gold.withOpacity(0.3),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),
@@ -240,7 +240,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               Icon(
                 icon,
                 size: 15,
-                color: selected ? Colors.black : AppColors.familyTextSecondary,
+                color: selected ? Colors.black : FamilyLight.muted,
               ),
               const Gap(6),
               Text(
@@ -250,7 +250,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                   fontSize: 11,
                   letterSpacing: 1.5,
                   color:
-                      selected ? Colors.black : AppColors.familyTextSecondary,
+                      selected ? Colors.black : FamilyLight.muted,
                 ),
               ),
             ],
@@ -280,7 +280,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         );
       },
       loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.familyGold)),
+          child: CircularProgressIndicator(color: FamilyLight.gold)),
       error: (err, _) => Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -288,7 +288,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             err.toString().length > 80
                 ? 'Could not load clans.\nTry again later.'
                 : err.toString(),
-            style: const TextStyle(color: AppColors.familyTextSecondary),
+            style: const TextStyle(color: FamilyLight.muted),
             textAlign: TextAlign.center,
           ),
         ),
@@ -308,9 +308,9 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             height: 140,
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: AppColors.familyCard,
+              color: FamilyLight.fill,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.familyGold.withOpacity(0.3)),
+              border: Border.all(color: FamilyLight.gold.withOpacity(0.3)),
               image: _battleImage != null
                   ? DecorationImage(image: FileImage(_battleImage!), fit: BoxFit.cover)
                   : null,
@@ -319,11 +319,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 ? const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.add_photo_alternate_outlined, color: AppColors.familyGold, size: 36),
+                      Icon(Icons.add_photo_alternate_outlined, color: FamilyLight.gold, size: 36),
                       Gap(6),
-                      Text('Tap to select battle image', style: TextStyle(color: AppColors.familyTextSecondary, fontSize: 12)),
+                      Text('Tap to select battle image', style: TextStyle(color: FamilyLight.muted, fontSize: 12)),
                       Gap(2),
-                      Text('', style: TextStyle(color: AppColors.familyGold, fontSize: 10, fontWeight: FontWeight.w900)),
+                      Text('', style: TextStyle(color: FamilyLight.gold, fontSize: 10, fontWeight: FontWeight.w900)),
                     ],
                   )
                 : Stack(
@@ -384,11 +384,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           width: 3,
           height: 16,
           decoration: BoxDecoration(
-            color: AppColors.familyGold,
+            color: FamilyLight.gold,
             borderRadius: BorderRadius.circular(2),
             boxShadow: [
               BoxShadow(
-                color: AppColors.familyGold.withOpacity(0.4),
+                color: FamilyLight.gold.withOpacity(0.4),
                 blurRadius: 4,
               ),
             ],
@@ -400,7 +400,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           style: const TextStyle(
             fontWeight: FontWeight.w900,
             fontSize: 12,
-            color: AppColors.familyTextSecondary,
+            color: FamilyLight.muted,
             letterSpacing: 1,
           ),
         ),
@@ -409,7 +409,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
             decoration: BoxDecoration(
-              color: AppColors.familyGold.withOpacity(0.15),
+              color: FamilyLight.gold.withOpacity(0.15),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
@@ -417,7 +417,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               style: const TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 10,
-                color: AppColors.familyGold,
+                color: FamilyLight.gold,
               ),
             ),
           ),
@@ -431,15 +431,15 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
     final isAccepted = req.status == 'accepted';
     final isRejected = req.status == 'rejected';
     final color = isPending
-        ? AppColors.familyGold
+        ? FamilyLight.gold
         : isAccepted
-            ? const Color(0xFF22C55E)
-            : AppColors.familyRed;
+            ? FamilyLight.green
+            : FamilyLight.red;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.familySurface.withOpacity(0.5),
+        color: FamilyLight.card.withOpacity(0.5),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: color.withOpacity(0.15)),
       ),
@@ -461,7 +461,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       height: 44,
                       fit: BoxFit.cover)
                   : Container(
-                      color: AppColors.familyCard,
+                      color: FamilyLight.fill,
                       child: Icon(Icons.shield,
                           color: color.withOpacity(0.5), size: 20)),
             ),
@@ -475,7 +475,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                     style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 14,
-                        color: AppColors.familyText),
+                        color: FamilyLight.ink),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
                 const Gap(3),
@@ -540,9 +540,9 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             height: 140,
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: AppColors.familyCard,
+              color: FamilyLight.fill,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.familyGold.withOpacity(0.3)),
+              border: Border.all(color: FamilyLight.gold.withOpacity(0.3)),
               image: _battleImage != null
                   ? DecorationImage(image: FileImage(_battleImage!), fit: BoxFit.cover)
                   : null,
@@ -551,11 +551,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 ? const Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.add_photo_alternate_outlined, color: AppColors.familyGold, size: 36),
+                      Icon(Icons.add_photo_alternate_outlined, color: FamilyLight.gold, size: 36),
                       Gap(6),
-                      Text('Tap to select battle image', style: TextStyle(color: AppColors.familyTextSecondary, fontSize: 12)),
+                      Text('Tap to select battle image', style: TextStyle(color: FamilyLight.muted, fontSize: 12)),
                       Gap(2),
-                      Text('', style: TextStyle(color: AppColors.familyGold, fontSize: 10, fontWeight: FontWeight.w900)),
+                      Text('', style: TextStyle(color: FamilyLight.gold, fontSize: 10, fontWeight: FontWeight.w900)),
                     ],
                   )
                 : Stack(
@@ -596,10 +596,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: FamilyLight.border),
         boxShadow: [
           BoxShadow(
-            color: AppColors.familyGold.withOpacity(0.03),
+            color: FamilyLight.gold.withOpacity(0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -608,7 +608,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(17),
         child: Container(
-          color: AppColors.familySurface.withOpacity(0.6),
+          color: FamilyLight.card.withOpacity(0.6),
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
@@ -618,7 +618,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
-                      color: AppColors.familyGold.withOpacity(0.15)),
+                      color: FamilyLight.gold.withOpacity(0.15)),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(13),
@@ -629,9 +629,9 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                           height: 50,
                           fit: BoxFit.cover)
                       : Container(
-                          color: AppColors.familyCard,
+                          color: FamilyLight.fill,
                           child: const Icon(Icons.shield,
-                              color: AppColors.familyGold, size: 24)),
+                              color: FamilyLight.gold, size: 24)),
                 ),
               ),
               const Gap(12),
@@ -643,7 +643,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                         style: const TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 14,
-                            color: AppColors.familyText),
+                            color: FamilyLight.ink),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     const Gap(3),
@@ -652,10 +652,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                         _buildStatChip(
                             Icons.people_rounded,
                             '${enemy.memberCount ?? 0}',
-                            AppColors.familyTextSecondary),
+                            FamilyLight.muted),
                         const Gap(8),
                         _buildStatChip(Icons.shield_rounded,
-                            enemy.rankName ?? 'Unranked', Colors.white38),
+                            enemy.rankName ?? 'Unranked', FamilyLight.faint),
                       ],
                     ),
                   ],
@@ -670,14 +670,14 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       fontWeight: FontWeight.w900,
                       fontSize: 14,
                       color: isStronger
-                          ? AppColors.familyRed
-                          : AppColors.familyTextSecondary,
+                          ? FamilyLight.red
+                          : FamilyLight.muted,
                     ),
                   ),
                   const Text('CP',
                       style: TextStyle(
                           fontSize: 9,
-                          color: AppColors.familyTextSecondary)),
+                          color: FamilyLight.muted)),
                   const Gap(6),
                   GestureDetector(
                     onTap: () => _sendChallenge(enemy.id),
@@ -687,14 +687,14 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.familyGold,
-                            AppColors.familyGold.withOpacity(0.8),
+                            FamilyLight.gold,
+                            FamilyLight.gold.withOpacity(0.8),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(10),
                         boxShadow: [
                           BoxShadow(
-                            color: AppColors.familyGold.withOpacity(0.3),
+                            color: FamilyLight.gold.withOpacity(0.3),
                             blurRadius: 6,
                             offset: const Offset(0, 2),
                           ),
@@ -743,7 +743,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Please select a battle image first!'),
-            backgroundColor: AppColors.familyRed.withOpacity(0.9),
+            backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             duration: const Duration(seconds: 2),
@@ -761,7 +761,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Insufficient diamonds to launch a battle.'),
-            backgroundColor: AppColors.familyRed.withOpacity(0.9),
+            backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             duration: const Duration(seconds: 2),
@@ -779,7 +779,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Failed to upload image. Try again.'),
-            backgroundColor: AppColors.familyRed.withOpacity(0.9),
+            backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -801,7 +801,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Challenge sent!'),
-            backgroundColor: AppColors.familyGold.withOpacity(0.9),
+            backgroundColor: FamilyLight.gold.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12)),
@@ -814,7 +814,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.toString().length > 100 ? 'Failed to send challenge.' : e.toString()),
-            backgroundColor: AppColors.familyRed.withOpacity(0.9),
+            backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -837,7 +837,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: const Text('Battle access purchased!'),
-              backgroundColor: AppColors.familyGold.withOpacity(0.9),
+              backgroundColor: FamilyLight.gold.withOpacity(0.9),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               duration: const Duration(seconds: 2),
@@ -849,7 +849,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(e.toString()),
-              backgroundColor: AppColors.familyRed.withOpacity(0.9),
+              backgroundColor: FamilyLight.red.withOpacity(0.9),
               behavior: SnackBarBehavior.floating,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               duration: const Duration(seconds: 2),
@@ -876,12 +876,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppColors.familySurface.withOpacity(0.5),
-                      border: Border.all(color: Colors.white10),
+                      color: FamilyLight.card.withOpacity(0.5),
+                      border: Border.all(color: FamilyLight.border),
                     ),
                     child: Icon(Icons.sports_kabaddi_rounded,
                         size: 40,
-                        color: AppColors.familyTextSecondary
+                        color: FamilyLight.muted
                             .withOpacity(0.4)),
                   ),
                   const Gap(16),
@@ -889,12 +889,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       style: TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 16,
-                          color: AppColors.familyTextSecondary)),
+                          color: FamilyLight.muted)),
                   const Gap(6),
                   const Text('Challenge another clan to start your legacy',
                       style: TextStyle(
                           fontSize: 12,
-                          color: AppColors.familyTextSecondary)),
+                          color: FamilyLight.muted)),
                 ],
               ),
             ),
@@ -907,10 +907,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         );
       },
       loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.familyGold)),
+          child: CircularProgressIndicator(color: FamilyLight.gold)),
       error: (_, __) => const Center(
           child: Text('Could not load history',
-              style: TextStyle(color: AppColors.familyTextSecondary))),
+              style: TextStyle(color: FamilyLight.muted))),
     );
   }
 
@@ -926,7 +926,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         if (sorted.isEmpty) {
           return const Center(
             child: Text('No rankings yet',
-                style: TextStyle(color: AppColors.familyTextSecondary)),
+                style: TextStyle(color: FamilyLight.muted)),
           );
         }
 
@@ -937,10 +937,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         );
       },
       loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.familyGold)),
+          child: CircularProgressIndicator(color: FamilyLight.gold)),
       error: (_, __) => const Center(
           child: Text('Could not load rankings',
-              style: TextStyle(color: AppColors.familyTextSecondary))),
+              style: TextStyle(color: FamilyLight.muted))),
     );
   }
 
@@ -954,11 +954,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isMe
-            ? AppColors.familyGold.withOpacity(0.1)
-            : AppColors.familySurface.withOpacity(0.5),
+            ? FamilyLight.gold.withOpacity(0.1)
+            : FamilyLight.card.withOpacity(0.5),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: isMe ? AppColors.familyGold.withOpacity(0.3) : Colors.white10,
+          color: isMe ? FamilyLight.gold.withOpacity(0.3) : FamilyLight.border,
         ),
       ),
       child: Row(
@@ -970,7 +970,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               style: TextStyle(
                 fontWeight: FontWeight.w900,
                 fontSize: 14,
-                color: rank <= 3 ? AppColors.familyGold : AppColors.familyTextSecondary,
+                color: rank <= 3 ? FamilyLight.gold : FamilyLight.muted,
               ),
             ),
           ),
@@ -987,8 +987,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               child: family.avatarUrl != null
                   ? CachedNetworkImage(imageUrl: family.avatarUrl!, fit: BoxFit.cover)
                   : Container(
-                      color: AppColors.familyCard,
-                      child: const Icon(Icons.shield, color: AppColors.familyGold, size: 18),
+                      color: FamilyLight.fill,
+                      child: const Icon(Icons.shield, color: FamilyLight.gold, size: 18),
                     ),
             ),
           ),
@@ -1002,7 +1002,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                   style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 13,
-                    color: AppColors.familyText,
+                    color: FamilyLight.ink,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -1020,7 +1020,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             style: const TextStyle(
               fontWeight: FontWeight.w900,
               fontSize: 14,
-              color: AppColors.familyGold,
+              color: FamilyLight.gold,
             ),
           ),
         ],
@@ -1046,12 +1046,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.white10),
+            border: Border.all(color: FamilyLight.border),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(17),
             child: Container(
-              color: AppColors.familySurface.withOpacity(0.6),
+              color: FamilyLight.card.withOpacity(0.6),
               padding: const EdgeInsets.all(14),
               child: Row(
                 children: [
@@ -1062,10 +1062,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                           color: isWinner
-                              ? AppColors.familyGold.withOpacity(0.3)
+                              ? FamilyLight.gold.withOpacity(0.3)
                               : isDraw
-                                  ? Colors.white12
-                                  : AppColors.familyRed.withOpacity(0.3)),
+                                  ? FamilyLight.border
+                                  : FamilyLight.red.withOpacity(0.3)),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(11),
@@ -1076,11 +1076,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                               height: 44,
                               fit: BoxFit.cover)
                           : Container(
-                              color: AppColors.familyCard,
+                              color: FamilyLight.fill,
                               child: Icon(Icons.shield,
                                   color: isWinner
-                                      ? AppColors.familyGold
-                                      : AppColors.familyRed,
+                                      ? FamilyLight.gold
+                                      : FamilyLight.red,
                                   size: 20)),
                     ),
                   ),
@@ -1093,7 +1093,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                             style: const TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 14,
-                                color: AppColors.familyText),
+                                color: FamilyLight.ink),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis),
                         const Gap(2),
@@ -1101,12 +1101,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                           children: [
                             Icon(Icons.access_time_rounded,
                                 size: 10,
-                                color: AppColors.familyTextSecondary),
+                                color: FamilyLight.muted),
                             const Gap(4),
                             Text(ago,
                                 style: const TextStyle(
                                     fontSize: 10,
-                                    color: AppColors.familyTextSecondary)),
+                                    color: FamilyLight.muted)),
                           ],
                         ),
                       ],
@@ -1121,12 +1121,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                               style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
-                                  color: AppColors.familyGold)),
+                                  color: FamilyLight.gold)),
                           Text('$enemyPts',
                               style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 16,
-                                  color: AppColors.familyRed)),
+                                  color: FamilyLight.red)),
                         ],
                       ),
                       const Gap(8),
@@ -1135,17 +1135,17 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                             horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: isWinner
-                              ? AppColors.familyGold.withOpacity(0.15)
+                              ? FamilyLight.gold.withOpacity(0.15)
                               : isDraw
-                                  ? Colors.white10
-                                  : AppColors.familyRed.withOpacity(0.15),
+                                  ? FamilyLight.border
+                                  : FamilyLight.red.withOpacity(0.15),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
                             color: isWinner
-                                ? AppColors.familyGold.withOpacity(0.3)
+                                ? FamilyLight.gold.withOpacity(0.3)
                                 : isDraw
-                                    ? Colors.white24
-                                    : AppColors.familyRed.withOpacity(0.3),
+                                    ? FamilyLight.border
+                                    : FamilyLight.red.withOpacity(0.3),
                           ),
                         ),
                         child: Row(
@@ -1159,10 +1159,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                                       : Icons.close_rounded,
                               size: 10,
                               color: isWinner
-                                  ? AppColors.familyGold
+                                  ? FamilyLight.gold
                                   : isDraw
-                                      ? Colors.white54
-                                      : AppColors.familyRed,
+                                      ? FamilyLight.muted
+                                      : FamilyLight.red,
                             ),
                             const Gap(3),
                             Text(
@@ -1176,10 +1176,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                                 fontSize: 9,
                                 letterSpacing: 0.5,
                                 color: isWinner
-                                    ? AppColors.familyGold
+                                    ? FamilyLight.gold
                                     : isDraw
-                                        ? Colors.white54
-                                        : AppColors.familyRed,
+                                        ? FamilyLight.muted
+                                        : FamilyLight.red,
                               ),
                             ),
                           ],
@@ -1187,7 +1187,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       ),
                       const Gap(4),
                       Icon(Icons.chevron_right_rounded,
-                          color: AppColors.familyTextSecondary
+                          color: FamilyLight.muted
                               .withOpacity(0.4),
                           size: 18),
                     ],
@@ -1246,7 +1246,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             battle, myFamily, myPts, enemyPts, myRatio, sorted);
       },
       loading: () => const Center(
-          child: CircularProgressIndicator(color: AppColors.familyGold)),
+          child: CircularProgressIndicator(color: FamilyLight.gold)),
       error: (_, __) => _buildBattleContent(
           battle, myFamily, myPts, enemyPts, myRatio, []),
     );
@@ -1306,7 +1306,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: AppColors.familySurface.withOpacity(0.8),
+                color: FamilyLight.card.withOpacity(0.8),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: FamilyModel.badgeColorForLevel(myFamily.level).withOpacity(0.4)),
               ),
@@ -1329,7 +1329,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       const Gap(8),
                       Text(
                         'Participants: ${myFamily.memberCount} / ${myFamily.memberLimit}',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11),
+                        style: const TextStyle(color: FamilyLight.ink, fontWeight: FontWeight.bold, fontSize: 11),
                       ),
                     ],
                   ),
@@ -1364,7 +1364,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                           enemyName,
                           isA ? battle.familyBAvatar : battle.familyAAvatar,
                           enemyPtsTotal,
-                          AppColors.familyRed,
+                          FamilyLight.red,
                           false)),
                 ],
               ),
@@ -1380,12 +1380,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               child: Container(
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(color: FamilyLight.border),
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(19),
                   child: Container(
-                    color: AppColors.familySurface.withOpacity(0.5),
+                    color: FamilyLight.card.withOpacity(0.5),
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1405,7 +1405,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                                 style: TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 12,
-                                    color: AppColors.familyText,
+                                    color: FamilyLight.ink,
                                     letterSpacing: 1)),
                           ],
                         ),
@@ -1415,8 +1415,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                               ? const Center(
                                   child: Text('No members',
                                       style: TextStyle(
-                                          color: AppColors
-                                              .familyTextSecondary)))
+                                          color: FamilyLight.muted)))
                               : ListView.separated(
                                   itemCount: members.length > 5
                                       ? 5
@@ -1447,13 +1446,13 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 child: ElevatedButton(
                   onPressed: () => context.pop(),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.familyGold,
+                    backgroundColor: FamilyLight.gold,
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16)),
                     elevation: 6,
-                    shadowColor: AppColors.familyGold.withOpacity(0.4),
+                    shadowColor: FamilyLight.gold.withOpacity(0.4),
                   ),
                   child: const Text('BACK TO ARENA',
                       style: TextStyle(
@@ -1504,31 +1503,31 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         border: Border.all(
           color: isCompleted
               ? (isWinner
-                  ? AppColors.familyGold.withOpacity(0.4)
+                  ? FamilyLight.gold.withOpacity(0.4)
                   : isDraw
-                      ? Colors.white24
-                      : AppColors.familyRed.withOpacity(0.4))
-              : AppColors.familyGold.withOpacity(0.2),
+                      ? FamilyLight.border
+                      : FamilyLight.red.withOpacity(0.4))
+              : FamilyLight.gold.withOpacity(0.2),
         ),
         gradient: LinearGradient(
           colors: isCompleted
               ? (isWinner
                   ? [
-                      AppColors.familyGold.withOpacity(0.1),
-                      AppColors.familySurface.withOpacity(0.5)
+                      FamilyLight.gold.withOpacity(0.1),
+                      FamilyLight.card.withOpacity(0.5)
                     ]
                   : isDraw
                       ? [
-                          Colors.white10,
-                          AppColors.familySurface.withOpacity(0.5)
+                          FamilyLight.border,
+                          FamilyLight.card.withOpacity(0.5)
                         ]
                       : [
-                          AppColors.familyRed.withOpacity(0.1),
-                          AppColors.familySurface.withOpacity(0.5)
+                          FamilyLight.red.withOpacity(0.1),
+                          FamilyLight.card.withOpacity(0.5)
                         ])
               : [
-                  AppColors.familyGold.withOpacity(0.05),
-                  AppColors.familySurface.withOpacity(0.5)
+                  FamilyLight.gold.withOpacity(0.05),
+                  FamilyLight.card.withOpacity(0.5)
                 ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -1548,11 +1547,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             size: 22,
             color: isCompleted
                 ? (isWinner
-                    ? AppColors.familyGold
+                    ? FamilyLight.gold
                     : isDraw
-                        ? Colors.white54
-                        : AppColors.familyRed)
-                : AppColors.familyGold,
+                        ? FamilyLight.muted
+                        : FamilyLight.red)
+                : FamilyLight.gold,
           ),
           const Gap(10),
           Text(
@@ -1566,11 +1565,11 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             style: TextStyle(
               color: isCompleted
                   ? (isWinner
-                      ? AppColors.familyGold
+                      ? FamilyLight.gold
                       : isDraw
-                          ? Colors.white54
-                          : AppColors.familyRed)
-                  : AppColors.familyGold,
+                          ? FamilyLight.muted
+                          : FamilyLight.red)
+                  : FamilyLight.gold,
               fontWeight: FontWeight.w900,
               fontSize: 24,
               letterSpacing: 6,
@@ -1590,7 +1589,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         gradient: LinearGradient(
           colors: [
             color.withOpacity(0.08),
-            AppColors.familySurface.withOpacity(0.3),
+            FamilyLight.card.withOpacity(0.3),
           ],
           begin: isLeft ? Alignment.topLeft : Alignment.topRight,
           end: Alignment.bottomCenter,
@@ -1617,7 +1616,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                   ? CachedNetworkImage(
                       imageUrl: avatar, fit: BoxFit.cover)
                   : Container(
-                      color: AppColors.familyCard,
+                      color: FamilyLight.fill,
                       child: Icon(
                           isLeft
                               ? Icons.shield_rounded
@@ -1634,7 +1633,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                 style: const TextStyle(
                     fontWeight: FontWeight.w900,
                     fontSize: 11,
-                    color: AppColors.familyText),
+                    color: FamilyLight.ink),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
@@ -1667,12 +1666,12 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           Text(
             '$myPts',
             style: TextStyle(
-              color: AppColors.familyGold,
+              color: FamilyLight.gold,
               fontWeight: FontWeight.w900,
               fontSize: 28,
               shadows: [
                 Shadow(
-                  color: AppColors.familyGold.withOpacity(0.3),
+                  color: FamilyLight.gold.withOpacity(0.3),
                   blurRadius: 8,
                 ),
               ],
@@ -1681,7 +1680,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: Colors.white10,
+              color: FamilyLight.border,
               borderRadius: BorderRadius.circular(6),
             ),
             child: const Text('VS',
@@ -1689,17 +1688,17 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                     fontWeight: FontWeight.w900,
                     fontSize: 11,
                     fontStyle: FontStyle.italic,
-                    color: Colors.white24)),
+                    color: FamilyLight.border)),
           ),
           Text(
             '$enemyPts',
             style: TextStyle(
-              color: AppColors.familyRed,
+              color: FamilyLight.red,
               fontWeight: FontWeight.w900,
               fontSize: 28,
               shadows: [
                 Shadow(
-                  color: AppColors.familyRed.withOpacity(0.3),
+                  color: FamilyLight.red.withOpacity(0.3),
                   blurRadius: 8,
                 ),
               ],
@@ -1715,10 +1714,10 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       height: 18,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.familyGold.withOpacity(0.2)),
+        border: Border.all(color: FamilyLight.gold.withOpacity(0.2)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.familyGold.withOpacity(0.1),
+            color: FamilyLight.gold.withOpacity(0.1),
             blurRadius: 6,
           ),
         ],
@@ -1727,7 +1726,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         borderRadius: BorderRadius.circular(10),
         child: Stack(
           children: [
-            Container(color: AppColors.familySurface),
+            Container(color: FamilyLight.card),
             LayoutBuilder(
               builder: (_, constraints) => Row(
                 children: [
@@ -1737,8 +1736,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.familyGold.withOpacity(0.8),
-                            AppColors.familyGold,
+                            FamilyLight.gold.withOpacity(0.8),
+                            FamilyLight.gold,
                           ],
                         ),
                       ),
@@ -1750,8 +1749,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.familyRed,
-                            AppColors.familyRed.withOpacity(0.8),
+                            FamilyLight.red,
+                            FamilyLight.red.withOpacity(0.8),
                           ],
                         ),
                       ),
@@ -1780,18 +1779,18 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(22),
                 border: Border.all(
-                    color: AppColors.familyGold.withOpacity(0.3)),
+                    color: FamilyLight.gold.withOpacity(0.3)),
                 gradient: LinearGradient(
                   colors: [
-                    AppColors.familyGold.withOpacity(0.12),
-                    AppColors.familyRed.withOpacity(0.08),
+                    FamilyLight.gold.withOpacity(0.12),
+                    FamilyLight.red.withOpacity(0.08),
                   ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.familyGold.withOpacity(0.1),
+                    color: FamilyLight.gold.withOpacity(0.1),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -1802,13 +1801,13 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.touch_app_rounded,
-                        size: 30, color: AppColors.familyGold),
+                        size: 30, color: FamilyLight.gold),
                     const Gap(10),
                     const Text('TAP TO ATTACK',
                         style: TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 16,
-                            color: AppColors.familyText,
+                            color: FamilyLight.ink,
                             letterSpacing: 3)),
                     if (_comboCount > 1) ...[
                       const Gap(12),
@@ -1816,14 +1815,14 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: AppColors.familyGold.withOpacity(0.2),
+                          color: FamilyLight.gold.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text('x$_comboCount',
                             style: TextStyle(
                                 fontWeight: FontWeight.w900,
                                 fontSize: 11,
-                                color: AppColors.familyGold)),
+                                color: FamilyLight.gold)),
                       ),
                     ],
                   ],
@@ -1868,7 +1867,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: isTop3
-            ? AppColors.familyGold.withOpacity(0.06)
+            ? FamilyLight.gold.withOpacity(0.06)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(10),
       ),
@@ -1879,8 +1878,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             height: 24,
             decoration: BoxDecoration(
               color: isTop3
-                  ? AppColors.familyGold.withOpacity(0.15)
-                  : Colors.white10,
+                  ? FamilyLight.gold.withOpacity(0.15)
+                  : FamilyLight.border,
               shape: BoxShape.circle,
             ),
             child: Center(
@@ -1889,8 +1888,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                       fontWeight: FontWeight.w900,
                       fontSize: 10,
                       color: isTop3
-                          ? AppColors.familyGold
-                          : AppColors.familyTextSecondary)),
+                          ? FamilyLight.gold
+                          : FamilyLight.muted)),
             ),
           ),
           const Gap(10),
@@ -1901,8 +1900,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
               shape: BoxShape.circle,
               border: Border.all(
                   color: isTop3
-                      ? AppColors.familyGold.withOpacity(0.3)
-                      : Colors.white10),
+                      ? FamilyLight.gold.withOpacity(0.3)
+                      : FamilyLight.border),
             ),
             child: ClipOval(
               child: photoUrl != null && photoUrl.isNotEmpty
@@ -1923,20 +1922,20 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
                     fontWeight: FontWeight.w900,
                     fontSize: 12,
                     color: isTop3
-                        ? AppColors.familyText
-                        : AppColors.familyTextSecondary),
+                        ? FamilyLight.ink
+                        : FamilyLight.muted),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: AppColors.familyGold.withOpacity(0.1),
+              color: FamilyLight.gold.withOpacity(0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text('${m.combatPoints}',
                 style: const TextStyle(
-                    color: AppColors.familyGold,
+                    color: FamilyLight.gold,
                     fontWeight: FontWeight.w900,
                     fontSize: 11)),
           ),
@@ -1947,7 +1946,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
 
   Widget _buildUserInitial(String userId, bool isTop3) {
     return Container(
-      color: AppColors.familyCard,
+      color: FamilyLight.fill,
       child: Center(
         child: Text(
           userId.isNotEmpty ? userId[0].toUpperCase() : '?',
@@ -1955,8 +1954,8 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
             fontWeight: FontWeight.w900,
             fontSize: 12,
             color: isTop3
-                ? AppColors.familyGold
-                : AppColors.familyTextSecondary,
+                ? FamilyLight.gold
+                : FamilyLight.muted,
           ),
         ),
       ),
@@ -1997,7 +1996,7 @@ class _BattleResultSheet extends ConsumerWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.familyBg,
+        color: FamilyLight.pageBg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
       ),
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 16),
@@ -2009,7 +2008,7 @@ class _BattleResultSheet extends ConsumerWidget {
             width: 44,
             height: 5,
             decoration: BoxDecoration(
-              color: Colors.white12,
+              color: FamilyLight.border,
               borderRadius: BorderRadius.circular(3),
             ),
           ),
@@ -2023,19 +2022,19 @@ class _BattleResultSheet extends ConsumerWidget {
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isWinner
-                    ? AppColors.familyGold.withOpacity(0.3)
+                    ? FamilyLight.gold.withOpacity(0.3)
                     : isDraw
-                        ? Colors.white12
-                        : AppColors.familyRed.withOpacity(0.3),
+                        ? FamilyLight.border
+                        : FamilyLight.red.withOpacity(0.3),
               ),
               gradient: LinearGradient(
                 colors: [
                   isWinner
-                      ? AppColors.familyGold.withOpacity(0.08)
+                      ? FamilyLight.gold.withOpacity(0.08)
                       : isDraw
-                          ? Colors.white10
-                          : AppColors.familyRed.withOpacity(0.08),
-                  AppColors.familySurface.withOpacity(0.5),
+                          ? FamilyLight.border
+                          : FamilyLight.red.withOpacity(0.08),
+                  FamilyLight.card.withOpacity(0.5),
                 ],
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -2048,16 +2047,16 @@ class _BattleResultSheet extends ConsumerWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: isWinner
-                        ? AppColors.familyGold.withOpacity(0.15)
+                        ? FamilyLight.gold.withOpacity(0.15)
                         : isDraw
-                            ? Colors.white10
-                            : AppColors.familyRed.withOpacity(0.15),
+                            ? FamilyLight.border
+                            : FamilyLight.red.withOpacity(0.15),
                     border: Border.all(
                       color: isWinner
-                          ? AppColors.familyGold.withOpacity(0.3)
+                          ? FamilyLight.gold.withOpacity(0.3)
                           : isDraw
-                              ? Colors.white24
-                              : AppColors.familyRed.withOpacity(0.3),
+                              ? FamilyLight.border
+                              : FamilyLight.red.withOpacity(0.3),
                     ),
                   ),
                   child: Icon(
@@ -2067,10 +2066,10 @@ class _BattleResultSheet extends ConsumerWidget {
                             ? Icons.remove_rounded
                             : Icons.sentiment_dissatisfied_rounded,
                     color: isWinner
-                        ? AppColors.familyGold
+                        ? FamilyLight.gold
                         : isDraw
-                            ? Colors.white54
-                            : AppColors.familyRed,
+                            ? FamilyLight.muted
+                            : FamilyLight.red,
                     size: 36,
                   ),
                 ),
@@ -2086,10 +2085,10 @@ class _BattleResultSheet extends ConsumerWidget {
                     fontSize: 22,
                     letterSpacing: 6,
                     color: isWinner
-                        ? AppColors.familyGold
+                        ? FamilyLight.gold
                         : isDraw
-                            ? Colors.white54
-                            : AppColors.familyRed,
+                            ? FamilyLight.muted
+                            : FamilyLight.red,
                   ),
                 ),
               ],
@@ -2109,11 +2108,11 @@ class _BattleResultSheet extends ConsumerWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: AppColors.familyGold.withOpacity(0.2)),
+                            color: FamilyLight.gold.withOpacity(0.2)),
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.familyGold.withOpacity(0.06),
-                            AppColors.familySurface.withOpacity(0.5),
+                            FamilyLight.gold.withOpacity(0.06),
+                            FamilyLight.card.withOpacity(0.5),
                           ],
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
@@ -2128,7 +2127,7 @@ class _BattleResultSheet extends ConsumerWidget {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                  color: AppColors.familyGold
+                                  color: FamilyLight.gold
                                       .withOpacity(0.4),
                                   width: 2),
                             ),
@@ -2138,9 +2137,9 @@ class _BattleResultSheet extends ConsumerWidget {
                                       imageUrl: myFamily.avatarUrl!,
                                       fit: BoxFit.cover)
                                   : Container(
-                                      color: AppColors.familyCard,
+                                      color: FamilyLight.fill,
                                       child: const Icon(Icons.shield,
-                                          color: AppColors.familyGold,
+                                          color: FamilyLight.gold,
                                           size: 24)),
                             ),
                           ),
@@ -2153,7 +2152,7 @@ class _BattleResultSheet extends ConsumerWidget {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 11,
-                                    color: AppColors.familyText),
+                                    color: FamilyLight.ink),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis),
                           ),
@@ -2162,7 +2161,7 @@ class _BattleResultSheet extends ConsumerWidget {
                               style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 18,
-                                  color: AppColors.familyGold)),
+                                  color: FamilyLight.gold)),
                         ],
                       ),
                     ),
@@ -2177,13 +2176,13 @@ class _BattleResultSheet extends ConsumerWidget {
                               horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: isWinner
-                                ? AppColors.familyGold.withOpacity(0.15)
-                                : Colors.white10,
+                                ? FamilyLight.gold.withOpacity(0.15)
+                                : FamilyLight.border,
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: isWinner
-                                  ? AppColors.familyGold.withOpacity(0.3)
-                                  : Colors.white12,
+                                  ? FamilyLight.gold.withOpacity(0.3)
+                                  : FamilyLight.border,
                             ),
                           ),
                           child: Column(
@@ -2194,8 +2193,8 @@ class _BattleResultSheet extends ConsumerWidget {
                                   fontWeight: FontWeight.w900,
                                   fontSize: 14,
                                   color: isWinner
-                                      ? AppColors.familyGold
-                                      : Colors.white38,
+                                      ? FamilyLight.gold
+                                      : FamilyLight.faint,
                                 ),
                               ),
                               Text(
@@ -2204,9 +2203,9 @@ class _BattleResultSheet extends ConsumerWidget {
                                   fontWeight: FontWeight.w900,
                                   fontSize: 9,
                                   color: isWinner
-                                      ? AppColors.familyGold
+                                      ? FamilyLight.gold
                                           .withOpacity(0.7)
-                                      : Colors.white24,
+                                      : FamilyLight.border,
                                 ),
                               ),
                             ],
@@ -2220,11 +2219,11 @@ class _BattleResultSheet extends ConsumerWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: AppColors.familyRed.withOpacity(0.2)),
+                            color: FamilyLight.red.withOpacity(0.2)),
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.familyRed.withOpacity(0.06),
-                            AppColors.familySurface.withOpacity(0.5),
+                            FamilyLight.red.withOpacity(0.06),
+                            FamilyLight.card.withOpacity(0.5),
                           ],
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
@@ -2239,7 +2238,7 @@ class _BattleResultSheet extends ConsumerWidget {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               border: Border.all(
-                                  color: AppColors.familyRed
+                                  color: FamilyLight.red
                                       .withOpacity(0.4),
                                   width: 2),
                             ),
@@ -2249,10 +2248,10 @@ class _BattleResultSheet extends ConsumerWidget {
                                       imageUrl: enemyAvatar,
                                       fit: BoxFit.cover)
                                   : Container(
-                                      color: AppColors.familyCard,
+                                      color: FamilyLight.fill,
                                       child: const Icon(
                                           Icons.security,
-                                          color: AppColors.familyRed,
+                                          color: FamilyLight.red,
                                           size: 24)),
                             ),
                           ),
@@ -2265,7 +2264,7 @@ class _BattleResultSheet extends ConsumerWidget {
                                 style: const TextStyle(
                                     fontWeight: FontWeight.w900,
                                     fontSize: 11,
-                                    color: AppColors.familyText),
+                                    color: FamilyLight.ink),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis),
                           ),
@@ -2274,7 +2273,7 @@ class _BattleResultSheet extends ConsumerWidget {
                               style: const TextStyle(
                                   fontWeight: FontWeight.w900,
                                   fontSize: 18,
-                                  color: AppColors.familyRed)),
+                                  color: FamilyLight.red)),
                         ],
                       ),
                     ),
@@ -2293,7 +2292,7 @@ class _BattleResultSheet extends ConsumerWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                    color: AppColors.familyGold.withOpacity(0.2)),
+                    color: FamilyLight.gold.withOpacity(0.2)),
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
@@ -2305,8 +2304,8 @@ class _BattleResultSheet extends ConsumerWidget {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              AppColors.familyGold.withOpacity(0.8),
-                              AppColors.familyGold,
+                              FamilyLight.gold.withOpacity(0.8),
+                              FamilyLight.gold,
                             ],
                           ),
                         ),
@@ -2318,8 +2317,8 @@ class _BattleResultSheet extends ConsumerWidget {
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              AppColors.familyRed,
-                              AppColors.familyRed.withOpacity(0.8),
+                              FamilyLight.red,
+                              FamilyLight.red.withOpacity(0.8),
                             ],
                           ),
                         ),
@@ -2340,16 +2339,16 @@ class _BattleResultSheet extends ConsumerWidget {
                     style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
-                        color: AppColors.familyGold)),
+                        color: FamilyLight.gold)),
                 Text('${(myRatio * 100).toStringAsFixed(0)}%',
                     style: const TextStyle(
                         fontSize: 11,
-                        color: AppColors.familyTextSecondary)),
+                        color: FamilyLight.muted)),
                 Text('$enemyPts',
                     style: const TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
-                        color: AppColors.familyRed)),
+                        color: FamilyLight.red)),
               ],
             ),
           ),
@@ -2367,13 +2366,13 @@ class _BattleResultSheet extends ConsumerWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14)),
                   side: BorderSide(
-                      color: AppColors.familyGold.withOpacity(0.3)),
+                      color: FamilyLight.gold.withOpacity(0.3)),
                 ),
                 child: const Text('CLOSE',
                     style: TextStyle(
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
-                        color: AppColors.familyGold,
+                        color: FamilyLight.gold,
                         letterSpacing: 2)),
               ),
             ),

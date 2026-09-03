@@ -48,22 +48,22 @@ ThemeData get appTheme => ThemeData(
   ),
   inputDecorationTheme: InputDecorationTheme(
     filled: true,
-    fillColor: Colors.white,
+    fillColor: const Color(0xFFF1F5F9),
     contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
     border: OutlineInputBorder(
       borderRadius: AppBorderRadius.medium,
-      borderSide: const BorderSide(color: AppColors.divider),
+      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: AppBorderRadius.medium,
-      borderSide: const BorderSide(color: AppColors.divider),
+      borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: AppBorderRadius.medium,
       borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
     ),
-    hintStyle: AppTextStyles.bodyMedium.copyWith(color: AppColors.textTertiary),
-    labelStyle: AppTextStyles.labelMedium.copyWith(color: AppColors.textSecondary),
+    hintStyle: AppTextStyles.bodyMedium.copyWith(color: const Color(0xFF94A3B8)),
+    labelStyle: AppTextStyles.labelMedium.copyWith(color: const Color(0xFF334155)),
   ),
   bottomNavigationBarTheme: const BottomNavigationBarThemeData(
     backgroundColor: AppColors.surface,
@@ -71,5 +71,19 @@ ThemeData get appTheme => ThemeData(
     unselectedItemColor: AppColors.textSecondary,
     type: BottomNavigationBarType.fixed,
     elevation: 10,
+  ),
+  snackBarTheme: SnackBarThemeData(
+    behavior: SnackBarBehavior.floating,
+    backgroundColor: const Color(0xF01E2430),
+    contentTextStyle: const TextStyle(
+      color: Colors.white,
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    ),
+    actionTextColor: AppColors.primary,
+    elevation: 6,
+    shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.medium),
+    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    width: 420,
   ),
 );

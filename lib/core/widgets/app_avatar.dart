@@ -183,12 +183,20 @@ class AppAvatar extends ConsumerWidget {
             ),
             child: ClipOval(
               child: imageUrl.isNotEmpty
-                  ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(color: Colors.grey[100]),
-                      errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
-                    )
+                  ? (imageUrl.startsWith('assets/')
+                      ? Image.asset(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
+                        )
+                      : CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          fit: BoxFit.cover,
+                          memCacheWidth: (radius * 3.5).toInt().clamp(60, 300),
+                          memCacheHeight: (radius * 3.5).toInt().clamp(60, 300),
+                          placeholder: (_, __) => Container(color: Colors.grey[100]),
+                          errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
+                        ))
                   : Icon(Icons.person, color: AppColors.textTertiary, size: radius),
             ),
           ),

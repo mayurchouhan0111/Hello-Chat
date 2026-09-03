@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
-import 'package:hello_chat/core/constants/app_colors.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/widgets/app_avatar.dart';
 import 'package:hello_chat/utils/level_utils.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class LevelDetailScreen extends ConsumerWidget {
   const LevelDetailScreen({super.key});
@@ -16,29 +14,15 @@ class LevelDetailScreen extends ConsumerWidget {
     final profileAsync = ref.watch(currentUserProfileProvider);
 
     return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          "Level",
-          style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.leaderboard_outlined, color: Colors.black87),
-            onPressed: () {},
-          ),
-        ],
-      ),
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: _buildAppBar(context),
       body: profileAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, _) => Center(child: Text("Error: $err")),
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: Color(0xFF0284C7)),
+        ),
+        error: (err, _) => Center(
+          child: Text("Error: $err", style: const TextStyle(color: Color(0xFFEF4444))),
+        ),
         data: (user) {
           if (user == null) return const Center(child: Text("No user data"));
 
@@ -49,22 +33,26 @@ class LevelDetailScreen extends ConsumerWidget {
 
           return SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 40),
             child: Column(
               children: [
-                // 1. Top Section (Avatar & Progress)
-                _buildTopSection(context, user, progress, progressPercent, levelColor, calculatedLevel),
+                // 1. Hero Level Status Card
+                _buildHeroLevelCard(context, user, progress, progressPercent, levelColor, calculatedLevel),
 
-                const Gap(32),
+                const Gap(20),
 
-                // 2. Medal Reward
-                _buildMedalRewardSection(),
+                // 2. XP Earning Channels (How to Level Up)
+                _buildXPEarningCards(),
 
-                const Gap(32),
+                const Gap(20),
 
-                // 3. XP Rules & Level Up Guide
-                _buildXPRulesSection(),
+                // 3. Medal Showcase (Rank Badges)
+                _buildMedalRewardSection(calculatedLevel),
 
-                const Gap(40),
+                const Gap(20),
+
+                // 4. XP Brackets Table
+                _buildXPBracketsSection(),
               ],
             ),
           );
@@ -73,108 +61,398 @@ class LevelDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildTopSection(BuildContext context, user, double progress, String percent, Color levelColor, int calculatedLevel) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            const Color(0xFFE0F7FA).withOpacity(0.5),
-            Colors.white,
-          ],
+  PreferredSizeWidget _buildAppBar(BuildContext context) {
+    return AppBar(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0.5,
+      shadowColor: Colors.black.withValues(alpha: 0.05),
+      leading: IconButton(
+        icon: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF0F172A), size: 15),
+        ),
+        onPressed: () => Navigator.pop(context),
+      ),
+      title: const Text(
+        "Level System",
+        style: TextStyle(
+          color: Color(0xFF0F172A),
+          fontWeight: FontWeight.w900,
+          fontSize: 16,
+          letterSpacing: 0.5,
         ),
       ),
+      centerTitle: true,
+      actions: [
+        IconButton(
+          icon: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEF3C7),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFFDE68A)),
+            ),
+            child: const Icon(Icons.emoji_events_rounded, color: Color(0xFFD97706), size: 16),
+          ),
+          onPressed: () {},
+          tooltip: 'Level Ranks',
+        ),
+        const Gap(6),
+      ],
+    );
+  }
+
+  // ─── 1. Hero Level Status Card ─────────────────────────────────
+  Widget _buildHeroLevelCard(
+    BuildContext context,
+    dynamic user,
+    double progress,
+    String percent,
+    Color levelColor,
+    int calculatedLevel,
+  ) {
+    final xpStart = LevelUtils.getTotalXPForLevel(calculatedLevel);
+    final xpNext = LevelUtils.getTotalXPForLevel(calculatedLevel + 1);
+    final currentLevelXP = user.xp - xpStart;
+    final neededXP = xpNext - xpStart;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          const Gap(20),
-          // Avatar
+          // Avatar + Frame Stack
           AppAvatar(
             imageUrl: user.profilePhotoUrl,
-            radius: 50,
+            radius: 46,
             frameUrl: user.profileFrame,
             userLevel: calculatedLevel,
-            frameMultiplier: 1.8,
+            frameMultiplier: 1.6,
           ),
-          const Gap(12),
-          // Level Badge Shield
+
+          const Gap(16),
+
+          // Level Shield & Title
           _buildLevelShield(calculatedLevel),
-          const Gap(24),
-          
-          // Progress Bar with Percentage Bubble
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              children: [
-                // Percentage Bubble
-                Stack(
-                  alignment: Alignment.bottomCenter,
-                  children: [
-                    const Gap(30),
-                    Align(
-                      alignment: Alignment(progress * 2 - 1, 0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF4DD0E1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              "$percent%",
-                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          CustomPaint(
-                            size: const Size(10, 5),
-                            painter: TrianglePainter(color: const Color(0xFF4DD0E1)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+
+          const Gap(16),
+
+          // Percentage & Progress Track
+          Column(
+            children: [
+              // Progress Bar
+              Container(
+                height: 12,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                const Gap(4),
-                // The Bar
-                Container(
-                  height: 10,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: FractionallySizedBox(
-                    alignment: Alignment.centerLeft,
-                    widthFactor: progress,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF4DD0E1), Color(0xFF00ACC1)],
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: progress.clamp(0.02, 1.0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF06B6D4), Color(0xFF0284C7), Color(0xFF3B82F6)],
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF0284C7).withValues(alpha: 0.35),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
                         ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+                      ],
                     ),
                   ),
                 ),
-                const Gap(12),
-                // Level Labels
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
+              ),
+
+              const Gap(10),
+
+              // Level Numbers & XP Details
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0F2FE),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
                       "Lv$calculatedLevel",
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87, fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0284C7),
+                        fontSize: 12,
+                      ),
                     ),
-                    Text(
-                      LevelUtils.getXPProgressText(user.xp),
-                      style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500),
+                  ),
+                  Text(
+                    "${_formatNumber(currentLevelXP)} / ${_formatNumber(neededXP)} XP ($percent%)",
+                    style: const TextStyle(
+                      color: Color(0xFF475569),
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
                     ),
-                  ],
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      "Lv${(calculatedLevel + 1).clamp(1, 100)}",
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFFB45309),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLevelShield(int level) {
+    int index = 0;
+    if (level >= 80) {
+      index = 5;
+    } else if (level >= 50) {
+      index = 4;
+    } else if (level >= 30) {
+      index = 3;
+    } else if (level >= 20) {
+      index = 2;
+    } else if (level >= 10) {
+      index = 1;
+    } else {
+      index = 0;
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          "assets/images/levels/level_badge_$index.png",
+          width: 38,
+          height: 38,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const Icon(Icons.shield_rounded, color: Color(0xFF0284C7), size: 30),
+        ),
+        const Gap(8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Level $level Master",
+              style: const TextStyle(
+                color: Color(0xFF0F172A),
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.3,
+              ),
+            ),
+            Text(
+              _getTierTitle(level),
+              style: TextStyle(
+                color: LevelUtils.getLevelColor(level),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  String _getTierTitle(int level) {
+    if (level >= 90) return "★ Supreme Emperor Tier";
+    if (level >= 70) return "♦ Grandmaster Tier";
+    if (level >= 50) return "▲ Diamond Elite Tier";
+    if (level >= 30) return "● Platinum Veteran Tier";
+    if (level >= 15) return "■ Gold Challenger Tier";
+    return "● Bronze Adventurer Tier";
+  }
+
+  // ─── 2. XP Earning Cards (How to Level Up) ─────────────────────
+  Widget _buildXPEarningCards() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader("HOW TO EARN XP", Icons.bolt_rounded),
+          const Gap(12),
+          Row(
+            children: [
+              // Sending Gifts
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFFBCFE8), width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFEC4899).withValues(alpha: 0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFDF2F8),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.card_giftcard_rounded, color: Color(0xFFDB2777), size: 22),
+                      ),
+                      const Gap(8),
+                      const Text(
+                        "Sending Gifts",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const Gap(3),
+                      const Text(
+                        "500 💎 = 1 XP",
+                        style: TextStyle(
+                          color: Color(0xFFDB2777),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const Gap(12),
+              // Receiving Gifts
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFDDD6FE), width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.04),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF5F3FF),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.stars_rounded, color: Color(0xFF7C3AED), size: 22),
+                      ),
+                      const Gap(8),
+                      const Text(
+                        "Receiving Gifts",
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const Gap(3),
+                      const Text(
+                        "1,000 💎 = 1 XP",
+                        style: TextStyle(
+                          color: Color(0xFF7C3AED),
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── 3. Medal Rewards Section ───────────────────────────────────
+  Widget _buildMedalRewardSection(int currentLevel) {
+    final medalLevels = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader("MEDAL REWARDS", Icons.military_tech_rounded),
+          const Gap(12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 3),
                 ),
               ],
+            ),
+            child: Wrap(
+              spacing: 10,
+              runSpacing: 14,
+              alignment: WrapAlignment.center,
+              children: medalLevels.map((lv) {
+                final isUnlocked = currentLevel >= lv;
+                return _buildMedalChip(lv, isUnlocked);
+              }).toList(),
             ),
           ),
         ],
@@ -182,49 +460,20 @@ class LevelDetailScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildMedalRewardSection() {
-    final medals = [1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
-
-    return Column(
-      children: [
-        const Text(
-          "Medal Reward",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-        ),
-        const Gap(8),
-        const Text(
-          "The higher your level is, the cooler medal you'll get.",
-          style: TextStyle(fontSize: 13, color: Colors.grey),
-        ),
-        const Gap(24),
-        Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE0F7FA).withOpacity(0.3),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.cyan.withOpacity(0.1)),
-          ),
-          child: Center(
-            child: Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              alignment: WrapAlignment.center,
-              children: medals.map((lv) => _buildLevelChip(lv)).toList(),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildLevelChip(int level) {
-    final color = LevelUtils.getLevelColor(level);
+  Widget _buildMedalChip(int level, bool isUnlocked) {
     int index = LevelUtils.getLevelBadgeIndex(level);
 
     return Container(
-      width: 100,
+      width: 96,
+      padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+      decoration: BoxDecoration(
+        color: isUnlocked ? const Color(0xFFFFFBEB) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isUnlocked ? const Color(0xFFFDE68A) : const Color(0xFFE2E8F0),
+          width: 1.2,
+        ),
+      ),
       child: Column(
         children: [
           Stack(
@@ -232,206 +481,44 @@ class LevelDetailScreen extends ConsumerWidget {
             children: [
               Image.asset(
                 "assets/images/levels_new/level_badge_$index.webp",
-                width: 80,
-                height: 40,
+                width: 72,
+                height: 38,
                 fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Icon(Icons.shield_rounded, color: Color(0xFFD97706), size: 28),
               ),
               Positioned(
-                bottom: 14,
+                bottom: 12,
                 child: Text(
                   "Lv$level",
                   style: GoogleFonts.cinzel(
                     color: Colors.white,
-                    fontSize: 8,
+                    fontSize: 8.5,
                     fontWeight: FontWeight.w900,
-                    shadows: [Shadow(color: Colors.black45, blurRadius: 2)],
+                    shadows: const [
+                      Shadow(color: Colors.black54, blurRadius: 2, offset: Offset(0, 0.5)),
+                    ],
                   ),
                 ),
               ),
             ],
+          ),
+          const Gap(4),
+          Text(
+            isUnlocked ? "UNLOCKED" : "LOCKED",
+            style: TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w900,
+              color: isUnlocked ? const Color(0xFFD97706) : const Color(0xFF94A3B8),
+              letterSpacing: 0.5,
+            ),
           ),
         ],
       ),
     );
   }
 
-  IconData _getIconForLevel(int level) {
-    if (level >= 90) return Icons.star;
-    if (level >= 80) return Icons.workspace_premium;
-    if (level >= 70) return Icons.military_tech;
-    if (level >= 50) return Icons.stars;
-    return Icons.diamond;
-  }
-
-  Widget _buildPendantRewardSection() {
-    final pendants = [
-      {'range': '56-66', 'color': 'silver'},
-      {'range': '67-77', 'color': 'gold'},
-      {'range': '78-90', 'color': 'shiny_gold'},
-      {'range': '91-95', 'color': 'red_royal'},
-      {'range': '96-100', 'color': 'emperor'},
-    ];
-
-    return Column(
-      children: [
-        const Text(
-          "Pendant reward",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-        ),
-        const Gap(8),
-        const Text(
-          "The higher your level is, the more honorable pendant you'll get.",
-          style: TextStyle(fontSize: 13, color: Colors.grey),
-        ),
-        const Gap(32),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Wrap(
-            spacing: 20,
-            runSpacing: 30,
-            alignment: WrapAlignment.center,
-            children: pendants.map((p) => _buildPendantItem(p['range']!, p['color']!)).toList(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPendantItem(String range, String type) {
-    return Column(
-      children: [
-        SizedBox(
-          width: 100,
-          height: 100,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              ClipOval(
-                child: Image.network(
-                  "https://picsum.photos/seed/$range/100",
-                  width: 60,
-                  height: 60,
-                  fit: BoxFit.cover,
-                ),
-              ),
-              // Frame Placeholder - using icons or containers to mimic the look
-              _buildMockFrame(type),
-            ],
-          ),
-        ),
-        const Gap(12),
-        Text(
-          "Level $range",
-          style: const TextStyle(color: Color(0xFF4DD0E1), fontWeight: FontWeight.bold, fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMockFrame(String type) {
-    Color frameColor;
-    double thickness = 4;
-    IconData? topIcon;
-    
-    switch (type) {
-      case 'silver':
-        frameColor = const Color(0xFFB0BEC5);
-        topIcon = Icons.star;
-        break;
-      case 'gold':
-        frameColor = const Color(0xFFFFD700);
-        topIcon = Icons.star;
-        break;
-      case 'shiny_gold':
-        frameColor = const Color(0xFFFFA000);
-        topIcon = Icons.stars;
-        thickness = 6;
-        break;
-      case 'red_royal':
-        frameColor = const Color(0xFFFF5252);
-        topIcon = Icons.workspace_premium;
-        thickness = 6;
-        break;
-      case 'emperor':
-        frameColor = const Color(0xFFFFD54F);
-        topIcon = Icons.auto_awesome;
-        thickness = 8;
-        break;
-      default:
-        frameColor = Colors.grey;
-    }
-
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 85,
-          height: 85,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: frameColor, width: thickness),
-            boxShadow: [
-              BoxShadow(color: frameColor.withOpacity(0.3), blurRadius: 10, spreadRadius: 2),
-            ],
-          ),
-        ),
-        Positioned(
-          top: -5,
-          child: Icon(topIcon, color: frameColor, size: 24),
-        ),
-        if (type == 'emperor' || type == 'red_royal')
-          Positioned(
-            bottom: -5,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: frameColor,
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Icon(Icons.keyboard_arrow_up, color: Colors.white, size: 12),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildLevelShield(int level) {
-    int index = 0;
-    if (level >= 80) index = 5;
-    else if (level >= 50) index = 4;
-    else if (level >= 30) index = 3;
-    else if (level >= 20) index = 2;
-    else if (level >= 10) index = 1;
-    else index = 0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Image.asset(
-          "assets/images/levels/level_badge_$index.png",
-          width: 60,
-          height: 60,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const SizedBox(),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          "Lv.$level",
-          style: GoogleFonts.cinzel(
-            color: Colors.black87,
-            fontSize: 14,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 0.5,
-            shadows: const [
-              Shadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 0.5)),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildXPRulesSection() {
+  // ─── 4. XP Brackets Table ───────────────────────────────────────
+  Widget _buildXPBracketsSection() {
     final rules = [
       {'range': 'Lv.1 - 10', 'xp': '10K XP'},
       {'range': 'Lv.10 - 20', 'xp': '25K XP'},
@@ -445,206 +532,125 @@ class LevelDetailScreen extends ConsumerWidget {
       {'range': 'Lv.90 - 100', 'xp': '1.0M XP'},
     ];
 
-    return Column(
-      children: [
-        const Text(
-          "How to Level Up",
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
-        ),
-        const Gap(8),
-        const Text(
-          "Earn XP by participating and interacting to boost your profile level.",
-          style: TextStyle(fontSize: 13, color: Colors.grey),
-        ),
-        const Gap(24),
-        // 1. Diamonds to XP rate cards
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Row(
-            children: [
-              // Sender Card
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFFFF4081).withOpacity(0.08),
-                        const Color(0xFFFF80AB).withOpacity(0.15),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFFF4081).withOpacity(0.15)),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF4081).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.outbox_rounded, color: Color(0xFFFF4081), size: 24),
-                      ),
-                      const Gap(10),
-                      const Text(
-                        "Sending Gifts",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
-                      ),
-                      const Gap(4),
-                      Text(
-                        "500 💎 = 1 XP",
-                        style: GoogleFonts.outfit(
-                          color: const Color(0xFFFF4081),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader("XP REQUIREMENTS PER TIER", Icons.timeline_rounded),
+          const Gap(12),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.03),
+                  blurRadius: 14,
+                  offset: const Offset(0, 3),
                 ),
-              ),
-              const Gap(16),
-              // Receiver Card
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        const Color(0xFF9C27B0).withOpacity(0.08),
-                        const Color(0xFFBA68C8).withOpacity(0.15),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+              ],
+            ),
+            child: Column(
+              children: [
+                ...rules.map((rule) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    decoration: const BoxDecoration(
+                      border: Border(bottom: BorderSide(color: Color(0xFFF1F5F9), width: 1)),
                     ),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFF9C27B0).withOpacity(0.15)),
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF9C27B0).withOpacity(0.1),
-                          shape: BoxShape.circle,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.trending_up_rounded, color: Color(0xFF0284C7), size: 16),
+                            const Gap(8),
+                            Text(
+                              rule['range']!,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                         ),
-                        child: const Icon(Icons.move_to_inbox_rounded, color: Color(0xFF9C27B0), size: 24),
-                      ),
-                      const Gap(10),
-                      const Text(
-                        "Receiving Gifts",
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.black87),
-                      ),
-                      const Gap(4),
-                      Text(
-                        "1,000 💎 = 1 XP",
-                        style: GoogleFonts.outfit(
-                          color: const Color(0xFF9C27B0),
-                          fontWeight: FontWeight.w900,
-                          fontSize: 15,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        const Gap(28),
-        // 2. XP Brackets title
-        const Text(
-          "XP Required Per Level Up",
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
-        ),
-        const Gap(16),
-        // 3. Brackets list
-        Container(
-          margin: const EdgeInsets.symmetric(horizontal: 20),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.grey[50],
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.grey[200]!),
-          ),
-          child: Column(
-            children: [
-              ...rules.map((rule) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.trending_up_rounded, color: Colors.cyan[600], size: 18),
-                          const Gap(8),
-                          Text(
-                            rule['range']!,
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                        ],
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.cyan[50],
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          "${rule['xp']} per level",
-                          style: TextStyle(
-                            color: Colors.cyan[800],
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
+                          child: Text(
+                            "${rule['xp']} / Level",
+                            style: const TextStyle(
+                              color: Color(0xFF0284C7),
+                              fontWeight: FontWeight.w800,
+                              fontSize: 11.5,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-              Divider(color: Colors.grey[200]),
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Row(
+                      ],
+                    ),
+                  );
+                }),
+                const Gap(12),
+                const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.info_outline_rounded, size: 14, color: Colors.grey),
-                    const Gap(6),
+                    Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF94A3B8)),
+                    Gap(6),
                     Text(
-                      "Maximum Level cap is exactly Level 100",
-                      style: TextStyle(color: Colors.grey[600], fontSize: 11, fontWeight: FontWeight.w500),
+                      "Maximum profile level cap is Level 100",
+                      style: TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon) {
+    return Row(
+      children: [
+        Container(
+          width: 3.5,
+          height: 14,
+          decoration: BoxDecoration(
+            color: const Color(0xFF0284C7),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const Gap(8),
+        Icon(icon, size: 16, color: const Color(0xFF0284C7)),
+        const Gap(6),
+        Text(
+          title,
+          style: const TextStyle(
+            color: Color(0xFF0F172A),
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
           ),
         ),
       ],
     );
   }
-}
 
-class TrianglePainter extends CustomPainter {
-  final Color color;
-  TrianglePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..color = color;
-    final path = Path();
-    path.moveTo(0, 0);
-    path.lineTo(size.width, 0);
-    path.lineTo(size.width / 2, size.height);
-    path.close();
-    canvas.drawPath(path, paint);
+  String _formatNumber(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return n.toString();
   }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => false;
 }

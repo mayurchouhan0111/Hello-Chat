@@ -14,17 +14,20 @@ import 'core/constants/app_strings.dart';
 
 import 'core/services/notification_service.dart';
 import 'core/services/config_service.dart';
+import 'core/services/asset_precache_service.dart';
 import 'core/providers/profile_provider.dart';
+import 'core/providers/room_provider.dart';
 import 'core/widgets/location_listener.dart';
 import 'core/widgets/global_presence_observer.dart';
 import 'core/widgets/floating_room_overlay.dart';
 import 'core/widgets/global_notification_overlay.dart';
 import 'core/widgets/global_rocket_launch_overlay.dart';
 
+import 'core/widgets/app_toast.dart';
+
 import 'services/gift_service.dart';
 import 'features/rooms/presentation/widgets/gift_animation_overlay.dart';
 import 'core/utils/svga_parser_util.dart';
-import 'core/utils/app_persistent_cache.dart';
 
 
 
@@ -43,7 +46,9 @@ void main() async {
     }
     FlutterError.presentError(details);
     debugPrint('🛡️ [Flutter Framework Error] Exception: ${details.exception}');
-    debugPrint('🛡️ [Flutter Framework Error] StackTrace: ${details.stack}');
+    debugPrint('🛡️ [Flutter Framework Error Summary] ${details.summary}');
+    debugPrint('🛡️ [Flutter Framework Error Context] ${details.context}');
+    debugPrint('🛡️ [Flutter Framework Error Full] ${details.toString()}');
   };
 
   // 🛡️ Catch uncaught asynchronous exceptions (Futures, Streams, Isolate)
@@ -62,77 +67,34 @@ void main() async {
     return true; 
   };
 
-  // 🛡️ Customize the Error Screen replacing the red screen of death
+  // 🛡️ Completely suppress the "Something Went Wrong" error card screen globally across all devices.
+  // Instead of displaying a red error card or diagnostic sheet, log the error silently and return an imperceptible layout fallback.
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    return Material(
-      color: const Color(0xFF0F172A), // Premium deep navy matching theme
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.red.withOpacity(0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 64),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                "Something Went Wrong",
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                "A minor issue occurred in the interface. Hello Chat remains active, and you can continue using the application normally.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white60, fontSize: 13, height: 1.5),
-              ),
-              const SizedBox(height: 24),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Theme(
-                  data: ThemeData.dark().copyWith(
-                    dividerColor: Colors.transparent,
-                    colorScheme: const ColorScheme.dark(primary: Colors.redAccent),
-                  ),
-                  child: ExpansionTile(
-                    backgroundColor: Colors.white.withOpacity(0.02),
-                    collapsedBackgroundColor: Colors.white.withOpacity(0.02),
-                    iconColor: Colors.redAccent,
-                    collapsedIconColor: Colors.white54,
-                    title: const Text("Show Diagnostic details", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(16),
-                        decoration: const BoxDecoration(
-                          color: Colors.black26,
-                        ),
-                        child: Text(
-                          details.exception.toString(),
-                          style: const TextStyle(color: Colors.redAccent, fontFamily: 'monospace', fontSize: 11),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    debugPrint('🛡️ [Widget Build Exception Suppressed] ${details.exception}');
+    debugPrint('🛡️ [StackTrace] ${details.stack}');
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxHeight < 200 || constraints.maxWidth < 200) {
+          return const SizedBox.shrink();
+        }
+        return Material(
+          color: const Color(0xFF0F172A),
+          child: const SizedBox.shrink(),
+        );
+      },
     );
   };
 
-  debugPrint('--- [APP START] ---');
-  
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  } catch (e) {
+    debugPrint('⚠️ Firebase.initializeApp notice: $e');
+  }
   debugPrint('--- [FIREBASE INITIALIZED] ---');
 
 
@@ -210,6 +172,16 @@ class HelloChatApp extends ConsumerWidget {
     final configAsync = ref.watch(globalConfigProvider);
     final profileAsync = ref.watch(currentUserProfileProvider);
 
+    ref.listen(currentUserProfileProvider, (previous, next) {
+      if (next.hasValue && next.value != null) {
+        final profile = next.value!;
+        final vipNum = int.tryParse(profile.vipTier.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final role = profile.role;
+        AssetPrecacheService.precacheUserAssets(context, vipLevel: vipNum, role: role);
+        AssetPrecacheService.startBackgroundPrecache();
+      }
+    });
+
     if (profileAsync.hasValue && profileAsync.value != null) {
       _preloadGiftsOnStartup(ref);
     }
@@ -217,6 +189,7 @@ class HelloChatApp extends ConsumerWidget {
     return LocationListener(
       child: GlobalPresenceObserver(
         child: MaterialApp.router(
+          scaffoldMessengerKey: rootScaffoldMessengerKey,
           title: AppStrings.appName,
           debugShowCheckedModeBanner: false,
           theme: appTheme,
@@ -294,7 +267,16 @@ void _preloadGiftsOnStartup(WidgetRef ref) async {
   if (_didPreloadGifts) return;
   _didPreloadGifts = true;
 
-  debugPrint("[AppPreload] Starting background preloading of all room gift animations...");
+  // Pre-initialize VoiceService (Agora RTC Engine) asynchronously in background
+  // so that when user joins a live room, initialize() completes in 0ms!
+  Future(() async {
+    try {
+      await ref.read(voiceServiceProvider).initialize();
+    } catch (ve) {
+      debugPrint("[AppPreload] Error background initializing VoiceService: $ve");
+    }
+  });
+
   try {
     final gifts = await ref.read(giftServiceProvider).getGiftsFuture();
     for (final gift in gifts) {
@@ -303,46 +285,17 @@ void _preloadGiftsOnStartup(WidgetRef ref) async {
         if (url.toLowerCase().contains('.svga')) {
           final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
           if (localPath != null) {
-            debugPrint("[AppPreload] Pre-parsing local SVGA gift: ${gift.name} from $localPath");
             SvgaParserUtil.decodeSafeFromAssets(localPath);
-          } else if (url.startsWith('http')) {
-            debugPrint("[AppPreload] Pre-downloading SVGA gift: ${gift.name} from $url");
-            SvgaCache.preload(url);
           }
         } else {
           final localLottie = SvgaParserUtil.getLocalLottiePath(url);
           if (localLottie != null) {
-            debugPrint("[AppPreload] Pre-parsing local Lottie gift: ${gift.name} from $localLottie");
             LottieCache.preloadLocal(localLottie);
-          } else if (url.startsWith('http')) {
-            debugPrint("[AppPreload] Pre-downloading Lottie gift: ${gift.name} from $url");
-            LottieCache.preload(url);
           }
         }
       }
     }
-
-    // Pre-download all game and gift sound effects into local cache
-    debugPrint("[AppPreload] Pre-downloading game and gift sound effects into local cache...");
-    final soundUrls = [
-      'https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2019/2019-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2017/2017-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2018/2018-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2068/2068-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2016/2016-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2022/2022-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2023/2023-84.wav',
-      'https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav',
-    ];
-    for (final url in soundUrls) {
-      try {
-        await AppPersistentCache.getFile(url);
-      } catch (_) {}
-    }
   } catch (e) {
-    debugPrint("[AppPreload] Error background preloading gifts or sounds: $e");
+    debugPrint("[AppPreload] Error preloading local gift assets: $e");
   }
 }

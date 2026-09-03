@@ -38,6 +38,11 @@ class SeatGrid extends ConsumerWidget {
     final currentUid = ref.watch(authStateProvider).value?.uid;
     final participants = ref.watch(roomParticipantsProvider(roomId)).value ?? [];
     
+    // Batch fetch all participant profiles in a single Firestore query
+    final occupiedUids = participants.where((p) => p.uid.isNotEmpty).map((p) => p.uid).toList();
+    final profilesAsync = ref.watch(batchedProfilesProvider(occupiedUids));
+    final profiles = profilesAsync.value ?? {};
+    
     int crossAxisCount = 4;
     double avatarRadius = capacity == 8 ? 24 : (capacity <= 12 ? 22 : 20);
     double iconSize = capacity == 8 ? 20 : (capacity <= 12 ? 18 : 16);
@@ -80,8 +85,8 @@ class SeatGrid extends ConsumerWidget {
           mainAxisSpacing: isYoutubeActive ? 2 : 2,
           crossAxisSpacing: isYoutubeActive ? 4 : 4,
           mainAxisExtent: (isYoutubeActive
-              ? (capacity >= 16 ? 56 : 64)
-              : (capacity >= 16 ? 64 : (capacity >= 12 ? 72 : 82))) + 12,
+              ? (capacity >= 16 ? 60 : 70)
+              : (capacity >= 16 ? 72 : (capacity >= 12 ? 80 : 92))) + 14,
         ),
         itemCount: itemCount,
         itemBuilder: (context, gridIndex) {
@@ -106,6 +111,7 @@ class SeatGrid extends ConsumerWidget {
               currentUid: currentUid,
               onSeatTap: onSeatTap,
               onSeatLongPress: onSeatLongPress,
+              userProfile: profiles[participant.uid],
             );
           }
 
@@ -133,6 +139,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
   final String? currentUid;
   final Function(int) onSeatTap;
   final Function(int) onSeatLongPress;
+  final UserModel? userProfile;
 
   const OccupiedSeatWidget({
     super.key,
@@ -144,51 +151,71 @@ class OccupiedSeatWidget extends ConsumerWidget {
     required this.currentUid,
     required this.onSeatTap,
     required this.onSeatLongPress,
+    this.userProfile,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final userAsync = ref.watch(cachedUserProfileProvider(participant.uid));
+    final liveUserAsync = ref.watch(userProfileProvider(participant.uid));
+    final liveUser = liveUserAsync.valueOrNull ?? userProfile;
 
-    return GestureDetector(
-      key: ValueKey('seat_${index}_${participant.uid}'),
-      onTap: () => onSeatTap(index),
-      onLongPress: () => onSeatLongPress(index),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    final user = liveUser ?? UserModel(
+      uid: participant.uid,
+      createdAt: participant.joinedAt,
+      phoneNumber: null,
+      username: participant.displayName.isNotEmpty ? participant.displayName : 'User',
+      displayName: participant.displayName.isNotEmpty ? participant.displayName : 'User',
+      profilePhotoUrl: participant.profilePhotoUrl,
+      profileFrame: participant.profileFrame,
+      vipTier: participant.vipTier,
+      level: participant.level,
+      tags: participant.tags,
+      badges: participant.tags,
+      helloId: participant.helloId,
+      lastActive: participant.lastActive,
+      role: participant.role,
+    );
+
+    final String photoUrl = user.profilePhotoUrl.isNotEmpty 
+        ? user.profilePhotoUrl 
+        : (participant.profilePhotoUrl.isNotEmpty ? participant.profilePhotoUrl : '');
+
+    return RepaintBoundary(
+      child: GestureDetector(
+        key: ValueKey('seat_${index}_${participant.uid}'),
+        onTap: () => onSeatTap(index),
+        onLongPress: () => onSeatLongPress(index),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
             width: radius * 2,
             height: radius * 2,
-            child: userAsync.when(
-              data: (user) {
-                if (user == null) {
-                  return Icon(Icons.error, color: Colors.red, size: radius);
-                }
-                final u = user as UserModel;
-                final displayFrame = u.profileFrame;
+            child: Builder(
+              builder: (context) {
+                final displayFrame = user.profileFrame;
 
                 return Stack(
                   alignment: Alignment.center,
                   clipBehavior: Clip.none,
                   children: [
-                    if (!participant.isMuted) SpeakingBorderWidget(user: u, radius: radius),
+                    if (!participant.isMuted) SpeakingBorderWidget(user: user, radius: radius),
                     Stack(
                       alignment: Alignment.bottomRight,
                       clipBehavior: Clip.none,
                       children: [
                         OverflowBox(
-                          maxWidth: radius * 3.2,
-                          maxHeight: radius * 3.2,
+                          maxWidth: radius * 2.5,
+                          maxHeight: radius * 2.5,
                           child: AppAvatar(
-                            imageUrl: u.profilePhotoUrl,
+                            imageUrl: photoUrl,
                             frameUrl: displayFrame,
-                            vipTier: u.vipTier,
-                            userLevel: u.level,
-                            tags: u.tags,
+                            vipTier: user.vipTier,
+                            userLevel: user.level,
+                            tags: user.tags,
                             radius: radius,
                             showFrame: true,
-                            frameMultiplier: 2.1,
+                            frameMultiplier: 1.5,
                           ),
                         ),
                         if (participant.isMuted)
@@ -212,30 +239,77 @@ class OccupiedSeatWidget extends ConsumerWidget {
                   ],
                 );
               },
-              loading: () => Center(
-                child: SizedBox(
-                  width: 15,
-                  height: 15,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white.withOpacity(0.5)),
-                ),
-              ),
-              error: (_, __) => Icon(Icons.error, color: Colors.red, size: radius),
             ),
           ),
-          const SizedBox(height: 4),
-          SizedBox(
-            height: fontSize + 4,
-            child: Center(
-              child: userAsync.when(
-                data: (user) => Text(
-                  (user as UserModel?)?.displayName ?? "User",
-                  style: TextStyle(color: Colors.white, fontSize: fontSize, fontWeight: FontWeight.bold),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                loading: () => Text("...", style: TextStyle(color: Colors.white, fontSize: fontSize)),
-                error: (_, __) => Text("?", style: TextStyle(color: Colors.white, fontSize: fontSize)),
+          const SizedBox(height: 5),
+          if (participant.isAdmin || participant.role == 'admin') ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)]),
+                borderRadius: BorderRadius.circular(4),
+                boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 2)],
+              ),
+              child: const Text(
+                "Admin",
+                style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
               ),
             ),
+            const SizedBox(height: 2),
+          ],
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.black45,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: radius * 2 + 16),
+              child: SizedBox(
+                height: fontSize + 4,
+                child: Center(
+                  child: Text(
+                    user?.displayName ?? participant.displayName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white, 
+                      fontSize: fontSize, 
+                      fontWeight: FontWeight.bold,
+                      shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Builder(
+            builder: (context) {
+              final displayId = user?.helloId ?? participant.helloId;
+              final idStr = displayId != null ? 'ID:$displayId' : (participant.uid.length >= 6 ? 'ID:${participant.uid.substring(0, 6)}' : '');
+              if (idStr.isEmpty) return const SizedBox.shrink();
+
+              return Container(
+                margin: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.5), width: 0.6),
+                ),
+                child: Text(
+                  idStr,
+                  style: TextStyle(
+                    color: Colors.amberAccent,
+                    fontSize: fontSize > 8 ? fontSize - 1.5 : 7,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              );
+            },
           ),
           Container(
             margin: const EdgeInsets.only(top: 2),
@@ -260,8 +334,9 @@ class OccupiedSeatWidget extends ConsumerWidget {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class SpeakingBorderWidget extends ConsumerWidget {
@@ -308,32 +383,7 @@ class SpeakingBorderWidget extends ConsumerWidget {
   }
 
   Widget _buildDefaultSpeakingBorder(double radius, bool hasFrame) {
-    final double borderSize = hasFrame ? radius * 5.2 : radius * 2.5;
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        for (int i = 0; i < 3; i++)
-          Container(
-            width: borderSize,
-            height: borderSize,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.cyanAccent.withOpacity(0.5),
-                width: 2.0,
-              ),
-            ),
-          ).animate(onPlay: (c) => c.repeat())
-              .scale(
-                begin: const Offset(1, 1),
-                end: const Offset(1.5, 1.5),
-                duration: 1200.ms,
-                delay: (i * 400).ms,
-                curve: Curves.easeOutCubic,
-              )
-              .fadeOut(duration: 1200.ms),
-      ],
-    );
+    return _SpeakingRippleBorder(radius: radius, hasFrame: hasFrame);
   }
 }
 
@@ -451,4 +501,82 @@ String? getVipMicWavesPath(String vipTierName) {
     return 'assets/VIP/VIP $level/VIP $level/Mic Waives.svga';
   }
   return null;
+}
+
+class _SpeakingRippleBorder extends StatefulWidget {
+  final double radius;
+  final bool hasFrame;
+
+  const _SpeakingRippleBorder({required this.radius, required this.hasFrame});
+
+  @override
+  State<_SpeakingRippleBorder> createState() => _SpeakingRippleBorderState();
+}
+
+class _SpeakingRippleBorderState extends State<_SpeakingRippleBorder> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double borderSize = widget.hasFrame ? widget.radius * 5.2 : widget.radius * 2.5;
+
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) {
+        return CustomPaint(
+          size: Size(borderSize * 1.5, borderSize * 1.5),
+          painter: _SpeakingRipplePainter(
+            _controller.value,
+            borderSize,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SpeakingRipplePainter extends CustomPainter {
+  final double progress;
+  final double borderSize;
+
+  _SpeakingRipplePainter(this.progress, this.borderSize);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+
+    for (int i = 0; i < 3; i++) {
+      final delay = i * 0.33;
+      final t = (progress - delay).clamp(0.0, 1.0);
+      final scale = 1.0 + t * 0.5;
+      final opacity = (1.0 - t).clamp(0.0, 1.0) * 0.5;
+
+      final paint = Paint()
+        ..color = Colors.cyanAccent.withOpacity(opacity)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.0;
+
+      canvas.drawCircle(center, borderSize / 2 * scale, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpeakingRipplePainter oldDelegate) {
+    return oldDelegate.progress != progress || oldDelegate.borderSize != borderSize;
+  }
 }

@@ -393,19 +393,39 @@ class _ViewerListItem extends ConsumerWidget {
   }
 
   Widget _buildBasicInfo() {
-    return Row(
+    final displayId = participant.helloId;
+    final idStr = displayId != null ? 'ID:$displayId' : '';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          participant.displayName.isNotEmpty ? participant.displayName : "User",
-          style: TextStyle(
-            color: Colors.grey[800],
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+        Row(
+          children: [
+            Text(
+              participant.displayName.isNotEmpty ? participant.displayName : "User",
+              style: TextStyle(
+                color: Colors.grey[800],
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (isOwner) ...[
+              const Gap(4),
+              _buildTag("Host", const Color(0xFFFFD700), Colors.white),
+            ],
+          ],
         ),
-        if (isOwner) ...[
-          const Gap(4),
-          _buildTag("Host", const Color(0xFFFFD700), Colors.white),
+        if (idStr.isNotEmpty) ...[
+          const Gap(2),
+          Text(
+            idStr,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ],
       ],
     );
@@ -417,6 +437,7 @@ class _ViewerListItem extends ConsumerWidget {
                      participant.tags.contains('Female') ? 'F' : null;
       
       final badges = getBadgesForUser(user);
+      final displayId = user.helloId ?? participant.helloId;
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -436,6 +457,15 @@ class _ViewerListItem extends ConsumerWidget {
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
+              if (displayId != null)
+                Text(
+                  "ID:$displayId",
+                  style: TextStyle(
+                    color: Colors.grey[600],
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               if (isOwner)
                 _buildTag("Host", const Color(0xFFFFD700), Colors.white),
               if (participant.role == 'admin')

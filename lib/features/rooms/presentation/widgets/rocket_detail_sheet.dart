@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
@@ -8,10 +7,12 @@ import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/core/utils/rocket_vap_config.dart';
 import 'package:hello_chat/core/widgets/vap_player.dart';
-import '../../../../core/models/room_model.dart';
-import '../../../../core/widgets/app_avatar.dart';
-import '../../../../core/providers/room_provider.dart';
-import '../../../../core/providers/profile_provider.dart';
+import 'package:hello_chat/core/models/room_model.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/models/reward_model.dart';
+import 'package:hello_chat/features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
+import 'reward_ranking_widgets.dart';
 
 class RocketDetailSheet extends ConsumerStatefulWidget {
   final RoomModel room;
@@ -23,7 +24,7 @@ class RocketDetailSheet extends ConsumerStatefulWidget {
 
 class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with TickerProviderStateMixin {
   int _selectedLevel = 0;
-  String _selectedTab = "Top1";
+  String _selectedTab = 'Room Owner';
 
   Timer? _countdownTimer;
   String _timeString = "00:00:00";
@@ -81,47 +82,265 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     final topContributorId = sorted.isNotEmpty ? sorted.first.key : room.ownerUid;
     final topUser = ref.watch(userProfileProvider(topContributorId)).value;
 
-    final top3Uids = sorted.take(3).map((e) => e.key).toList();
+    final rewards = _getRewardsForLevel(_selectedLevel);
+    final frameDur = rewards['frameDuration'] as String;
+    final rewardState = RocketRewardState(
+      level: _selectedLevel,
+      tabRewards: {
+        'Room Owner': [
+          RewardModel.coins(amount: rewards['king'] as int, rank: 1),
+          RewardModel.exp(amount: rewards['xp'] as int, rank: 1),
+          RewardModel.badge(duration: frameDur, rank: 1),
+        ],
+        'TOP 1': [
+          RewardModel.coins(amount: rewards['king'] as int, rank: 1),
+          RewardModel.exp(amount: rewards['xp'] as int, rank: 1),
+          RewardModel.badge(duration: frameDur, rank: 1),
+        ],
+        'TOP 2': [
+          RewardModel.coins(amount: rewards['t2'] as int, rank: 2),
+          RewardModel.exp(amount: (rewards['xp'] as int) ~/ 2, rank: 2),
+          RewardModel.badge(duration: frameDur, rank: 2),
+        ],
+        'TOP 3': [
+          RewardModel.coins(amount: rewards['t3'] as int, rank: 3),
+          RewardModel.exp(amount: (rewards['xp'] as int) ~/ 3, rank: 3),
+          RewardModel.badge(duration: frameDur, rank: 3),
+        ],
+      },
+    );
+
+    final rankingList = sorted.take(3).toList().asMap().entries.map((e) {
+      final uid = e.value.key;
+      final score = e.value.value;
+      return RankingModel(rank: e.key + 1, userId: uid, score: score);
+    }).toList();
 
     return Container(
       width: double.infinity,
-      height: MediaQuery.of(context).size.height * 0.75,
-      decoration: BoxDecoration(
+      height: MediaQuery.of(context).size.height * 0.94,
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            Colors.transparent,
-            const Color(0xFF1E0045).withOpacity(0.8),
-            const Color(0xFF0F0025),
+            Color(0xFF09001A),
+            Color(0xFF140032),
+            Color(0xFF080014),
           ],
-          stops: const [0.0, 0.25, 1.0],
+          stops: [0.0, 0.4, 1.0],
         ),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      child: Stack(
+      child: Column(
         children: [
-          Column(
-            children: [
-              const Gap(20),
-              Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          // ── Top Room Header Bar ─────────────────────────────────
+          _buildTopHeader(room),
+
+          // ── Top Stats Bar ───────────────────────────────────────
+          _buildTopStatsBar(room),
+
+          // ── Scrollable Body ─────────────────────────────────────
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Column(
                   children: [
-                    _buildLevelSelector(room),
-                    Expanded(child: _buildMainRocketDisplay(room, topUser?.profilePhotoUrl)),
-                    _buildRightControls(progress),
+                    const Gap(6),
+
+                    // ── Rocket Stage Area (Left Level Rack, Big 3D Rocket, Right Fuel Progress)
+                    SizedBox(
+                      height: 275,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildLevelSelector(room),
+                          Expanded(child: _buildMainRocketDisplay(room, topUser?.profilePhotoUrl)),
+                          _buildRightControls(progress),
+                        ],
+                      ),
+                    ),
+
+                    // ── Countdown Timer & Tier Diamonds Row ─────────────
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Reset countdown: $_timeString',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const Gap(5),
+                        GestureDetector(
+                          onTap: () => _showRocketRulesDialog(context),
+                          child: const Icon(Icons.info_outline_rounded, color: Colors.white60, size: 14),
+                        ),
+                      ],
+                    ),
+                    const Gap(8),
+
+                    // 3 Tier Diamond Medals Row
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _buildMedalPill('🥇', '30K', const Color(0xFF00E5FF)),
+                        const Gap(8),
+                        _buildMedalPill('🥈', '15K', const Color(0xFF00E5FF)),
+                        const Gap(8),
+                        _buildMedalPill('🥉', '5K', const Color(0xFF00E5FF)),
+                      ],
+                    ),
+                    const Gap(8),
+
+                    // Top 3 Frame Notice Banner
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF4A0E6E).withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFCC00FF).withValues(alpha: 0.4)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_awesome, color: Color(0xFFFFD700), size: 14),
+                          Gap(6),
+                          Text(
+                            'Top 3 each receive Rocket Frame (24h)',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Gap(4),
+                          Icon(Icons.info_outline_rounded, color: Colors.white54, size: 12),
+                        ],
+                      ),
+                    ),
+                    const Gap(14),
+
+                    // ── Reward Section ───────────────────────────────────
+                    RewardSection(
+                      rewardState: rewardState,
+                      selectedTab: _selectedTab,
+                      onTabChanged: (tab) => setState(() => _selectedTab = tab),
+                    ),
+                    const Gap(14),
+
+                    // ── Ranking Section ──────────────────────────────────
+                    RankingSection(
+                      rankings: rankingList,
+                    ),
+                    const Gap(16),
                   ],
                 ),
               ),
-              _buildBottomPanel(room),
-            ],
+            ),
           ),
-          Positioned(
-            top: 20, right: 20,
-            child: IconButton(
-              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
-              onPressed: () => Navigator.pop(context),
+
+          // ── Bottom Sticky Footer Bar ────────────────────────────
+          _buildBottomFooter(contributions),
+        ],
+      ),
+    );
+  }
+
+  // ── Top Room Header ─────────────────────────────────────────
+  Widget _buildTopHeader(RoomModel room) {
+    final displayName = room.name.isNotEmpty ? room.name : 'hello chat';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 12, 10, 6),
+      child: Row(
+        children: [
+          // Room Info Pill
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(colors: [Color(0xFF8E54E9), Color(0xFF4776E6)]),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.rocket_launch_rounded, color: Colors.amberAccent, size: 14),
+                    ),
+                  ),
+                  const Gap(6),
+                  Flexible(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          'ID:${room.roomId.length > 8 ? room.roomId.substring(0, 8) : room.roomId}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 9),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Gap(6),
+                  // Lightning Bolt Button
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9900)]),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.bolt_rounded, color: Colors.black, size: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Gap(6),
+          // Action Buttons: Share, Refresh, Fullscreen, Close
+          _buildActionIcon(Icons.share_outlined, () {}),
+          const Gap(8),
+          _buildActionIcon(Icons.refresh_rounded, () {
+            ref.invalidate(currentRoomStreamProvider(widget.room.roomId));
+          }),
+          const Gap(8),
+          _buildActionIcon(Icons.fullscreen_rounded, () {}),
+          const Gap(8),
+          // Crimson Close Button
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 28,
+              height: 28,
+              decoration: const BoxDecoration(
+                color: Color(0xFF8B1229),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.close_rounded, color: Colors.white, size: 18),
             ),
           ),
         ],
@@ -129,53 +348,116 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     );
   }
 
+  Widget _buildActionIcon(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: Colors.white, size: 16),
+      ),
+    );
+  }
+
+  // ── Top Stats Bar ───────────────────────────────────────────
+  Widget _buildTopStatsBar(RoomModel room) {
+    final displayName = room.name.isNotEmpty ? room.name : 'hello chat';
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        children: [
+          // Trophy + Top List >
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => RoomGiftLeaderboardScreen(roomId: room.roomId, roomName: displayName)),
+              );
+            },
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.emoji_events_rounded, color: Color(0xFFFFD700), size: 16),
+                Gap(4),
+                Text(
+                  'Top List >',
+                  style: TextStyle(
+                    color: Color(0xFFFFD700),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    shadows: [Shadow(color: Color(0xFFFF9900), blurRadius: 4)],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          // Dynamic Star Pill (Calculates 0 Star to 5 Stars with auto color changes)
+          _buildStarPill(room),
+          const Spacer(),
+          // Fuel / Diamond counter
+          Text(
+            '${room.rocketFuel}',
+            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Level Selector on Left (Rocket Collection / Level Rack) ─
   Widget _buildLevelSelector(RoomModel room) {
     return Container(
-      width: 65,
-      margin: const EdgeInsets.only(left: 12),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      width: 50,
+      margin: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF).withOpacity(0.05),
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.white10),
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(5, (index) {
           final isSelected = _selectedLevel == index;
           final isCurrent = room.rocketLevel == index;
 
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
-              onTap: () {
-                if (!mounted) return;
-                setState(() => _selectedLevel = index);
-              },
+            onTap: () {
+              if (!mounted) return;
+              setState(() => _selectedLevel = index);
+            },
             child: Container(
-              height: 52,
-              width: 48,
-              margin: const EdgeInsets.only(bottom: 4),
+              height: 44,
+              width: 42,
+              margin: const EdgeInsets.only(bottom: 3),
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFFCC00FF).withOpacity(0.3) : Colors.transparent,
+                color: isSelected ? const Color(0xFFCC00FF).withValues(alpha: 0.3) : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isSelected ? const Color(0xFFCC00FF) : Colors.transparent,
-                  width: 1.5,
+                  width: 1.8,
                 ),
               ),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
                   _RocketLevelSvgaButton(level: index),
-
                   if (isCurrent)
                     Positioned(
-                      top: 1, right: 1,
+                      top: 1,
+                      right: 1,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
                         decoration: BoxDecoration(color: const Color(0xFFCC00FF), borderRadius: BorderRadius.circular(3)),
-                        child: const Text("LVL", style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.bold)),
+                        child: const Text("Lv.1", style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.bold)),
                       ),
                     ),
                 ],
@@ -187,65 +469,84 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     );
   }
 
+  // ── Center Extra-Big 3D Rocket Display (Prominent & Centered)
   Widget _buildMainRocketDisplay(RoomModel room, String? profileImageUrl) {
     final variant = _selectedLevel >= 3 ? 3 : 2;
     final vapPath = RocketVapConfig.vapAssetPath(_selectedLevel, variant: variant);
 
     return Stack(
+      alignment: Alignment.bottomCenter,
       clipBehavior: Clip.none,
       children: [
+        // Glowing purple cosmic aura beneath rocket pedestal
         Positioned(
-          top: -10,
-          bottom: -110,
-          left: -40,
-          right: -40,
-          child: VapAnimation(
-            assetPath: vapPath,
-            profileImageUrl: profileImageUrl,
-            fit: BoxFit.contain,
-            loop: true,
-          ),
-        ),
-
-        Positioned(
-          top: 0, left: 20,
+          bottom: 0,
+          left: 10,
+          right: 10,
+          height: 38,
           child: Container(
-            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFCC00FF), width: 2),
-              gradient: const LinearGradient(colors: [Color(0xFF8E54E9), Color(0xFFCC00FF)]),
-            ),
-            child: Text(
-              "${_selectedLevel + 1}",
-              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900),
+              borderRadius: const BorderRadius.all(Radius.elliptical(180, 35)),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFCC00FF).withValues(alpha: 0.75),
+                  blurRadius: 30,
+                  spreadRadius: 10,
+                ),
+              ],
             ),
           ),
         ),
 
+        // 3D VAP Rocket Animation aligned perfectly on top of purple cloud
         Positioned(
-          top: 0, right: 0,
+          top: 50,
+          bottom: -30,
+          left: -20,
+          right: -20,
+          child: Transform.scale(
+            scale: 1.65,
+            child: VapAnimation(
+              assetPath: vapPath,
+              profileImageUrl: profileImageUrl,
+              fit: BoxFit.contain,
+              loop: true,
+            ),
+          ),
+        ),
+
+        // Floating Multiplier Badge on top right
+        Positioned(
+          top: 6,
+          right: 4,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFCC00FF).withOpacity(0.8),
+              color: const Color(0xFF8E54E9).withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF00FFFF).withOpacity(0.5), width: 1),
+              border: Border.all(color: const Color(0xFF00FFFF).withValues(alpha: 0.8), width: 1.2),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF8E54E9).withValues(alpha: 0.5),
+                  blurRadius: 8,
+                ),
+              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Icon(Icons.stars_rounded, color: Color(0xFFFFD700), size: 14),
-                const SizedBox(width: 4),
+                const Gap(4),
                 Text(
                   "Reward: ${_getMultiplierForLevel(_selectedLevel)}",
-                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
                 ),
               ],
             ),
           ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(duration: 2.seconds),
         ),
 
+        // System Cooldown Notice Overlay if applicable
         if (room.rocketStatus == "cooldown" &&
             room.rocketCooldownUntil != null &&
             room.rocketCooldownUntil!.isAfter(DateTime.now()))
@@ -253,45 +554,195 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
             child: Container(
               margin: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.4),
+                color: Colors.black.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: Colors.cyanAccent.withOpacity(0.5)),
-                        boxShadow: [
-                          BoxShadow(color: Colors.cyanAccent.withOpacity(0.2), blurRadius: 20)
-                        ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.cyanAccent.withValues(alpha: 0.5)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "SYSTEM COOLDOWN",
+                        style: TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 2),
                       ),
-                      child: Column(
-                        children: [
-                          const Text(
-                            "SYSTEM COOLDOWN",
-                            style: TextStyle(
-                              color: Colors.cyanAccent,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 2,
-                            ),
-                          ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
-                          const Gap(8),
-                          _buildCooldownTimerDetail(room.rocketCooldownUntil!),
-                        ],
-                      ),
-                    ),
-                  ],
+                      const Gap(6),
+                      _buildCooldownTimerDetail(room.rocketCooldownUntil!),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
       ],
+    );
+  }
+
+  // ── Fuel Progress & Controls on Right ───────────────────────
+  Widget _buildRightControls(double progress) {
+    const double trackHeight = 150;
+
+    return Container(
+      width: 48,
+      margin: const EdgeInsets.only(right: 4),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            height: trackHeight,
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              clipBehavior: Clip.none,
+              children: [
+                // Track Background
+                Positioned.fill(
+                  child: Center(
+                    child: Container(
+                      width: 18,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFFCC00FF).withValues(alpha: 0.3),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Track Fill
+                Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Container(
+                    height: progress * trackHeight,
+                    width: 14,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF8E54E9), Color(0xFFCC00FF), Color(0xFF00FFFF)],
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                // Percentage Tag
+                Positioned(
+                  bottom: (progress * trackHeight).clamp(0.0, trackHeight - 16),
+                  right: -12,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF070014),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF00FFFF), width: 1),
+                    ),
+                    child: Text(
+                      "${(progress * 100).toInt()}%",
+                      style: const TextStyle(
+                        color: Color(0xFF00FFFF),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Gap(10),
+          _buildCircleButton(Icons.help_outline_rounded, () {
+            _showRocketRulesDialog(context);
+          }),
+          const Gap(6),
+          _buildCircleButton(Icons.assignment_rounded, () {
+            // History/Logs dialog
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCircleButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFCC00FF).withValues(alpha: 0.2),
+          shape: BoxShape.circle,
+          border: Border.all(color: const Color(0xFFCC00FF), width: 1.2),
+        ),
+        child: Icon(icon, color: Colors.white, size: 16),
+      ),
+    );
+  }
+
+  Widget _buildMedalPill(String medal, String amount, Color diamondColor) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3.5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1B033A).withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6B11A8), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(medal, style: const TextStyle(fontSize: 12)),
+          const Gap(4),
+          Text(
+            amount,
+            style: const TextStyle(
+              color: Color(0xFF00FFFF),
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const Gap(3),
+          const Icon(Icons.diamond_rounded, color: Color(0xFF00FFFF), size: 12),
+        ],
+      ),
+    );
+  }
+
+  // ── Bottom Sticky Footer ────────────────────────────────────
+  Widget _buildBottomFooter(Map<String, int> contributions) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF080014).withValues(alpha: 0.95),
+        border: const Border(top: BorderSide(color: Color(0xFF22003D))),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: const Color(0xFFCC00FF).withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFCC00FF), size: 16),
+          ),
+          const Gap(8),
+          const Text(
+            'Be the first to contribute!',
+            style: TextStyle(
+              color: Color(0xFFB8A9D4),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -306,180 +757,19 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     }
   }
 
-  Widget _buildRightControls(double progress) {
-    const double trackHeight = 200;
-
-    return Container(
-      width: 50,
-      margin: const EdgeInsets.only(right: 8),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          SizedBox(
-            height: trackHeight,
-            child: Stack(
-              alignment: Alignment.bottomCenter,
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  child: Center(
-                    child: Container(
-                      width: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: const Color(0xFFCC00FF).withOpacity(0.3),
-                          width: 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFFCC00FF).withOpacity(0.15),
-                            blurRadius: 15,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: Stack(
-                          children: [
-                            Positioned.fill(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                    colors: [
-                                      Colors.white.withOpacity(0.1),
-                                      Colors.transparent,
-                                      Colors.white.withOpacity(0.05),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Container(
-                    height: progress * trackHeight,
-                    width: 20,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [
-                          Color(0xFF8E54E9),
-                          Color(0xFFCC00FF),
-                          Color(0xFF00FFFF),
-                        ],
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                      ),
-                      borderRadius: BorderRadius.circular(15),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0xFFCC00FF).withOpacity(0.6),
-                          blurRadius: 12,
-                          spreadRadius: 1,
-                        ),
-                      ],
-                    ),
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(15),
-                              gradient: LinearGradient(
-                                colors: [
-                                  Colors.white.withOpacity(0.2),
-                                  Colors.transparent,
-                                ],
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                              ),
-                            ),
-                          ),
-                        ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
-                      ],
-                    ),
-                  ),
-                ),
-
-                if (progress > 0.05)
-                  Positioned(
-                    bottom: (progress * trackHeight) - 4,
-                    child: Container(
-                      width: 24,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF00FFFF).withOpacity(0.8),
-                            blurRadius: 15,
-                            spreadRadius: 4,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(duration: 1.seconds, begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2)),
-
-                Positioned(
-                  bottom: (progress * trackHeight) - 10,
-                  right: -15,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: const Color(0xFF00FFFF).withOpacity(0.5), width: 1),
-                      boxShadow: [
-                        BoxShadow(color: const Color(0xFF00FFFF).withOpacity(0.3), blurRadius: 8),
-                      ],
-                    ),
-                    child: Text(
-                      "${(progress * 100).toInt()}%",
-                      style: const TextStyle(
-                        color: Color(0xFF00FFFF),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(duration: 3.seconds),
-                ),
-              ],
-            ),
-          ),
-          const Gap(12),
-          _buildCircleIcon(Icons.help_outline_rounded, const Color(0xFFCC00FF)),
-          const Gap(8),
-          _buildCircleIcon(Icons.assignment_rounded, const Color(0xFFCC00FF)),
-          const Gap(20),
-        ],
-      ),
-    );
+  Map<String, dynamic> _getRewardsForLevel(int level) {
+    const duration24h = '24h';
+    const duration72h = '72h';
+    switch (level) {
+      case 0: return {'king': 30000, 't2': 15000, 't3': 8000, 'xp': 2000, 'frameDuration': duration24h};
+      case 1: return {'king': 60000, 't2': 40000, 't3': 30000, 'xp': 3000, 'frameDuration': duration24h};
+      case 2: return {'king': 200000, 't2': 150000, 't3': 100000, 'xp': 5000, 'frameDuration': duration24h};
+      case 3: return {'king': 500000, 't2': 300000, 't3': 250000, 'xp': 10000, 'frameDuration': duration24h};
+      case 4: return {'king': 800000, 't2': 500000, 't3': 350000, 'xp': 15000, 'frameDuration': duration72h};
+      default: return {'king': 30000, 't2': 15000, 't3': 8000, 'xp': 2000, 'frameDuration': duration24h};
+    }
   }
 
-  Widget _buildCircleIcon(IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: 1.2),
-      ),
-      child: Icon(icon, color: Colors.white, size: 18),
-    );
-  }
-
-  /// Resolves contributors from live rocketContributions (preferred) or lastRocketResults (fallback after launch)
   Map<String, int> _resolveContributions(RoomModel room) {
     if (room.rocketContributions != null && room.rocketContributions!.isNotEmpty) {
       return room.rocketContributions!;
@@ -501,325 +791,6 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     return {};
   }
 
-  Map<String, dynamic> _getRewardsForLevel(int level) {
-    const duration24h = '24h';
-    const duration72h = '72h';
-    switch (level) {
-      case 0: return {'king': 30000, 't2': 15000, 't3': 7500, 'xp': 2000, 'frameDuration': duration24h};
-      case 1: return {'king': 60000, 't2': 40000, 't3': 30000, 'xp': 3000, 'frameDuration': duration24h};
-      case 2: return {'king': 200000, 't2': 150000, 't3': 100000, 'xp': 5000, 'frameDuration': duration24h};
-      case 3: return {'king': 500000, 't2': 300000, 't3': 250000, 'xp': 10000, 'frameDuration': duration24h};
-      case 4: return {'king': 800000, 't2': 500000, 't3': 350000, 'xp': 15000, 'frameDuration': duration72h};
-      default: return {'king': 30000, 't2': 15000, 't3': 7500, 'xp': 2000, 'frameDuration': duration24h};
-    }
-  }
-
-  Widget _buildBottomPanel(RoomModel room) {
-    final contributions = _resolveContributions(room);
-    final sortedRoomUids = contributions.keys.toList()
-      ..sort((a, b) => contributions[b]!.compareTo(contributions[a]!));
-
-    final top3 = sortedRoomUids.take(3).toList();
-    final rest = sortedRoomUids.skip(3).toList();
-    final rewards = _getRewardsForLevel(_selectedLevel);
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E0045),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20)],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            "Reset countdown: $_timeString",
-            style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-          ),
-          const Gap(8),
-          // Top 3 Contributor List (always visible when contributors exist)
-          if (top3.isNotEmpty)
-            ...top3.asMap().entries.map((entry) {
-              final rank = entry.key;
-              final uid = entry.value;
-              final medal = rank == 0 ? "🥇" : (rank == 1 ? "🥈" : "🥉");
-              return _buildContributorRow(uid, contributions[uid] ?? 0, medal);
-            }),
-          if (top3.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Text("No contributors yet", style: TextStyle(color: Colors.white54, fontSize: 13)),
-            ),
-          const Gap(8),
-          // Reward info
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildRewardChip("🥇", "${_formatReward(rewards['king'] as int)} 💎"),
-              _buildRewardChip("🥈", "${_formatReward(rewards['t2'] as int)} 💎"),
-              _buildRewardChip("🥉", "${_formatReward(rewards['t3'] as int)} 💎"),
-            ],
-          ),
-          const Gap(4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: const Color(0xFFCC00FF).withOpacity(0.15),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.auto_awesome, color: Color(0xFFFFD700), size: 12),
-                const SizedBox(width: 4),
-                Text(
-                  "Top 3 each receive Rocket Frame (${rewards['frameDuration']})",
-                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-          const Gap(12),
-          // Rank 4+ scrollable list
-          if (rest.isNotEmpty)
-            SizedBox(
-              height: 120,
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: rest.length,
-                itemBuilder: (context, index) {
-                  final uid = rest[index];
-                  final contribution = contributions[uid] ?? 0;
-                  final rank = index + 4;
-                  return Consumer(
-                    builder: (context, ref, child) {
-                      final userAsync = ref.watch(userProfileProvider(uid));
-                      return userAsync.when(
-                        data: (user) {
-                          if (user == null) return const SizedBox.shrink();
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 24,
-                                  child: Text("#$rank", style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 12)),
-                                ),
-                                AppAvatar(
-                                  imageUrl: user.profilePhotoUrl,
-                                  frameUrl: user.profileFrame,
-                                  vipTier: user.vipTier,
-                                  userLevel: user.level,
-                                  tags: user.tags,
-                                  radius: 14,
-                                  showFrame: true,
-                                  frameMultiplier: 1.3,
-                                ),
-                                const Gap(8),
-                                Expanded(
-                                  child: Text(user.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12), maxLines: 1, overflow: TextOverflow.ellipsis),
-                                ),
-                                Text("$contribution 💎", style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 11)),
-                              ],
-                            ),
-                          );
-                        },
-                        loading: () => const SizedBox.shrink(),
-                        error: (_, __) => const SizedBox.shrink(),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          if (sortedRoomUids.isEmpty)
-            const SizedBox(
-              height: 60,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.workspace_premium_outlined, color: Colors.white24, size: 24),
-                    Gap(4),
-                    Text("Be the first to contribute!", style: TextStyle(color: Colors.white38, fontSize: 11)),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPodiumPosition(String uid, int contribution, int rank, RoomModel room) {
-    return Consumer(
-      builder: (context, ref, child) {
-        final userAsync = ref.watch(userProfileProvider(uid));
-        return userAsync.when(
-          data: (user) {
-            if (user == null) return const SizedBox.shrink();
-            final podiumHeight = rank == 1 ? 80.0 : 60.0;
-            final crownColors = [Colors.amber, const Color(0xFFC0C0C0), const Color(0xFFCD7F32)];
-            final rankLabels = ["ROCKET KING", "TOP 2", "TOP 3"];
-
-            return GestureDetector(
-              onTap: () {},
-              child: Container(
-                width: 100,
-                alignment: Alignment.bottomCenter,
-                padding: EdgeInsets.only(bottom: rank == 1 ? 0 : 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        AppAvatar(
-                          imageUrl: user.profilePhotoUrl,
-                          frameUrl: user.profileFrame,
-                          vipTier: user.vipTier,
-                          userLevel: user.level,
-                          tags: user.tags,
-                          radius: rank == 1 ? 22 : 16,
-                          showFrame: true,
-                          frameMultiplier: rank == 1 ? 1.8 : 1.4,
-                        ),
-                        Positioned(
-                          bottom: -4,
-                          left: 0,
-                          right: 0,
-                          child: Center(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: crownColors[rank - 1],
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                "#$rank",
-                                style: const TextStyle(color: Colors.black, fontSize: 7, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Gap(4),
-                    Text(
-                      user.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                    Text(
-                      "$contribution 💎",
-                      style: const TextStyle(color: Colors.amber, fontSize: 9, fontWeight: FontWeight.bold),
-                    ),
-                    if (rank == 1)
-                      Container(
-                        margin: const EdgeInsets.only(top: 2),
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.amber.withOpacity(0.5)),
-                        ),
-                        child: Text(rankLabels[rank - 1], style: const TextStyle(color: Colors.amber, fontSize: 7, fontWeight: FontWeight.bold)),
-                      ),
-                  ],
-                ),
-              ),
-            );
-          },
-          loading: () => SizedBox(
-            width: 80,
-            height: 60,
-            child: Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24))),
-          ),
-          error: (_, __) => const SizedBox.shrink(),
-        );
-      },
-    );
-  }
-
-  Widget _buildContributorRow(String uid, int contribution, String medal) {
-    return Consumer(
-      builder: (context, ref, child) {
-        final userAsync = ref.watch(userProfileProvider(uid));
-        return userAsync.when(
-          data: (user) {
-            if (user == null) return const SizedBox.shrink();
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 3),
-              child: Row(
-                children: [
-                  Text(medal, style: const TextStyle(fontSize: 16)),
-                  const SizedBox(width: 8),
-                  AppAvatar(
-                    imageUrl: user.profilePhotoUrl,
-                    frameUrl: user.profileFrame,
-                    vipTier: user.vipTier,
-                    userLevel: user.level,
-                    tags: user.tags,
-                    radius: 14,
-                    showFrame: true,
-                    frameMultiplier: 1.2,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      user.displayName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                    ),
-                  ),
-                  Text(
-                    "$contribution 💎",
-                    style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
-                  ),
-                ],
-              ),
-            );
-          },
-          loading: () => const SizedBox(height: 30, child: Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)))),
-          error: (_, __) => const SizedBox.shrink(),
-        );
-      },
-    );
-  }
-
-  String _formatReward(int amount) {
-    if (amount >= 1000000) return "${(amount / 1000000).toStringAsFixed(amount % 1000000 == 0 ? 0 : 1)}M";
-    if (amount >= 1000) return "${(amount / 1000).toStringAsFixed(amount % 1000 == 0 ? 0 : 0)}K";
-    return amount.toString();
-  }
-
-  Widget _buildRewardChip(String emoji, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white10),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(emoji, style: const TextStyle(fontSize: 12)),
-          const SizedBox(width: 4),
-          Text(text, style: const TextStyle(color: Colors.greenAccent, fontSize: 8, fontWeight: FontWeight.bold)),
-        ],
-      ),
-    );
-  }
-
   Widget _buildCooldownTimerDetail(DateTime until) {
     return StreamBuilder<int>(
       stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
@@ -833,9 +804,94 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
 
         return Text(
           "$m:$s",
-          style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
+          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
         );
       },
+    );
+  }
+
+  void _showRocketRulesDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF160032),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFCC00FF))),
+        title: const Text('Rocket Rules', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        content: const SingleChildScrollView(
+          child: Text(
+            '1. Send gifts in room to fuel the rocket.\n'
+            '2. When the rocket reaches 100% fuel, it launches!\n'
+            '3. Top 3 contributors and the room owner receive exclusive rewards and frames.\n'
+            '4. Levels reset every 24 hours at 00:00.',
+            style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.5),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Got it', style: TextStyle(color: Color(0xFF00FFFF), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  int _calculateStarLevel(int diamonds) {
+    if (diamonds >= 250000) return 5;
+    if (diamonds >= 100000) return 4;
+    if (diamonds >= 50000) return 3;
+    if (diamonds >= 10000) return 2;
+    if (diamonds >= 1000) return 1;
+    return 0;
+  }
+
+  Color _getStarColor(int level) {
+    switch (level) {
+      case 1: return const Color(0xFF00E5FF); // 1 Star: Cyan
+      case 2: return const Color(0xFF00C853); // 2 Star: Green
+      case 3: return const Color(0xFF9C27B0); // 3 Star: Purple
+      case 4: return const Color(0xFFFF4081); // 4 Star: Pink
+      case 5: return const Color(0xFFFFD700); // 5 Star: Gold
+      default: return Colors.white60;          // 0 Star: Grey
+    }
+  }
+
+  Widget _buildStarPill(RoomModel room) {
+    final diamonds = room.weeklyEarnings;
+    final starLevel = _calculateStarLevel(diamonds);
+    final starColor = _getStarColor(starLevel);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: starColor.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: starColor.withValues(alpha: 0.45), width: 1.0),
+        boxShadow: [
+          if (starLevel > 0)
+            BoxShadow(
+              color: starColor.withValues(alpha: 0.3),
+              blurRadius: 6,
+              spreadRadius: 0.5,
+            ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.star_rounded, color: starColor, size: 14),
+          const Gap(4),
+          Text(
+            '$starLevel Star',
+            style: TextStyle(
+              color: starLevel > 0 ? starColor : Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              shadows: starLevel > 0 ? [Shadow(color: starColor.withValues(alpha: 0.5), blurRadius: 4)] : null,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -885,13 +941,13 @@ class _RocketLevelSvgaButtonState extends State<_RocketLevelSvgaButton> with Sin
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 45,
-      height: 45,
+      width: 44,
+      height: 44,
       child: _isLoading
-          ? const Center(child: SizedBox(width: 15, height: 15, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)))
+          ? const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)))
           : (_controller?.videoItem != null)
               ? SVGAImage(_controller!)
-              : const Icon(Icons.rocket_launch_rounded, color: Colors.white24, size: 24),
+              : const Icon(Icons.rocket_launch_rounded, color: Colors.white24, size: 20),
     );
   }
 }

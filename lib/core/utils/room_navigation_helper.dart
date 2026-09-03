@@ -26,11 +26,11 @@ class RoomNavigationHelper {
     }
 
     final myUid = ref.read(authStateProvider).value?.uid;
-    // final isOwner = myUid == room.ownerUid; // Temporarily commented out for testing
+    final isOwner = myUid == room.ownerUid;
     final hasPassword = room.passwordHash != null && room.passwordHash!.isNotEmpty;
 
-    // Allow entry if no password
-    if (!hasPassword) {
+    // Allow entry if no password, or if the caller owns the room
+    if (!hasPassword || isOwner) {
       ref.read(routerProvider).pushNamed(AppRoutes.liveRoom, pathParameters: {'roomId': roomId});
       return;
     }

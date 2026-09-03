@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gap/gap.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/vip_provider.dart';
@@ -254,236 +255,357 @@ class _VIPCarouselScreenState extends ConsumerState<VIPCarouselScreen>
 
   // ── Main Content ─────────────────────────────
   Widget _buildContent(List<VIPTierModel> tiers, dynamic user) {
-    return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Gap(20),
+    if (tiers.isEmpty) return const Center(child: Text("No VIP Tiers available", style: TextStyle(color: VIPTheme.textSub)));
 
-          // ── Information Banner ────────────────
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: GestureDetector(
-              onTap: () => _showInfoBottomSheet(context),
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  gradient: LinearGradient(
-                    colors: [const Color(0xFF10B981).withOpacity(0.15), Colors.transparent],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3), width: 0.5),
-                ),
+    final currentTier = tiers[_currentPage.clamp(0, tiers.length - 1)];
+    final accent = HexColor.fromHex(currentTier.themeColor ?? '#FFD700');
+    final userTier = (user?.vipTier ?? '').toLowerCase();
+    final isActive = userTier == (currentTier.name ?? '').toLowerCase() && userTier != 'none';
+
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Royal Hero Glass Card
+              _buildRoyalHeroCard(currentTier, accent, isActive, user),
+
+              const Gap(20),
+
+              // 2. Horizontal Tier Quick Selector (VIP 1 - 8 & SVIP 1 - 6)
+              _buildTierSelectorRow(tiers),
+
+              const Gap(24),
+
+              // 3. Section Title
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Row(
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: const Color(0xFF10B981).withOpacity(0.1),
-                      ),
-                      child: const Icon(Icons.lightbulb_outline_rounded, color: Color(0xFF10B981), size: 18),
+                    Container(width: 4, height: 16, decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(2))),
+                    const Gap(8),
+                    Text(
+                      'ROYAL PRIVILEGES',
+                      style: GoogleFonts.plusJakartaSans(color: VIPTheme.text, fontSize: 13, fontWeight: FontWeight.w900, letterSpacing: 1.5),
                     ),
-                    const Gap(14),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'VIP Membership Guide',
-                            style: TextStyle(
-                              color: VIPTheme.text,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          Text(
-                            'Learn about 80/20 credits & daily rewards',
-                            style: TextStyle(color: VIPTheme.textSub, fontSize: 11),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Icon(Icons.arrow_forward_ios_rounded, color: VIPTheme.textHint, size: 12),
                   ],
                 ),
               ),
-            ),
-          ),
 
-          // ── Special Events Carousel ──────────
-          const Gap(24),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Row(
-              children: [
-                const Icon(Icons.stars_rounded, color: Color(0xFFF59E0B), size: 16),
-                const Gap(8),
-                const Text(
-                  'SPECIAL EVENTS',
-                  style: TextStyle(
-                    color: VIPTheme.textSub,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 2,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '${DateTime.now().day}/${DateTime.now().month} Update',
-                  style: const TextStyle(color: VIPTheme.textHint, fontSize: 10),
-                ),
-              ],
-            ),
-          ),
-          const Gap(16),
-          SizedBox(
-            height: 120,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              physics: const BouncingScrollPhysics(),
-              children: [
-                _EventCard(
-                  title: 'First Time Purchase',
-                  benefit: '20,000,000 ◆',
-                  price: 'ONLY \$10',
-                  color: const Color(0xFFF59E0B),
-                  icon: Icons.flash_on_rounded,
-                  onTap: () {},
-                ),
-                const Gap(12),
-                _EventCard(
-                  title: '30-Day Bonus Event',
-                  benefit: 'UP TO 100M ◆',
-                  price: 'Tiered Reward',
-                  color: const Color(0xFF8B5CF6),
-                  icon: Icons.auto_graph_rounded,
-                  onTap: () {},
-                ),
-              ],
-            ),
-          ),
+              const Gap(16),
 
-          const Gap(32),
+              // 4. 2x3 Privilege Cards Grid
+              _buildPrivilegesGrid(currentTier, accent),
 
-          // Heading
+              const Gap(32),
 
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Choose Your\nMembership',
-                  style: TextStyle(
-                    color: VIPTheme.text,
-                    fontSize: 28,
-                    fontWeight: FontWeight.w900,
-                    height: 1.2,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const Gap(8),
-                const Text(
-                  'Swipe to explore all tiers — tap a card for details',
-                  style: TextStyle(
-                    color: VIPTheme.textSub,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const Gap(16),
-          // ── Carousel ──────────────────────────
-          SizedBox(
-            height: 220,
-
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: tiers.length,
-              onPageChanged: (i) => setState(() => _currentPage = i),
-              itemBuilder: (context, index) {
-                final tier = tiers[index];
-                final accent = HexColor.fromHex(tier.themeColor ?? '#10B981');
-                final isCenter = index == _currentPage;
-                final userTier = (user?.vipTier ?? '').toLowerCase();
-                final isActive = userTier == (tier.name ?? '').toLowerCase() && userTier != 'none';
-                final remainingDays = user is UserModel ? user.vipRemainingDays : 0;
-
-                return AnimatedScale(
-                  scale: isCenter ? 1.0 : 0.92,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
-                  child: AnimatedOpacity(
-                    opacity: isCenter ? 1.0 : 0.55,
-                    duration: const Duration(milliseconds: 300),
-                    child: _VIPCarouselCard(
-                      tier: tier,
-                      accent: accent,
-                      isActive: isActive,
-                      remainingDays: remainingDays,
-                      isExpanded: _expandedIndex == index,
-                      onTap: () => _toggleExpand(index),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ── Dot indicators ────────────────────
-          const Gap(20),
-          Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(tiers.length, (i) {
-                final accent = HexColor.fromHex(
-                  tiers[i].themeColor ?? '#10B981',
-                );
-                final isActive = i == _currentPage;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 280),
-                  margin: const EdgeInsets.symmetric(horizontal: 3),
-                  width: isActive ? 22 : 6,
-                  height: 6,
+              // 5. VIP Guide & Rules Card
+              GestureDetector(
+                onTap: () => _showInfoBottomSheet(context),
+                child: Container(
+                  padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(3),
-                    color: isActive ? accent : VIPTheme.surface3,
+                    borderRadius: BorderRadius.circular(20),
+                    color: VIPTheme.surface2,
+                    border: Border.all(color: accent.withOpacity(0.3), width: 1),
                   ),
-                );
-              }),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(shape: BoxShape.circle, color: accent.withOpacity(0.15)),
+                        child: Icon(Icons.verified_rounded, color: accent, size: 20),
+                      ),
+                      const Gap(12),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('VIP Royalty Terms & Privileges', style: TextStyle(color: VIPTheme.text, fontWeight: FontWeight.w800, fontSize: 13)),
+                            Text('Tap to view daily bean cashbacks & priority support rules', style: TextStyle(color: VIPTheme.textSub, fontSize: 11)),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward_ios_rounded, color: VIPTheme.textSub, size: 14),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // 6. Bottom Sticky Purchase Bar
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: _buildBottomPurchaseBar(currentTier, accent, isActive, user),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRoyalHeroCard(VIPTierModel tier, Color accent, bool isActive, dynamic user) {
+    final crownPng = _getCrownPngForTier(tier);
+
+    return Container(
+      width: double.infinity,
+      height: 210,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: LinearGradient(
+          colors: [accent.darker, accent.dimmed.withOpacity(0.4), const Color(0xFF0F172A)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(color: accent.withOpacity(0.5), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: accent.withOpacity(0.25), blurRadius: 24, offset: const Offset(0, 10)),
+        ],
+      ),
+      child: Stack(
+        children: [
+          // Background ambient glow circles
+          Positioned(
+            top: -40,
+            right: -40,
+            child: Container(
+              width: 160,
+              height: 160,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: accent.withOpacity(0.2)),
             ),
           ),
-          const Gap(32),
-
-          // ── Expanded detail panel ─────────────
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 350),
-            transitionBuilder: (child, anim) => FadeTransition(
-              opacity: anim,
-              child: SizeTransition(sizeFactor: anim, child: child),
+          Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // 3D Crown Image
+                Image.asset(
+                  crownPng,
+                  width: 90,
+                  height: 90,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Icon(Icons.military_tech_rounded, color: accent, size: 64),
+                ),
+                const Gap(8),
+                Text(
+                  '${(tier.name ?? "VIP").toUpperCase()} • ROYAL PRIVILEGE',
+                  style: GoogleFonts.cinzel(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                    shadows: [const Shadow(color: Colors.black54, blurRadius: 4, offset: Offset(0, 1))],
+                  ),
+                ),
+                const Gap(6),
+                if (isActive)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(12)),
+                    child: Text('ACTIVE MEMBER • ${user?.vipRemainingDays ?? 30} DAYS LEFT', style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10)),
+                  )
+                else
+                  Text(
+                    '${tier.monthlyPriceInDiamonds} DIAMONDS / MONTH',
+                    style: const TextStyle(color: Color(0xFFE2E8F0), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+                  ),
+              ],
             ),
-            child: _expandedIndex != null && _expandedIndex! < tiers.length
-                ? _buildDetailPanel(tiers[_expandedIndex!], key: ValueKey(_expandedIndex))
-                : const SizedBox.shrink(),
           ),
-
-          // ── Tier entry table ──────────────────
-          const Gap(8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: _buildTierEntryTable(tiers, user),
-          ),
-          const Gap(32),
         ],
       ),
     );
+  }
+
+  Widget _buildTierSelectorRow(List<VIPTierModel> tiers) {
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: tiers.length,
+        separatorBuilder: (_, __) => const Gap(8),
+        itemBuilder: (context, index) {
+          final isSelected = index == _currentPage;
+          final t = tiers[index];
+          final color = HexColor.fromHex(t.themeColor ?? '#FFD700');
+
+          return GestureDetector(
+            onTap: () => setState(() => _currentPage = index),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: isSelected ? color : VIPTheme.surface2,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: isSelected ? color : Colors.white12),
+                boxShadow: isSelected ? [BoxShadow(color: color.withOpacity(0.4), blurRadius: 8, offset: const Offset(0, 2))] : [],
+              ),
+              child: Text(
+                (t.name ?? 'VIP ${index + 1}').toUpperCase(),
+                style: TextStyle(
+                  color: isSelected ? Colors.black : VIPTheme.text,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPrivilegesGrid(VIPTierModel tier, Color accent) {
+    final privileges = [
+      {'title': 'Exclusive Animated Frame', 'desc': 'Stand out instantly in rooms', 'icon': Icons.filter_tilt_shift_rounded},
+      {'title': 'Regal Entry Effect', 'desc': 'Epic stream entrance animation', 'icon': Icons.auto_awesome_rounded},
+      {'title': 'Custom Chat Bubble', 'desc': 'Dynamic luxury messages', 'icon': Icons.chat_bubble_outline_rounded},
+      {'title': 'Gold Name Tag', 'desc': 'Premium highlight visibility', 'icon': Icons.badge_outlined},
+      {'title': 'Sound Wave Ring', 'desc': 'Amplify your voice presence', 'icon': Icons.graphic_eq_rounded},
+      {'title': 'Royalty Support', 'desc': 'Dedicated 24/7 assistance', 'icon': Icons.shield_moon_rounded},
+    ];
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.82,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      itemCount: privileges.length,
+      itemBuilder: (context, i) {
+        final p = privileges[i];
+        return Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: VIPTheme.surface2,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: accent.withOpacity(0.2), width: 1),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(shape: BoxShape.circle, color: accent.withOpacity(0.12)),
+                child: Icon(p['icon'] as IconData, color: accent, size: 22),
+              ),
+              const Gap(8),
+              Text(
+                p['title'] as String,
+                style: const TextStyle(color: VIPTheme.text, fontSize: 10, fontWeight: FontWeight.w800),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const Gap(2),
+              Text(
+                p['desc'] as String,
+                style: const TextStyle(color: VIPTheme.textSub, fontSize: 8),
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBottomPurchaseBar(VIPTierModel tier, Color accent, bool isActive, dynamic user) {
+    final cost = tier.monthlyPriceInDiamonds;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F172A),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        border: Border.all(color: accent.withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 20, offset: const Offset(0, -6)),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('1 Month Membership', style: TextStyle(color: VIPTheme.textSub, fontSize: 11, fontWeight: FontWeight.w600)),
+                Row(
+                  children: [
+                    const Icon(Icons.diamond_rounded, color: Color(0xFF38BDF8), size: 16),
+                    const Gap(4),
+                    Text('$cost', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                    const Gap(4),
+                    const Text('Diamonds', style: TextStyle(color: VIPTheme.textSub, fontSize: 11)),
+                  ],
+                ),
+              ],
+            ),
+            const Spacer(),
+            SizedBox(
+              height: 50,
+              child: ElevatedButton(
+                onPressed: () => _purchaseTier(tier),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accent,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 6,
+                ),
+                child: Text(
+                  isActive ? 'RENEW VIP' : 'SUBSCRIBE TO VIP',
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _getCrownPngForTier(VIPTierModel tier) {
+    final level = tier.level;
+    if (level == 1) return 'assets/VIP/VIP 1/Crown 1.png';
+    if (level == 2) return 'assets/VIP/VIP 2/VIP 2/Badge.png';
+    if (level == 3) return 'assets/VIP/VIP 3/VIP 3/Crown 1.png';
+    if (level == 4) return 'assets/VIP/VIP 4/VIP 4/Crown 1.png';
+    if (level == 5) return 'assets/VIP/VIP 5/VIP 5/Crown 1.png';
+    if (level == 6) return 'assets/VIP/VIP 6/VIP 6/Crown 1.png';
+    if (level == 7) return 'assets/VIP/VIP 7/VIP 7/Crown 1.png';
+    if (level == 8) return 'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.png';
+    return 'assets/VIP/VIP 1/Crown 1.png';
+  }
+
+  void _purchaseTier(VIPTierModel tier) async {
+    try {
+      await ref.read(vipServiceProvider).purchaseVip(tier.tierId);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Successfully subscribed to ${tier.name}! 👑')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Purchase failed: $e')),
+        );
+      }
+    }
   }
 
   // ── Detail Panel (slides in below carousel) ──

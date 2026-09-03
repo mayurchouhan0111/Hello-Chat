@@ -12,6 +12,9 @@ import '../../../../core/models/user_model.dart';
 import '../../../../core/constants/app_colors.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../core/router/app_router.dart';
+import '../../../../core/widgets/app_avatar.dart';
+
 class PrivateChatScreen extends ConsumerStatefulWidget {
   final String chatId;
   final String otherUid;
@@ -35,6 +38,13 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
   void initState() {
     super.initState();
     _markRead();
+  }
+
+  @override
+  void dispose() {
+    _msgController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   void _markRead() {
@@ -78,35 +88,91 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
         backgroundColor: AppColors.primary, // Hello Chat Brand Purple
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white, size: 22),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: profileAsync.when(
-          data: (user) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-               Text(user?.displayName ?? "Hello Chat User", style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900)), // Compacted
-               const Text("online", style: TextStyle(color: Colors.white70, fontSize: 9)), // Compacted
-            ],
+        titleSpacing: 0,
+        title: InkWell(
+          onTap: () {
+            context.push(AppRoutes.userProfile, extra: widget.otherUid);
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+            child: profileAsync.when(
+              data: (user) => Row(
+                children: [
+                  AppAvatar(
+                    imageUrl: user?.profilePhotoUrl ?? '',
+                    radius: 18,
+                    vipTier: user?.vipTier,
+                    frameUrl: user?.profileFrame,
+                    userLevel: user?.level,
+                    tags: user?.tags,
+                  ),
+                  const Gap(10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          user?.displayName ?? "Hello Chat User",
+                          style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        const Gap(1),
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(color: Color(0xFF4ADE80), shape: BoxShape.circle),
+                            ),
+                            const Gap(4),
+                            const Text("online", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              loading: () => const Text("Loading...", style: TextStyle(color: Colors.white, fontSize: 14)),
+              error: (_, __) => const Text("User", style: TextStyle(color: Colors.white, fontSize: 14)),
+            ),
           ),
-          loading: () => const Text("Loading...", style: TextStyle(color: Colors.white, fontSize: 14)),
-          error: (_, __) => const Text("User", style: TextStyle(color: Colors.white, fontSize: 14)),
         ),
         actions: [
-          profileAsync.maybeWhen(
-            data: (user) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: CircleAvatar(
-                radius: 15,
-                backgroundImage: (user?.profilePhotoUrl ?? '').isNotEmpty 
-                  ? CachedNetworkImageProvider(user!.profilePhotoUrl) 
-                  : null,
-                child: (user?.profilePhotoUrl ?? '').isEmpty ? const Icon(Icons.person, color: Colors.white70, size: 16) : null,
-              ),
-            ),
-            orElse: () => const SizedBox.shrink(),
+          IconButton(
+            icon: const Icon(Icons.badge_outlined, color: Colors.white, size: 22),
+            tooltip: "View Profile",
+            onPressed: () {
+              context.push(AppRoutes.userProfile, extra: widget.otherUid);
+            },
           ),
-          IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: () {}),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.white),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            onSelected: (value) {
+              if (value == 'profile') {
+                context.push(AppRoutes.userProfile, extra: widget.otherUid);
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline_rounded, size: 18, color: AppColors.primary),
+                    Gap(10),
+                    Text("View Profile", style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ],
       ),
       body: Stack(
@@ -396,6 +462,7 @@ class _PrivateChatScreenState extends ConsumerState<PrivateChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _msgController,
+                      style: const TextStyle(color: Colors.black87, fontSize: 14),
                       onChanged: (val) {
                         if (val.isNotEmpty && !_isTyping) setState(() => _isTyping = true);
                         if (val.isEmpty && _isTyping) setState(() => _isTyping = false);

@@ -34,7 +34,10 @@ class GamesPanel extends StatelessWidget {
                 "Win up to 10x prizes!",
                 Icons.slow_motion_video_rounded,
                 Colors.blueAccent,
-                () => Navigator.push(context, MaterialPageRoute(builder: (c) => SpinWheelScreen(roomId: roomId))),
+                () {
+                  if (Navigator.canPop(context)) Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (c) => SpinWheelScreen(roomId: roomId)));
+                },
               ),
               const Gap(16),
               _buildGameCard(
@@ -43,7 +46,10 @@ class GamesPanel extends StatelessWidget {
                 "High stakes, big wins!",
                 Icons.style_rounded,
                 const Color(0xFFFFD700),
-                () => Navigator.push(context, MaterialPageRoute(builder: (c) => LuckyDrawScreen(roomId: roomId))),
+                () {
+                  if (Navigator.canPop(context)) Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (c) => LuckyDrawScreen(roomId: roomId)));
+                },
               ),
             ],
           ),

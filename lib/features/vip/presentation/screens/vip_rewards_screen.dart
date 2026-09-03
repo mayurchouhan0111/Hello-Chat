@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/widgets/app_avatar.dart';
@@ -90,95 +91,84 @@ class _VIPRewardsScreenState extends ConsumerState<VIPRewardsScreen> {
     if (_isClaiming) return;
     setState(() => _isClaiming = true);
 
+    final rewards = _getTierRewards(user.vipTier);
+    final int diamonds = rewards['diamonds'] ?? 100;
+    final int xp = rewards['xp'] ?? 10;
+
     try {
       final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('claimVipDailyReward');
       final response = await callable.call();
-      
       final data = response.data as Map<dynamic, dynamic>;
-      final int diamonds = data['diamonds'] ?? 0;
-      final int xp = data['xp'] ?? 0;
-
-      // Force refresh current user profile stream
+      final int cloudDiamonds = data['diamonds'] ?? diamonds;
+      final int cloudXp = data['xp'] ?? xp;
       ref.invalidate(currentUserProfileProvider);
-
       if (mounted) {
-        _showSuccessDialog(diamonds, xp);
+        _showSuccessDialog(cloudDiamonds, cloudXp);
       }
     } catch (e) {
+      print("--- [VIP REWARD] Cloud claim failed: $e ---");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Failed to claim: ${e.toString().replaceAll("Exception: ", "")}"),
-            backgroundColor: Colors.red,
+            content: Text("Could not claim reward right now. Please try again."),
+            backgroundColor: Colors.amber.shade900,
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _isClaiming = false);
-      }
+      if (mounted) setState(() => _isClaiming = false);
     }
   }
 
   void _showSuccessDialog(int diamonds, int xp) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.9),
+      barrierColor: Colors.black.withOpacity(0.85),
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         child: Container(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(28),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E1035),
+            color: const Color(0xFF0F172A),
             borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.3)),
+            border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.4), width: 1.5),
             boxShadow: [
-              BoxShadow(
-                color: const Color(0xFFFFD700).withOpacity(0.15),
-                blurRadius: 24,
-                spreadRadius: 2,
-              )
-            ]
+              BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.2), blurRadius: 30, spreadRadius: 2),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Glowing crown/star icon
               Container(
-                width: 72, height: 72,
+                width: 76,
+                height: 76,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFD700).withOpacity(0.1),
+                  color: const Color(0xFFFFD700).withOpacity(0.12),
                   shape: BoxShape.circle,
                   border: Border.all(color: const Color(0xFFFFD700), width: 2),
                 ),
-                child: const Icon(Icons.star_rounded, color: Color(0xFFFFD700), size: 40),
+                child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFFFD700), size: 44),
               ),
               const Gap(20),
               const Text(
-                "CONGRATULATIONS!",
-                style: TextStyle(
-                  color: Color(0xFFFFD700),
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 1.0,
-                ),
+                "REWARD CLAIMED!",
+                style: TextStyle(color: Color(0xFFFFD700), fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 1.5),
               ),
               const Gap(8),
               const Text(
-                "Your daily VIP reward has been credited.",
+                "Your daily VIP bonus has been added to your balance.",
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white70, fontSize: 13),
+                style: TextStyle(color: Colors.white70, fontSize: 12),
               ),
               const Gap(24),
-              // Rewards row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _buildRewardDisplayItem("+$diamonds", "Diamonds", Icons.diamond_rounded, const Color(0xFF00FFD1)),
+                  _buildRewardDisplayItem("+$diamonds", "Diamonds", Icons.diamond_rounded, const Color(0xFF38BDF8)),
                   _buildRewardDisplayItem("+$xp", "XP Points", Icons.bolt_rounded, const Color(0xFFFFD700)),
                 ],
               ),
-              const Gap(32),
+              const Gap(28),
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
@@ -187,12 +177,9 @@ class _VIPRewardsScreenState extends ConsumerState<VIPRewardsScreen> {
                     backgroundColor: const Color(0xFFFFD700),
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   ),
-                  child: const Text(
-                    "AWESOME",
-                    style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5),
-                  ),
+                  child: const Text("GREAT", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 1)),
                 ),
               ),
             ],
@@ -207,16 +194,14 @@ class _VIPRewardsScreenState extends ConsumerState<VIPRewardsScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(
-          width: 50, height: 50,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(icon, color: color, size: 24),
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(color: color.withOpacity(0.15), shape: BoxShape.circle),
+          child: Icon(icon, color: color, size: 26),
         ),
         const Gap(8),
-        Text(val, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold)),
-        Text(label, style: const TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w500)),
+        Text(val, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w900)),
+        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600)),
       ],
     );
   }
@@ -226,54 +211,37 @@ class _VIPRewardsScreenState extends ConsumerState<VIPRewardsScreen> {
     final userAsync = ref.watch(currentUserProfileProvider);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0C0020),
+      backgroundColor: const Color(0xFF0B0F19),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF130030),
+        backgroundColor: const Color(0xFF0B0F19),
         elevation: 0,
+        centerTitle: true,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          "VIP Daily Rewards",
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 17),
-        ),
+        title: const Text("VIP Daily Rewards", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 1)),
       ),
       body: userAsync.when(
         data: (user) {
-          if (user == null) {
-            return const Center(child: Text("User profile not found.", style: TextStyle(color: Colors.white30)));
-          }
-
-          final hasVip = user.isVipActive;
-          
-          if (!hasVip) {
-            return _buildLockedState();
-          }
+          if (user == null) return const Center(child: Text("User profile not found.", style: TextStyle(color: Colors.white30)));
+          if (!user.isVipActive) return _buildLockedState();
 
           final rewards = _getTierRewards(user.vipTier);
           final claimed = _hasClaimedToday(user);
 
           return SingleChildScrollView(
             physics: const BouncingScrollPhysics(),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  // VIP Card Info
-                  _buildVipHeaderCard(user),
-                  const Gap(24),
-                  // Reward summary card
-                  _buildRewardDetailsCard(user, rewards, claimed),
-                  const Gap(32),
-                  // Claim Button or Timer
-                  if (claimed)
-                    _buildCountdownWidget()
-                  else
-                    _buildClaimButton(user),
-                ],
-              ),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildVipHeaderCard(user),
+                const Gap(20),
+                _buildRewardDetailsCard(user, rewards, claimed),
+                const Gap(32),
+                if (claimed) _buildCountdownWidget() else _buildClaimButton(user),
+              ],
             ),
           );
         },

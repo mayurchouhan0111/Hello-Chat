@@ -272,12 +272,21 @@ class SvgaParserUtil {
           'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.svga',
         ];
 
-        for (final assetPath in assetsToPreload) {
-          try {
-            await decodeSafeFromAssets(assetPath);
-          } catch (pe) {
-            print("⚠️ SvgaParserUtil: Failed to preload/parse SVGA asset ($assetPath): $pe");
-          }
+        // Parallelize: load in small batches of 3 with 200ms delay to avoid main thread I/O lockup
+        const batchSize = 3;
+        for (int i = 0; i < assetsToPreload.length; i += batchSize) {
+          final batch = assetsToPreload.skip(i).take(batchSize).toList();
+          await Future.wait(
+            batch.map((assetPath) async {
+              try {
+                await decodeSafeFromAssets(assetPath);
+              } catch (pe) {
+                // Silently ignore missing optional local SVGA assets
+              }
+            }),
+            eagerError: true,
+          );
+          await Future.delayed(const Duration(milliseconds: 200));
         }
 
         print("✅ SvgaParserUtil: All local VIP assets preloaded and decoded successfully!");

@@ -28,6 +28,11 @@ List<Widget> getBadgesForUser(UserModel user) {
     icon: Icons.shield_rounded,
   ));
 
+  // 3.5 Room Admin Badge (Cyan)
+  if (user.isAdmin) {
+    badges.add(const UserBadge(label: "Admin", type: BadgeType.admin, icon: Icons.admin_panel_settings_rounded));
+  }
+
   if (user.vipTier != 'none') {
     String? customBadge;
     final level = _getVipLevel(user.vipTier);
@@ -63,6 +68,11 @@ List<Widget> getBadgesForUser(UserModel user) {
       icon: customBadge == null ? Icons.workspace_premium : null,
       customFrameAsset: customBadge,
     ));
+  }
+
+  // 4.5 Room / System Admin Badge
+  if (user.role == 'admin' || user.tags.contains('admin')) {
+    badges.add(const UserBadge(label: "Admin", type: BadgeType.role, icon: Icons.admin_panel_settings_rounded));
   }
 
   // 5. Certified Reseller

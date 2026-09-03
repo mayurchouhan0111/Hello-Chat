@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -99,7 +98,7 @@ class GiftService extends BaseFirebaseService {
     await migrateLocalGiftsToCloudinary();
   }
 
-  Future<void> sendGift({
+  Future<List<Map<String, dynamic>>> sendGift({
     required String roomId,
     required GiftModel gift,
     required List<String> targetUids,
@@ -113,7 +112,7 @@ class GiftService extends BaseFirebaseService {
     await user.getIdToken(false);
 
     // Call Cloud Function concurrently for all targets
-    await Future.wait(targetUids.map((targetUid) => 
+    final rawResults = await Future.wait(targetUids.map((targetUid) => 
       callFunction('sendGiftWithCombo', {
         'roomId': roomId,
         'giftId': gift.giftId,
@@ -123,9 +122,12 @@ class GiftService extends BaseFirebaseService {
       })
     ));
 
+    final results = rawResults.map((r) => Map<String, dynamic>.from(r as Map? ?? {})).toList();
+
     // Track diamonds sent and received in the room session
     try {
       final totalPoints = gift.priceInDiamonds * quantity;
+      final totalSpentInCall = totalPoints * targetUids.length;
       final batch = _db.batch();
 
       for (var targetUid in targetUids) {
@@ -138,9 +140,43 @@ class GiftService extends BaseFirebaseService {
 
       batch.set(
         _db.collection('rooms').doc(roomId).collection('participants').doc(user.uid),
-        {'diamondsSent': FieldValue.increment(totalPoints * targetUids.length)},
+        {'diamondsSpent': FieldValue.increment(totalSpentInCall)},
         SetOptions(merge: true),
       );
+
+      // Increment room weekly earnings / diamond counter
+      batch.set(
+        _db.collection('rooms').doc(roomId),
+        {'weeklyEarnings': FieldValue.increment(totalSpentInCall)},
+        SetOptions(merge: true),
+      );
+
+      // Update per-room gift leaderboard buckets (daily, weekly, monthly)
+      final now = DateTime.now().toUtc();
+      final dailyBucket = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final dayNum = now.weekday;
+      final thursday = now.add(Duration(days: 4 - dayNum));
+      final yearStart = DateTime.utc(thursday.year, 1, 1);
+      final weekNo = ((thursday.difference(yearStart).inDays) / 7).floor() + 1;
+      final weeklyBucket = '${thursday.year}-W${weekNo.toString().padLeft(2, '0')}';
+      final monthlyBucket = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
+
+      final userDoc = await _db.collection('users').doc(user.uid).get();
+      final userData = userDoc.data() ?? {};
+      final senderName = (userData['displayName'] as String?)?.isNotEmpty == true ? userData['displayName'] as String : (user.displayName ?? 'User');
+      final senderPhoto = (userData['profilePhotoUrl'] as String?) ?? (user.photoURL ?? '');
+
+      final payload = {
+        'amount': FieldValue.increment(totalSpentInCall),
+        'name': senderName,
+        'photoUrl': senderPhoto,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      final roomRef = _db.collection('rooms').doc(roomId);
+      batch.set(roomRef.collection('gift_leaderboard').doc('daily').collection(dailyBucket).doc(user.uid), payload, SetOptions(merge: true));
+      batch.set(roomRef.collection('gift_leaderboard').doc('weekly').collection(weeklyBucket).doc(user.uid), payload, SetOptions(merge: true));
+      batch.set(roomRef.collection('gift_leaderboard').doc('monthly').collection(monthlyBucket).doc(user.uid), payload, SetOptions(merge: true));
 
       await batch.commit();
     } catch (e) {
@@ -153,6 +189,8 @@ class GiftService extends BaseFirebaseService {
         _updatePKScore(roomId, targetUid, gift.priceInDiamonds * quantity);
       }
     }
+
+    return results;
   }
 
 

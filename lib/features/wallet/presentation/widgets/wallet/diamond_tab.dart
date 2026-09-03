@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hello_chat/core/router/app_router.dart';
 import 'package:hello_chat/providers/wallet_provider.dart';
 import 'recharge_option_tile.dart';
 import 'balance_card.dart';
@@ -214,7 +216,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
   Widget _buildMoreResellerTile() {
     return ListTile(
       title: const Center(child: Text("More reseller", style: TextStyle(fontSize: 14, color: Colors.grey))),
-      onTap: () {}, // Simulation Disabled
+      onTap: () => context.push(AppRoutes.resellerList),
       trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFFDDDDDD), size: 20),
     );
   }

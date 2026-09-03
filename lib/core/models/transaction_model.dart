@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum TransactionType { recharge, gift_sent, gift_received, exchange, noble_purchase, vip_purchase, purchase }
+enum TransactionType { recharge, gift_sent, gift_received, exchange, noble_purchase, vip_purchase, purchase, cash_out }
 
 class WalletTransaction {
   final String id;

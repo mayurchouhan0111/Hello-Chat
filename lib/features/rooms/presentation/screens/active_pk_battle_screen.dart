@@ -109,7 +109,7 @@ class _ActivePKBattleScreenState extends ConsumerState<ActivePKBattleScreen> {
                       child: participantsAsync.when(
                         data: (pts) => ActivePKBattleGrid(room: room, participants: pts),
                         loading: () => const Center(child: CircularProgressIndicator()),
-                        error: (_, __) => const Icon(Icons.error, color: Colors.red),
+                        error: (_, __) => const SizedBox.shrink(),
                       ),
                     ),
                     Expanded(
@@ -251,7 +251,7 @@ class _ActivePKBattleScreenState extends ConsumerState<ActivePKBattleScreen> {
                   );
                 },
                 loading: () => const CircularProgressIndicator(),
-                error: (_, __) => const Icon(Icons.error, color: Colors.red, size: 40),
+                error: (_, __) => const CircleAvatar(radius: 60, backgroundColor: Colors.white10, child: Icon(Icons.person, color: Colors.white, size: 40)),
               ),
             
             const Gap(40),

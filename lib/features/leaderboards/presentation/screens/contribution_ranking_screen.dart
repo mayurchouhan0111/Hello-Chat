@@ -148,19 +148,25 @@ class _RankingTile extends StatelessWidget {
             width: 32,
             child: _buildRankBadge(),
           ),
-          const Gap(12),
+          const Gap(8),
           // Avatar
-          AppAvatar(
-            imageUrl: user.profilePhotoUrl,
-            frameUrl: user.profileFrame,
-            vipTier: user.vipTier,
-            userLevel: user.level,
-            tags: user.tags,
-            radius: 27,
-            showFrame: true,
-            frameMultiplier: 2.2, // Increased significantly for ranking list
+          SizedBox(
+            width: 58,
+            height: 58,
+            child: Center(
+              child: AppAvatar(
+                imageUrl: user.profilePhotoUrl,
+                frameUrl: user.profileFrame,
+                vipTier: user.vipTier,
+                userLevel: user.level,
+                tags: user.tags,
+                radius: 25,
+                showFrame: true,
+                frameMultiplier: 1.6,
+              ),
+            ),
           ),
-          const Gap(16),
+          const Gap(12),
           // Info Area
           Expanded(
             child: Column(

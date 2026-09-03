@@ -21,31 +21,32 @@ class SvgaStaticUtil {
     'assets/Helo chat/Top 3.svga': 'assets/Helo chat/TOP 3.png',
     'assets/Helo chat/Sound Waives.svga': 'assets/Helo chat/Sound Waives.png',
 
-    // SVIP Kit SVGA assets
-    'assets/SVIP Kit/svip 1/Crown.svga': 'assets/SVIP Kit/svip 1/SVIP 1 Crown.png',
-    'assets/SVIP Kit/svip 1/Frame.svga': 'assets/SVIP Kit/svip 1/Frame.png',
-    'assets/SVIP Kit/svip 1/Entry.svga': 'assets/SVIP Kit/svip 1/Entry.png',
-    
-    'assets/SVIP Kit/svip 2/Crown.svga': 'assets/SVIP Kit/svip 2/SVIP 2 Crown.png',
-    'assets/SVIP Kit/svip 2/Frame.svga': 'assets/SVIP Kit/svip 2/Frame.png',
-    'assets/SVIP Kit/svip 2/Entry.svga': 'assets/SVIP Kit/svip 2/Entry.png',
-    
-    'assets/SVIP Kit/svip 3/Crown.svga': 'assets/SVIP Kit/svip 3/SVIP 3 Crown.png',
-    'assets/SVIP Kit/svip 3/Frame.svga': 'assets/SVIP Kit/svip 3/Frame.png',
-    'assets/SVIP Kit/svip 3/Entry.svga': 'assets/SVIP Kit/svip 3/Entry.png',
-    
-    'assets/SVIP Kit/svip 4/Crown.svga': 'assets/SVIP Kit/svip 4/SVIP 4 Crown.png',
-    'assets/SVIP Kit/svip 4/Frame.svga': 'assets/SVIP Kit/svip 4/Frame.png',
-    'assets/SVIP Kit/svip 4/Entry.svga': 'assets/SVIP Kit/svip 4/entrance_svip4_SVGA (2).png',
-    'assets/SVIP Kit/svip 4/entrance_svip4_SVGA_SVGA.svga': 'assets/SVIP Kit/svip 4/entrance_svip4_SVGA (2).png',
+    // SVIP Kit SVGA assets exact mappings
+    'assets/SVIP Kit/svip 1/SVIP 1 Crown.svga': 'assets/SVIP Kit/svip 1/SVIP 1 Crown.png',
+    'assets/SVIP Kit/svip 2/SVIP 2 Crown.svga': 'assets/SVIP Kit/svip 2/SVIP 2 Crown.png',
+    'assets/SVIP Kit/svip 3/SVIP 3 Crown.svga': 'assets/SVIP Kit/svip 3/SVIP 3 Crown.png',
+    'assets/SVIP Kit/svip 4/Crown 1_SVGA.svga': 'assets/SVIP Kit/svip 4/Crown 1_SVGA.png',
+    'assets/SVIP Kit/svip 5/Crown 1_SVGA_SVGA.svga': 'assets/SVIP Kit/svip 5/Crown 1_SVGA_SVGA.png',
+    'assets/SVIP Kit/SVIP 6/VIP 8 Crown.svga': 'assets/SVIP Kit/SVIP 6/VIP 8 Crown.png',
 
-    'assets/SVIP Kit/svip 5/Crown.svga': 'assets/SVIP Kit/svip 5/SVIP 5 Crown.png',
-    'assets/SVIP Kit/svip 5/Frame.svga': 'assets/SVIP Kit/svip 5/Frame.png',
-    'assets/SVIP Kit/svip 5/Entry.svga': 'assets/SVIP Kit/svip 5/Entry.png',
-
-    'assets/SVIP Kit/SVIP 6/Crown.svga': 'assets/SVIP Kit/SVIP 6/SVIP 6 Crown.png',
-    'assets/SVIP Kit/SVIP 6/Frame.svga': 'assets/SVIP Kit/SVIP 6/Frame.png',
-    'assets/SVIP Kit/SVIP 6/Entry.svga': 'assets/SVIP Kit/SVIP 6/Entry.png',
+    // VIP Crown assets exact mappings
+    'assets/VIP/VIP 1/Crown 1.svga': 'assets/VIP/VIP 1/Crown 1.png',
+    'assets/VIP/VIP 2/VIP 2/Crown 1.svga': 'assets/VIP/VIP 2/VIP 2/Crown 1.png',
+    'assets/VIP/VIP 3/VIP 3/Crown 1.svga': 'assets/VIP/VIP 3/VIP 3/Crown 1.png',
+    'assets/VIP/VIP 4/VIP 4/Crown 1.svga': 'assets/VIP/VIP 4/VIP 4/Crown 1.png',
+    'assets/VIP/VIP 5/VIP 5/Crown 1.svga': 'assets/VIP/VIP 5/VIP 5/Crown 1.png',
+    'assets/VIP/VIP 6/VIP 6/Crown 1.svga': 'assets/VIP/VIP 6/VIP 6/Crown 1.png',
+    'assets/VIP/VIP 7/VIP 7/Crown 1.svga': 'assets/VIP/VIP 7/VIP 7/Crown 1.png',
+    'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.svga': 'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.png',
+    
+    // VIP Strip assets
+    'assets/VIP/VIP 1/Strip.svga': 'assets/VIP/VIP 1/Strip.png',
+    'assets/VIP/VIP 2/VIP 2/Strip.svga': 'assets/VIP/VIP 2/VIP 2/Strip.png',
+    'assets/VIP/VIP 3/VIP 3/Strip.svga': 'assets/VIP/VIP 3/VIP 3/Strip.png',
+    'assets/VIP/VIP 4/VIP 4/Strip.svga': 'assets/VIP/VIP 4/VIP 4/Strip.png',
+    'assets/VIP/VIP 5/VIP 5/Strip.svga': 'assets/VIP/VIP 5/VIP 5/Strip.png',
+    'assets/VIP/VIP 6/VIP 6/Strip.svga': 'assets/VIP/VIP 6/VIP 6/Strip.png',
+    'assets/VIP/VIP 7/VIP 7/Strip.svga': 'assets/VIP/VIP 7/VIP 7/Strip.png',
   };
 
   /// Given an SVGA asset path or network URL, return its static PNG or WebP fallback path.
@@ -86,9 +87,14 @@ class SvgaStaticUtil {
           if (level == 1) return 'assets/VIP/VIP 1/Chat Bubble.png';
           return 'assets/VIP/VIP $level/VIP $level/Chat Bubble.png';
         } else if (cat == 'crown') {
-          if (level == 1) return 'assets/VIP/VIP 1/Crown 2.webp';
-          if (level == 5) return 'assets/VIP/VIP 5/VIP 5/5.webp';
-          return 'assets/VIP/VIP $level/VIP $level/Crown 2.webp';
+          if (level == 1) return 'assets/VIP/VIP 1/Crown 1.png';
+          if (level == 2) return 'assets/VIP/VIP 2/VIP 2/Badge.png';
+          if (level == 3) return 'assets/VIP/VIP 3/VIP 3/Crown 1.png';
+          if (level == 4) return 'assets/VIP/VIP 4/VIP 4/Crown 1.png';
+          if (level == 5) return 'assets/VIP/VIP 5/VIP 5/Crown 1.png';
+          if (level == 6) return 'assets/VIP/VIP 6/VIP 6/Crown 1.png';
+          if (level == 7) return 'assets/VIP/VIP 7/VIP 7/Crown 1.png';
+          if (level == 8) return 'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.png';
         }
       }
     }

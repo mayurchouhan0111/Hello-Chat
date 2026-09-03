@@ -54,11 +54,11 @@ class _UserContributionRankingScreenState extends ConsumerState<UserContribution
         centerTitle: true,
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.black90,
+          labelColor: Colors.black87,
           unselectedLabelColor: Colors.black38,
           labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
           unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-          indicatorColor: Colors.black90,
+          indicatorColor: Colors.black87,
           indicatorWeight: 3,
           tabs: _tabLabels.map((label) => Tab(text: label)).toList(),
         ),

@@ -145,7 +145,7 @@ class RoomService with BaseFirebaseService {
         final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
         transaction.set(participantRef, {
           'uid': uid,
-          'role': isOwner ? 'host' : 'audience',
+          'role': isOwner ? 'owner' : 'audience',
           'seatIndex': isOwner ? 0 : -1,
           'joinedAt': FieldValue.serverTimestamp(),
           'lastActive': FieldValue.serverTimestamp(),
@@ -166,10 +166,22 @@ class RoomService with BaseFirebaseService {
 
         transaction.set(roomRef.collection('messages').doc(), {
           'uid': uid,
-          'text': '$displayName joined the room',
+          'text': '$displayName enter the room',
           'type': 'system',
           'createdAt': FieldValue.serverTimestamp(),
         });
+
+        final welcomeMsg = roomSnapshot.exists && roomSnapshot.data() != null && roomSnapshot.data()!.containsKey('welcomeMessage') 
+            ? (roomSnapshot.get('welcomeMessage') as String?) 
+            : null;
+        if (welcomeMsg != null && welcomeMsg.trim().isNotEmpty) {
+          transaction.set(roomRef.collection('messages').doc(), {
+            'uid': 'system',
+            'text': '@$displayName 👉 ${welcomeMsg.trim()}',
+            'type': 'system',
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        }
 
         debugPrint('[ROOM_JOIN] New participant $uid joined room $roomId');
       } else {
@@ -178,21 +190,28 @@ class RoomService with BaseFirebaseService {
         final previousSeat = existingData['seatIndex'];
         final previousRole = existingData['role'];
 
+        final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
         final updatePayload = <String, dynamic>{
           'lastActive': FieldValue.serverTimestamp(),
         };
 
-        // If seatIndex was lost (set to null/undefined), restore to -1
-        if (previousSeat == null) {
-          updatePayload['seatIndex'] = -1;
-        }
-        if (previousRole == null) {
-          updatePayload['role'] = 'audience';
+        if (isOwner) {
+          if (previousSeat != 0) updatePayload['seatIndex'] = 0;
+          if (previousRole != 'owner' && previousRole != 'host') updatePayload['role'] = 'owner';
+          updatePayload['isMuted'] = false;
+        } else {
+          // If seatIndex was lost (set to null/undefined), restore to -1
+          if (previousSeat == null) {
+            updatePayload['seatIndex'] = -1;
+          }
+          if (previousRole == null) {
+            updatePayload['role'] = 'audience';
+          }
         }
 
         transaction.update(participantRef, updatePayload);
 
-        debugPrint('[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=$previousRole)');
+        debugPrint('[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=$previousRole, isOwner=$isOwner)');
       }
 
       // Track active room on user profile (CRITICAL for presence sync)
@@ -260,9 +279,14 @@ class RoomService with BaseFirebaseService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
     try {
-      await _db.collection('rooms').doc(roomId).collection('participants').doc(uid).update({
+      await _db.collection('rooms').doc(roomId).collection('participants').doc(uid).set({
         'lastActive': FieldValue.serverTimestamp(),
-      });
+      }, SetOptions(merge: true));
+
+      await _db.collection('users').doc(uid).set({
+        'isOnline': true,
+        'lastActive': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('[ROOM_PRESENCE] Failed to update presence for $uid in $roomId: $e');
     }
@@ -315,13 +339,22 @@ class RoomService with BaseFirebaseService {
         throw Exception("Seat already taken");
       }
 
-      // Step 3: Assign seat (no transaction needed — query above is best-effort)
-      await participantRef.set({
+      // Step 3: Assign seat & sync helloId
+      final userDoc = await _db.collection('users').doc(uid).get();
+      final userData = userDoc.data();
+      final helloId = userData?['helloId'];
+
+      final payload = <String, dynamic>{
         'seatIndex': index,
         'role': 'speaker',
-      }, SetOptions(merge: true));
+      };
+      if (helloId != null) {
+        payload['helloId'] = helloId;
+      }
 
-      debugPrint('[ROOM_SEAT] User $uid assigned seat $index in room $roomId');
+      await participantRef.set(payload, SetOptions(merge: true));
+
+      debugPrint('[ROOM_SEAT] User $uid assigned seat $index in room $roomId (helloId=$helloId)');
     } catch (e) {
       if (e is Exception && e.toString().contains("Seat already taken")) {
         rethrow;
@@ -522,14 +555,45 @@ class RoomService with BaseFirebaseService {
 
   Future<void> clearRoomMessages(String roomId) async {
     final messages = await _db.collection('rooms').doc(roomId).collection('messages').get();
-    final batch = _db.batch();
-    for (var doc in messages.docs) {
-      batch.delete(doc.reference);
+    if (messages.docs.isEmpty) return;
+
+    final chunks = <List<QueryDocumentSnapshot<Map<String, dynamic>>>>[];
+    for (var i = 0; i < messages.docs.length; i += 400) {
+      chunks.add(messages.docs.sublist(i, i + 400 > messages.docs.length ? messages.docs.length : i + 400));
     }
-    await batch.commit();
+
+    for (var chunk in chunks) {
+      final batch = _db.batch();
+      for (var doc in chunk) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
+  }
+
+  Future<void> updateRoomWelcomeMessage(String roomId, String welcomeMessage) async {
+    await _db.collection('rooms').doc(roomId).update({
+      'welcomeMessage': welcomeMessage,
+    });
   }
 
   Future<void> muteUser(String roomId, String targetUid, bool mute) async {
+    if (mute) {
+      final userDoc = await _db.collection('users').doc(targetUid).get();
+      final data = userDoc.data() ?? {};
+      final svipLevel = (data['svipLevel'] as num?)?.toInt() ?? 0;
+      final svipEnd = data['svipCycleEndDate'] as Timestamp?;
+      final protEnd = data['assignedProtectionExpiresAt'] as Timestamp?;
+      final now = DateTime.now();
+
+      final isSvipProtected = (svipLevel >= 4 && svipEnd != null && svipEnd.toDate().isAfter(now)) ||
+          (protEnd != null && protEnd.toDate().isAfter(now));
+
+      if (isSvipProtected) {
+        throw 'This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed.';
+      }
+    }
+
     await _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid).update({
       'isMuted': mute,
     });

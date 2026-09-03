@@ -11,6 +11,10 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/providers/game_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/utils/app_persistent_cache.dart';
+import 'package:go_router/go_router.dart';
+import '../../../../core/router/app_router.dart';
+import '../../../../core/services/network_connectivity_service.dart';
+import 'dart:async';
 
 class LuckyDrawScreen extends ConsumerStatefulWidget {
   final String roomId;
@@ -25,6 +29,8 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   int _selectedTickets = 1;
   final List<int> _ticketOptions = [1, 5, 10, 50];
   bool _isDrawing = false;
+  bool _isOffline = false;
+  StreamSubscription<bool>? _connectivitySub;
   double _prizePool = 1250450;
   
   // For sphere animation
@@ -35,6 +41,10 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   @override
   void initState() {
     super.initState();
+    _isOffline = !NetworkConnectivityService().isOnline;
+    _connectivitySub = NetworkConnectivityService().onConnectivityChanged.listen((isOnline) {
+      if (mounted) setState(() => _isOffline = !isOnline);
+    });
     _sphereController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 10),
@@ -42,44 +52,32 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     _precacheSounds();
   }
 
-  void _precacheSounds() async {
-    try {
-      final urls = [
-        "https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav",
-        "https://assets.mixkit.co/active_storage/sfx/2021/2021-84.wav",
-        "https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav",
-        "https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav"
-      ];
-      for (final url in urls) {
-        final file = await AppPersistentCache.getFile(url);
-        _localSoundPaths[url] = file.path;
-      }
-    } catch (_) {}
-  }
+  void _precacheSounds() {}
 
   @override
   void dispose() {
+    _connectivitySub?.cancel();
     _sphereController.dispose();
     _audioPlayer.dispose();
     super.dispose();
   }
 
-  void _playSound(String url) async {
-    try {
-      await _audioPlayer.stop();
-      final cachedPath = _localSoundPaths[url];
-      if (cachedPath != null) {
-        await _audioPlayer.play(DeviceFileSource(cachedPath));
-      } else {
-        final file = await AppPersistentCache.getFile(url);
-        _localSoundPaths[url] = file.path;
-        await _audioPlayer.play(DeviceFileSource(file.path));
-      }
-    } catch (_) {}
-  }
+  void _playSound(String url) {}
 
   void _play() async {
     if (_isDrawing) return;
+
+    if (_isOffline || !NetworkConnectivityService().isOnline) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Cannot play while offline. Please check your internet connection."),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+      return;
+    }
 
     final balance = ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
     final cost = _selectedTickets * 100;
@@ -126,7 +124,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
         if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
           errorMessage = "Betting phase closed. Please wait for the next round.";
         } else {
-          errorMessage = "Error: ${errorStr.split('\\n').first}";
+          errorMessage = "Error: ${errorStr.split('\n').first}";
         }
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
       }
@@ -203,7 +201,8 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
 
   @override
   Widget build(BuildContext context) {
-    final balance = ref.watch(currentUserProfileProvider.select((u) => u.value?.diamondBalance ?? 0));
+    final userAsync = ref.watch(currentUserProfileProvider);
+    final balance = userAsync.value?.diamondBalance ?? 0;
     final luckyDrawSettingsAsync = ref.watch(luckyDrawSettingsProvider);
     final livePrizePool = luckyDrawSettingsAsync.when(
       data: (settings) => (settings['currentPrizePool'] as num?)?.toDouble() ?? 1250450.0,
@@ -257,7 +256,13 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                     children: [
                       IconButton(
                         icon: const Icon(Icons.close, color: Colors.white),
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () {
+                          if (Navigator.canPop(context)) {
+                            Navigator.pop(context);
+                          } else {
+                            context.go(AppRoutes.home);
+                          }
+                        },
                       ),
                       const Column(
                         children: [
@@ -392,24 +397,35 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                         width: double.infinity,
                         height: 64,
                         child: GestureDetector(
-                          onTap: _isDrawing ? null : _play,
+                          onTap: (!_isDrawing && !_isOffline) ? _play : null,
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             decoration: BoxDecoration(
                               gradient: LinearGradient(
-                                colors: _isDrawing 
+                                colors: (_isDrawing || _isOffline)
                                   ? [Colors.grey.shade800, Colors.grey.shade900]
                                   : [const Color(0xFF00E5FF), const Color(0xFF00B8D4)]
                               ),
                               borderRadius: BorderRadius.circular(20),
-                              boxShadow: _isDrawing ? [] : [
+                              boxShadow: (_isDrawing || _isOffline) ? [] : [
                                 BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 15)
                               ]
                             ),
                             alignment: Alignment.center,
-                            child: Text(
-                              _isDrawing ? "DRAWING IN PROGRESS..." : "CONFIRM DRAW",
-                              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (_isOffline) ...[
+                                  const Icon(Icons.wifi_off_rounded, color: Colors.white70, size: 20),
+                                  const Gap(8),
+                                ],
+                                Text(
+                                  _isOffline
+                                      ? "NO INTERNET CONNECTION"
+                                      : (_isDrawing ? "DRAWING IN PROGRESS..." : "CONFIRM DRAW"),
+                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -450,7 +466,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   Widget _buildTicketChip(int count) {
     bool isSelected = _selectedTickets == count;
     return GestureDetector(
-      onTap: _isDrawing ? null : () {
+      onTap: (_isDrawing || _isOffline) ? null : () {
         // HapticFeedback.selectionClick();
         _playSound("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
         setState(() => _selectedTickets = count);
@@ -460,13 +476,13 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           color: isSelected 
-              ? const Color(0xFF00E5FF) 
-              : (_isDrawing ? Colors.white.withOpacity(0.02) : Colors.white.withOpacity(0.05)),
+              ? (_isOffline ? Colors.grey.shade700 : const Color(0xFF00E5FF))
+              : ((_isDrawing || _isOffline) ? Colors.white.withOpacity(0.02) : Colors.white.withOpacity(0.05)),
           borderRadius: BorderRadius.circular(15),
           border: Border.all(
             color: isSelected 
                 ? Colors.white38 
-                : (_isDrawing ? Colors.white.withOpacity(0.02) : Colors.white10),
+                : ((_isDrawing || _isOffline) ? Colors.white.withOpacity(0.02) : Colors.white10),
           ),
         ),
         child: Text(
@@ -474,7 +490,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
           style: TextStyle(
             color: isSelected 
                 ? Colors.white 
-                : (_isDrawing ? Colors.white24 : Colors.white54),
+                : ((_isDrawing || _isOffline) ? Colors.white24 : Colors.white54),
             fontWeight: FontWeight.bold,
             fontSize: 16,
           ),

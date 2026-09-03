@@ -214,7 +214,7 @@ class _BaseRankingScreen extends StatelessWidget {
           }
 
           return ListView.builder(
-            itemExtent: 77.0,
+            itemExtent: 82.0,
             itemCount: items.length,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             itemBuilder: (context, index) {
@@ -336,35 +336,43 @@ class _RankingItem extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Stack(
-              children: [
-                if (isRoom || isAgency) 
-                  CircleAvatar(
-                    radius: 24,
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
-                    child: photoUrl.isEmpty ? Icon(isAgency ? Icons.business_rounded : Icons.meeting_room_rounded, color: Colors.grey) : null,
-                  )
-                else
-                  AppAvatar(
-                    imageUrl: photoUrl,
-                    frameUrl: frameUrl,
-                    vipTier: vipTier,
-                    userLevel: level,
-                    tags: tags,
-                    radius: 24,
-                    showFrame: true,
-                    frameMultiplier: 1.4,
-                  ),
-                if (countryCode != null) Positioned(
-                  right: 0, bottom: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                    child: ClipOval(child: Image.network("https://flagcdn.com/w40/${countryCode!.toLowerCase()}.png", width: 14, height: 10, fit: BoxFit.cover)),
-                  ),
+            SizedBox(
+              width: 58,
+              height: 58,
+              child: Center(
+                child: Stack(
+                  alignment: Alignment.center,
+                  clipBehavior: Clip.none,
+                  children: [
+                    if (isRoom || isAgency) 
+                      CircleAvatar(
+                        radius: 25,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
+                        child: photoUrl.isEmpty ? Icon(isAgency ? Icons.business_rounded : Icons.meeting_room_rounded, color: Colors.grey) : null,
+                      )
+                    else
+                      AppAvatar(
+                        imageUrl: photoUrl,
+                        frameUrl: frameUrl,
+                        vipTier: vipTier,
+                        userLevel: level,
+                        tags: tags,
+                        radius: 25,
+                        showFrame: true,
+                        frameMultiplier: 1.6,
+                      ),
+                    if (countryCode != null) Positioned(
+                      right: 0, bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                        child: ClipOval(child: Image.network("https://flagcdn.com/w40/${countryCode!.toLowerCase()}.png", width: 14, height: 10, fit: BoxFit.cover)),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(

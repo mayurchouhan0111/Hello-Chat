@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../core/constants/agora_config.dart';
 import 'voice_service.dart';
 import '../core/services/base_firebase_service.dart';
 
 class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   RtcEngine? _engine;
+  String? _lastToken;
   bool _isInitialized = false;
   bool _isMuted = false;
   bool _isRoomMuted = false;
@@ -42,6 +45,9 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   @override
   bool get isMuted => _isMuted;
+
+  @override
+  bool get isBroadcaster => _currentRole == ClientRoleType.clientRoleBroadcaster;
 
   @override
   Stream<bool> get isSpeakingStream => _speakingController.stream;
@@ -176,7 +182,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
           onClientRoleChanged: (RtcConnection connection, ClientRoleType oldRole, ClientRoleType newRole, ClientRoleOptions newRoleOptions) {
             try {
               debugPrint("👥 Agora Client Role changed from $oldRole to $newRole");
-              _engine?.setEnableSpeakerphone(true);
+              _engine?.setEnableSpeakerphone(true).catchError((e) => debugPrint("! AGORA SPEAKERPHONE ERROR (Non-fatal): $e"));
             } catch (e) {
               debugPrint("⚠️ Error in onClientRoleChanged: $e");
             }
@@ -265,33 +271,41 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
       String? finalToken;
 
-      // UX Improvement: If a manual tempToken is provided in AgoraConfig, use it for testing
-      // Only fetch if a source is provided
       if (AgoraConfig.tempToken.isNotEmpty) {
         debugPrint("🧪 Using manual Testing Token from AgoraConfig");
         finalToken = AgoraConfig.tempToken;
-      } else if (AgoraConfig.tokenUrl.isNotEmpty) {
-        // Logic for Direct HTTP Bypass (onRequest)
-        debugPrint("📡 Fetching token from Bypass HTTP URL...");
-        final response = await Dio().post(
-          AgoraConfig.tokenUrl,
-          data: {
-             'roomId': roomId,
-             'uid': 0,
-          },
-        );
-        
-        if (response.data['data'] != null) {
-          finalToken = response.data['data']['token'];
-        } else {
-          finalToken = response.data['rtcToken'] ?? response.data['token'];
-        }
-        debugPrint("✅ Bypass Token received");
       } else {
-        // NO TOKEN SOURCE - Using Empty Token (Unsecured Mode)
-        debugPrint("⚠️ NO TOKEN SOURCE: Joining with empty token (Unsecured Mode)...");
-        finalToken = "";
+        try {
+          final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
+          final headers = <String, dynamic>{};
+          if (idToken != null && idToken.isNotEmpty) {
+            headers['Authorization'] = 'Bearer $idToken';
+          }
+          final response = await Dio().post(
+            AgoraConfig.tokenUrl,
+            data: {
+              'roomId': roomId,
+              'uid': 0,
+            },
+            options: Options(headers: headers),
+          );
+          if (response.data['data'] != null) {
+            finalToken = response.data['data']['token'];
+          } else {
+            finalToken = response.data['rtcToken'] ?? response.data['token'];
+          }
+          debugPrint("✅ Agora Token received successfully");
+        } catch (e) {
+          debugPrint("⚠️ Token fetch error: $e. Falling back to callable/cached...");
+          try {
+            final result = await FirebaseFunctions.instance.httpsCallable('getAgoraToken').call({'roomId': roomId});
+            finalToken = result.data['token'] as String?;
+          } catch (_) {
+            finalToken = _lastToken ?? "";
+          }
+        }
       }
+      _lastToken = finalToken;
       
       _currentRoomId = roomId;
       _currentRole = ClientRoleType.clientRoleAudience;
@@ -309,9 +323,13 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
         ),
       );
       
-      // Force speakerphone routing on channel entry
-      await _engine!.setDefaultAudioRouteToSpeakerphone(true);
-      await _engine!.setEnableSpeakerphone(true);
+      // Force speakerphone routing on channel entry (catch non-fatal initialization errors)
+      try {
+        await _engine!.setDefaultAudioRouteToSpeakerphone(true);
+        await _engine!.setEnableSpeakerphone(true);
+      } catch (e) {
+        debugPrint("! Non-fatal Agora speakerphone error: $e");
+      }
     } catch (e) {
       debugPrint("🛑 AGORA JOIN ERROR: $e");
       rethrow;
@@ -430,6 +448,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
     }
   }
 
+  @override
   Future<void> toggleSpeakerphone(bool enable) async {
     if (_engine != null) {
       try {
@@ -445,6 +464,10 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   Future<void> setBroadcasterRole() async {
     if (_engine != null) {
       try {
+        final micStatus = await Permission.microphone.status;
+        if (!micStatus.isGranted) {
+          await Permission.microphone.request();
+        }
         _currentRole = ClientRoleType.clientRoleBroadcaster;
         await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
         await _engine!.updateChannelMediaOptions(ChannelMediaOptions(
@@ -453,7 +476,9 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
           autoSubscribeAudio: true,
         ));
         await _engine!.muteLocalAudioStream(_isMuted);
+        await _engine!.setDefaultAudioRouteToSpeakerphone(true);
         await _engine!.setEnableSpeakerphone(true);
+        debugPrint("🎙️ Broadcaster role set. Mic muted: $_isMuted");
       } catch (e) {
         debugPrint("⚠️ AGORA SET BROADCASTER ERROR: $e");
       }
@@ -499,7 +524,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
       try {
         await _engine!.leaveChannel();
         await _engine!.joinChannel(
-          token: "",
+          token: _lastToken ?? "",
           channelId: _currentRoomId!,
           uid: getAgoraUid(_currentUserId!),
           options: ChannelMediaOptions(

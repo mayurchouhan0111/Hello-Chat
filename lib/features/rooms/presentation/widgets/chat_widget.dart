@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../../core/models/message_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/providers/room_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../utils/level_utils.dart';
@@ -17,29 +17,45 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 class ChatWidget extends ConsumerStatefulWidget {
   final List<RoomMessage> messages;
+  final String? roomId;
   final List<BroadcastModel>? broadcasts;
   final Function(String uid)? onUserTap;
 
-  const ChatWidget({super.key, required this.messages, this.broadcasts, this.onUserTap});
+  const ChatWidget({super.key, required this.messages, this.roomId, this.broadcasts, this.onUserTap});
 
   @override
   ConsumerState<ChatWidget> createState() => _ChatWidgetState();
 }
 
 class _ChatWidgetState extends ConsumerState<ChatWidget> {
-  final GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
+  GlobalKey<AnimatedListState> _listKey = GlobalKey<AnimatedListState>();
   final List<RoomMessage> _visibleMessages = [];
   final List<RoomMessage> _incomingQueue = [];
   List<RoomMessage> _prevMessages = [];
   Timer? _queueTimer;
 
-  @override
-  void initState() {
-    super.initState();
-    // Periodic processing timer running at a fast, premium pace (300ms)
+  void _startTimerIfNeeded() {
+    if (_queueTimer != null && _queueTimer!.isActive) return;
     _queueTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
       _processNextQueueItem();
     });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimerIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(ChatWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.messages != widget.messages) {
+      final currentUid = ref.read(authStateProvider).value?.uid;
+      final myProfile = ref.read(cachedUserProfileProvider(currentUid ?? '')).value;
+      final blocked = (myProfile is UserModel) ? myProfile.blockedUids : <String>[];
+      _reconcileMessages(widget.messages, blocked);
+    }
   }
 
   @override
@@ -49,6 +65,18 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   }
 
   void _reconcileMessages(List<RoomMessage> currentMessages, List<String> blocked) {
+    if (currentMessages.isEmpty) {
+      if (_visibleMessages.isNotEmpty || _incomingQueue.isNotEmpty || _prevMessages.isNotEmpty) {
+        setState(() {
+          _visibleMessages.clear();
+          _incomingQueue.clear();
+          _prevMessages.clear();
+          _listKey = GlobalKey<AnimatedListState>();
+        });
+      }
+      return;
+    }
+
     final isFirstRun = _prevMessages.isEmpty;
 
     if (isFirstRun) {
@@ -79,6 +107,9 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
     _shedAndMergeQueue();
 
     _prevMessages = List.from(currentMessages);
+    if (_incomingQueue.isNotEmpty) {
+      _startTimerIfNeeded();
+    }
   }
 
   void _shedAndMergeQueue() {
@@ -106,7 +137,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
       
       _incomingQueue.clear();
       // Keep up to 4 of the latest regular messages, and all gifts
-      _incomingQueue.addAll(others.skip(others.length - 4));
+      _incomingQueue.addAll(others.skip((others.length - 4).clamp(0, others.length)));
       _incomingQueue.addAll(gifts);
       
       _incomingQueue.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -114,7 +145,14 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   }
 
   void _processNextQueueItem() {
-    if (!mounted || _incomingQueue.isEmpty) return;
+    if (!mounted) return;
+    if (_incomingQueue.isEmpty) {
+      if (_visibleMessages.length <= 3) {
+        _queueTimer?.cancel();
+        _queueTimer = null;
+      }
+      return;
+    }
 
     final nextMsg = _incomingQueue.removeAt(0);
 
@@ -160,7 +198,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
               begin: isRemoving ? 1.0 : 0.92,
               end: isRemoving ? 0.88 : 1.0,
             ).animate(curvedAnimation),
-            child: RoomMessageTile(msg: msg, onUserTap: widget.onUserTap),
+            child: RoomMessageTile(msg: msg, roomId: widget.roomId, onUserTap: widget.onUserTap),
           ),
         ),
       ),
@@ -168,7 +206,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   }
 
   Widget _buildListItem(int index, Animation<double> animation) {
-    if (index >= _visibleMessages.length) return const SizedBox.shrink();
+    if (index < 0 || index >= _visibleMessages.length) return const SizedBox.shrink();
     final msg = _visibleMessages[index];
 
     return _buildAnimatedTile(msg, animation, isRemoving: false);
@@ -186,11 +224,9 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
       orElse: () => <String>[],
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _reconcileMessages(widget.messages, blocked);
-      }
-    });
+    if (_prevMessages.isEmpty && widget.messages.isNotEmpty) {
+      _reconcileMessages(widget.messages, blocked);
+    }
 
     final broadcastWidgets = widget.broadcasts?.map((b) => Container(
       key: ValueKey('broadcast_${b.id}'),
@@ -225,7 +261,11 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
         if (index < msgCount) {
           return _buildListItem(index, animation);
         }
-        return broadcastWidgets[index - msgCount];
+        final bIndex = index - msgCount;
+        if (bIndex >= 0 && bIndex < broadcastWidgets.length) {
+          return broadcastWidgets[bIndex];
+        }
+        return const SizedBox.shrink();
       },
     );
   }
@@ -233,9 +273,10 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
 
 class RoomMessageTile extends ConsumerWidget {
   final RoomMessage msg;
+  final String? roomId;
   final Function(String uid)? onUserTap;
 
-  const RoomMessageTile({super.key, required this.msg, this.onUserTap});
+  const RoomMessageTile({super.key, required this.msg, this.roomId, this.onUserTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -292,12 +333,23 @@ class RoomMessageTile extends ConsumerWidget {
           final u = user as UserModel;
           final allBadges = getBadgesForUser(u);
 
+          final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
+          final isRoomAdmin = roomData?.admins.contains(u.uid) ?? false;
+
           final filteredBadges = allBadges.where((b) {
             if (b is UserBadge) {
-              return b.type == BadgeType.level || b.type == BadgeType.vip || b.type == BadgeType.noble;
+              return b.type == BadgeType.level || b.type == BadgeType.vip || b.type == BadgeType.noble || b.type == BadgeType.admin;
             }
             return false;
           }).toList();
+
+          if (isRoomAdmin && !filteredBadges.any((b) => b is UserBadge && b.label == "Admin")) {
+            filteredBadges.insert(0, const UserBadge(
+              label: "Admin",
+              type: BadgeType.role,
+              icon: Icons.admin_panel_settings_rounded,
+            ));
+          }
 
           final level = _getVipLevel(u.vipTier);
           final String? bubbleAsset = (level >= 1 && level <= 8) 
@@ -364,16 +416,62 @@ class RoomMessageTile extends ConsumerWidget {
                               }
                               return badge;
                             }),
-                            Flexible(
-                              child: Text(
-                                u.displayName,
-                                style: const TextStyle(
-                                  color: Color(0xFF80D8FF),
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                            Builder(
+                              builder: (context) {
+                                final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
+                                final isRoomOwner = roomData?.ownerUid == u.uid;
+                                final isRoomAdmin = roomData?.admins.contains(u.uid) ?? false;
+
+                                return Flexible(
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      if (isRoomOwner)
+                                        Padding(
+                                          padding: const EdgeInsets.only(right: 4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFFD700),
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Text(
+                                              "Owner",
+                                              style: TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.w900),
+                                            ),
+                                          ),
+                                        )
+                                      else if (isRoomAdmin)
+                                        Padding(
+                                          padding: const EdgeInsets.only(right: 4),
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF00E5FF),
+                                              borderRadius: BorderRadius.circular(8),
+                                              boxShadow: const [BoxShadow(color: Color(0x6600E5FF), blurRadius: 4)],
+                                            ),
+                                            child: const Text(
+                                              "Admin",
+                                              style: TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.w900),
+                                            ),
+                                          ),
+                                        ),
+                                      Flexible(
+                                        child: Text(
+                                          u.displayName,
+                                          style: const TextStyle(
+                                            color: Color(0xFF80D8FF),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
                             ),
                           ],
                         ),

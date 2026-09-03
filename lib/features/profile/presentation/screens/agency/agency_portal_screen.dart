@@ -245,7 +245,29 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('MY HOSTS', style: TextStyle(color: AgencyTheme.textSub, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 2)),
-              Text('${agency.hostUids.length} Active', style: const TextStyle(color: AgencyTheme.textSub, fontSize: 11)),
+              Row(
+                children: [
+                  Text('${agency.hostUids.length} Active', style: const TextStyle(color: AgencyTheme.textSub, fontSize: 11)),
+                  const Gap(12),
+                  GestureDetector(
+                    onTap: () => _showAddHostSheet(context, agency.id),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AgencyTheme.gold,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.add, size: 14, color: Colors.black),
+                          Gap(2),
+                          Text('Add Host', style: TextStyle(color: Colors.black, fontSize: 11, fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
           const Gap(16),
@@ -255,7 +277,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: hosts.length,
               separatorBuilder: (_, __) => const Gap(12),
-              itemBuilder: (context, i) => _HostListItem(user: hosts[i]),
+              itemBuilder: (context, i) => _HostListItem(
+                user: hosts[i],
+                onTap: () => _showHostManagementSheet(context, hosts[i]),
+              ),
             ),
             loading: () => const Center(child: CircularProgressIndicator()),
             error: (e, __) => Text('Error loading hosts: $e'),
@@ -342,6 +367,141 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               isPrimary: true,
             ),
             const Gap(40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showAddHostSheet(BuildContext context, String agencyId) {
+    final queryCtrl = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 32),
+        decoration: const BoxDecoration(
+          color: AgencyTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Recruit New Host', style: TextStyle(color: AgencyTheme.text, fontSize: 20, fontWeight: FontWeight.w900)),
+            const Gap(8),
+            const Text('Enter Host User ID or Username to add them to your agency', style: TextStyle(color: AgencyTheme.textSub, fontSize: 12)),
+            const Gap(24),
+            _buildTextField(label: 'HOST ID / USERNAME', hint: 'e.g. 97702581 or username', controller: queryCtrl),
+            const Gap(24),
+            _buildActionButton(
+              label: 'Add Host to Agency',
+              onTap: () async {
+                try {
+                  await ref.read(agencyServiceProvider).addHostToAgency(agencyId, queryCtrl.text);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Host successfully added!')));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error adding host: $e')));
+                  }
+                }
+              },
+              isPrimary: true,
+            ),
+            const Gap(32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showHostManagementSheet(BuildContext context, UserModel host) {
+    final targetCtrl = TextEditingController(text: (host.monthlyTargetBeans ?? 50000).toString());
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom, left: 24, right: 24, top: 32),
+        decoration: const BoxDecoration(
+          color: AgencyTheme.surface,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 24,
+                  backgroundImage: host.profilePhotoUrl.isNotEmpty ? CachedNetworkImageProvider(host.profilePhotoUrl) : null,
+                  child: host.profilePhotoUrl.isEmpty ? const Icon(Icons.person) : null,
+                ),
+                const Gap(16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(host.displayName, style: const TextStyle(color: AgencyTheme.text, fontSize: 18, fontWeight: FontWeight.w900)),
+                      Text('ID: ${host.helloId ?? host.username} • Level ${host.level}', style: const TextStyle(color: AgencyTheme.textSub, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Gap(24),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(color: AgencyTheme.surface2, borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('MONTHLY BEANS EARNED', style: TextStyle(color: AgencyTheme.textSub, fontSize: 10, fontWeight: FontWeight.bold)),
+                      const Gap(4),
+                      Text('${host.beansBalance}', style: const TextStyle(color: AgencyTheme.gold, fontSize: 18, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const Text('STATUS', style: TextStyle(color: AgencyTheme.textSub, fontSize: 10, fontWeight: FontWeight.bold)),
+                      const Gap(4),
+                      Text(host.status.toUpperCase(), style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Gap(24),
+            _buildTextField(label: 'ASSIGN MONTHLY TARGET (BEANS)', hint: '50000', controller: targetCtrl),
+            const Gap(24),
+            _buildActionButton(
+              label: 'Update Host Target',
+              onTap: () async {
+                final target = int.tryParse(targetCtrl.text) ?? 50000;
+                try {
+                  await ref.read(agencyServiceProvider).setHostTarget(host.uid, target);
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Host target updated!')));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error updating target: $e')));
+                  }
+                }
+              },
+              isPrimary: true,
+            ),
+            const Gap(32),
           ],
         ),
       ),
@@ -440,32 +600,61 @@ class _AgencyListItem extends ConsumerWidget {
 
 class _HostListItem extends StatelessWidget {
   final UserModel user;
-  const _HostListItem({required this.user});
+  final VoidCallback onTap;
+  const _HostListItem({required this.user, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: AgencyTheme.surface2, borderRadius: BorderRadius.circular(16)),
-      child: Row(
-        children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundImage: user.profilePhotoUrl.isNotEmpty ? CachedNetworkImageProvider(user.profilePhotoUrl) : null,
-            child: user.profilePhotoUrl.isEmpty ? const Icon(Icons.person) : null,
-          ),
-          const Gap(12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(user.displayName, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
-                Text('Beans: ${user.beansBalance}', style: const TextStyle(color: AgencyTheme.textSub, fontSize: 11)),
-              ],
+    final target = user.monthlyTargetBeans ?? 50000;
+    final progress = target > 0 ? (user.beansBalance / target).clamp(0.0, 1.0) : 0.0;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AgencyTheme.surface2,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AgencyTheme.divider),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 22,
+              backgroundImage: user.profilePhotoUrl.isNotEmpty ? CachedNetworkImageProvider(user.profilePhotoUrl) : null,
+              child: user.profilePhotoUrl.isEmpty ? const Icon(Icons.person, color: AgencyTheme.gold) : null,
             ),
-          ),
-          const Icon(Icons.chevron_right_rounded, color: AgencyTheme.textHint),
-        ],
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(user.displayName, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+                      Text('${(progress * 100).toInt()}% Target', style: const TextStyle(color: AgencyTheme.gold, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const Gap(4),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 4,
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      valueColor: const AlwaysStoppedAnimation<Color>(AgencyTheme.gold),
+                    ),
+                  ),
+                  const Gap(6),
+                  Text('Beans: ${user.beansBalance} / $target', style: const TextStyle(color: AgencyTheme.textSub, fontSize: 11)),
+                ],
+              ),
+            ),
+            const Gap(8),
+            const Icon(Icons.tune_rounded, color: AgencyTheme.gold, size: 18),
+          ],
+        ),
       ),
     );
   }

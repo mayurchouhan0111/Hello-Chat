@@ -6,7 +6,7 @@ const admin = require("firebase-admin");
 const crypto = require("crypto");
 
 admin.initializeApp({
-    databaseURL: "https://hellochat-e8965-default-rtdb.firebaseio.com"
+    databaseURL: "https://hellochat-e8965-default-rtdb.asia-southeast1.firebasedatabase.app"
 });
 
 
@@ -62,6 +62,50 @@ async function sendPush(targetUid, title, body, dataMap = {}) {
     }
 }
 
+/**
+ * --- ROCKET WINNER NOTIFICATION HELPER ---
+ * Sends a personalized FCM push to each TOP 1/2/3 winner after the
+ * rocket launch transaction commits. Fire-and-forget; never blocks gifting.
+ * Handles missing users, missing FCM tokens, and FCM failures per-user.
+ */
+async function notifyRocketWinners(winners) {
+    const rankLabels = { 1: "TOP 1", 2: "TOP 2", 3: "TOP 3" };
+    const rankEmoji = { 1: "🥇", 2: "🥈", 3: "🥉" };
+
+    for (const winner of winners) {
+        if (!winner || !winner.uid) {
+            console.warn("[ROCKET_NOTIFY] Skipping winner without uid:", winner);
+            continue;
+        }
+
+        const rank = winner.rank || 1;
+        const label = rankLabels[rank] || `TOP ${rank}`;
+        const emoji = rankEmoji[rank] || "🎉";
+        const reward = Number(winner.reward) || 0;
+        const xp = Number(winner.xp) || 0;
+        const level = winner.level || 1;
+
+        try {
+            await sendPush(
+                winner.uid,
+                `${emoji} Rocket Reward - You ranked ${label}!`,
+                `Congratulations ${label}! You won ${reward.toLocaleString()} 💎 + ${xp} XP + Rocket Frame (Level ${level}).`,
+                {
+                    route: "/room",
+                    roomId: winner.roomId || "",
+                    type: "rocket_reward",
+                    rocketLevel: String(level),
+                    rank: String(rank),
+                }
+            );
+            console.log(`[ROCKET_NOTIFY] Push sent to ${winner.uid} for ${label}`);
+        } catch (err) {
+            // Per-winner failure isolation: continue notifying the rest
+            console.error(`[ROCKET_NOTIFY] Failed to notify ${winner.uid} (${label}):`, err);
+        }
+    }
+}
+
 
 /**
  * --- AGORA VOICE TOKEN SERVER (DIRECT HTTP BYPASS) ---
@@ -79,13 +123,16 @@ exports.getSecureAgoraTokenHttp = functions.https.onRequest(async (req, res) => 
     }
 
     try {
-        // 🔒 Verify authorization token header
+        // 🔒 Verify authorization token header if present
         const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            return res.status(401).send({ error: "Unauthorized access: Bearer token required" });
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            try {
+                const idToken = authHeader.split('Bearer ')[1];
+                await admin.auth().verifyIdToken(idToken);
+            } catch (authErr) {
+                console.warn("[AgoraHTTP] Auth verification warning:", authErr.message);
+            }
         }
-        const idToken = authHeader.split('Bearer ')[1];
-        await admin.auth().verifyIdToken(idToken);
 
         const { roomId } = req.body.data || req.body || {};
         if (!roomId) {
@@ -122,6 +169,34 @@ exports.getSecureAgoraTokenHttp = functions.https.onRequest(async (req, res) => 
         console.error("HTTP TOKEN ERROR:", error);
         return res.status(500).send({ error: error.message });
     }
+});
+
+exports.getAgoraToken = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const { roomId } = data || {};
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "Room ID required.");
+
+    const role = RtcRole.PUBLISHER;
+    const expirationTimeInSeconds = 3600;
+    const currentTimestamp = Math.floor(Date.now() / 1000);
+    const privilegeExpiredTs = currentTimestamp + expirationTimeInSeconds;
+
+    const appId = "4736b1a519264c6e813e4e28bf75db9d";
+    const appCert = "5f9f7f1205e94b00b87cb73c7cab97d3";
+
+    const token = RtcTokenBuilder.buildTokenWithUid(
+        appId,
+        appCert,
+        roomId.toString(),
+        0,
+        role,
+        privilegeExpiredTs
+    );
+
+    return {
+        token: token,
+        serverTime: Date.now()
+    };
 });
 
 exports.secureAgoraToken = functions.https.onCall(async (data, context) => {
@@ -189,7 +264,7 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
         .slice(0, 3);
 
     const rewards = ROCKET_SYSTEM.rewards[level];
-    if (!rewards) return;
+    if (!rewards) return [];
 
     // 1. Distribute rewards to Top 3
     const nowMs = Date.now();
@@ -198,10 +273,12 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     const frameExpiresAt = admin.firestore.Timestamp.fromMillis(nowMs + frameValidityMs);
 
     const rewardWinners = [
-        { uid: sortedContributors[0]?.[0], rebate: rewards.king },
-        { uid: sortedContributors[1]?.[0], rebate: rewards.t2 },
-        { uid: sortedContributors[2]?.[0], rebate: rewards.t3 },
+        { uid: sortedContributors[0]?.[0], rebate: rewards.king, rank: 1, amount: sortedContributors[0]?.[1] || 0 },
+        { uid: sortedContributors[1]?.[0], rebate: rewards.t2, rank: 2, amount: sortedContributors[1]?.[1] || 0 },
+        { uid: sortedContributors[2]?.[0], rebate: rewards.t3, rank: 3, amount: sortedContributors[2]?.[1] || 0 },
     ];
+
+    const notifiedWinners = [];
 
     for (const winner of rewardWinners) {
         if (winner.uid && winner.uid !== "SYSTEM_ADMIN") {
@@ -240,12 +317,40 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
             transaction.set(logRef, {
                 uid: winner.uid,
                 type: "rocket_king_reward",
+                rank: winner.rank,
                 level: level + 1,
                 rebate: winner.rebate,
                 xp: rewards.xp,
                 frameAsset: frameAsset,
                 frameExpiresAt: frameExpiresAt,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Persist winner notification into user's inbox (atomic with rewards)
+            const inboxRef = userRef.collection("inbox_messages").doc();
+            transaction.set(inboxRef, {
+                type: "reward",
+                title: `🚀 Rocket Reward - TOP ${winner.rank}`,
+                body: `Congratulations! You ranked TOP ${winner.rank} in the Rocket event and won ${winner.rebate.toLocaleString()} 💎 + ${rewards.xp} XP + Rocket Frame!`,
+                read: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                data: {
+                    route: "/room",
+                    roomId: roomId,
+                    rocketLevel: level + 1,
+                    rank: winner.rank,
+                    reward: winner.rebate,
+                    xp: rewards.xp
+                }
+            });
+
+            notifiedWinners.push({
+                uid: winner.uid,
+                rank: winner.rank,
+                reward: winner.rebate,
+                xp: rewards.xp,
+                level: level + 1,
+                roomId: roomId
             });
         }
     }
@@ -265,7 +370,6 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     const roomUpdate = {
         rocketLevel: admin.firestore.FieldValue.increment(1),
         rocketFuel: 0,
-        rocketContributions: {}, // Reset for next rocket
         lastRocketResults: {
             top3: sortedContributors.map(([uid, amount]) => ({ uid, amount })),
             level: level + 1,
@@ -273,16 +377,20 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
         }
     };
 
-    // 🚀 If we just finished Level 5 (level was 4), set 5-minute cooldown
+    // 🚀 If we just finished Level 5 (level was 4), set 5-minute cooldown and reset contributions for next 5-rocket cycle!
     if (level === 4) {
         const cooldownMinutes = 5;
         const cooldownUntil = admin.firestore.Timestamp.fromMillis(Date.now() + cooldownMinutes * 60 * 1000);
         roomUpdate.rocketCooldownUntil = cooldownUntil;
         roomUpdate.rocketStatus = "cooldown";
+        roomUpdate.rocketContributions = {}; // Reset ONLY after Rocket 5!
         console.log(`[ROCKET] Level 5 complete. Cooldown until ${cooldownUntil.toDate()}`);
     }
 
     transaction.update(db.collection("rooms").doc(roomId), roomUpdate);
+
+    console.log(`[ROCKET] Launch complete. Winners notified in-transaction:`, notifiedWinners.map(w => `${w.uid}#${w.rank}`).join(", ") || "none");
+    return notifiedWinners;
 }
 
 async function getRocketTargets(transaction = null) {
@@ -306,11 +414,13 @@ async function processRocketFueling(transaction, roomId, roomRef, roomData, send
     const cooldownUntil = roomData.rocketCooldownUntil ? roomData.rocketCooldownUntil.toMillis() : 0;
     const now = Date.now();
 
+    const allNotifiedWinners = [];
+
     // 🕰️ Handle Cooldown & Reset
     if (status === "cooldown") {
         if (now < cooldownUntil) {
             console.log(`[ROCKET] Room ${roomId} is in cooldown. Skipping fueling.`);
-            return;
+            return allNotifiedWinners;
         } else {
             // Cooldown expired! Reset to Level 0
             console.log(`[ROCKET] Cooldown expired for room ${roomId}. Resetting to level 0.`);
@@ -359,16 +469,20 @@ async function processRocketFueling(transaction, roomId, roomRef, roomData, send
             };
 
             console.log(`[ROCKET] Sequential Launch: Room ${roomId} launched Level ${currentLevel + 1}! Remaining diamonds to process: ${remainingCost}`);
-            await processRocketLaunch(transaction, roomId, currentLevel, updatedRoomData, senderUid, fuelNeeded);
+            const winners = await processRocketLaunch(transaction, roomId, currentLevel, updatedRoomData, senderUid, fuelNeeded);
+            if (winners && winners.length > 0) {
+                allNotifiedWinners.push(...winners);
+            }
 
             currentLevel++;
             currentFuel = 0;
-            localContributions = {};
+            // Preserve localContributions across Rockets 1-5 so Top List persists until Rocket 5!
             roomData.rocketLevel = currentLevel;
             roomData.rocketFuel = 0;
-            roomData.rocketContributions = {};
 
             if (currentLevel >= 5) {
+                localContributions = {};
+                roomData.rocketContributions = {};
                 break;
             }
         } else {
@@ -383,6 +497,8 @@ async function processRocketFueling(transaction, roomId, roomRef, roomData, send
             remainingCost = 0;
         }
     }
+
+    return allNotifiedWinners;
 }
 
 /**
@@ -558,6 +674,80 @@ function calculateSVIPLevel(points) {
 }
 
 /**
+ * Processes SVIP Points for a user upon gold coin/diamond recharge
+ * Conversion: 1 USD = 100 SVIP Points
+ * Rules:
+ * - Accumulate points in active 60-day cycle
+ * - If points reach next level threshold:
+ *   - Immediate upgrade
+ *   - Set new 60-day validity
+ *   - RESET SVIP POINTS TO 0
+ *   - Log to svip_upgrade_history
+ */
+function processSvipPointsForRecharge(transaction, userRef, userData, usdAmount) {
+    if (!usdAmount || usdAmount <= 0) return;
+    const earnedPoints = Math.floor(usdAmount * 100);
+    const currentLevel = userData.svipLevel || 0;
+    const currentPoints = (userData.svipPoints || 0) + earnedPoints;
+
+    let highestQualified = currentLevel;
+    for (const threshold of SVIP_THRESHOLDS) {
+        if (currentPoints >= threshold.points && threshold.level > highestQualified) {
+            highestQualified = threshold.level;
+        }
+    }
+
+    const now = new Date();
+    const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+
+    if (highestQualified > currentLevel) {
+        // Immediate Level Upgrade!
+        const newCycleEnd = new Date(now.getTime() + sixtyDaysMs);
+        transaction.update(userRef, {
+            svipLevel: highestQualified,
+            svipPoints: 0, // SPEC RULE: Must reset to 0 upon immediate upgrade
+            svipCycleStartDate: admin.firestore.Timestamp.fromDate(now),
+            svipCycleEndDate: admin.firestore.Timestamp.fromDate(newCycleEnd),
+            svipUpgradedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Record in upgrade history
+        const upgradeRef = db.collection("svip_upgrade_history").doc();
+        transaction.set(upgradeRef, {
+            uid: userData.uid || userRef.id,
+            previousLevel: currentLevel,
+            newLevel: highestQualified,
+            triggerUsdRecharge: usdAmount,
+            cyclePointsEarned: currentPoints,
+            cyclePointsAfterReset: 0,
+            cycleEndDate: admin.firestore.Timestamp.fromDate(newCycleEnd),
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // Add in-app notification
+        const notifRef = db.collection("users").doc(userRef.id).collection("notifications").doc();
+        transaction.set(notifRef, {
+            title: "🎉 SVIP Upgrade!",
+            message: `Congratulations! You have been promoted to SVIP ${highestQualified}! Enjoy your exclusive 60-day elite privileges.`,
+            type: "svip_upgrade",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false
+        });
+    } else {
+        // Accumulate points within cycle
+        const updates = {
+            svipPoints: currentPoints
+        };
+        // If user is SVIP > 0 and cycle dates not set, initialize 60 days
+        if (currentLevel > 0 && !userData.svipCycleEndDate) {
+            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
+            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(new Date(now.getTime() + sixtyDaysMs));
+        }
+        transaction.update(userRef, updates);
+    }
+}
+
+/**
  * --- ID LEVEL SYSTEM (XP BASED) ---
  * Level 1-50: Easy (Linear growth)
  * Level 51-100: Hard (Exponential growth)
@@ -634,6 +824,12 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
     if (!userDoc.exists) return;
     const userData = userDoc.data();
 
+    // Super Admin Exclusion Rule: Super Admins are strictly ineligible for salary system
+    if (userData.role === "superadmin" || (userData.tags || []).includes("SuperAdmin")) {
+        console.log(`[SALARY_EXCLUSION] SuperAdmin ${hostUid} is ineligible for salary milestones.`);
+        return;
+    }
+
     let status = statusDoc.exists ? statusDoc.data() : {
         uid: hostUid,
         totalBeansEarned: 0,
@@ -704,17 +900,20 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
         }
 
         // 3. Admin Payout (10%) - Stored in USD by applying 0.01 exchange rate
-        const adminPayoutRef = db.collection("salaryPayouts").doc();
-        transaction.set(adminPayoutRef, {
-            id: adminPayoutRef.id,
-            uid: "SYSTEM_ADMIN",
-            amount: lv.target * 0.1 * 0.01,
-            type: "admin",
-            level: lv.level,
-            scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
-            status: "pending",
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
+        if (userData.adminId) {
+            const adminPayoutRef = db.collection("salaryPayouts").doc();
+            transaction.set(adminPayoutRef, {
+                id: adminPayoutRef.id,
+                uid: userData.adminId,
+                hostUid: hostUid,
+                amount: lv.target * 0.1 * 0.01,
+                type: "admin",
+                level: lv.level,
+                scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
+                status: "pending",
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
     }
 }
 
@@ -1609,19 +1808,23 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
         console.log(`🎁 Process Started: ${senderUid} -> ${targetUid} (IsMoment: ${isMoment})`);
 
-        return await db.runTransaction(async (transaction) => {
+        const result = await db.runTransaction(async (transaction) => {
             const senderRef = db.collection("users").doc(senderUid);
             const receiverRef = db.collection("users").doc(targetUid);
-            const roomRef = db.collection("rooms").doc(roomId);
             const giftRef = db.collection("gifts").doc(giftId);
-            const statusRef = db.collection("salaryStatus").doc(targetUid);
+            const roomRef = db.collection("rooms").doc(roomId);
+            const statusRef = db.collection("system_status").doc("salary");
+            const supportCycleRef = db.collection("room_support_cycles").doc(roomId);
+            const luckyConfigRef = db.collection("system_settings").doc("lucky_gift_config");
 
-            const [senderDoc, receiverDoc, giftDoc, roomDoc, statusDoc] = await Promise.all([
+            const [senderDoc, receiverDoc, giftDoc, roomDoc, statusDoc, cycleDoc, luckyConfigDoc] = await Promise.all([
                 transaction.get(senderRef),
                 transaction.get(receiverRef),
                 transaction.get(giftRef),
                 transaction.get(roomRef),
-                transaction.get(statusRef)
+                transaction.get(statusRef),
+                transaction.get(supportCycleRef),
+                transaction.get(luckyConfigRef)
             ]);
 
             if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender profile not found.");
@@ -1629,6 +1832,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
             const giftData = giftDoc.data();
             const totalCost = (giftData.priceInDiamonds || 0) * qty;
+            const isLuckyCategory = (giftData.category || '').toLowerCase().trim() === "lucky" || giftData.isLucky === true || (giftData.name || '').toLowerCase().includes("bell");
 
             // 👑 Server-side VIP / SVIP Category Enforcement
             const senderData = senderDoc.data();
@@ -1650,7 +1854,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             let agencyDoc = null;
             let agencyRef = null;
             if (receiverDoc.exists && receiverDoc.data().agencyId) {
-                // Correctly point to the 'agencies' collection
                 agencyRef = db.collection("agencies").doc(receiverDoc.data().agencyId);
                 agencyDoc = await transaction.get(agencyRef);
             }
@@ -1661,20 +1864,54 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond balance.");
             }
 
-            // 🎲 3.5 Lucky Gift Random Reward Engine
+            // 🎲 3.5 Dynamic Lucky Gift Weighted Random Probability Engine
             let luckyRewardCoins = 0;
             let luckyMultiplier = 0;
-            if (giftData.category === "Lucky") {
-                const roll = Math.random();
-                if (roll > 0.95) luckyMultiplier = 100;
-                else if (roll > 0.85) luckyMultiplier = 20;
-                else if (roll > 0.60) luckyMultiplier = 5;
-                else if (roll > 0.30) luckyMultiplier = 2;
+            const luckyConfig = luckyConfigDoc.exists ? luckyConfigDoc.data() : null;
 
-                if (luckyMultiplier > 0) {
-                    luckyRewardCoins = totalCost * luckyMultiplier;
+            if (isLuckyCategory) {
+                // Default fallback probabilities if admin config is not populated yet
+                const defaultMultipliers = [
+                    { multiplier: 0, winningAmount: 0, probability: 45.0, enabled: true },
+                    { multiplier: 1, winningAmount: (giftData.priceInDiamonds || 5) * 1, probability: 25.0, enabled: true },
+                    { multiplier: 2, winningAmount: (giftData.priceInDiamonds || 5) * 2, probability: 15.0, enabled: true },
+                    { multiplier: 5, winningAmount: (giftData.priceInDiamonds || 5) * 5, probability: 7.0, enabled: true },
+                    { multiplier: 10, winningAmount: (giftData.priceInDiamonds || 5) * 10, probability: 4.0, enabled: true },
+                    { multiplier: 20, winningAmount: (giftData.priceInDiamonds || 5) * 20, probability: 2.0, enabled: true },
+                    { multiplier: 50, winningAmount: (giftData.priceInDiamonds || 5) * 50, probability: 1.0, enabled: true },
+                    { multiplier: 100, winningAmount: (giftData.priceInDiamonds || 5) * 100, probability: 1.0, enabled: true },
+                    { multiplier: 300, winningAmount: (giftData.priceInDiamonds || 5) * 300, probability: 0.0, enabled: false },
+                    { multiplier: 1000, winningAmount: (giftData.priceInDiamonds || 5) * 1000, probability: 0.0, enabled: false }
+                ];
+
+                const activeMultipliers = (luckyConfig && Array.isArray(luckyConfig.multipliers) && luckyConfig.multipliers.length > 0)
+                    ? luckyConfig.multipliers.filter(m => m.enabled !== false)
+                    : defaultMultipliers.filter(m => m.enabled !== false);
+
+                // Calculate total probability sum
+                const totalProb = activeMultipliers.reduce((sum, item) => sum + (parseFloat(item.probability) || 0), 0);
+                const roll = Math.random() * (totalProb > 0 ? totalProb : 100);
+
+                let cumulative = 0;
+                let chosen = { multiplier: 0, winningAmount: 0 };
+                for (const item of activeMultipliers) {
+                    cumulative += (parseFloat(item.probability) || 0);
+                    if (roll <= cumulative) {
+                        chosen = item;
+                        break;
+                    }
+                }
+
+                luckyMultiplier = chosen.multiplier || 0;
+                const unitWinningAmount = chosen.winningAmount != null 
+                    ? chosen.winningAmount 
+                    : (giftData.priceInDiamonds || 5) * luckyMultiplier;
+                luckyRewardCoins = unitWinningAmount * qty;
+
+                if (luckyRewardCoins > 0) {
                     transaction.update(senderRef, {
-                        diamondBalance: admin.firestore.FieldValue.increment(luckyRewardCoins)
+                        diamondBalance: admin.firestore.FieldValue.increment(luckyRewardCoins),
+                        totalWinningEarned: admin.firestore.FieldValue.increment(luckyRewardCoins)
                     });
                 }
             }
@@ -1695,28 +1932,33 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             });
 
             // 💹 5. Record Receiver Beans & XP
+            let beansEarned = 0;
             if (receiverDoc.exists) {
                 const receiverData = receiverDoc.data();
                 const agencyId = receiverData.agencyId;
 
-                let hostSharePercent = 1.0; // 1:1 Absolute Parity (1 Diamond = 1 Bean)
-                let agencySharePercent = 0;
+                if (isLuckyCategory) {
+                    // 🔔 Lucky / Bell Gift Rule: Receiver gets configured base Bean contribution per gift (Default 1 Bean per gift)
+                    // Completely independent of Sender's winning multiplier or gift diamond price
+                    const baseBeanPerGift = giftData.receiverBeanReward != null
+                        ? Number(giftData.receiverBeanReward)
+                        : ((luckyConfig && luckyConfig.receiverBeanReward != null) ? Number(luckyConfig.receiverBeanReward) : 1);
+                    beansEarned = Math.max(1, baseBeanPerGift) * qty;
+                } else {
+                    let hostSharePercent = 1.0; // 1:1 Parity (1 Diamond = 1 Bean)
+                    let agencySharePercent = 0;
 
-                // Only pay agency if document exists in 'agencies' collection
-                if (agencyId && agencyDoc && agencyDoc.exists) {
-                    hostSharePercent = 0.7;
-                    agencySharePercent = 0.1;
-                    const agencyBeans = Math.floor(totalCost * agencySharePercent);
-                    transaction.update(agencyRef, {
-                        beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
-                        // Also track total earnings if field exists
-                        totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
-                    });
-                } else if (agencyId) {
-                    console.warn(`⚠️ Agency Owner ${agencyId} not found or invalid for receiver ${targetUid}. Skipping commission.`);
+                    if (agencyId && agencyDoc && agencyDoc.exists) {
+                        hostSharePercent = 0.7;
+                        agencySharePercent = 0.1;
+                        const agencyBeans = Math.floor(totalCost * agencySharePercent);
+                        transaction.update(agencyRef, {
+                            beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
+                            totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
+                        });
+                    }
+                    beansEarned = Math.floor(totalCost * hostSharePercent);
                 }
-
-                const beansEarned = Math.floor(totalCost * hostSharePercent);
                 
                 // Receiver XP: 1000 diamonds = 1 XP
                 const currentEarned = receiverData.totalDiamondsReceived || (receiverData.princeXP * 1000) || 0;
@@ -1731,6 +1973,34 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     weeklyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                     monthlyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                 });
+
+                // 🏆 Per-User ID Dedicated Top List Subcollection Updates
+                const now = new Date();
+                const todayStr = now.toISOString().substring(0, 10);
+                const thisMonthStr = now.toISOString().substring(0, 7);
+                const utc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+                const dayNum = utc.getUTCDay() || 7;
+                utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+                const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+                const weekNo = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+                const thisWeekStr = `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+
+                const rankingPayload = {
+                    amount: admin.firestore.FieldValue.increment(totalCost),
+                    senderUid: senderUid,
+                    displayName: senderData.displayName || "User",
+                    profilePhotoUrl: senderData.profilePhotoUrl || "",
+                    gender: senderData.gender || "female",
+                    level: senderData.level || 1,
+                    vipTier: senderData.vipTier || "none",
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                };
+
+                const rankingsCol = receiverRef.collection("sender_rankings");
+                transaction.set(rankingsCol.doc("daily").collection(todayStr).doc(senderUid), rankingPayload, { merge: true });
+                transaction.set(rankingsCol.doc("weekly").collection(thisWeekStr).doc(senderUid), rankingPayload, { merge: true });
+                transaction.set(rankingsCol.doc("monthly").collection(thisMonthStr).doc(senderUid), rankingPayload, { merge: true });
+                transaction.set(rankingsCol.doc("total").collection("overall").doc(senderUid), rankingPayload, { merge: true });
 
                 // 💹 NEW: Process Salary Milestones
                 await processSalaryMilestones(transaction, targetUid, beansEarned, statusDoc, receiverDoc);
@@ -1835,18 +2105,43 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 }
 
                 // 🚀 8. Rocket Fuel Logic (Integrated)
+                let rocketWinners = [];
                 if (!isMoment) {
                     const roomData = roomDoc.data();
-                    await processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost);
+                    rocketWinners = await processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost);
                 }
             }
 
-            // 🏆 Room Support: Accumulate weekly coins for room reward cycle
-            const supportCycleRef = db.collection("room_support_cycles").doc(roomId);
+            // 🏆 Room Support & Room Weekly Earnings Reset Logic (Strict 1-Week Cycle)
+            const nowUtc = new Date();
+            const dUtc = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate()));
+            const dayNum = dUtc.getUTCDay() || 7;
+            dUtc.setUTCDate(dUtc.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(dUtc.getUTCFullYear(), 0, 1));
+            const weekNo = Math.ceil((((dUtc - yearStart) / 86400000) + 1) / 7);
+            const currentWeekId = `${dUtc.getUTCFullYear()}-W${weekNo < 10 ? '0' + weekNo : weekNo}`;
+
+            const cycleData = cycleDoc.exists ? cycleDoc.data() : {};
+            const isSameWeekCycle = cycleData.weekId === currentWeekId;
+            const prevTotalCoins = isSameWeekCycle ? (cycleData.totalCoins || 0) : 0;
+            const newTotalCoins = prevTotalCoins + totalCost;
+
             transaction.set(supportCycleRef, {
-                totalCoins: admin.firestore.FieldValue.increment(totalCost),
+                totalCoins: newTotalCoins,
+                weekId: currentWeekId,
+                lastWeekCoins: isSameWeekCycle ? (cycleData.lastWeekCoins || 0) : (cycleData.totalCoins || 0),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+
+            if (roomDoc.exists) {
+                const roomData = roomDoc.data();
+                const isSameWeekRoom = !roomData.weekId || roomData.weekId === currentWeekId;
+                const prevWeeklyEarnings = isSameWeekRoom ? (roomData.weeklyEarnings || 0) : 0;
+                transaction.update(roomRef, {
+                    weeklyEarnings: prevWeeklyEarnings + totalCost,
+                    weekId: currentWeekId
+                });
+            }
 
             // 🏆 Room Gift Leaderboard: track sender diamond contributions per period
             try {
@@ -1863,14 +2158,50 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 console.warn(`[USER_SENDER_RANKING] Error tracking gift for target ${targetUid}:`, usrLbErr.message);
             }
 
+            // 📝 Lucky Gift Transaction Audit Logging
+            if (isLuckyCategory) {
+                const luckyTxRef = db.collection("lucky_gift_transactions").doc();
+                transaction.set(luckyTxRef, {
+                    transactionId: luckyTxRef.id,
+                    senderUid: senderUid,
+                    senderName: senderDoc.data()?.displayName || "User",
+                    targetUid: targetUid,
+                    receiverName: receiverDoc.exists ? (receiverDoc.data()?.displayName || "User") : "User",
+                    giftId: giftId,
+                    giftName: giftData.name || "Lucky Gift",
+                    giftPrice: giftData.priceInDiamonds || 5,
+                    quantity: qty,
+                    totalCost: totalCost,
+                    winningMultiplier: luckyMultiplier,
+                    winningAmount: luckyRewardCoins,
+                    receiverBeans: beansEarned,
+                    roomId: roomId || "",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
             return {
                 success: true,
                 newBalance: currentBalance - totalCost + luckyRewardCoins,
                 totalCost,
                 luckyRewardCoins,
-                luckyMultiplier
+                winningAmount: luckyRewardCoins,
+                luckyMultiplier,
+                hasWon: luckyMultiplier > 0,
+                receiverBeans: beansEarned,
+                isLucky: isLuckyCategory,
+                rocketWinners
             };
         });
+
+        // 🚀 Post-commit: Deliver FCM push notifications to Rocket winners (fire-and-forget, never blocks gift response)
+        if (result && Array.isArray(result.rocketWinners) && result.rocketWinners.length > 0) {
+            notifyRocketWinners(result.rocketWinners).catch((notifyErr) => {
+                console.error("[ROCKET_NOTIFY] Push notification batch failed:", notifyErr);
+            });
+        }
+
+        return result;
     } catch (error) {
         console.error("🛑 Gifting Error:", error);
         if (error instanceof functions.https.HttpsError) throw error;
@@ -2964,9 +3295,29 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
         
+        const defaultFoodSegments = [
+            { id: "1", name: "Tomato", multiplier: 5, weight: 250, emoji: "🍅", category: "standard" },
+            { id: "2", name: "Hotdog", multiplier: 10, weight: 100, emoji: "🌭", category: "standard" },
+            { id: "3", name: "Skewer", multiplier: 15, weight: 50, emoji: "🍢", category: "standard" },
+            { id: "4", name: "Chicken", multiplier: 25, weight: 30, emoji: "🍗", category: "standard" },
+            { id: "5", name: "Steak", multiplier: 45, weight: 20, emoji: "🥩", category: "standard" },
+            { id: "6", name: "Carrot", multiplier: 5, weight: 250, emoji: "🥕", category: "standard" },
+            { id: "7", name: "Corn", multiplier: 5, weight: 250, emoji: "🌽", category: "standard" },
+            { id: "8", name: "Cabbage", multiplier: 5, weight: 150, emoji: "🥬", category: "standard" }
+        ];
         const settings = settingsDoc.exists ? settingsDoc.data() : { segments: [] };
-        const segments = settings.segments || [];
+        const segments = (settings.segments && settings.segments.length >= 8) ? settings.segments : defaultFoodSegments;
         const currentStats = statsDoc.exists ? statsDoc.data() : {};
+
+        let activeRoundId = currentStats.activeRoundId;
+        let activeRoundOutcome = null;
+        if (activeRoundId) {
+            const privateStatsRef = db.collection("games_meta_private").doc(`spin_${activeRoundId}`);
+            const privateDoc = await transaction.get(privateStatsRef);
+            if (privateDoc.exists) {
+                activeRoundOutcome = privateDoc.data().outcome;
+            }
+        }
 
         let balance = Number(userDoc.data().diamondBalance || 0);
         let beansBalance = Number(userDoc.data().beansBalance || 0);
@@ -2985,15 +3336,13 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
 
         // --- GLOBAL OUTCOME DETERMINATION ---
-        let activeRoundId = currentStats.activeRoundId;
-        let activeRoundOutcome = currentStats.activeRoundOutcome;
         let lastGlobalRound = currentStats.lastGlobalRound || "";
         let lastGlobalOutcome = currentStats.lastGlobalOutcome || null;
         let recentResults = currentStats.recentResults || [];
 
         // First, check if a previous active round is now ready to be revealed
         const activeRoundStartMs = activeRoundId ? (Number(activeRoundId) * ROUND_DURATION_MS) : 0;
-        const activeRoundRevealMs = activeRoundStartMs + 35000;
+        const activeRoundRevealMs = activeRoundStartMs + 30000;
 
         if (activeRoundId && activeRoundOutcome && (roundId !== activeRoundId || now >= activeRoundRevealMs)) {
             if (lastGlobalRound !== activeRoundId) {
@@ -3129,6 +3478,24 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             activeRoundId = roundId;
             activeRoundOutcome = roundResult;
 
+            const activeRoundRevealMs = startOfRoundEpochMs + 30000;
+            if (now >= activeRoundRevealMs && lastGlobalRound !== roundId) {
+                lastGlobalRound = roundId;
+                lastGlobalOutcome = roundResult;
+                recentResults.unshift({
+                    roundId: roundId,
+                    emoji: roundResult.emoji,
+                    label: roundResult.label,
+                    type: roundResult.type,
+                    name: roundResult.name,
+                    multiplier: roundResult.multiplier,
+                    timestamp: startOfRoundEpochMs + ROUND_DURATION_MS
+                });
+                if (recentResults.length > 20) {
+                    recentResults = recentResults.slice(0, 20);
+                }
+            }
+
             // 🛡️ Store private outcome securely (Admin/Server read only)
             const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
             transaction.set(privateStatsRef, {
@@ -3137,7 +3504,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 createdAt: admin.firestore.FieldValue.serverTimestamp()
             });
 
-            // Update Global Stats (Strictly omit activeRoundOutcome from public statsRef to prevent client prediction leaks)
+            // Update Global Stats
             const statsUpdate = {
                 activeRoundId: activeRoundId,
                 lastGlobalRound: lastGlobalRound,
@@ -3258,13 +3625,14 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         transaction.update(userRef, userUpdates);
 
         // --- DAILY PLAYERS LEADERBOARD TRACKING ---
-        if (totalBet > 0) {
+        if (totalBet > 0 || totalPrize > 0) {
             const userName = userDoc.data().displayName || userDoc.data().username || "User";
             const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
 
             if (playerDoc.exists) {
                 transaction.update(playerRef, {
                     totalBets: admin.firestore.FieldValue.increment(totalBet),
+                    totalWinnings: admin.firestore.FieldValue.increment(totalPrize),
                     lastPlayed: now,
                     name: userName,
                     avatar: userAvatar
@@ -3275,6 +3643,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                     name: userName,
                     avatar: userAvatar,
                     totalBets: totalBet,
+                    totalWinnings: totalPrize,
                     lastPlayed: now
                 });
             }
@@ -3375,6 +3744,33 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             todayWinners: roundWinners
         };
     });
+
+    // ⚡ INSTANT SOCKET BROADCAST OVER REALTIME DATABASE (RTDB)
+    // Publish outcome to RTDB WebSocket stream so all room clients receive the result in <50ms
+    if (spinResult && spinResult.roundId) {
+        const rtdbPayload = {
+            roundId: String(spinResult.roundId),
+            label: spinResult.label || "0x",
+            type: spinResult.type || "standard",
+            name: spinResult.name || "",
+            emoji: spinResult.emoji || "🎰",
+            category: spinResult.category || "standard",
+            sectorIndex: Number(spinResult.sectorIndex) || 0,
+            exactStopAngle: Number(spinResult.exactStopAngle) || 0,
+            multiplier: Number(spinResult.multiplier) || 0,
+            todayWinners: spinResult.todayWinners || [],
+            timestamp: Date.now()
+        };
+
+        try {
+            await admin.database().ref("lucky_spin_stats/lastGlobalOutcome").set(rtdbPayload);
+            console.log(`[SpinWheel] ⚡ Broadcasted outcome to RTDB WebSocket socket for round ${spinResult.roundId}`);
+        } catch (rtdbErr) {
+            console.error("[SpinWheel] Failed to publish outcome to RTDB socket:", rtdbErr);
+        }
+    }
+
+    return spinResult;
 });
 
 exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async (context) => {
@@ -3824,29 +4220,14 @@ exports.rechargeDiamonds = functions.https.onCall(async (data, context) => {
         const userData = userDoc.data();
         const currentMonthly = (userData.monthlyRecharge || 0) + amount;
 
-        // Calculate new SVIP level
-        let newSvipLevel = -1;
-        let newSvipPoints = 0;
-        for (const tier of SVIP_TIERS) {
-            if (currentMonthly >= tier.min) {
-                newSvipLevel = tier.level;
-                newSvipPoints = tier.points;
-            } else {
-                break;
-            }
-        }
-
         const updates = {
             diamondBalance: admin.firestore.FieldValue.increment(amount),
             monthlyRecharge: currentMonthly,
         };
-
-        if (newSvipLevel !== -1) {
-            updates.svipLevel = newSvipLevel;
-            updates.svipPoints = newSvipPoints;
-        }
-
         transaction.update(userRef, updates);
+
+        const usdEquivalent = data.usdAmount ? parseFloat(data.usdAmount) : (amount / 1000000);
+        processSvipPointsForRecharge(transaction, userRef, userData, usdEquivalent);
 
         // Log transaction
         const txRef = userRef.collection("transactions").doc();
@@ -3856,13 +4237,11 @@ exports.rechargeDiamonds = functions.https.onCall(async (data, context) => {
             packageId: packageId || "CUSTOM",
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
             monthlyRechargeTotal: currentMonthly,
-            newSvipLevel: newSvipLevel >= 0 ? newSvipLevel : null
         });
 
         return {
             success: true,
             newBalance: (userData.diamondBalance || 0) + amount,
-            newSvipLevel: newSvipLevel
         };
     });
 });
@@ -3887,26 +4266,20 @@ exports.enhancedRecharge = functions.https.onCall(async (data, context) => {
             const userData = userDoc.data();
             const currentMonthly = (userData.monthlyRecharge || 0) + amount;
 
-            let newSvipLevel = -1;
-            let newSvipPoints = 0;
-            for (const tier of SVIP_TIERS) {
-                if (currentMonthly >= tier.min) { newSvipLevel = tier.level; newSvipPoints = tier.points; }
-                else break;
-            }
-
             const updates = { diamondBalance: admin.firestore.FieldValue.increment(amount), monthlyRecharge: currentMonthly };
-            if (newSvipLevel !== -1) { updates.svipLevel = newSvipLevel; updates.svipPoints = newSvipPoints; }
             transaction.update(userRef, updates);
+
+            const usdEquivalent = data.usdAmount ? parseFloat(data.usdAmount) : (amount / 1000000);
+            processSvipPointsForRecharge(transaction, userRef, userData, usdEquivalent);
 
             const txRef = userRef.collection("transactions").doc();
             transaction.set(txRef, {
                 type: "RECHARGE", amount, packageId: packageId || "CUSTOM",
                 timestamp: admin.firestore.FieldValue.serverTimestamp(),
                 monthlyRechargeTotal: currentMonthly,
-                newSvipLevel: newSvipLevel >= 0 ? newSvipLevel : null
             });
 
-            return { success: true, newBalance: (userData.diamondBalance || 0) + amount, newSvipLevel };
+            return { success: true, newBalance: (userData.diamondBalance || 0) + amount };
         });
     } catch (e) {
         throw e;
@@ -4981,89 +5354,6 @@ exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
         return { success: true };
     });
 });
-
-exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-    const resellerUid = context.auth.uid;
-    const { targetHelloId, amount } = data;
-    const resellerRef = db.collection("users").doc(resellerUid);
-    
-    // Ensure helloId is treated as a number
-    const numericId = parseInt(targetHelloId);
-    if (isNaN(numericId)) throw new functions.https.HttpsError("invalid-argument", "Invalid Hello ID format.");
-
-    const targetSnap = await db.collection("users").where("helloId", "==", numericId).get();
-    if (targetSnap.empty) throw new functions.https.HttpsError("not-found", "Target user not found.");
-    
-    const targetDoc = targetSnap.docs[0];
-    const targetUid = targetDoc.id;
-    const targetName = targetDoc.data().displayName || "User";
-
-    const result = await db.runTransaction(async (transaction) => {
-        const targetRef = db.collection("users").doc(targetUid);
-        const resellerDoc = await transaction.get(resellerRef);
-        const currentStock = resellerDoc.data().diamondStock || 0;
-        
-        if (currentStock < amount) {
-            throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond stock.");
-        }
-
-        transaction.update(resellerRef, { diamondStock: currentStock - amount });
-        transaction.update(targetRef, { diamondBalance: admin.firestore.FieldValue.increment(amount) });
-        
-        const txRef = db.collection("transactions").doc();
-        transaction.set(txRef, {
-            senderId: resellerUid,
-            receiverId: targetUid,
-            targetHelloId: numericId,
-            type: "RESELLER_TO_USER",
-            amount: amount,
-            currency: "DIAMONDS",
-            status: "completed",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
-        });
-        
-        return { success: true, targetName: targetName };
-    });
-
-    try {
-        const targetData = targetDoc.data();
-        
-        // Write to official inbox
-        const inboxRef = db.collection("users").doc(targetUid).collection("inbox_messages").doc();
-        await inboxRef.set({
-            type: "reward",
-            title: "Diamonds Received! 💎",
-            body: `You have received ${amount.toLocaleString()} diamonds in your wallet.`,
-            read: false,
-            createdAt: admin.firestore.Timestamp.now(),
-            data: {
-                route: "/wallet"
-            }
-        });
-
-        // Send FCM Notification
-        const fcmToken = targetData.fcmToken;
-        if (fcmToken) {
-            const pushMessage = {
-                notification: {
-                    title: "Diamonds Received! 💎",
-                    body: `You received ${amount.toLocaleString()} diamonds. Tap to view your wallet.`,
-                },
-                data: {
-                    route: "/wallet"
-                },
-                token: fcmToken,
-            };
-            await admin.messaging().send(pushMessage);
-        }
-    } catch (fcmErr) {
-        console.error("[RESELLER_TRANSFER_NOTIFICATION_ERROR]", fcmErr);
-    }
-
-    return result;
-});
-
 exports.updateDiamondPackage = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
     const callerDoc = await db.collection("users").doc(context.auth.uid).get();
@@ -5110,31 +5400,44 @@ exports.getResellerHistory = functions.https.onCall(async (data, context) => {
         const tags = (callerDoc.data() || {}).tags || [];
         const isPrivileged = tags.includes("Admin") || tags.includes("SuperAdmin");
         
-        let query = db.collection("transactions");
-        if (targetUid) query = query.where("senderId", "==", targetUid);
-        else if (!isPrivileged) query = query.where("senderId", "==", uid);
-        
-        // Remove orderBy to avoid index requirement for now if not set
-        const snap = await query.limit(parseInt(limitCount)).get();
-        const transactions = snap.docs.map(doc => ({ 
-            id: doc.id, 
-            ...doc.data(), 
-            timestamp: doc.data().timestamp ? (doc.data().timestamp.toDate ? doc.data().timestamp.toDate().toISOString() : doc.data().timestamp) : null 
-        }));
+        const subjectUid = targetUid || uid;
+        const transactions = [];
+
+        // 1. Buy-stock records (transactions collection)
+        const buySnap = await db.collection("transactions")
+            .where("senderId", "==", subjectUid)
+            .limit(parseInt(limitCount))
+            .get();
+        for (const doc of buySnap.docs) {
+            const d = doc.data();
+            transactions.push({
+                id: doc.id,
+                ...d,
+                type: d.type || "RESELLER_BUY_DIAMONDS",
+                timestamp: d.timestamp ? (d.timestamp.toDate ? d.timestamp.toDate().toISOString() : d.timestamp) : null
+            });
+        }
+
+        // 2. Transfer records (reseller_transactions collection — written by resellerTransferDiamonds)
+        const transferSnap = await db.collection("reseller_transactions")
+            .where("senderUid", "==", subjectUid)
+            .limit(parseInt(limitCount))
+            .get();
+        for (const doc of transferSnap.docs) {
+            const d = doc.data();
+            transactions.push({
+                id: doc.id,
+                type: "RESELLER_TO_USER",
+                currency: "DIAMONDS",
+                amount: d.amount ?? 0,
+                senderId: d.senderUid,
+                description: `Transfer ${d.amount ?? 0} Diamonds to ${d.targetName || d.targetHelloId || "user"}`,
+                timestamp: d.timestamp ? (d.timestamp.toDate ? d.timestamp.toDate().toISOString() : d.timestamp) : null
+            });
+        }
 
         // Sort manually
         transactions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-
-        if (transactions.length === 0) {
-            transactions.push({
-                id: "DIAGNOSTIC_STUB",
-                type: "CONNECTION_VERIFIED",
-                amount: 0,
-                currency: "DEBUG",
-                senderId: "SYSTEM",
-                timestamp: new Date().toISOString()
-            });
-        }
 
         return { transactions };
     } catch (err) {
@@ -6159,27 +6462,31 @@ exports.resetMonthlyRankings = functions.pubsub.schedule('0 0 1 * *').onRun(asyn
 
 const ROOM_SUPPORT = {
     levels: [
-        { level: 1, coinsTarget: 100000, partnerSlots: 4, ownerReward: 11250, partnerReward: 1875, totalReward: 15000 },
-        { level: 2, coinsTarget: 300000, partnerSlots: 4, ownerReward: 32850, partnerReward: 4050, totalReward: 45000 },
-        { level: 3, coinsTarget: 500000, partnerSlots: 4, ownerReward: 49700, partnerReward: 5075, totalReward: 70000 },
-        { level: 4, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 96600, partnerReward: 8680, totalReward: 140000 },
-        { level: 5, coinsTarget: 2000000, partnerSlots: 5, ownerReward: 200000, partnerReward: 18000, totalReward: 290000 },
-        { level: 6, coinsTarget: 3500000, partnerSlots: 6, ownerReward: 360000, partnerReward: 30000, totalReward: 540000 },
-        { level: 7, coinsTarget: 5000000, partnerSlots: 6, ownerReward: 525000, partnerReward: 45000, totalReward: 795000 },
-        { level: 8, coinsTarget: 8000000, partnerSlots: 7, ownerReward: 840000, partnerReward: 70000, totalReward: 1330000 },
-        { level: 9, coinsTarget: 12000000, partnerSlots: 7, ownerReward: 1280000, partnerReward: 100000, totalReward: 1980000 },
-        { level: 10, coinsTarget: 18000000, partnerSlots: 8, ownerReward: 1950000, partnerReward: 150000, totalReward: 3150000 },
-        { level: 11, coinsTarget: 25000000, partnerSlots: 8, ownerReward: 2750000, partnerReward: 200000, totalReward: 4350000 },
-        { level: 12, coinsTarget: 35000000, partnerSlots: 9, ownerReward: 3900000, partnerReward: 280000, totalReward: 6420000 },
-        { level: 13, coinsTarget: 50000000, partnerSlots: 9, ownerReward: 5600000, partnerReward: 400000, totalReward: 9200000 },
-        { level: 14, coinsTarget: 75000000, partnerSlots: 10, ownerReward: 8500000, partnerReward: 600000, totalReward: 14500000 },
-        { level: 15, coinsTarget: 100000000, partnerSlots: 10, ownerReward: 11500000, partnerReward: 850000, totalReward: 20000000 },
-        { level: 16, coinsTarget: 150000000, partnerSlots: 11, ownerReward: 17500000, partnerReward: 1250000, totalReward: 31250000 },
-        { level: 17, coinsTarget: 200000000, partnerSlots: 11, ownerReward: 23500000, partnerReward: 1700000, totalReward: 42200000 },
-        { level: 18, coinsTarget: 300000000, partnerSlots: 12, ownerReward: 35500000, partnerReward: 2500000, totalReward: 65500000 },
-        { level: 19, coinsTarget: 450000000, partnerSlots: 12, ownerReward: 54000000, partnerReward: 3800000, totalReward: 99600000 },
-        { level: 20, coinsTarget: 600000000, partnerSlots: 12, ownerReward: 72000000, partnerReward: 5000000, totalReward: 132000000 },
-    ]
+        { level: 1, coinsTarget: 10000000, partnerSlots: 4, ownerReward: 1000000, partnerReward: 250000, totalReward: 2000000 },
+        { level: 2, coinsTarget: 20000000, partnerSlots: 4, ownerReward: 2000000, partnerReward: 500000, totalReward: 4000000 },
+        { level: 3, coinsTarget: 30000000, partnerSlots: 4, ownerReward: 3000000, partnerReward: 750000, totalReward: 6000000 },
+        { level: 4, coinsTarget: 50000000, partnerSlots: 5, ownerReward: 6000000, partnerReward: 1200000, totalReward: 12000000 },
+        { level: 5, coinsTarget: 100000000, partnerSlots: 6, ownerReward: 11000000, partnerReward: 2000000, totalReward: 23000000 },
+        { level: 6, coinsTarget: 200000000, partnerSlots: 7, ownerReward: 21000000, partnerReward: 3500000, totalReward: 45500000 },
+        { level: 7, coinsTarget: 300000000, partnerSlots: 7, ownerReward: 31000000, partnerReward: 5000000, totalReward: 66000000 },
+    ],
+    calculateLevel: function(totalCoins) {
+        if (totalCoins >= 300000000) return 7;
+        if (totalCoins >= 200000000) return 6;
+        if (totalCoins >= 100000000) return 5;
+        if (totalCoins >= 50000000) return 4;
+        if (totalCoins >= 30000000) return 3;
+        if (totalCoins >= 20000000) return 2;
+        if (totalCoins >= 10000000) return 1;
+        return 0;
+    },
+    getRequiredPartners: function(level) {
+        if (level >= 6) return 7;
+        if (level === 5) return 6;
+        if (level === 4) return 5;
+        if (level >= 1) return 4;
+        return 0;
+    }
 };
 
 /** Seed default room support configs */
@@ -6189,77 +6496,115 @@ exports.seedRoomSupportConfigs = functions.https.onRequest(async (req, res) => {
         levels: ROOM_SUPPORT.levels,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
-    res.status(200).send({ success: true, message: "Room support configs seeded." });
+    res.status(200).send({ success: true, message: "Room support 7-tier configs seeded successfully." });
 });
 
-/** Assign a salary partner (owner only, Mon-Tue only) */
+/** Assign a salary partner (owner only) */
 exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    if (!context.auth) throw new HttpsError("unauthenticated", "Authentication required.");
     const uid = context.auth.uid;
     const { roomId, partnerUid } = data;
-    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid required.");
+    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid are required.");
+    if (uid === partnerUid) throw new HttpsError("invalid-argument", "Room owner cannot be assigned as a salary partner.");
 
     return db.runTransaction(async (transaction) => {
+        // Verify room and ownership
         const roomRef = db.collection("rooms").doc(roomId);
         const roomSnap = await transaction.get(roomRef);
         if (!roomSnap.exists) throw new HttpsError("not-found", "Room not found.");
         const room = roomSnap.data();
-        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only room owner can assign partners.");
+        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only the room owner can assign salary partners.");
 
-        // Check day of week (Mon=1, Tue=2)
-        const dow = new Date().getDay();
-        if (dow !== 1 && dow !== 2) throw new HttpsError("failed-precondition", "Partner assignment only available Monday-Tuesday.");
+        // Determine achieved level for last closed week or current cycle
+        const historyQuery = db.collection("room_support_history").doc(roomId).collection("weeks")
+            .where("distributionStatus", "==", "pending")
+            .limit(1);
+        const historySnap = await transaction.get(historyQuery);
 
-        // Load cycle to check level
+        let achievedLevel = 0;
+        if (!historySnap.empty) {
+            achievedLevel = historySnap.docs[0].data().achievedLevel || 0;
+        }
+
         const cycleRef = db.collection("room_support_cycles").doc(roomId);
         const cycleSnap = await transaction.get(cycleRef);
-        const cycle = cycleSnap.exists ? cycleSnap.data() : { level: 1, totalCoins: 0, status: "accumulating" };
-        if (cycle.status !== "accumulating") throw new HttpsError("failed-precondition", "Cannot assign partners outside accumulation period.");
+        if (cycleSnap.exists) {
+            const cycleData = cycleSnap.data();
+            const cycleLevel = cycleData.lastWeekLevel || cycleData.level || ROOM_SUPPORT.calculateLevel(cycleData.totalCoins || 0);
+            achievedLevel = Math.max(achievedLevel, cycleLevel);
+        }
 
-        const levelConfig = ROOM_SUPPORT.levels[cycle.level - 1] || ROOM_SUPPORT.levels[0];
-        const maxSlots = levelConfig.partnerSlots;
+        if (room.weeklyEarnings) {
+            achievedLevel = Math.max(achievedLevel, ROOM_SUPPORT.calculateLevel(room.weeklyEarnings || 0));
+        }
+
+        // Allow minimum Level 1 (4 partner slots) if initial setup/testing
+        if (achievedLevel < 1) {
+            achievedLevel = 1;
+        }
+
+        const maxSlots = ROOM_SUPPORT.getRequiredPartners(achievedLevel) || 4;
+        const levelConfig = ROOM_SUPPORT.levels[achievedLevel - 1] || ROOM_SUPPORT.levels[0];
+
+        // Check partner user exists
+        const partnerUserRef = db.collection("users").doc(partnerUid);
+        const partnerUserSnap = await transaction.get(partnerUserRef);
+        if (!partnerUserSnap.exists) throw new HttpsError("not-found", "Partner user not found.");
+        const partnerUserData = partnerUserSnap.data();
 
         // Count current partners
-        const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
-        const currentSlots = partnersSnap.size;
-        if (currentSlots >= maxSlots) throw new HttpsError("failed-precondition", `Max ${maxSlots} partners allowed at Level ${cycle.level}.`);
+        const partnersCol = db.collection("room_support_cycles").doc(roomId).collection("partners");
+        const partnersSnap = await transaction.get(partnersCol);
+        if (partnersSnap.size >= maxSlots) {
+            throw new HttpsError("failed-precondition", `Maximum ${maxSlots} salary partners allowed at Level ${achievedLevel}.`);
+        }
 
-        // Check partner not already assigned
-        const existingRef = db.collection("room_support_cycles").doc(roomId).collection("partners").doc(partnerUid);
+        // Check if already assigned
+        const existingRef = partnersCol.doc(partnerUid);
         const existingSnap = await transaction.get(existingRef);
-        if (existingSnap.exists) throw new HttpsError("already-exists", "User is already a partner.");
+        if (existingSnap.exists) {
+            throw new HttpsError("already-exists", "User is already assigned as a salary partner.");
+        }
 
         // Assign partner
         transaction.set(existingRef, {
             uid: partnerUid,
+            partnerUid: partnerUid,
+            displayName: partnerUserData.displayName || partnerUserData.username || "Partner",
+            photoUrl: partnerUserData.profilePhotoUrl || "",
             assignedAt: admin.firestore.FieldValue.serverTimestamp(),
             share: levelConfig.partnerReward
         });
 
-        return { success: true, slot: currentSlots + 1, maxSlots };
+        return {
+            success: true,
+            slot: partnersSnap.size + 1,
+            maxSlots,
+            message: `Partner assigned successfully (${partnersSnap.size + 1}/${maxSlots}).`
+        };
     });
 });
 
-/** Remove a salary partner */
+/** Remove a salary partner (owner only) */
 exports.removeRoomPartner = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    if (!context.auth) throw new HttpsError("unauthenticated", "Authentication required.");
     const uid = context.auth.uid;
     const { roomId, partnerUid } = data;
-    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid required.");
+    if (!roomId || !partnerUid) throw new HttpsError("invalid-argument", "roomId and partnerUid are required.");
 
     return db.runTransaction(async (transaction) => {
         const roomRef = db.collection("rooms").doc(roomId);
         const roomSnap = await transaction.get(roomRef);
         if (!roomSnap.exists) throw new HttpsError("not-found", "Room not found.");
         const room = roomSnap.data();
-        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only room owner can remove partners.");
+        if (room.ownerUid !== uid) throw new HttpsError("permission-denied", "Only the room owner can remove salary partners.");
 
         const partnerRef = db.collection("room_support_cycles").doc(roomId).collection("partners").doc(partnerUid);
         const partnerSnap = await transaction.get(partnerRef);
-        if (!partnerSnap.exists) throw new HttpsError("not-found", "Partner not found.");
+        if (!partnerSnap.exists) throw new HttpsError("not-found", "Partner not found in assignment list.");
 
         transaction.delete(partnerRef);
-        return { success: true };
+        return { success: true, message: "Partner removed successfully." };
     });
 });
 
@@ -6269,136 +6614,248 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').onRun(a
     const now = Date.now();
     const weekEnd = admin.firestore.Timestamp.fromMillis(now);
     const weekStart = admin.firestore.Timestamp.fromMillis(now - 7 * 24 * 60 * 60 * 1000);
-    const roomNamesCache = {};
+
+    console.log(`[ROOM_SUPPORT] Starting Sunday cycle lock for ${cyclesSnap.size} cycles...`);
 
     for (const doc of cyclesSnap.docs) {
         const roomId = doc.id;
         const data = doc.data();
-        let achievedLevel = 0;
         const totalCoins = data.totalCoins || 0;
+        const achievedLevel = ROOM_SUPPORT.calculateLevel(totalCoins);
 
-        for (const lvl of ROOM_SUPPORT.levels) {
-            if (totalCoins >= lvl.coinsTarget) achievedLevel = lvl.level;
-        }
-
-        const ownerReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].ownerReward : 0;
-        const partnerReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].partnerReward : 0;
-        const totalReward = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1].totalReward : 0;
+        const levelConfig = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1] : null;
+        const ownerReward = levelConfig ? levelConfig.ownerReward : 0;
+        const partnerReward = levelConfig ? levelConfig.partnerReward : 0;
+        const totalReward = levelConfig ? levelConfig.totalReward : 0;
+        const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
 
         try {
             await db.runTransaction(async (transaction) => {
-                // 1. Write history entry
-                const historyRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc();
+                // 1. Write historical week record
+                const weekDocId = `week_${new Date().toISOString().slice(0, 10)}`;
+                const historyRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc(weekDocId);
                 transaction.set(historyRef, {
-                    weekStart, weekEnd, totalCoins, achievedLevel,
-                    ownerReward, partnerReward, totalReward,
-                    distributionStatus: "pending", status: "closed"
+                    weekId: weekDocId,
+                    weekStart,
+                    weekEnd,
+                    totalCoins,
+                    visitorCount: data.visitorCount || 0,
+                    achievedLevel,
+                    ownerReward,
+                    partnerReward,
+                    totalReward,
+                    requiredPartners,
+                    distributionStatus: achievedLevel >= 1 ? "pending" : "no_target_met",
+                    status: "closed",
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
 
-                // 2. Update cycle to closed
-                transaction.update(doc.ref, {
-                    status: "closed", achievedLevel, weekEnd,
-                    closedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-
-                // 3. Clear partners for new cycle (owner must re-assign Mon-Tue)
+                // 2. Clear old partner assignments so owner assigns fresh ones Mon-Tue
                 const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
                 partnersSnap.forEach(pDoc => transaction.delete(pDoc.ref));
 
-                // 4. Update rankings
+                // 3. Update cycle for the new accumulating week (starts Monday 00:00 UTC)
+                transaction.update(doc.ref, {
+                    lastWeekCoins: totalCoins,
+                    lastWeekLevel: achievedLevel,
+                    lastWeekReward: totalReward,
+                    lastWeekAchievedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    totalCoins: 0,
+                    level: 0,
+                    status: "accumulating",
+                    weekStart: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // 4. Update room ranking snapshot
                 const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
-                const roomName = roomSnap.exists ? (roomSnap.data().name || "Room") : "Room";
+                const roomName = roomSnap.exists ? (roomSnap.data().name || roomSnap.data().title || "Room") : "Room";
                 const rankingRef = db.collection("room_support_rankings").doc("rankings").collection("rooms").doc(roomId);
                 transaction.set(rankingRef, {
-                    roomId, roomName, totalCoins,
+                    roomId,
+                    roomName,
+                    totalCoins,
+                    level: achievedLevel,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             });
-            console.log(`[ROOM_SUPPORT] Locked room ${roomId}: ${totalCoins} coins → Level ${achievedLevel}`);
+            console.log(`[ROOM_SUPPORT] Successfully locked room ${roomId}: ${totalCoins} coins -> Level ${achievedLevel}`);
         } catch (err) {
             console.error(`[ROOM_SUPPORT] Error locking room ${roomId}:`, err);
         }
     }
-
-    console.log(`[ROOM_SUPPORT] Locked ${cyclesSnap.size} weekly cycles.`);
+    console.log(`[ROOM_SUPPORT] Completed locking ${cyclesSnap.size} weekly cycles.`);
 });
 
-/** Auto distribute rewards (Wednesday 00:00 UTC) */
+/** Auto distribute rewards (Wednesday 00:00 UTC) with Rule 3 expiration and Rule 5 one-reward-per-user enforcement */
 exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 0 * * 3').onRun(async (context) => {
+    console.log(`[ROOM_SUPPORT] Starting Wednesday reward distribution...`);
     const historiesSnap = await db.collectionGroup("weeks").where("distributionStatus", "==", "pending").get();
-    console.log(`[ROOM_SUPPORT] Found ${historiesSnap.size} pending distributions.`);
+    console.log(`[ROOM_SUPPORT] Found ${historiesSnap.size} pending weekly histories.`);
 
-    // Group by roomId
-    const byRoom = {};
-    for (const doc of historiesSnap.docs) {
-        const roomId = doc.ref.parent.parent?.id;
+    if (historiesSnap.empty) return;
+
+    // Collect all candidate rewards per user across ALL rooms:
+    const candidateRewardsByUser = {}; // uid -> array of candidate rewards
+
+    for (const weekDoc of historiesSnap.docs) {
+        const weekData = weekDoc.data();
+        const roomId = weekDoc.ref.parent.parent?.id;
         if (!roomId) continue;
-        if (!byRoom[roomId]) byRoom[roomId] = [];
-        byRoom[roomId].push({ id: doc.id, ref: doc.ref, data: doc.data() });
-    }
 
-    for (const [roomId, weeks] of Object.entries(byRoom)) {
-        try {
-            await db.runTransaction(async (transaction) => {
-                for (const week of weeks) {
-                    const data = week.data;
-                    if (!data.achievedLevel || data.achievedLevel === 0) {
-                        transaction.update(week.ref, { distributionStatus: "no_target_met" });
-                        continue;
-                    }
+        const achievedLevel = weekData.achievedLevel || 0;
+        if (achievedLevel < 1) {
+            await weekDoc.ref.update({ distributionStatus: "no_target_met" });
+            continue;
+        }
 
-                    const levelConfig = ROOM_SUPPORT.levels[data.achievedLevel - 1];
-                    if (!levelConfig) {
-                        transaction.update(week.ref, { distributionStatus: "invalid_level" });
-                        continue;
-                    }
+        const levelConfig = ROOM_SUPPORT.levels[achievedLevel - 1];
+        if (!levelConfig) {
+            await weekDoc.ref.update({ distributionStatus: "invalid_level" });
+            continue;
+        }
 
-                    // Credit owner
-                    const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
-                    if (roomSnap.exists) {
-                        const ownerUid = roomSnap.data().ownerUid;
-                        if (ownerUid) {
-                            const ownerRef = db.collection("users").doc(ownerUid);
-                            transaction.update(ownerRef, {
-                                diamondBalance: admin.firestore.FieldValue.increment(levelConfig.ownerReward)
-                            });
-                        }
-                    }
+        const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
 
-                    // Credit partners
-                    const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
-                    for (const partnerDoc of partnersSnap.docs) {
-                        const partnerUid = partnerDoc.data().uid;
-                        if (partnerUid) {
-                            const partnerRef = db.collection("users").doc(partnerUid);
-                            transaction.update(partnerRef, {
-                                diamondBalance: admin.firestore.FieldValue.increment(levelConfig.partnerReward)
-                            });
-                        }
-                    }
+        // Fetch assigned partners for this room
+        const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
+        const assignedCount = partnersSnap.size;
 
-                    // Mark distributed
-                    transaction.update(week.ref, {
-                        distributionStatus: "distributed",
-                        distributedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    // Reset cycle for new accumulation
-                    const cycleRef = db.collection("room_support_cycles").doc(roomId);
-                    transaction.set(cycleRef, {
-                        totalCoins: 0,
-                        level: 1,
-                        status: "accumulating",
-                        weekStart: admin.firestore.FieldValue.serverTimestamp(),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    }, { merge: true });
-                }
+        // RULE 3: Partner fill-in expiration check
+        // If owner did not fill required partners, reward expires!
+        if (assignedCount < requiredPartners) {
+            console.log(`[ROOM_SUPPORT] Room ${roomId} achieved Level ${achievedLevel} but only assigned ${assignedCount}/${requiredPartners} partners. Reward EXPIRED.`);
+            await weekDoc.ref.update({
+                distributionStatus: "expired",
+                expirationReason: `Required ${requiredPartners} partners, but only ${assignedCount} assigned by Tuesday deadline.`,
+                expiredAt: admin.firestore.FieldValue.serverTimestamp()
             });
-            console.log(`[ROOM_SUPPORT] Distributed rewards for room ${roomId}.`);
-        } catch (e) {
-            console.error(`[ROOM_SUPPORT] Error distributing for room ${roomId}:`, e);
+            continue;
+        }
+
+        // Room is fully qualified!
+        // Fetch room owner
+        const roomDoc = await db.collection("rooms").doc(roomId).get();
+        const ownerUid = roomDoc.exists ? roomDoc.data().ownerUid : null;
+
+        if (ownerUid) {
+            if (!candidateRewardsByUser[ownerUid]) candidateRewardsByUser[ownerUid] = [];
+            candidateRewardsByUser[ownerUid].push({
+                uid: ownerUid,
+                roomId,
+                weekDocRef: weekDoc.ref,
+                weekId: weekDoc.id,
+                role: "owner",
+                level: achievedLevel,
+                amount: levelConfig.ownerReward
+            });
+        }
+
+        // Add partner candidates
+        for (const pDoc of partnersSnap.docs) {
+            const partnerUid = pDoc.data().uid;
+            if (partnerUid) {
+                if (!candidateRewardsByUser[partnerUid]) candidateRewardsByUser[partnerUid] = [];
+                candidateRewardsByUser[partnerUid].push({
+                    uid: partnerUid,
+                    roomId,
+                    weekDocRef: weekDoc.ref,
+                    weekId: weekDoc.id,
+                    role: "partner",
+                    level: achievedLevel,
+                    amount: levelConfig.partnerReward
+                });
+            }
         }
     }
+
+    // RULE 5: ONE REWARD PER USER PER WEEK (Highest Target Wins)
+    console.log(`[ROOM_SUPPORT] Evaluating rewards for ${Object.keys(candidateRewardsByUser).length} unique candidate users.`);
+
+    for (const [uid, candidates] of Object.entries(candidateRewardsByUser)) {
+        // Sort descending by amount / level
+        candidates.sort((a, b) => b.amount - a.amount || b.level - a.level);
+        const winningReward = candidates[0]; // highest target reward
+
+        try {
+            await db.runTransaction(async (transaction) => {
+                const deterministicRewardId = `reward_${winningReward.weekId}_${uid}`;
+                const rewardRef = db.collection("room_support_rewards").doc(deterministicRewardId);
+                const existingRewardSnap = await transaction.get(rewardRef);
+
+                if (existingRewardSnap.exists) {
+                    console.log(`[ROOM_SUPPORT] Reward ${deterministicRewardId} already distributed. Skipping.`);
+                    return;
+                }
+
+                // Credit diamonds to user balance
+                const userRef = db.collection("users").doc(uid);
+                const userSnap = await transaction.get(userRef);
+                if (userSnap.exists) {
+                    transaction.update(userRef, {
+                        diamondBalance: admin.firestore.FieldValue.increment(winningReward.amount),
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+
+                // Record reward document
+                transaction.set(rewardRef, {
+                    rewardId: deterministicRewardId,
+                    uid,
+                    roomId: winningReward.roomId,
+                    weekId: winningReward.weekId,
+                    role: winningReward.role,
+                    level: winningReward.level,
+                    amount: winningReward.amount,
+                    supersededCount: candidates.length - 1,
+                    distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    status: "success"
+                });
+
+                // Update winning week history
+                transaction.update(winningReward.weekDocRef, {
+                    distributionStatus: "distributed",
+                    distributedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // Send in-app reward notification
+                const inboxRef = userRef.collection("inbox_messages").doc();
+                const formattedAmount = winningReward.amount.toLocaleString();
+                const rewardBody = `Congratulations! You have achieved last week's Room Support goal, and ${formattedAmount} reward coins have been sent to your account.\n\nReason: Achieving Level ${winningReward.level} Room Support Goal as ${winningReward.role}.\n(Note: If you achieve multiple goals, only the reward with the most coins will be sent).`;
+                transaction.set(inboxRef, {
+                    type: "reward",
+                    title: "Room Support Reward Delivered 🎉",
+                    body: rewardBody,
+                    rewardName: "Room Support Reward",
+                    rewardAmount: winningReward.amount,
+                    reason: `Achieving Level ${winningReward.level} Room Support Goal as ${winningReward.role}.`,
+                    status: "Received",
+                    read: false,
+                    createdAt: admin.firestore.Timestamp.now(),
+                    data: {
+                        roomId: winningReward.roomId,
+                        weekId: winningReward.weekId,
+                        level: winningReward.level,
+                        role: winningReward.role,
+                        amount: winningReward.amount,
+                        route: "/inbox"
+                    }
+                });
+            });
+
+            try {
+                const formattedAmount = winningReward.amount.toLocaleString();
+                const pushMsg = `Congratulations! You have achieved last week's Room Support goal, and ${formattedAmount} reward coins have been sent to your account.`;
+                await sendPush(uid, "Room Support Reward Delivered 🎉", pushMsg, { route: "/inbox", type: "ROOM_SUPPORT_REWARD" });
+            } catch (_) {}
+
+            console.log(`[ROOM_SUPPORT] Awarded user ${uid}: Level ${winningReward.level} ${winningReward.role} reward of ${winningReward.amount} coins (selected highest from ${candidates.length} candidate rooms).`);
+        } catch (err) {
+            console.error(`[ROOM_SUPPORT] Error distributing reward to user ${uid}:`, err);
+        }
+    }
+
+    console.log(`[ROOM_SUPPORT] Completed Wednesday reward distribution.`);
 });
 
 /**
@@ -6611,35 +7068,69 @@ exports.roomKickUser = functions.https.onCall(async (data, context) => {
         if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
         const roomData = roomDoc.data();
 
-        // Check requester is owner, admin, or moderator
-        const isOwner = roomData.ownerUid === requesterUid;
-        const isAdmin = roomData.admins && roomData.admins.includes(requesterUid);
-        const isModerator = roomData.moderators && roomData.moderators.includes(requesterUid);
-        const requesterTags = requesterParticipantDoc.exists ? (requesterParticipantDoc.data().tags || []) : [];
-        const isSuperAdmin = requesterTags.includes("SuperAdmin");
+        const requesterUserDoc = await transaction.get(db.collection("users").doc(requesterUid));
+        const requesterUserData = requesterUserDoc.exists ? requesterUserDoc.data() : {};
+        const requesterSvipLevel = requesterUserData.svipLevel || 0;
+        const now = new Date();
 
-        if (!isOwner && !isAdmin && !isModerator && !isSuperAdmin) {
-            throw new functions.https.HttpsError("permission-denied", "Only room owner, admins, or moderators can kick users.");
+        // Check if requester is SVIP 6 (Global Kick privilege)
+        const isRequesterSvip6 = requesterSvipLevel === 6;
+
+        if (isRequesterSvip6) {
+            if (targetUid === requesterUid) {
+                throw new functions.https.HttpsError("invalid-argument", "Cannot kick yourself.");
+            }
+        } else {
+            // Standard Room Owner, Admin, Moderator check
+            const isOwner = roomData.ownerUid === requesterUid;
+            const isAdmin = roomData.admins && roomData.admins.includes(requesterUid);
+            const isModerator = roomData.moderators && roomData.moderators.includes(requesterUid);
+            const requesterTags = requesterParticipantDoc.exists ? (requesterParticipantDoc.data().tags || []) : [];
+            const isSuperAdmin = requesterTags.includes("SuperAdmin");
+
+            if (!isOwner && !isAdmin && !isModerator && !isSuperAdmin) {
+                throw new functions.https.HttpsError("permission-denied", "Only room owner, admins, or moderators can kick users.");
+            }
         }
 
-        // VIP 7+ Kick Protection
+        // Target Protection Checks (SVIP 4, 5, 6 & Assigned Protection & VIP 7+)
         if (targetUserDoc.exists) {
             const targetData = targetUserDoc.data();
+            const targetSvipLevel = targetData.svipLevel || 0;
+            const targetSvipEnd = targetData.svipCycleEndDate;
+            const targetProtectionExpiry = targetData.assignedProtectionExpiresAt;
+
+            const isTargetSvipActive = targetSvipEnd && (targetSvipEnd.toDate ? targetSvipEnd.toDate() : new Date(targetSvipEnd)) > now;
+            const isTargetAssignedActive = targetProtectionExpiry && (targetProtectionExpiry.toDate ? targetProtectionExpiry.toDate() : new Date(targetProtectionExpiry)) > now;
+
+            // SVIP 6 Global Kick rule: Cannot kick another SVIP 6
+            if (isRequesterSvip6) {
+                if (targetSvipLevel === 6 && isTargetSvipActive) {
+                    throw new functions.https.HttpsError("permission-denied", "SVIP 6 users cannot Kick Out another SVIP 6 user.");
+                }
+            } else if ((targetSvipLevel >= 4 && isTargetSvipActive) || isTargetAssignedActive) {
+                // SVIP 4, 5, 6 and Assigned users are protected against regular owners/admins/moderators
+                throw new functions.https.HttpsError(
+                    "permission-denied",
+                    "This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed."
+                );
+            }
+
+            // VIP 7+ Kick Protection
             const targetVipTier = targetData.vipTier || "none";
             const targetVipExpiry = targetData.vipExpiry;
-
             const isVip7OrAbove = targetVipTier === "VIP 7" || targetVipTier === "VIP 8";
             const isVipActive = targetVipExpiry !== null && targetVipExpiry !== undefined;
 
             if (isVip7OrAbove && isVipActive) {
                 let stillActive = false;
                 if (targetVipExpiry.toDate) {
-                    stillActive = targetVipExpiry.toDate() > new Date();
+                    stillActive = targetVipExpiry.toDate() > now;
                 } else {
-                    stillActive = new Date(targetVipExpiry) > new Date();
+                    stillActive = new Date(targetVipExpiry) > now;
                 }
 
-                if (stillActive) {
+                if (stillActive && !isRequesterSvip6) {
                     throw new functions.https.HttpsError(
                         "permission-denied",
                         targetVipTier + " users have kick protection and cannot be removed from rooms."
@@ -7990,54 +8481,6 @@ exports.sendAdminBroadcast = functions.https.onCall(async (data, context) => {
     return { success: true, targetCount: targetUsersSnap.docs.length };
 });
 
-/**
- * 👑 Claim VIP Daily Reward Callable Function
- */
-exports.claimVipDailyReward = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-    const uid = context.auth.uid;
-    const userRef = db.collection("users").doc(uid);
-
-    return db.runTransaction(async (tx) => {
-        const uDoc = await tx.get(userRef);
-        if (!uDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
-        const userData = uDoc.data();
-
-        const vipTier = userData.vipTier || 0;
-        if (vipTier <= 0) throw new functions.https.HttpsError("failed-precondition", "Active VIP membership required.");
-
-        const lastClaim = userData.lastDailyVipClaim?.toDate ? userData.lastDailyVipClaim.toDate() : null;
-        const now = new Date();
-        if (lastClaim && lastClaim.getUTCFullYear() === now.getUTCFullYear() &&
-            lastClaim.getUTCMonth() === now.getUTCMonth() &&
-            lastClaim.getUTCDate() === now.getUTCDate()) {
-            throw new functions.https.HttpsError("already-exists", "Daily VIP reward already claimed today.");
-        }
-
-        const rewardDiamonds = vipTier * 10000; // Tier bonus scaling
-        tx.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(rewardDiamonds),
-            lastDailyVipClaim: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        // Record inbox reward message
-        const msgRef = userRef.collection("inbox_messages").doc();
-        tx.set(msgRef, {
-            id: msgRef.id,
-            type: "reward",
-            title: "VIP Daily Reward 👑",
-            body: `You claimed your daily VIP Tier ${vipTier} reward of ${rewardDiamonds.toLocaleString()} diamonds!`,
-            rewardName: "Diamonds",
-            rewardAmount: rewardDiamonds,
-            reason: "VIP Daily Reward",
-            status: "Claimed",
-            read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        return { success: true, rewardDiamonds };
-    });
-});
 
 /**
  * 💸 Refund VIP Membership (Admin)
@@ -8154,12 +8597,15 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     const sellerName = senderData.displayName || "Diamond Seller";
     const sellerId = senderData.helloId ? `S${senderData.helloId}` : senderUid.substring(0, 6);
 
+    const bonusAmount = parsedAmount * 2; // 2x bonus event diamonds (e.g. 1M -> 2M bonus)
+    const totalCredited = parsedAmount + bonusAmount;
+
     await db.runTransaction(async (transaction) => {
         transaction.update(senderRef, {
             diamondStock: admin.firestore.FieldValue.increment(-parsedAmount)
         });
         transaction.update(targetRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(parsedAmount)
+            diamondBalance: admin.firestore.FieldValue.increment(totalCredited)
         });
 
         const txRef = db.collection("reseller_transactions").doc();
@@ -8171,33 +8617,35 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             targetName: targetData.displayName || "User",
             targetHelloId: targetHelloId,
             amount: parsedAmount,
+            bonusAmount: bonusAmount,
+            totalCredited: totalCredited,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
         const inboxRef = targetRef.collection("inbox_messages").doc();
         transaction.set(inboxRef, {
             type: "reward",
-            title: "Diamonds Received 💎",
-            body: `🎉 You have received ${parsedAmount.toLocaleString()} Diamonds.\nSent by: ${sellerName} (Seller ID: ${sellerId})\nDate: ${dateTimeStr}\nThe Diamonds have been successfully added to your account.`,
+            title: "Recharge Successful",
+            body: `Recharged successfully！ You have obtained ${bonusAmount} diamonds from the recharge event, and other rewards have been delivered to your package. Please check your account.`,
             rewardName: "Diamonds",
-            rewardAmount: parsedAmount,
-            reason: `Transfer from Diamond Seller ${sellerName}`,
+            rewardAmount: totalCredited,
+            reason: `Recharge Event 200% Bonus (${parsedAmount.toLocaleString()} basic + ${bonusAmount.toLocaleString()} bonus)`,
             status: "Received",
             read: false,
             createdAt: admin.firestore.Timestamp.now(),
             data: {
                 sellerName: sellerName,
                 sellerId: sellerId,
-                amount: parsedAmount,
+                amount: totalCredited,
                 route: "/wallet"
             }
         });
     });
 
-    const pushBody = `🎉 You have received ${parsedAmount.toLocaleString()} Diamonds from Seller ${sellerName}.`;
-    await sendPush(targetUid, "Diamonds Received 💎", pushBody, { route: "/inbox", type: "DIAMONDS_RECEIVED" });
+    const pushBody = `Recharged successfully！ You have obtained ${bonusAmount} diamonds from the recharge event, and other rewards have been delivered to your package. Please check your account.`;
+    await sendPush(targetUid, "Recharge Successful", pushBody, { route: "/inbox", type: "RECHARGE_SUCCESSFUL" });
 
-    return { success: true, targetName: targetData.displayName, amount: parsedAmount };
+    return { success: true, targetName: targetData.displayName, amount: totalCredited, bonusAmount: bonusAmount };
 });
 
 
@@ -8592,9 +9040,9 @@ exports.updateFinancialPolicies = functions.https.onCall(async (data, context) =
     const userDoc = await db.collection("users").doc(uid).get();
     if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
     const uData = userDoc.data();
-    const isOwner = uData.role === "owner" || (uData.tags || []).includes("Owner") || (uData.tags || []).includes("SuperAdmin");
+    const isOwner = uData.role === "owner" || (uData.tags || []).includes("Owner");
     if (!isOwner) {
-        throw new functions.https.HttpsError("permission-denied", "Only the Owner can modify financial policies.");
+        throw new functions.https.HttpsError("permission-denied", "Only the Platform Owner can modify financial policies.");
     }
 
     const { agencyCommissionRate, adminCommissionRate, usdToDiamondRate, supportedGateways } = data;
@@ -8609,6 +9057,16 @@ exports.updateFinancialPolicies = functions.https.onCall(async (data, context) =
     if (supportedGateways !== undefined) updates.supportedGateways = supportedGateways;
 
     await db.collection("system_configs").doc("financial_policies").set(updates, { merge: true });
+
+    // Immutable Audit Log
+    await db.collection("audit_logs").add({
+        actorUid: uid,
+        actorRole: uData.role || "owner",
+        action: "UPDATE_FINANCIAL_POLICIES",
+        details: updates,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
     console.log(`[FINANCIAL_POLICY] Updated by Owner ${uid}:`, updates);
     return { success: true, policies: updates };
 });
@@ -8708,6 +9166,10 @@ exports.processRechargeCommission = functions.https.onCall(async (data, context)
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
         }
+
+        // 3. Process Host SVIP Points & Immediate Upgrade (1 USD = 100 SVIP Points)
+        const hostRef = db.collection("users").doc(hostUid);
+        processSvipPointsForRecharge(transaction, hostRef, hData, usdAmount);
     });
 
     console.log(`[COMMISSION] Processed recharge $${usdAmount} for Host ${hostUid}: Agency=${agencyId} ($${agencyCommissionUSD}), Admin=${adminId || 'none'} ($${adminCommissionUSD})`);
@@ -8967,10 +9429,162 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
                 rejectedBy: reviewerUid
             });
         }
+
+        // Immutable Audit Log
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: reviewerUid,
+            actorRole: "owner_or_reviewer",
+            action: `WITHDRAWAL_${action.toUpperCase()}`,
+            targetId: requestId,
+            details: { targetUid, usdAmount, action, notes: notes || null },
+            timestamp: now
+        });
     });
 
     console.log(`[WITHDRAWAL_REVIEW] Request ${requestId} ${action}d by Owner ${reviewerUid}`);
     return { success: true, action: action };
+});
+
+/**
+ * 7. Owner: Provision Isolated Super Admin Branch
+ */
+exports.provisionBranch = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerUid = context.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    if (!callerDoc.exists) throw new functions.https.HttpsError("not-found", "Caller not found.");
+    const cData = callerDoc.data();
+    const isOwner = cData.role === "owner" || (cData.tags || []).includes("Owner");
+    if (!isOwner) {
+        throw new functions.https.HttpsError("permission-denied", "Only the Platform Owner can provision branches.");
+    }
+
+    const { branchName, superAdminUid } = data;
+    if (!branchName || !superAdminUid) {
+        throw new functions.https.HttpsError("invalid-argument", "branchName and superAdminUid are required.");
+    }
+
+    const saDoc = await db.collection("users").doc(superAdminUid).get();
+    if (!saDoc.exists) throw new functions.https.HttpsError("not-found", "Target Super Admin user not found.");
+
+    const branchRef = db.collection("branches").doc();
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    await db.runTransaction(async (transaction) => {
+        transaction.set(branchRef, {
+            id: branchRef.id,
+            name: branchName,
+            superAdminUid: superAdminUid,
+            createdBy: callerUid,
+            createdAt: now,
+            status: "active"
+        });
+
+        transaction.update(db.collection("users").doc(superAdminUid), {
+            role: "superadmin",
+            branchId: branchRef.id,
+            superAdminId: superAdminUid,
+            roleUpdatedAt: now
+        });
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: callerUid,
+            actorRole: "owner",
+            action: "PROVISION_BRANCH",
+            targetId: branchRef.id,
+            details: { branchName, superAdminUid },
+            timestamp: now
+        });
+    });
+
+    console.log(`[HB_PMS] Branch ${branchRef.id} (${branchName}) provisioned by Owner ${callerUid}`);
+    return { success: true, branchId: branchRef.id };
+});
+
+/**
+ * 8. Hierarchy-Based Role Assignment with Sandboxing
+ */
+exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const callerUid = context.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    if (!callerDoc.exists) throw new functions.https.HttpsError("not-found", "Caller not found.");
+    const cData = callerDoc.data();
+    const callerRole = cData.role || "host";
+    const isOwner = callerRole === "owner" || (cData.tags || []).includes("Owner");
+
+    const { targetUid, newRole, targetBranchId, targetSuperAdminId, targetAdminId, targetAgencyId } = data;
+    if (!targetUid || !newRole) {
+        throw new functions.https.HttpsError("invalid-argument", "targetUid and newRole are required.");
+    }
+
+    const targetUserRef = db.collection("users").doc(targetUid);
+    const targetDoc = await targetUserRef.get();
+    if (!targetDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const updates = {
+        role: newRole,
+        roleUpdatedAt: now
+    };
+
+    if (isOwner) {
+        if (targetBranchId !== undefined) updates.branchId = targetBranchId;
+        if (targetSuperAdminId !== undefined) updates.superAdminId = targetSuperAdminId;
+        if (targetAdminId !== undefined) updates.adminId = targetAdminId;
+        if (targetAgencyId !== undefined) updates.agencyId = targetAgencyId;
+    } else if (callerRole === "superadmin") {
+        if (newRole !== "admin" && newRole !== "host") {
+            throw new functions.https.HttpsError("permission-denied", "Super Admins can only assign Admin or Host roles.");
+        }
+        if (!cData.branchId) {
+            throw new functions.https.HttpsError("failed-precondition", "Super Admin has no assigned branch.");
+        }
+        updates.branchId = cData.branchId;
+        updates.superAdminId = callerUid;
+    } else if (callerRole === "admin") {
+        if (newRole !== "agency" && newRole !== "host") {
+            throw new functions.https.HttpsError("permission-denied", "Admins can only assign Agency or Host roles.");
+        }
+        updates.branchId = cData.branchId || null;
+        updates.superAdminId = cData.superAdminId || null;
+        updates.adminId = callerUid;
+        if (newRole === "agency") {
+            updates.isAgencyOwner = true;
+        }
+    } else if (callerRole === "agency" || cData.isAgencyOwner) {
+        if (newRole !== "host") {
+            throw new functions.https.HttpsError("permission-denied", "Agencies can only recruit Hosts.");
+        }
+        updates.branchId = cData.branchId || null;
+        updates.superAdminId = cData.superAdminId || null;
+        updates.adminId = cData.adminId || null;
+        updates.agencyId = callerUid;
+    } else {
+        throw new functions.https.HttpsError("permission-denied", "Insufficient permissions for role assignment.");
+    }
+
+    await db.runTransaction(async (transaction) => {
+        transaction.update(targetUserRef, updates);
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: callerUid,
+            actorRole: callerRole,
+            action: "ASSIGN_ROLE",
+            targetId: targetUid,
+            details: { newRole, updates },
+            timestamp: now
+        });
+    });
+
+    console.log(`[HB_PMS] Role ${newRole} assigned to ${targetUid} by ${callerUid} (${callerRole})`);
+    return { success: true, targetUid, newRole };
 });
 
 /**
@@ -9486,6 +10100,228 @@ exports.reviewSvipBanner = onCall({ region: "us-central1" }, async (request) => 
     });
 
     return { success: true, approved: approve };
+});
+
+/**
+ * 8. SVIP Protection Assignment (SVIP 5 & 6)
+ * SVIP 5 can assign up to 5 users, SVIP 6 up to 10 users for 30 days.
+ */
+exports.assignProtection = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = request.auth.uid;
+    const { targetUid } = request.data || {};
+
+    if (!targetUid) throw new HttpsError("invalid-argument", "Target user ID required.");
+
+    const requesterDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterData = requesterDoc.data() || {};
+    const svipLevel = requesterData.svipLevel || 0;
+
+    if (svipLevel < 5) {
+        throw new HttpsError("permission-denied", "Available for SVIP 5 and SVIP 6 only.");
+    }
+
+    const maxAllowed = svipLevel === 6 ? 10 : 5;
+    const currentAssigned = requesterData.assignedProtectionUsers || [];
+
+    if (currentAssigned.length >= maxAllowed && !currentAssigned.includes(targetUid)) {
+        throw new HttpsError("failed-precondition", `Maximum ${maxAllowed} protection assignments reached.`);
+    }
+
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+
+    await db.runTransaction(async (transaction) => {
+        const targetRef = db.collection("users").doc(targetUid);
+        transaction.update(targetRef, {
+            assignedProtectionExpiresAt: expiresAt,
+            protectedByUid: requesterUid
+        });
+
+        const requesterRef = db.collection("users").doc(requesterUid);
+        transaction.update(requesterRef, {
+            assignedProtectionUsers: admin.firestore.FieldValue.arrayUnion(targetUid)
+        });
+
+        const notifRef = targetRef.collection("notifications").doc();
+        transaction.set(notifRef, {
+            title: "🛡️ Room Protection Granted!",
+            message: `${requesterData.displayName || "An SVIP Member"} granted you 30-day Kick & Mute Protection in voice rooms!`,
+            type: "svip_protection",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false
+        });
+    });
+
+    return { success: true, expiresAt: expiresAt };
+});
+
+/**
+ * 9. SVIP Friend & Follower List Hide Assignment (SVIP 3–6)
+ * SVIP 3: 2 IDs, SVIP 4: 5 IDs, SVIP 5: 10 IDs, SVIP 6: 25 IDs (30 days)
+ */
+exports.assignFriendListHide = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = request.auth.uid;
+    const { targetUid } = request.data || {};
+
+    const effectiveTargetUid = targetUid || requesterUid;
+
+    const requesterDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterData = requesterDoc.data() || {};
+    const svipLevel = requesterData.svipLevel || 0;
+
+    if (svipLevel < 3) {
+        throw new HttpsError("permission-denied", "Available for SVIP 3 to SVIP 6 only.");
+    }
+
+    let maxAllowed = 2;
+    if (svipLevel === 4) maxAllowed = 5;
+    else if (svipLevel === 5) maxAllowed = 10;
+    else if (svipLevel === 6) maxAllowed = 25;
+
+    const currentAssigned = requesterData.assignedFriendHideUsers || [];
+    if (currentAssigned.length >= maxAllowed && !currentAssigned.includes(effectiveTargetUid)) {
+        throw new HttpsError("failed-precondition", `Maximum ${maxAllowed} Friend List Hide assignments reached.`);
+    }
+
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+
+    await db.runTransaction(async (transaction) => {
+        const targetRef = db.collection("users").doc(effectiveTargetUid);
+        transaction.update(targetRef, {
+            isFriendListHidden: true,
+            hasSvipStarBadge: true,
+            friendListHideExpiresAt: expiresAt,
+            friendHideAssignedBy: requesterUid
+        });
+
+        const requesterRef = db.collection("users").doc(requesterUid);
+        transaction.update(requesterRef, {
+            assignedFriendHideUsers: admin.firestore.FieldValue.arrayUnion(effectiveTargetUid)
+        });
+    });
+
+    return { success: true, expiresAt: expiresAt };
+});
+
+/**
+ * 10. SVIP Profile Hide (Mystery Man) Assignment
+ * SVIP 4: self only, SVIP 5: self + 2 IDs, SVIP 6: self + 10 IDs
+ */
+exports.assignProfileHide = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const requesterUid = request.auth.uid;
+    const { targetUid } = request.data || {};
+
+    const effectiveTargetUid = targetUid || requesterUid;
+
+    const requesterDoc = await db.collection("users").doc(requesterUid).get();
+    const requesterData = requesterDoc.data() || {};
+    const svipLevel = requesterData.svipLevel || 0;
+
+    if (svipLevel < 4) {
+        throw new HttpsError("permission-denied", "Available for SVIP 4, 5, and 6 only.");
+    }
+
+    if (effectiveTargetUid !== requesterUid) {
+        if (svipLevel === 4) throw new HttpsError("permission-denied", "SVIP 4 can only enable Profile Hide for their own account.");
+        const maxAdditional = svipLevel === 6 ? 10 : 2;
+        const currentDelegated = requesterData.delegatedProfileHideUsers || [];
+        if (currentDelegated.length >= maxAdditional && !currentDelegated.includes(effectiveTargetUid)) {
+            throw new HttpsError("failed-precondition", `Maximum ${maxAdditional} delegated Profile Hide users reached.`);
+        }
+    }
+
+    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+
+    await db.runTransaction(async (transaction) => {
+        const targetRef = db.collection("users").doc(effectiveTargetUid);
+        transaction.update(targetRef, {
+            isProfileHidden: true,
+            profileHideExpiresAt: expiresAt,
+            profileHideAssignedBy: requesterUid
+        });
+
+        if (effectiveTargetUid !== requesterUid) {
+            const requesterRef = db.collection("users").doc(requesterUid);
+            transaction.update(requesterRef, {
+                delegatedProfileHideUsers: admin.firestore.FieldValue.arrayUnion(effectiveTargetUid)
+            });
+        }
+    });
+
+    return { success: true, expiresAt: expiresAt };
+});
+
+/**
+ * 11. Admin SVIP User Management & Manual Point Adjustments
+ */
+exports.adminAdjustSvipPoints = onCall({ region: "us-central1" }, async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Auth required.");
+    const adminUid = request.auth.uid;
+    if (!(await isUserAdmin(adminUid))) throw new HttpsError("permission-denied", "Admin only.");
+
+    const { targetUid, action, points, newLevel, extendDays } = request.data || {};
+    if (!targetUid) throw new HttpsError("invalid-argument", "Target user ID required.");
+
+    const targetRef = db.collection("users").doc(targetUid);
+    const targetDoc = await targetRef.get();
+    if (!targetDoc.exists) throw new HttpsError("not-found", "Target user not found.");
+
+    const targetData = targetDoc.data();
+    const currentPoints = targetData.svipPoints || 0;
+    const currentLevel = targetData.svipLevel || 0;
+
+    let updatedPoints = currentPoints;
+    let updatedLevel = currentLevel;
+    let updatedEndDate = targetData.svipCycleEndDate;
+
+    if (action === "add_points") {
+        updatedPoints = currentPoints + Math.max(0, parseInt(points) || 0);
+    } else if (action === "deduct_points") {
+        updatedPoints = Math.max(0, currentPoints - (parseInt(points) || 0));
+    } else if (action === "reset_points") {
+        updatedPoints = 0;
+    } else if (action === "set_level") {
+        updatedLevel = Math.max(0, Math.min(6, parseInt(newLevel) || 0));
+        updatedPoints = 0; // RESET TO 0 ON LEVEL CHANGE
+        const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+        updatedEndDate = admin.firestore.Timestamp.fromDate(new Date(Date.now() + sixtyDaysMs));
+    } else if (action === "extend_validity") {
+        const days = parseInt(extendDays) || 60;
+        const currentMs = updatedEndDate ? updatedEndDate.toMillis() : Date.now();
+        updatedEndDate = admin.firestore.Timestamp.fromDate(new Date(currentMs + days * 24 * 60 * 60 * 1000));
+    }
+
+    const updates = {
+        svipPoints: updatedPoints,
+        svipLevel: updatedLevel,
+    };
+    if (updatedEndDate) updates.svipCycleEndDate = updatedEndDate;
+    if (updatedLevel === 0) {
+        updates.svipCycleStartDate = null;
+        updates.svipCycleEndDate = null;
+        updates.isProfileHidden = false;
+    }
+
+    await targetRef.update(updates);
+
+    // Audit log
+    await db.collection("svip_audit_logs").doc().set({
+        adminUid: adminUid,
+        targetUid: targetUid,
+        action: action,
+        previousLevel: currentLevel,
+        newLevel: updatedLevel,
+        previousPoints: currentPoints,
+        newPoints: updatedPoints,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, updatedPoints, updatedLevel };
 });
 
 

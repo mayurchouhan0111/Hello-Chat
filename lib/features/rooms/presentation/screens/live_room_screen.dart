@@ -30,6 +30,7 @@ import '../widgets/pk_challenge_banner.dart';
 import '../widgets/live_activity_feed.dart';
 import '../widgets/entry_effect_overlay.dart';
 import '../../../../core/widgets/app_avatar.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/svga_player.dart';
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../core/services/report_service.dart';
@@ -57,6 +58,8 @@ import '../widgets/rocket_completion_vap_overlay.dart';
 import '../widgets/sticker_sheet.dart';
 import '../widgets/share_room_sheet.dart';
 import '../widgets/rocket_reward_explosion_overlay.dart';
+import '../widgets/rocket_winner_popup_overlay.dart';
+
 import '../widgets/audio_call_invite_dialog.dart';
 import '../../../../providers/wallet_provider.dart';
 import '../../../../core/models/room_banner_model.dart';
@@ -150,14 +153,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Timer? _presenceTimer;
   bool _isLeavingRoom = false;
   bool _isLeavingVoluntarily = false;
+  bool _hasLeftRoom = false;
   bool _isRocketNotificationShowing = false;
-  int _notificationCountdown = 10;
+  final ValueNotifier<int> _notificationCountdownNotifier = ValueNotifier<int>(10);
   Timer? _notificationTimer;
   bool _isRocketFlying = false;
   bool _isRocketLaunching = false;
   int _launchingLevel = 1;
   bool _isRocketLanding = false;
-  int _landingCountdown = 6;
+  final ValueNotifier<int> _landingCountdownNotifier = ValueNotifier<int>(6);
   bool _showExplosionOverlay = false;
   Map<String, int> _launchContributions = {};
   Timer? _landingTimer;
@@ -238,6 +242,32 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
         
         if (!mounted) return;
+
+        // Step 2.5: Auto-promote Room Owner / Seated User to Broadcaster Role
+        try {
+          final myUid = authState?.uid;
+          if (myUid != null) {
+            var room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
+            String? ownerUid = room?.ownerUid;
+            if (ownerUid == null) {
+              try {
+                final roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(widget.roomId).get();
+                if (roomDoc.exists) {
+                  ownerUid = roomDoc.data()?['ownerUid'] as String?;
+                }
+              } catch (_) {}
+            }
+            final isOwner = ownerUid == myUid;
+            if (isOwner) {
+              debugPrint("🎙️ [ROOM_ENTRY] Current user is Room Owner ($myUid). Setting Agora Broadcaster role & unmuting mic.");
+              await _voiceService.setBroadcasterRole();
+              await _voiceService.muteLocalAudio(false);
+              await roomService.muteUser(widget.roomId, myUid, false);
+            }
+          }
+        } catch (e) {
+          debugPrint("⚠️ Non-fatal role init error: $e");
+        }
         
         // Step 3: Start Presence Heartbeat
         _startPresenceTimer();
@@ -272,6 +302,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   void _startPresenceTimer() {
     _presenceTimer?.cancel();
+    // Trigger immediate initial heartbeat
+    ref.read(roomServiceProvider).updateParticipantPresence(widget.roomId);
     _presenceTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
       if (!mounted) return;
       try {
@@ -289,6 +321,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     _notificationTimer?.cancel();
     _landingTimer?.cancel();
+    _notificationCountdownNotifier.dispose();
+    _landingCountdownNotifier.dispose();
     _bannerTimer?.cancel();
     _bannerPageController.dispose();
     WidgetsBinding.instance.removeObserver(this);
@@ -296,7 +330,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     // 🎧 Voice Persistence Logic
     // If we are minimizing OR navigating away without explicitly leaving, we stay in the voice channel!
-    if (!_isMinimizing && _isLeavingVoluntarily) {
+    if (!_hasLeftRoom && !_isMinimizing && _isLeavingVoluntarily) {
+      _hasLeftRoom = true;
       voiceService.leaveRoom();
     } else {
       // Auto-minimize if we navigate away (e.g. going to messages) without leaving the room
@@ -360,16 +395,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           router.go('/home');
         }
       } else if (result == 'end') {
-        await voiceService.leaveRoom();
-        await roomService.endRoom(widget.roomId);
+        _hasLeftRoom = true;
+        await Future.wait([
+          voiceService.leaveRoom(),
+          roomService.endRoom(widget.roomId),
+        ]);
         if (router.canPop()) {
           router.pop();
         } else {
           router.go('/home');
         }
       } else if (result == 'leave') {
-        await voiceService.leaveRoom();
-        await roomService.leaveRoom(widget.roomId);
+        _hasLeftRoom = true;
+        await Future.wait([
+          voiceService.leaveRoom(),
+          roomService.leaveRoom(widget.roomId),
+        ]);
         if (router.canPop()) {
           router.pop();
         } else {
@@ -406,8 +447,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           router.go('/home');
         }
       } else if (result == 'leave') {
-        await voiceService.leaveRoom();
-        await roomService.leaveRoom(widget.roomId);
+        _hasLeftRoom = true;
+        await Future.wait([
+          voiceService.leaveRoom(),
+          roomService.leaveRoom(widget.roomId),
+        ]);
         if (router.canPop()) {
           router.pop();
         } else {
@@ -559,11 +603,31 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       }
 
-      if (myUid != null && prev != null && prev.hasValue && next.hasValue) {
-        final prevMe = prev.value!.where((p) => p.uid == myUid).firstOrNull;
-        final nextMe = next.value!.where((p) => p.uid == myUid).firstOrNull;
-        if (prevMe != null && nextMe != null && prevMe.isMuted != nextMe.isMuted) {
-          ref.read(voiceServiceProvider).muteLocalAudio(nextMe.isMuted);
+      if (myUid != null && next.hasValue) {
+        final pts = next.value!;
+        final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
+        final me = pts.where((p) => p.uid == myUid).firstOrNull;
+        final isOwner = room != null && room.ownerUid == myUid;
+        final isOnSeat = isOwner || (me != null && (me.seatIndex ?? -1) >= 0);
+        final voice = ref.read(voiceServiceProvider);
+
+        if (isOnSeat) {
+          final bool currentMute = me?.isMuted ?? false;
+          if (!voice.isBroadcaster) {
+            voice.setBroadcasterRole();
+          }
+          if (prev != null && prev.hasValue) {
+            final prevMe = prev.value!.where((p) => p.uid == myUid).firstOrNull;
+            if (prevMe == null || prevMe.isMuted != currentMute) {
+              voice.muteLocalAudio(currentMute);
+            }
+          } else {
+            voice.muteLocalAudio(currentMute);
+          }
+        } else if (!isOwner && (me == null || (me.seatIndex ?? -1) < 0)) {
+          if (voice.isBroadcaster) {
+            voice.setAudienceRole();
+          }
         }
       }
 
@@ -699,9 +763,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                             final pts = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
                                             final hostPart = pts.firstWhere(
                                               (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
-                                              orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'owner', seatIndex: 0),
+                                              orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: false, role: 'owner', seatIndex: 0),
                                             );
-                                            return _buildHostSeat(hostPart, room);
+                                            return _buildHostSeat(hostPart, room, pts);
                                           },
                                         ),
                                       ],
@@ -748,6 +812,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                 data: (msgs) {
                                   return ChatWidget(
                                     messages: msgs,
+                                    roomId: widget.roomId,
                                     broadcasts: broadcasts.isNotEmpty ? [broadcasts.first] : [],
                                     onUserTap: (uid) {
                                       final pts = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
@@ -786,8 +851,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                       // LAYER 4: RIGHT FLOATING ACTION COLUMN (Room Support & Rocket)
                       // ═══════════════════════════════════════════════════════════
                       Positioned(
-                        bottom: 120 + MediaQuery.of(context).padding.bottom,
-                        right: 10,
+                        bottom: 85 + MediaQuery.of(context).padding.bottom,
+                        right: 2,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -796,18 +861,18 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                 context.push('/room-support', extra: {'roomId': widget.roomId});
                               },
                               child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.45),
-                                  borderRadius: BorderRadius.circular(16),
+                                  color: Colors.black.withOpacity(0.55),
+                                  borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
                                     color: const Color(0xFFFF9D00).withOpacity(0.8),
-                                    width: 1.5,
+                                    width: 1.2,
                                   ),
                                   boxShadow: [
                                     BoxShadow(
                                       color: const Color(0xFFFF6D00).withOpacity(0.35),
-                                      blurRadius: 12,
+                                      blurRadius: 8,
                                       spreadRadius: 1,
                                     ),
                                   ],
@@ -816,8 +881,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Container(
-                                      width: 34,
-                                      height: 34,
+                                      width: 28,
+                                      height: 28,
                                       decoration: const BoxDecoration(
                                         gradient: LinearGradient(
                                           colors: [Color(0xFFFFB700), Color(0xFFFF3D00)],
@@ -828,20 +893,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                         boxShadow: [
                                           BoxShadow(
                                             color: Color(0xFFFF5500),
-                                            blurRadius: 6,
+                                            blurRadius: 4,
                                           ),
                                         ],
                                       ),
-                                      child: const Icon(Icons.shield_rounded, color: Colors.white, size: 20),
+                                      child: const Icon(Icons.shield_rounded, color: Colors.white, size: 16),
                                     ),
-                                    const Gap(4),
+                                    const Gap(3),
                                     const Text(
                                       "SUPPORT",
                                       style: TextStyle(
                                         color: Color(0xFFFFD700),
-                                        fontSize: 8,
+                                        fontSize: 7.5,
                                         fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.8,
+                                        letterSpacing: 0.6,
                                         shadows: [Shadow(color: Colors.black, blurRadius: 4)],
                                       ),
                                     ),
@@ -852,7 +917,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                 color: Colors.amber.withOpacity(0.3),
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 6),
                             RocketProgressWidget(room: room),
                           ],
                         ),
@@ -926,7 +991,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildGlassOverlay({required Widget child, bool isBottom = false}) {
     return ClipRRect(
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+        filter: ImageFilter.blur(sigmaX: 4, sigmaY: 4),
         child: Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -951,12 +1016,94 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
+  Widget _buildHostHeaderContent(RoomModel room, UserModel? u, List<Participant> participants) {
+    final ownerDisplayName = (u?.displayName.isNotEmpty == true && u!.displayName != 'Host' && u.displayName != 'Guest')
+        ? u.displayName
+        : (room.name.isNotEmpty ? room.name : (u?.username.isNotEmpty == true ? u!.username : 'Host'));
+
+    final ownerIdString = u?.helloId != null 
+        ? u!.helloId.toString() 
+        : (u?.displayId != null && u!.displayId != 'Pending...' 
+            ? u!.displayId! 
+            : (room.ownerUid.length > 8 ? room.ownerUid.substring(0, 8) : room.ownerUid));
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFFFD700), width: 1.2),
+          ),
+          child: AppAvatar(
+            radius: 17,
+            imageUrl: u?.profilePhotoUrl ?? "",
+            tags: u?.tags,
+            showFrame: false,
+          ),
+        ),
+        const Gap(8),
+        Flexible(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                ownerDisplayName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                  shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 1),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "ID:$ownerIdString",
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(Icons.group_rounded, size: 11, color: Colors.white.withValues(alpha: 0.75)),
+                    const SizedBox(width: 2),
+                    Text(
+                      "${participants.length}",
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Gap(6),
+      ],
+    );
+  }
+
   Widget _buildRoomAppBar(RoomModel room) {
     final currentUid = ref.watch(authStateProvider).value?.uid;
     final ownerAsync = ref.watch(cachedUserProfileProvider(room.ownerUid));
+    final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
       decoration: const BoxDecoration(
         color: Colors.transparent,
         borderRadius: BorderRadius.vertical(bottom: Radius.circular(10)),
@@ -967,103 +1114,72 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           // 1. Top Row: Info & Controls
           Row(
             children: [
-              // Consolidated Info & Spark Box - Clickable for Room Settings (Admin only)
+              // Consolidated Host Capsule - Clickable for Room Settings / Profile
               Expanded(
                 child: Builder(
                   builder: (context) {
                     final myUid = ref.watch(authStateProvider).value?.uid;
                     final isAdmin = room.ownerUid == myUid || room.admins.contains(myUid);
+                    final isOwner = room.ownerUid == myUid;
                     
                     return GestureDetector(
-                      onTap: isAdmin ? () => _showRoomSettings(room) : null,
+                      onTap: isAdmin ? () => _showRoomSettings(room) : () => _showUserProfile(room.ownerUid),
                       behavior: HitTestBehavior.opaque,
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
+                            color: Colors.black.withOpacity(0.38),
                             borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: Colors.white.withOpacity(0.18), width: 0.8),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Flexible(
                                 child: ownerAsync.when(
-                                  data: (owner) {
-                                    final u = owner as UserModel?;
-                                    return Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        AppAvatar(
-                                          radius: 18,
-                                          imageUrl: u?.profilePhotoUrl ?? "",
-                                          tags: u?.tags,
-                                          showFrame: false,
+                                  data: (owner) => _buildHostHeaderContent(room, owner as UserModel?, participants),
+                                  loading: () => _buildHostHeaderContent(room, null, participants),
+                                  error: (_, __) => _buildHostHeaderContent(room, null, participants),
+                                ),
+                              ),
+                              // Spark Follow Button (Only for Non-Owners)
+                              if (!isOwner)
+                                GestureDetector(
+                                  onTap: () async {
+                                    final myUid = ref.read(authStateProvider).value?.uid;
+                                    if (myUid == null) return;
+                                    
+                                    await ref.read(profileServiceProvider).toggleFollow(myUid, room.ownerUid);
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text("Followed ${room.name}'s Host!"),
+                                          backgroundColor: const Color(0xFF8E54E9),
+                                          behavior: SnackBarBehavior.floating,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                         ),
-                                        const Gap(8),
-                                        Flexible(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              SingleChildScrollView(
-                                                scrollDirection: Axis.horizontal,
-                                                child: Text(
-                                                  room.name,
-                                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900),
-                                                  maxLines: 1,
-                                                ),
-                                              ),
-                                              Text(
-                                                "ID:${u?.displayId ?? '...'}",
-                                                style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 9, fontWeight: FontWeight.bold),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const Gap(8),
-                                      ],
-                                    );
+                                      );
+                                    }
                                   },
-                                  loading: () => const SizedBox(width: 80, height: 40),
-                                  error: (_, __) => const SizedBox(width: 80, height: 40),
-                                ),
-                              ),
-                              // Spark Follow Button
-                              GestureDetector(
-                                onTap: () async {
-                                  final myUid = ref.read(authStateProvider).value?.uid;
-                                  if (myUid == null) return;
-                                  if (myUid == room.ownerUid) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text("You are the owner of this room!")),
-                                    );
-                                    return;
-                                  }
-                                  
-                                  await ref.read(profileServiceProvider).toggleFollow(myUid, room.ownerUid);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text("Followed ${room.name}'s Host!"),
-                                        backgroundColor: const Color(0xFF8E54E9),
-                                        behavior: SnackBarBehavior.floating,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  child: Container(
+                                    width: 30,
+                                    height: 30,
+                                    decoration: const BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [Color(0xFFFFE000), Color(0xFFFFB700)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
                                       ),
-                                    );
-                                  }
-                                },
-                                child: Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFFFD700),
-                                    shape: BoxShape.circle,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(color: Color(0x66FFB700), blurRadius: 6),
+                                      ],
+                                    ),
+                                    child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 19),
                                   ),
-                                  child: const Icon(Icons.bolt_rounded, color: Colors.white, size: 20),
                                 ),
-                              ),
                             ],
                           ),
                         ),
@@ -1072,10 +1188,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   },
                 ),
               ),
+              const Gap(8),
               // Right Action Buttons
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  _buildCircleActionBtn(Icons.settings_outlined, onTap: () => _showRoomSettings(room)),
+                  const Gap(6),
                   _buildCircleActionBtn(Icons.share_rounded, onTap: () {
                     showModalBottomSheet(
                       context: context,
@@ -1087,10 +1206,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                       ),
                     );
                   }),
-                  const Gap(10),
-                  _buildCircleActionBtn(Icons.refresh_rounded, onTap: () {}),
-                  const Gap(10),
-                  _buildCircleActionBtn(Icons.zoom_in_map_rounded, onTap: () {
+                  const Gap(6),
+                  _buildCircleActionBtn(Icons.crop_free_rounded, onTap: () {
                      _isMinimizing = true;
                      final router = GoRouter.of(context);
                      ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
@@ -1100,20 +1217,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                        router.go('/home');
                      }
                    }),
-                  const Gap(10),
-                  _buildCircleActionBtn(Icons.close_rounded, isClose: true, onTap: _leaveRoom),
+                  const Gap(6),
+                  _buildCircleActionBtn(Icons.power_settings_new_rounded, isClose: true, onTap: _leaveRoom),
                 ],
               ),
             ],
           ),
-          const Gap(10),
+          const Gap(8),
           // 2. Bottom Row: Tags & Viewers
           Row(
             children: [
               GestureDetector(
-                onTap: _openRoomGiftLeaderboard,
+                onTap: () => _openRoomGiftLeaderboard(room),
                 child: _buildAppBarTag(
-                  room.weeklyEarnings > 0 ? "${_formatDiamondCount(room.weeklyEarnings)} >" : "Top List >",
+                  "${_formatDiamondCount(room.weeklyEarnings > 0 ? room.weeklyEarnings : room.rocketFuel)} >",
                   Icons.emoji_events_rounded,
                   const Color(0xFFFFD700),
                 ),
@@ -1335,15 +1452,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
+                            color: const Color(0xFFF1F5F9),
                             borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
                           ),
                           child: TextField(
                             controller: _chatController,
                             autofocus: true,
                             textInputAction: TextInputAction.send,
                             cursorColor: const Color(0xFF7C3AED),
-                            style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14),
+                            style: const TextStyle(color: Color(0xFF0F172A), fontSize: 14, fontWeight: FontWeight.w600),
                             decoration: const InputDecoration(
                               hintText: "Say hi...",
                               hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
@@ -1563,9 +1681,27 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   Widget _buildBottomBar(RoomModel room) {
     return Consumer(builder: (context, ref, child) {
+      final myUid = ref.watch(authStateProvider).value?.uid;
+      final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+      final myPart = participants.firstWhere(
+        (p) => p.uid == myUid,
+        orElse: () => Participant(
+          uid: myUid ?? '',
+          joinedAt: DateTime.now(),
+          lastActive: DateTime.now(),
+          role: room.ownerUid == myUid ? 'owner' : 'audience',
+          seatIndex: room.ownerUid == myUid ? 0 : -1,
+          isMuted: false,
+        ),
+      );
+      final bool isOwner = room.ownerUid == myUid;
+      final bool isOnSeat = isOwner || (myPart.seatIndex ?? -1) >= 0;
+      final bool isMicMuted = myPart.isMuted;
+
       return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        height: 54,
+        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        height: 52,
+        padding: const EdgeInsets.symmetric(horizontal: 4),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(32),
@@ -1579,16 +1715,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             GestureDetector(
               onTap: () => _showRoomChatInputSheet(initialTab: 0),
               child: Container(
-                width: 40, height: 40,
-                margin: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
+                width: 32, height: 32,
+                margin: const EdgeInsets.symmetric(horizontal: 2),
+                decoration: const BoxDecoration(
                   color: Colors.white,
                   shape: BoxShape.circle,
-                  boxShadow: const [
+                  boxShadow: [
                     BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
                   ],
                 ),
-                child: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0F766E), size: 19),
+                child: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0F766E), size: 16),
               ),
             ),
 
@@ -1597,31 +1733,97 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               child: GestureDetector(
                 onTap: () => _showRoomChatInputSheet(initialTab: 0),
                 child: Container(
-                  height: 36,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: const Color(0xFFEDF2F7),
                     borderRadius: BorderRadius.circular(20),
                   ),
-                  child: Row(
+                  child: const Row(
                     children: [
-                      const SizedBox(width: 14),
-                      const Text("Say hi...", style: TextStyle(color: Color(0xFF718096), fontSize: 13)),
-                      const Spacer(),
-                      Container(width: 1, height: 18, color: const Color(0xFFCBD5E0)),
-                      const SizedBox(width: 10),
-                      const Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 18),
-                      const SizedBox(width: 10),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          "Say hi...",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Color(0xFF718096), fontSize: 12),
+                        ),
+                      ),
+                      Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 16),
+                      SizedBox(width: 6),
                     ],
                   ),
                 ),
               ),
             ),
 
-            const SizedBox(width: 6),
+            const SizedBox(width: 3),
+
+            // 🎙️ Dedicated Microphone Button (Interactive 1-Tap Toggle for Owner & Seated Speakers)
+            GestureDetector(
+              onTap: () async {
+                if (myUid == null) return;
+                if (!isOnSeat) {
+                  AppToast.showWarning(context, "Please take a mic seat first to speak", title: "Mic Seat Required");
+                  return;
+                }
+
+                final nextMute = !isMicMuted;
+                final voice = ref.read(voiceServiceProvider);
+                if (!voice.isBroadcaster) {
+                  await voice.setBroadcasterRole();
+                }
+                await voice.muteLocalAudio(nextMute);
+                await ref.read(roomServiceProvider).muteUser(widget.roomId, myUid, nextMute);
+
+                if (mounted) {
+                  if (nextMute) {
+                    AppToast.showWarning(context, "Microphone Muted 🔇", title: "Mic Muted");
+                  } else {
+                    AppToast.showSuccess(context, "Microphone Active 🎙️", title: "Mic Active");
+                  }
+                }
+              },
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: !isOnSeat
+                      ? const Color(0xFFF1F5F9)
+                      : (isMicMuted ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5)),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: !isOnSeat
+                        ? const Color(0xFFCBD5E1)
+                        : (isMicMuted ? const Color(0xFFEF4444) : const Color(0xFF10B981)),
+                    width: 1.5,
+                  ),
+                  boxShadow: [
+                    if (isOnSeat && !isMicMuted)
+                      BoxShadow(
+                        color: const Color(0xFF10B981).withOpacity(0.35),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                  ],
+                ),
+                child: Icon(
+                  !isOnSeat
+                      ? Icons.mic_none_rounded
+                      : (isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
+                  color: !isOnSeat
+                      ? const Color(0xFF94A3B8)
+                      : (isMicMuted ? const Color(0xFFEF4444) : const Color(0xFF059669)),
+                  size: 16,
+                ),
+              ),
+            ),
+            const SizedBox(width: 3),
 
             // Video / Camera icon
             _buildPillIcon(Icons.videocam_rounded, const Color(0xFFFF3B30), _showYouTubePanel),
-            const SizedBox(width: 8),
+            const SizedBox(width: 3),
 
             // Speaker toggle (Room Mute: Mutes incoming audio for self)
             _buildPillIcon(
@@ -1631,33 +1833,40 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 final nextSpeakerState = !_isSpeakerOn;
                 setState(() => _isSpeakerOn = nextSpeakerState);
                 ref.read(voiceServiceProvider).muteRoomAudio(!nextSpeakerState);
+                if (mounted) {
+                  if (nextSpeakerState) {
+                    AppToast.showSuccess(context, "Room Audio Restored 🔊", title: "Speaker On");
+                  } else {
+                    AppToast.showWarning(context, "Room Audio Muted 🔇", title: "Speaker Muted");
+                  }
+                }
               },
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 3),
 
             // Divider
-            Container(width: 1, height: 24, color: const Color(0xFFE2E8F0)),
-            const SizedBox(width: 8),
+            Container(width: 1, height: 18, color: const Color(0xFFE2E8F0)),
+            const SizedBox(width: 3),
 
             // Trophy / PK icon
             _buildPillIcon(Icons.military_tech_rounded, const Color(0xFFFFCC00), _showPKPanel),
-            const SizedBox(width: 8),
+            const SizedBox(width: 3),
 
             // Games icon
             _buildPillIcon(Icons.grid_view_rounded, const Color(0xFF64748B), _showGamesPanel),
-            const SizedBox(width: 4),
+            const SizedBox(width: 3),
 
             // Rightmost glowing gift button
             GestureDetector(
               onTap: _showGiftPanel,
               child: Container(
-                width: 38, height: 38,
-                margin: const EdgeInsets.all(6),
+                width: 32, height: 32,
+                margin: const EdgeInsets.symmetric(horizontal: 2),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]),
                   shape: BoxShape.circle,
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.4), blurRadius: 10),
+                    BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.4), blurRadius: 8),
                   ],
                 ),
                 child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
@@ -1677,8 +1886,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
-  Widget _buildHostSeat(Participant host, RoomModel room) {
-    final allParticipants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+  Widget _buildHostSeat(Participant host, RoomModel room, List<Participant> allParticipants) {
+    final myUid = ref.watch(authStateProvider).value?.uid;
 
     // Global Owner Seat: Find active owner participant or fallback to ownerUid participant
     final Participant activeHost = allParticipants.firstWhere(
@@ -1687,7 +1896,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         uid: room.ownerUid,
         role: 'owner',
         seatIndex: 0,
-        isMuted: true,
+        isMuted: false,
         joinedAt: DateTime.now(),
         lastActive: DateTime.now(),
       ),
@@ -1758,64 +1967,75 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                           ],
                         ),
                       ),
-                      Positioned(
-                        bottom: -4,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.black54,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white10, width: 0.5),
-                          ),
-                          child: Text(
-                            displayName,
-                            style: TextStyle(
-                              color: isOwnerOnline ? Colors.white : Colors.white60,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
-                            ),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      if (activeHost.uid.isEmpty)
-                        Positioned(
-                          top: -10,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: isOwnerOnline ? const Color(0xFFFFD700) : const Color(0xFF475569),
-                              borderRadius: BorderRadius.circular(4),
-                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                            ),
-                            child: Text(
-                              isOwnerOnline ? "OWNER" : "OFFLINE",
-                              style: TextStyle(
-                                color: isOwnerOnline ? Colors.black : Colors.white70,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                        ),
+
                       if (activeHost.isMuted)
                         Positioned(
-                          top: 0,
-                          right: 0,
+                          top: 2,
+                          right: 2,
                           child: Container(
                             padding: const EdgeInsets.all(4),
-                            decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
-                            child: const Icon(Icons.mic_off, color: Colors.white, size: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                              boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+                            ),
+                            child: const Icon(Icons.mic_off_rounded, color: Colors.white, size: 11),
                           ),
                         ),
                     ],
                   ),
+                  // Host label below avatar
                   Container(
-                    margin: const EdgeInsets.only(top: 8),
+                    margin: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: isOwnerOnline
+                            ? [const Color(0xFF00C853), const Color(0xFF00E676)]
+                            : [const Color(0xFF475569), const Color(0xFF64748B)],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isOwnerOnline
+                              ? const Color(0xFF00C853).withOpacity(0.4)
+                              : Colors.black26,
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Text(
+                      isOwnerOnline ? "Host" : "Offline",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                  // Owner name below Host label
+                  Container(
+                    margin: const EdgeInsets.only(top: 3),
+                    child: Text(
+                      displayName,
+                      style: TextStyle(
+                        color: isOwnerOnline ? Colors.white : Colors.white60,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                        shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  // Diamond counter
+                  Container(
+                    margin: const EdgeInsets.only(top: 3),
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: Colors.black54,
@@ -1926,8 +2146,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     });
   }
 
-  void _openRoomGiftLeaderboard() {
-    context.push(AppRoutes.roomGiftLeaderboard, extra: {'roomId': widget.roomId});
+  void _openRoomGiftLeaderboard([RoomModel? room]) {
+    context.push(
+      AppRoutes.roomGiftLeaderboard,
+      extra: {
+        'roomId': widget.roomId,
+        'roomName': room?.name ?? 'Room Gifts',
+      },
+    );
   }
 
   void _showAdminSettingsSheet() {
@@ -2086,12 +2312,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     final participantOnSeat = participants.firstWhere(
       (p) => p.seatIndex == index,
-      orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), role: 'none', isMuted: true),
+      orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), role: 'none', isMuted: false),
     );
 
     final myParticipation = participants.firstWhere(
       (p) => p.uid == uid,
-      orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), role: 'none', isMuted: true),
+      orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), role: 'none', isMuted: false),
     );
 
     if (participantOnSeat.uid.isEmpty) {
@@ -2356,10 +2582,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   void _showRocketLaunchAnimation(int level) {
     if (_isRocketNotificationShowing || _isRocketFlying || _isRocketLaunching) return;
+    _notificationCountdownNotifier.value = 10;
     setState(() {
       _isRocketNotificationShowing = true;
       _launchingLevel = level;
-      _notificationCountdown = 10;
     });
     _startNotificationTimer();
   }
@@ -2371,10 +2597,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         timer.cancel();
         return;
       }
-      if (_notificationCountdown > 1) {
-        setState(() {
-          _notificationCountdown--;
-        });
+      if (_notificationCountdownNotifier.value > 1) {
+        _notificationCountdownNotifier.value--;
       } else {
         timer.cancel();
         _dismissRocketNotification();
@@ -2398,112 +2622,117 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       right: 20,
       child: Material(
         color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Colors.orange.shade900.withOpacity(0.95),
-                Colors.orange.shade800.withOpacity(0.95),
-                Colors.orange.shade700.withOpacity(0.95),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.orange.shade300.withOpacity(0.4), width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.orange.withOpacity(0.3),
-                blurRadius: 20,
-                spreadRadius: -2,
+        child: ValueListenableBuilder<int>(
+          valueListenable: _notificationCountdownNotifier,
+          builder: (context, countdown, _) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.orange.shade900.withOpacity(0.95),
+                    Colors.orange.shade800.withOpacity(0.95),
+                    Colors.orange.shade700.withOpacity(0.95),
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.orange.shade300.withOpacity(0.4), width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.orange.withOpacity(0.3),
+                    blurRadius: 20,
+                    spreadRadius: -2,
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'LEVEL ${_launchingLevel + 1} ROCKET',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 14,
-                            letterSpacing: 0.5,
+                  Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'LEVEL ${_launchingLevel + 1} ROCKET',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 14,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'A rocket is flying across the room!',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: _dismissRocketNotification,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            '$countdown',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'A rocket is flying across the room!',
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.7),
-                            fontSize: 11,
+                      ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _dismissRocketNotification,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.2),
+                            shape: BoxShape.circle,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _dismissRocketNotification,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.12),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '$_notificationCountdown',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 13,
+                          child: const Icon(Icons.close_rounded, color: Colors.white70, size: 16),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: _dismissRocketNotification,
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.close_rounded, color: Colors.white70, size: 16),
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: countdown / 10,
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                      minHeight: 3,
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: LinearProgressIndicator(
-                  value: _notificationCountdown / 10,
-                  backgroundColor: Colors.white.withOpacity(0.1),
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                  minHeight: 3,
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -2529,10 +2758,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       level: _launchingLevel, 
       roomId: widget.roomId,
       onComplete: () {
+        _landingCountdownNotifier.value = 6;
         setState(() {
           _isRocketLaunching = false;
           _isRocketLanding = true;
-          _landingCountdown = 6;
         });
         _startLandingTimer();
       },
@@ -2546,10 +2775,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         timer.cancel();
         return;
       }
-      if (_landingCountdown > 1) {
-        setState(() {
-          _landingCountdown--;
-        });
+      if (_landingCountdownNotifier.value > 1) {
+        _landingCountdownNotifier.value--;
       } else {
         timer.cancel();
         setState(() {
@@ -2670,7 +2897,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
               ),
               child: Text(
-                "EXPLODING IN ${_landingCountdown}s",
+                "EXPLODING IN ${_landingCountdownNotifier.value}s",
                 style: const TextStyle(
                   color: Colors.redAccent,
                   fontWeight: FontWeight.w900,
@@ -2789,7 +3016,40 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildExplosionOverlay(RoomModel room) {
     if (!_showExplosionOverlay) return const SizedBox.shrink();
 
-    return RocketRewardExplosionOverlay(
+    final myUid = FirebaseAuth.instance.currentUser?.uid;
+    int? myRank;
+    int myCoins = 0;
+    int myXp = 0;
+    String myFrameDuration = '24h';
+
+    if (myUid != null) {
+      final sortedUids = _launchContributions.keys.toList()
+        ..sort((a, b) => _launchContributions[b]!.compareTo(_launchContributions[a]!));
+      
+      final rankIndex = sortedUids.indexOf(myUid);
+      if (rankIndex >= 0 && rankIndex < 3) {
+        myRank = rankIndex + 1;
+        
+        final level = (_launchingLevel - 1).clamp(0, 4);
+        const frameDurations = ['24h', '24h', '24h', '24h', '72h'];
+        myFrameDuration = frameDurations[level];
+        
+        int king = 30000, t2 = 15000, t3 = 7500, xp = 2000;
+        switch (level) {
+          case 0: king = 30000; t2 = 15000; t3 = 8000; xp = 2000; break;
+          case 1: king = 60000; t2 = 40000; t3 = 30000; xp = 3000; break;
+          case 2: king = 200000; t2 = 150000; t3 = 100000; xp = 5000; break;
+          case 3: king = 500000; t2 = 300000; t3 = 250000; xp = 10000; break;
+          case 4: king = 800000; t2 = 500000; t3 = 350000; xp = 15000; break;
+        }
+        
+        if (myRank == 1) { myCoins = king; myXp = xp; }
+        else if (myRank == 2) { myCoins = t2; myXp = xp ~/ 2; }
+        else if (myRank == 3) { myCoins = t3; myXp = xp ~/ 3; }
+      }
+    }
+
+    final explosion = RocketRewardExplosionOverlay(
       level: (_launchingLevel - 1).clamp(0, 4),
       contributions: _launchContributions,
       onClose: () {
@@ -2803,6 +3063,33 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         });
       },
     );
+
+    if (myRank != null) {
+      return Stack(
+        children: [
+          explosion,
+          RocketWinnerPopupOverlay(
+            level: (_launchingLevel - 1).clamp(0, 4),
+            rank: myRank,
+            coins: myCoins,
+            xp: myXp,
+            frameDuration: myFrameDuration,
+            onClose: () {
+              setState(() {
+                _showExplosionOverlay = false;
+              });
+              ref.invalidate(walletBalanceProvider);
+              ref.invalidate(currentUserProfileProvider);
+              Future.delayed(const Duration(milliseconds: 500), () {
+                _processNextRocketQueueItem();
+              });
+            },
+          ),
+        ],
+      );
+    }
+
+    return explosion;
   }
 
   String _formatDiamondCount(int n) {
@@ -2813,7 +3100,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 }
 
-class HostRippleWidget extends ConsumerWidget {
+class HostRippleWidget extends ConsumerStatefulWidget {
   final UserModel user;
 
   const HostRippleWidget({
@@ -2822,14 +3109,36 @@ class HostRippleWidget extends ConsumerWidget {
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HostRippleWidget> createState() => _HostRippleWidgetState();
+}
+
+class _HostRippleWidgetState extends ConsumerState<HostRippleWidget> with SingleTickerProviderStateMixin {
+  late AnimationController _rippleController;
+
+  @override
+  void initState() {
+    super.initState();
+    _rippleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _rippleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final speakingUids = ref.watch(speakingUidsProvider).value ?? [];
-    final int agoraUid = user.uid.hashCode & 0xFFFFFFFF;
+    final int agoraUid = widget.user.uid.hashCode & 0xFFFFFFFF;
     final bool isSpeaking = speakingUids.contains(agoraUid);
 
     if (!isSpeaking) return const SizedBox.shrink();
 
-    final wavesPath = getVipMicWavesPath(user.vipTier);
+    final wavesPath = getVipMicWavesPath(widget.user.vipTier);
     if (wavesPath != null) {
       return OverflowBox(
         maxWidth: 250,
@@ -2839,24 +3148,36 @@ class HostRippleWidget extends ConsumerWidget {
           height: 180,
           child: IgnorePointer(
             child: SvgaPlayer(
-              key: ValueKey('host_sound_waves_${user.vipTier}'),
+              key: ValueKey('host_sound_waves_${widget.user.vipTier}'),
               assetPath: wavesPath,
             ),
           ),
         ),
       );
     }
-    final frameMult = user.profileFrame.isNotEmpty ? 2.3 : 1.0;
+    final frameMult = widget.user.profileFrame.isNotEmpty ? 2.3 : 1.0;
     final double baseRippleSize = 28 * 2 * frameMult;
-    return Container(
-      width: baseRippleSize + 10, height: baseRippleSize + 10,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.4), width: 2),
-      ),
-    ).animate(onPlay: (c) => c.repeat()).scale(
-      begin: const Offset(1, 1), end: const Offset(1.3, 1.3),
-      duration: const Duration(seconds: 1), curve: Curves.easeOut
-    ).fadeOut();
+
+    return AnimatedBuilder(
+      animation: _rippleController,
+      builder: (context, child) {
+        final scale = 1.0 + _rippleController.value * 0.3;
+        final opacity = (1.0 - _rippleController.value).clamp(0.0, 1.0);
+        return Transform.scale(
+          scale: scale,
+          child: Opacity(
+            opacity: opacity * 0.4,
+            child: Container(
+              width: baseRippleSize + 10,
+              height: baseRippleSize + 10,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.4), width: 2),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }

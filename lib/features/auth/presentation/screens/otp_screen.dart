@@ -12,6 +12,7 @@ import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/router/app_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String verificationId;
@@ -51,9 +52,7 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Verification Failed: ${e.toString()}")),
-        );
+        AppToast.showError(context, "Verification Failed: ${e.toString()}");
       }
     }
   }

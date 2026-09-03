@@ -57,7 +57,8 @@ export const GiftManagement = () => {
     category: 'Normal',
     imageUrl: '',
     lottieAssetPath: '',
-    animationFormat: 'json', // json, svga, mp4, vpa
+    soundUrl: '',
+    animationFormat: 'json', // json, svga, mp4, vpa, image, sound
     minSvipLevel: 0,
     isActive: true,
     sortOrder: 0
@@ -87,6 +88,7 @@ export const GiftManagement = () => {
         category: 'Custom',
         imageUrl: req.thumbnailUrl || req.videoUrl || '',
         lottieAssetPath: req.videoUrl || '',
+        soundUrl: req.soundUrl || '',
         animationFormat: 'mp4',
         isActive: true,
         sortOrder: 1,
@@ -117,8 +119,13 @@ export const GiftManagement = () => {
 
     // Format validation
     if (fieldType === 'image') {
-      if (!['png', 'jpg', 'jpeg', 'webp'].includes(ext)) {
-        alert("❌ Invalid Image Format! Only PNG, JPG, JPEG, and WEBP are supported.");
+      if (!['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+        alert("❌ Invalid Image Format! Only PNG, JPG, JPEG, GIF, and WEBP are supported.");
+        return;
+      }
+    } else if (fieldType === 'sound') {
+      if (!['mp3', 'wav', 'aac', 'm4a', 'ogg'].includes(ext)) {
+        alert("❌ Invalid Audio Format! Only MP3, WAV, AAC, M4A, and OGG are supported.");
         return;
       }
     } else if (fieldType === 'animation') {
@@ -131,8 +138,8 @@ export const GiftManagement = () => {
       } else if (format === 'json' && ext !== 'json') {
         alert("❌ Format Mismatch! Selected format is Lottie JSON (.json), but uploaded file is ." + ext);
         return;
-      } else if (format === 'vpa' && !['vpa', 'mp4', 'json'].includes(ext)) {
-        alert("❌ Format Mismatch! Selected format is VPA (.vpa).");
+      } else if (format === 'image' && !['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) {
+        alert("❌ Format Mismatch! Selected format is Image/GIF.");
         return;
       }
     }

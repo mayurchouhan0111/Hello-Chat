@@ -135,6 +135,51 @@ class VIPService {
     final callable = functions.httpsCallable('claimVIPDailyReward');
     await callable.call();
   }
+
+  // 6. Purchase VIP Tier
+  Future<void> purchaseVip(String tierId) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("User not logged in");
+
+    final userRef = _db.collection('users').doc(user.uid);
+    final tierRef = _db.collection('vip_tiers').doc(tierId);
+
+    await _db.runTransaction((transaction) async {
+      final userSnap = await transaction.get(userRef);
+      final tierSnap = await transaction.get(tierRef);
+
+      if (!userSnap.exists) throw Exception("User profile not found");
+      if (!tierSnap.exists) throw Exception("VIP tier not found");
+
+      final userData = userSnap.data()!;
+      final tierData = tierSnap.data()!;
+
+      final int price = tierData['monthlyPriceInDiamonds'] ?? (tierData['level'] * 5000);
+      final int userDiamonds = userData['diamondBalance'] ?? 0;
+
+      if (userDiamonds < price) {
+        throw Exception("Insufficient diamonds. Required: $price");
+      }
+
+      final now = DateTime.now();
+      final expiresAt = now.add(const Duration(days: 30));
+
+      transaction.update(userRef, {
+        'diamondBalance': FieldValue.increment(-price),
+        'vipTier': tierData['name'] ?? 'VIP',
+        'vipExpiry': Timestamp.fromDate(expiresAt),
+      });
+
+      final txRef = userRef.collection('transactions').doc();
+      transaction.set(txRef, {
+        'type': 'vip_purchase',
+        'amount': price,
+        'tierId': tierId,
+        'timestamp': FieldValue.serverTimestamp(),
+        'description': "Subscribed to ${tierData['name']}",
+      });
+    });
+  }
 }
 
 final nobleTiersProvider = StreamProvider<List<VIPTierModel>>((ref) {

@@ -55,3 +55,9 @@ app.*.map.json
 
 # Local Netlify folder
 .netlify
+
+# Scratch & local temporary captures
+/scratch/
+/*.png
+/*.txt
+android/build/

@@ -232,7 +232,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
             );
           },
           loading: () => const CircleAvatar(radius: 28, child: CircularProgressIndicator()),
-          error: (_, __) => const CircleAvatar(radius: 28, child: Icon(Icons.error)),
+          error: (_, __) => const CircleAvatar(radius: 28, backgroundColor: Colors.white10, child: Icon(Icons.person, color: Colors.white70)),
         ),
         
         const Gap(20),
@@ -248,19 +248,18 @@ class ActivePKBattleGrid extends ConsumerWidget {
                 crossAxisCount: 3,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
-                childAspectRatio: 1,
               ),
               itemCount: 9,
-              itemBuilder: (context, index) {
-                if (index == 0) return _buildHostPlaceholder(themeColor);
+              itemBuilder: (context, idx) {
+                final String team = isLeft ? 'left' : 'right';
+                final teamList = (room.pkTeams?[team] as List?)?.cast<String>() ?? [];
                 
-                // For indices 1-8 (Seats 2-9)
-                final memberIndex = index - 1;
-                if (memberIndex < teamMembers.length) {
-                  return _buildMemberSeat(teamMembers[memberIndex], themeColor, ref, context);
+                if (idx < teamList.length) {
+                  final String uid = teamList[idx];
+                  return _buildTeamMemberSeat(context, ref, uid, themeColor, isLeft);
+                } else {
+                  return _buildEmptySeat(context, ref, themeColor, isLeft);
                 }
-                
-                return _buildEmptySeat(context, ref, themeColor, isLeft);
               },
             ),
           ),
@@ -269,24 +268,17 @@ class ActivePKBattleGrid extends ConsumerWidget {
     );
   }
 
-  Widget _buildHostPlaceholder(Color color) {
-    return Container(
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        shape: BoxShape.circle,
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Center(
-        child: Text("HOST", style: TextStyle(color: color, fontSize: 8, fontWeight: FontWeight.bold)),
-      ),
+  Widget _buildTeamMemberSeat(BuildContext context, WidgetRef ref, String uid, Color color, bool isLeft) {
+    final p = participants.firstWhere(
+      (element) => element.uid == uid,
+      orElse: () => Participant(uid: uid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'audience'),
     );
-  }
+    final myUid = ref.read(authStateProvider).value?.uid;
+    final isMe = p.uid == myUid;
 
-  Widget _buildMemberSeat(Participant p, Color color, WidgetRef ref, BuildContext context) {
     return GestureDetector(
       onTap: () {
-        final myUid = ref.read(authStateProvider).value?.uid;
-        if (p.uid == myUid) {
+        if (isMe) {
           _showSelfActions(context, ref, isHost: false);
         }
       },
@@ -297,7 +289,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
         ),
         child: ClipOval(
           child: p.profilePhotoUrl.isNotEmpty 
-            ? CachedNetworkImage(imageUrl: p.profilePhotoUrl, fit: BoxFit.cover)
+            ? CachedNetworkImage(imageUrl: p.profilePhotoUrl, fit: BoxFit.cover, errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.white38, size: 16))
             : const Icon(Icons.person, color: Colors.white38, size: 16),
         ),
       ).animate().scale(),

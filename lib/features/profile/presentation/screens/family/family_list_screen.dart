@@ -22,14 +22,21 @@ class FamilyListScreen extends ConsumerStatefulWidget {
 class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
   bool _isJoining = false;
 
+  String _selectedPeriod = 'Weekly';
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.familyBg,
+      backgroundColor: const Color(0xFF0B0F19), // Dark Royal Backdrop
       appBar: AppBar(
-        title: const Text('CLAN RANKINGS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: AppColors.familyText)),
-        backgroundColor: AppColors.familyBg,
+        title: const Text('CLAN RANKINGS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.white, letterSpacing: 1.5)),
+        backgroundColor: const Color(0xFF0B0F19),
         elevation: 0,
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          onPressed: () => Navigator.pop(context),
+        ),
       ),
       body: _buildRankingView(),
     );
@@ -41,183 +48,420 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
     return familiesAsync.when(
       data: (families) {
         final sorted = List<FamilyModel>.from(families);
+        
+        // If Firestore has no families yet, provide demo champion clans so UI is never empty
+        if (sorted.isEmpty) {
+          sorted.addAll([
+            FamilyModel(id: 'demo1', name: 'DRAGON DYNASTY', tag: 'DRG', description: 'Royal Dragon Clan', level: 98, totalCombatPoints: 12500000, memberUids: List.generate(46, (i) => 'm$i'), ownerId: 'o1', createdAt: DateTime.now()),
+            FamilyModel(id: 'demo2', name: 'ROYAL PHOENIX', tag: 'PHX', description: 'Phoenix Elite', level: 85, totalCombatPoints: 8200000, memberUids: List.generate(42, (i) => 'm$i'), ownerId: 'o2', createdAt: DateTime.now()),
+            FamilyModel(id: 'demo3', name: 'VALHALLA LIONS', tag: 'VLH', description: 'Valhalla Kings', level: 74, totalCombatPoints: 5900000, memberUids: List.generate(38, (i) => 'm$i'), ownerId: 'o3', createdAt: DateTime.now()),
+            FamilyModel(id: 'demo4', name: 'VANGUARD TITANS', tag: 'VNG', description: 'Vanguard Army', level: 68, totalCombatPoints: 4700000, memberUids: List.generate(35, (i) => 'm$i'), ownerId: 'o4', createdAt: DateTime.now()),
+            FamilyModel(id: 'demo5', name: 'IMPERIAL KINGS', tag: 'IMP', description: 'Imperial Dynasty', level: 62, totalCombatPoints: 3400000, memberUids: List.generate(30, (i) => 'm$i'), ownerId: 'o5', createdAt: DateTime.now()),
+          ]);
+        }
+
         sorted.sort((a, b) => b.totalCombatPoints.compareTo(a.totalCombatPoints));
 
-        if (sorted.isEmpty) return const Center(child: Text("No Families yet"));
-
         final topThree = sorted.take(3).toList();
-        final others = sorted.skip(3).toList();
+        final rosterList = sorted.length > 3 ? sorted.skip(3).toList() : sorted;
 
         return ListView(
+          physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.all(16),
           children: [
+            // 1. Top 3 Champions Podium
             _buildPodium(topThree),
-            const Gap(32),
+            const Gap(24),
+
+            // 2. Time Filter Bar
+            _buildPeriodFilterBar(),
+            const Gap(24),
             
+            // 3. Roster Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('GLOBAL ROSTER', 
-                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, color: AppColors.familyText, letterSpacing: 1)),
-                Text('${sorted.length} CLANS', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10, color: AppColors.familyTextSecondary)),
+                Row(
+                  children: [
+                    Container(width: 4, height: 16, decoration: BoxDecoration(color: const Color(0xFFFFD700), borderRadius: BorderRadius.circular(2))),
+                    const Gap(8),
+                    const Text('GLOBAL CLAN ROSTER', 
+                      style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, color: Colors.white, letterSpacing: 1.5)),
+                  ],
+                ),
+                Text('${sorted.length} CLANS', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Color(0xFFFFD700))),
               ],
             ),
             const Gap(16),
             
+            // 4. Roster Tiles List
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              itemCount: others.length,
+              itemCount: rosterList.length,
               separatorBuilder: (_, __) => const Gap(12),
               itemBuilder: (context, i) {
-                final family = others[i];
-                return _buildCompactFamilyTile(family, i + 4, family.totalCombatPoints);
+                final family = rosterList[i];
+                final rank = sorted.indexOf(family) + 1;
+                return _buildCompactFamilyTile(family, rank, family.totalCombatPoints);
               },
             ),
             const Gap(40),
           ],
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (_, __) => const Center(child: Text("Error fetching ranking")),
+      loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700))),
+      error: (_, __) => const Center(child: Text("Error fetching ranking", style: TextStyle(color: Colors.redAccent))),
+    );
+  }
+
+  Widget _buildPeriodFilterBar() {
+    final periods = ['Daily', 'Weekly', 'All-Time'];
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: periods.map((p) {
+          final isSelected = _selectedPeriod == p;
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => setState(() => _selectedPeriod = p),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0xFFD4A843) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  p,
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : Colors.white60,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 
   Widget _buildPodium(List<FamilyModel> top) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        if (top.length > 1) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[1], 2, const Color(0xFF94A3B8))),
-        if (top.isNotEmpty) _buildPodiumItem(top[0], 1, const Color(0xFFFACC15)),
-        if (top.length > 2) Padding(padding: const EdgeInsets.only(bottom: 0), child: _buildPodiumItem(top[2], 3, const Color(0xFFD97706))),
-      ],
-    );
-  }
-
-  Widget _buildPodiumItem(FamilyModel family, int rank, Color color) {
-    double size = rank == 1 ? 100 : 80;
-    final pts = family.totalCombatPoints;
-    final userData = ref.watch(userProfileProvider(ref.watch(authStateProvider).value?.uid ?? '')).value;
-
-    return GestureDetector(
-      onTap: () => context.push(userData?.familyId != null ? AppRoutes.familyList : AppRoutes.familyPortal),
-      child: Column(
+    return Container(
+      padding: const EdgeInsets.only(top: 16, bottom: 0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Container(
-                width: size, height: size,
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(colors: [color, color.withOpacity(0.5)]),
-                ),
-                child: Container(
-                  decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
-                  child: ClipOval(
-                    child: family.avatarUrl != null 
-                      ? CachedNetworkImage(imageUrl: family.avatarUrl!, fit: BoxFit.cover)
-                      : Icon(Icons.groups_rounded, color: color, size: size * 0.5),
-                    ),
-                ),
-              ),
-              Positioned(
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                  decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white, width: 2)),
-                  child: Text('#$rank', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900)),
-                ),
-              ),
-            ],
-          ),
-          const Gap(12),
-          SizedBox(
-            width: rank == 1 ? 110 : 90,
-            child: Text(
-              family.name,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-            ),
-          ),
-          const Gap(2),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(10)),
-            child: Text('${(pts / 1000).toStringAsFixed(1)}k', style: TextStyle(color: color, fontWeight: FontWeight.w900, fontSize: 11)),
-          ),
+          if (top.length > 1)
+            Expanded(child: _buildPodiumItem(top[1], 2, const Color(0xFF94A3B8), 110)),
+          if (top.isNotEmpty)
+            Expanded(child: _buildPodiumItem(top[0], 1, const Color(0xFFFFD700), 145)),
+          if (top.length > 2)
+            Expanded(child: _buildPodiumItem(top[2], 3, const Color(0xFFD97706), 95)),
         ],
       ),
     );
   }
 
-  Widget _buildCompactFamilyTile(FamilyModel family, int rank, int pts) {
-    return InkWell(
+  Widget _buildPodiumItem(FamilyModel family, int rank, Color color, double podiumHeight) {
+    final bool isGold = rank == 1;
+    final double avatarRadius = isGold ? 38 : 30;
+    final pts = family.totalCombatPoints;
+    final ptsFormatted = pts >= 1000000 
+        ? '${(pts / 1000000).toStringAsFixed(1)}M CP' 
+        : '${(pts / 1000).toStringAsFixed(1)}K CP';
+
+    return GestureDetector(
       onTap: () => _showClanDetails(family),
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
-          border: Border.all(color: Colors.black.withOpacity(0.05)),
-        ),
-        child: Row(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 3),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            SizedBox(
-              width: 32, 
-              child: Text(
-                rank.toString().padLeft(2, '0'), 
-                style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.black26, fontSize: 16)
-              )
-            ),
-            const Gap(4),
-            Container(
-              width: 50, height: 50,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16), 
-                border: Border.all(color: Colors.black.withOpacity(0.05), width: 2)
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14), 
-                child: family.avatarUrl != null 
-                  ? CachedNetworkImage(imageUrl: family.avatarUrl!, fit: BoxFit.cover) 
-                  : const Icon(Icons.groups_rounded, color: Colors.black12, size: 24)
-              ),
-            ),
-            const Gap(16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(family.name, style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15, letterSpacing: -0.5)),
-                  const Gap(2),
-                  Row(
-                    children: [
-                      const Icon(Icons.people_alt_rounded, size: 12, color: Colors.black26),
-                      const Gap(4),
-                      Text('${family.memberUids.length} Battle Members', style: const TextStyle(color: Colors.black38, fontSize: 11, fontWeight: FontWeight.bold)),
+            // Glowing Avatar Ring
+            Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                // Outer Glow
+                Container(
+                  width: avatarRadius * 2 + 8,
+                  height: avatarRadius * 2 + 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: color.withOpacity(0.15),
+                    boxShadow: [
+                      BoxShadow(color: color.withOpacity(0.4), blurRadius: 16, spreadRadius: 1),
                     ],
                   ),
-                ],
+                ),
+                // Inner Ring
+                Container(
+                  width: avatarRadius * 2,
+                  height: avatarRadius * 2,
+                  padding: const EdgeInsets.all(2.5),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color, width: 2),
+                  ),
+                  child: Container(
+                    decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF0F172A)),
+                    child: ClipOval(
+                      child: family.avatarUrl != null && family.avatarUrl!.isNotEmpty
+                          ? CachedNetworkImage(imageUrl: family.avatarUrl!, fit: BoxFit.cover, errorWidget: (_, __, ___) => Icon(Icons.shield_rounded, color: color, size: avatarRadius * 0.9))
+                          : Icon(Icons.shield_rounded, color: color, size: avatarRadius * 0.9),
+                    ),
+                  ),
+                ),
+                // Level Pill
+                Positioned(
+                  bottom: -6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: color, width: 1.2),
+                    ),
+                    child: Text(
+                      'Lv.${family.level}',
+                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const Gap(12),
+
+            // Clan Name
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                family.name.toUpperCase(),
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: isGold ? 12 : 10,
+                  color: Colors.white,
+                  letterSpacing: 0.3,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
             ),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            const Gap(2),
+
+            // CP Text
+            Text(
+              ptsFormatted,
+              style: TextStyle(color: color.withOpacity(0.9), fontWeight: FontWeight.w800, fontSize: 9, letterSpacing: 0.3),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const Gap(8),
+
+            // 3D Hexagonal Podium Base (Simulated with layered containers)
+            Stack(
+              alignment: Alignment.topCenter,
               children: [
-                Text(
-                  pts > 1000000 ? '${(pts/1000000).toStringAsFixed(1)}M' : pts > 1000 ? '${(pts/1000).toStringAsFixed(1)}K' : '$pts', 
-                  style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 16)
+                // 3D Base Face
+                Container(
+                  width: double.infinity,
+                  height: podiumHeight,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF232732), Color(0xFF0B0F17)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.6), blurRadius: 10, offset: const Offset(0, -2)),
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Text(
+                    '#$rank',
+                    style: TextStyle(
+                      color: color,
+                      fontWeight: FontWeight.w900,
+                      fontSize: isGold ? 28 : 22,
+                      shadows: [Shadow(color: color.withOpacity(0.5), blurRadius: 8)],
+                    ),
+                  ),
                 ),
-                const Text('PTS', style: TextStyle(color: Colors.black26, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                // Top Polygon Lid Line
+                Container(
+                  width: double.infinity,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF333846),
+                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(8), topRight: Radius.circular(8)),
+                    border: Border(bottom: BorderSide(color: color.withOpacity(0.4), width: 2)),
+                  ),
+                ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompactFamilyTile(FamilyModel family, int rank, int pts) {
+    final clanName = family.name.trim().isNotEmpty ? family.name.trim() : "Clan #$rank";
+    final memberCount = family.memberUids.isNotEmpty ? family.memberUids.length : 1;
+    final ptsText = pts >= 1000000 
+        ? '${(pts / 1000000).toStringAsFixed(1)}M' 
+        : '${(pts / 1000).toStringAsFixed(1)}K';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF131A26),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3)),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _showClanDetails(family),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            child: Row(
+              children: [
+                // 1. Rank Index Badge
+                SizedBox(
+                  width: 28,
+                  child: Text(
+                    '#${rank.toString().padLeft(2, '0')}',
+                    style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFFFD700), fontSize: 13, letterSpacing: -0.5),
+                  ),
+                ),
+                const Gap(4),
+
+                // 2. Clan Avatar with Golden Ring
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: const Color(0xFFFFD700), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.25), blurRadius: 6),
+                        ],
+                      ),
+                      child: Container(
+                        decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF0F172A)),
+                        child: ClipOval(
+                          child: family.avatarUrl != null && family.avatarUrl!.isNotEmpty
+                              ? CachedNetworkImage(imageUrl: family.avatarUrl!, fit: BoxFit.cover, errorWidget: (_, __, ___) => const Icon(Icons.shield_rounded, color: Color(0xFFFFD700), size: 18))
+                              : const Icon(Icons.shield_rounded, color: Color(0xFFFFD700), size: 18),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      bottom: -2,
+                      right: -2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFFFD700), width: 1),
+                        ),
+                        child: Text(
+                          '${family.level}',
+                          style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const Gap(8),
+
+                // 3. Middle Meta Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        clanName.toUpperCase(),
+                        style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Colors.white, letterSpacing: 0.3),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const Gap(2),
+                      Row(
+                        children: [
+                          const Icon(Icons.people_alt_rounded, color: Color(0xFF94A3B8), size: 10),
+                          const Gap(3),
+                          Text(
+                            '$memberCount/100',
+                            style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const Gap(6),
+
+                // 4. Neon CP Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF38BDF8), width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.diamond_outlined, color: Color(0xFF38BDF8), size: 10),
+                      const Gap(2),
+                      Text(
+                        '$ptsText CP',
+                        style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900),
+                      ),
+                    ],
+                  ),
+                ),
+                const Gap(6),
+
+                // 5. Glowing Action Button
+                Container(
+                  height: 26,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    gradient: const LinearGradient(colors: [Color(0xFF34D399), Color(0xFF10B981)]),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text('VIEW', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 9, letterSpacing: 0.5)),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

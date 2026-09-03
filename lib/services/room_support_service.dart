@@ -51,24 +51,50 @@ class RoomSupportService extends BaseFirebaseService {
               final data = doc.data();
               final roomId = doc.id;
               String roomName = data['roomName'] ?? '';
+              String coverUrl = data['coverUrl'] ?? '';
+              final totalCoins = (data['totalCoins'] as num?)?.toInt() ?? 0;
               
-              // If roomName not cached in cycle doc, fetch from rooms collection
-              if (roomName.isEmpty) {
+              // If roomName / coverUrl not cached in cycle doc, fetch from rooms collection
+              if (roomName.isEmpty || coverUrl.isEmpty) {
                 try {
                   final roomDoc = await _db.collection('rooms').doc(roomId).get();
                   if (roomDoc.exists) {
-                    roomName = roomDoc.data()?['name'] ?? roomDoc.data()?['title'] ?? 'Room #$roomId';
+                    final rData = roomDoc.data();
+                    if (roomName.isEmpty) {
+                      roomName = rData?['name'] ?? rData?['title'] ?? 'Room #$roomId';
+                    }
+                    if (coverUrl.isEmpty) {
+                      coverUrl = rData?['coverUrl'] ?? '';
+                    }
                   }
                 } catch (_) {}
               }
               if (roomName.isEmpty) roomName = 'Room #$roomId';
 
+              int level = 0;
+              if (totalCoins >= 300000000) {
+                level = 7;
+              } else if (totalCoins >= 200000000) {
+                level = 6;
+              } else if (totalCoins >= 100000000) {
+                level = 5;
+              } else if (totalCoins >= 50000000) {
+                level = 4;
+              } else if (totalCoins >= 30000000) {
+                level = 3;
+              } else if (totalCoins >= 20000000) {
+                level = 2;
+              } else if (totalCoins >= 10000000) {
+                level = 1;
+              }
+
               results.add({
                 'id': roomId,
                 'roomId': roomId,
                 'roomName': roomName,
-                'totalCoins': (data['totalCoins'] as num?)?.toInt() ?? 0,
-                'level': data['level'] ?? 1,
+                'coverUrl': coverUrl,
+                'totalCoins': totalCoins,
+                'level': level,
               });
             }
             return results;
@@ -83,12 +109,31 @@ class RoomSupportService extends BaseFirebaseService {
 
           return roomsSnap.docs.map((d) {
             final data = d.data();
+            final totalCoins = (data['weeklyEarnings'] as num?)?.toInt() ?? (data['totalCoins'] as num?)?.toInt() ?? 0;
+            int level = 0;
+            if (totalCoins >= 300000000) {
+              level = 7;
+            } else if (totalCoins >= 200000000) {
+              level = 6;
+            } else if (totalCoins >= 100000000) {
+              level = 5;
+            } else if (totalCoins >= 50000000) {
+              level = 4;
+            } else if (totalCoins >= 30000000) {
+              level = 3;
+            } else if (totalCoins >= 20000000) {
+              level = 2;
+            } else if (totalCoins >= 10000000) {
+              level = 1;
+            }
+
             return {
               'id': d.id,
               'roomId': d.id,
               'roomName': data['name'] ?? data['title'] ?? 'Room #${d.id}',
-              'totalCoins': (data['totalCoins'] as num?)?.toInt() ?? (data['weeklyCoins'] as num?)?.toInt() ?? 0,
-              'level': data['level'] ?? 1,
+              'coverUrl': data['coverUrl'] ?? '',
+              'totalCoins': totalCoins,
+              'level': level,
             };
           }).toList();
         });

@@ -33,6 +33,8 @@ import '../../features/profile/presentation/screens/cp_level_screen.dart';
 import '../../features/profile/presentation/screens/friend_list_screen.dart';
 import '../../features/profile/presentation/screens/friend_requests_screen.dart';
 import '../../features/profile/presentation/screens/friendship_portal_screen.dart';
+import '../../features/rooms/presentation/screens/room_welcome_message_screen.dart';
+import '../models/room_model.dart';
 import '../../features/profile/presentation/screens/relationship_ranking_screen.dart';
 import '../../features/profile/presentation/screens/prop_warehouse_screen.dart';
 import '../../features/profile/presentation/screens/family/family_portal_screen.dart';
@@ -49,6 +51,7 @@ import '../../features/profile/presentation/screens/help_center_screen.dart';
 import '../../features/profile/presentation/screens/about_screen.dart';
 import '../../features/chats/presentation/screens/private_chat_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
+import '../../features/reseller/presentation/screens/reseller_list_screen.dart';
 import '../../features/profile/presentation/screens/agency/commission_wallet_screen.dart';
 
 import '../../features/rooms/presentation/screens/home_screen.dart';
@@ -99,6 +102,7 @@ class AppRoutes {
   static const momentDetail    = '/moment-detail';
   static const createRoom      = '/create-room';
   static const liveRoom        = '/live-room';
+  static const roomWelcomeMessage = '/room-welcome-message';
   static const vipShop         = '/vip-shop';
   static const salaryHistory   = '/salary-history';
   static const prestigeStore   = '/prestige-store';
@@ -128,6 +132,7 @@ class AppRoutes {
   static const chatDetail       = '/chat-detail';
   static const pkBattle         = '/pk-battle';
   static const resellerCenter   = '/reseller-center';
+  static const resellerList     = '/reseller-list';
   static const levelDetail      = '/level-detail';
   static const verification     = '/verification';
   static const withdrawalHistory = '/withdrawal-history';
@@ -313,6 +318,20 @@ final routerProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/room/:roomId',
+        builder: (context, state) {
+          final roomId = state.pathParameters['roomId'] ?? '';
+          return LiveRoomScreen(roomId: roomId);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.roomWelcomeMessage,
+        builder: (context, state) {
+          final room = state.extra as RoomModel;
+          return RoomWelcomeMessageScreen(room: room);
+        },
+      ),
+      GoRoute(
         path: AppRoutes.vipShop,
         builder: (context, state) => const VIPShopScreen(),
       ),
@@ -456,6 +475,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.resellerCenter,
         builder: (context, state) => const ResellerDashboardScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.resellerList,
+        builder: (context, state) => const ResellerListScreen(),
       ),
       GoRoute(
         path: AppRoutes.levelDetail,

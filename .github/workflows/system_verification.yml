@@ -1,0 +1,99 @@
+name: Full System Automated Verification
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  # ============================================================================
+  # JOB 1: Flutter Client Analysis, Unit Tests, and Widget Tests
+  # ============================================================================
+  flutter_tests:
+    name: 📱 Flutter Client & Logic Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Set up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: 🚀 Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: 📦 Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: 🔍 Static Code Analysis
+        run: flutter analyze lib/core/widgets/user_badge.dart lib/core/models/user_model.dart lib/features/profile/presentation/screens/agency/svip_privileges_screen.dart
+
+      - name: 🧪 Run SVIP System Tests (10/10)
+        run: flutter test test/svip_system_test.dart
+
+      - name: 🛡️ Run Hierarchy Permission Tests (6/6)
+        run: flutter test test/hierarchy_permission_test.dart
+
+      - name: 📶 Run Offline Betting Prevention Tests (4/4)
+        run: flutter test test/offline_betting_prevention_test.dart
+
+      - name: 🎨 Run Visual Badge Widget Tests (4/4)
+        run: flutter test test/svip_widget_verification_test.dart
+
+  # ============================================================================
+  # JOB 2: Firebase Cloud Functions Backend Logic Verification
+  # ============================================================================
+  backend_tests:
+    name: ⚡ Cloud Functions Backend Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache-dependency-path: functions/package-lock.json
+
+      - name: 🔍 Syntax Validation on Cloud Functions
+        run: node -c functions/index.js
+
+      - name: 🧪 Run Backend Logic & Security Suite (5/5)
+        run: node scratch/test_svip_backend.js
+
+  # ============================================================================
+  # JOB 3: React 19 Admin Dashboard Build Verification
+  # ============================================================================
+  admin_dashboard:
+    name: 🖥️ React 19 Admin Dashboard Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: hellochat_admin/package-lock.json
+
+      - name: 📦 Install Admin Dependencies
+        working-directory: hellochat_admin
+        run: npm ci || npm install
+
+      - name: 🏗️ Verify Production Build
+        working-directory: hellochat_admin
+        run: npm run build

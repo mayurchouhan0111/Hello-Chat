@@ -48,9 +48,6 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   late TabController _tabController;
   bool _hasRecordedVisit = false;
   bool _isActionLoading = false;
-  bool _isSendingFriendReq = false;
-  bool _isSendingCPReq = false;
-  final Set<String> _sentFriendReqs = {};
 
   void _showCuteSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -100,7 +97,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         final textColor = hasVipBg ? Colors.white : Colors.black87;
         final subTextColor = hasVipBg ? Colors.white70 : Colors.black45;
         
-        // Dynamic Visit Tracking (Run once per screen view without setState during route transition)
+        // Dynamic Visit Tracking (Run once post-frame to maintain 60 FPS transition)
         if (!_hasRecordedVisit) {
           _hasRecordedVisit = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -110,15 +107,10 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             }
           });
         }
-
-        // Precache profile photo on first build to avoid decoding stutter
-        if (userData.profilePhotoUrl.isNotEmpty) {
-          precacheImage(CachedNetworkImageProvider(userData.profilePhotoUrl), context);
-        }
         
         return Scaffold(
           backgroundColor: Colors.white,
-          bottomNavigationBar: RepaintBoundary(child: _buildBottomBar(context, userData)),
+          bottomNavigationBar: RepaintBoundary(child: ProfileBottomBarWidget(userData: userData)),
           body: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,13 +118,13 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 // 1. Cover Photo with Overlay Actions
                 RepaintBoundary(child: _buildCoverPhoto(context, userData)),
 
-                const SizedBox(height: 12),
-
-                UserProfileCard(
-                  user: userData,
-                  borderRadius: BorderRadius.zero,
-                  boxShadow: const [],
-                  optimizeCrown: true,
+                RepaintBoundary(
+                  child: UserProfileCard(
+                    user: userData,
+                    borderRadius: BorderRadius.zero,
+                    boxShadow: const [],
+                    optimizeCrown: true,
+                    staticDecor: true,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -176,6 +168,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                     ],
                   ),
                 ),
+              ),
 
                 const SizedBox(height: 12),
 
@@ -197,7 +190,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   ),
                 ),
 
-                const SizedBox(height: 120),
+                const SizedBox(height: 24),
               ],
             ),
           ),
@@ -206,310 +199,45 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     );
   }
 
-  Widget _buildBottomBar(BuildContext context, UserModel userData) {
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUid == null || currentUid == userData.uid) return const SizedBox.shrink();
-
-    final followingAsync = ref.watch(followingStreamProvider(currentUid));
-    final followersAsync = ref.watch(followersStreamProvider(currentUid));
-    final currentUserAsync = ref.watch(currentUserProfileProvider);
-    
-    return followingAsync.when(
-      data: (followingList) {
-        final isFollowing = followingList.contains(userData.uid);
-        final isFollower = followersAsync.value?.contains(userData.uid) ?? false;
-        final isFriends = isFollowing && isFollower;
-        final isPartner = currentUserAsync.valueOrNull?.partnerUid == userData.uid;
-        final friendReqSent = _sentFriendReqs.contains(userData.uid);
-        
-        final buttonLabel = isFriends ? "Friends" : (isFollowing ? "Following" : "Follow");
-        final bgColor = (isFollowing || isFriends) ? Colors.grey[200] : AppColors.primary;
-        final fgColor = (isFollowing || isFriends) ? Colors.black87 : Colors.white;
-
-        return Container(
-          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.12),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
-            border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
-          ),
-          child: Row(
-            children: [
-              // 1. Primary Action Button: Follow / Following / Friends
-              Expanded(
-                flex: 3,
-                child: GestureDetector(
-                  onTap: _isActionLoading ? null : () async {
-                    setState(() => _isActionLoading = true);
-                    try {
-                      if (isFollowing) {
-                        await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
-                        _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
-                      } else {
-                        await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
-                        _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
-                      }
-                    } catch (e) {
-                      _showCuteSnackBar("Oops! $e", isError: true);
-                    } finally {
-                      if (mounted) setState(() => _isActionLoading = false);
-                    }
-                  },
-                  child: Container(
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: (isFollowing || isFriends)
-                          ? null
-                          : const LinearGradient(
-                              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                      color: (isFollowing || isFriends) ? Colors.grey[100] : null,
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: (isFollowing || isFriends)
-                          ? null
-                          : [
-                              BoxShadow(
-                                color: const Color(0xFF4F46E5).withOpacity(0.35),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                    ),
-                    child: Center(
-                      child: _isActionLoading
-                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  isFriends ? Icons.people_alt_rounded : (isFollowing ? Icons.check_circle_rounded : Icons.person_add_alt_1_rounded),
-                                  color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
-                                  size: 19,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  buttonLabel,
-                                  style: TextStyle(
-                                    color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 2. Direct Chat Button (Vibrant Indigo Disc)
-              GestureDetector(
-                onTap: () async {
-                  try {
-                    final chatService = ref.read(chatServiceProvider);
-                    final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
-                    if (context.mounted) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid),
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
-                    }
-                  }
-                },
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Icon(Icons.forum_rounded, color: Colors.white, size: 20),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 3. Friendship Request Button (Emerald Disc)
-              GestureDetector(
-                onTap: friendReqSent || _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
-                child: Tooltip(
-                  message: friendReqSent ? "Friendship Request Sent" : "Send Friend Request",
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: friendReqSent
-                          ? null
-                          : const LinearGradient(
-                              colors: [Color(0xFF10B981), Color(0xFF059669)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                      color: friendReqSent ? Colors.amber.withOpacity(0.15) : null,
-                      shape: BoxShape.circle,
-                      boxShadow: friendReqSent
-                          ? null
-                          : [
-                              BoxShadow(
-                                color: const Color(0xFF10B981).withOpacity(0.3),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                      border: friendReqSent ? Border.all(color: Colors.amber.withOpacity(0.4), width: 1.5) : null,
-                    ),
-                    child: _isSendingFriendReq
-                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
-                        : Icon(
-                            friendReqSent ? Icons.hourglass_bottom_rounded : Icons.diversity_3_rounded,
-                            color: friendReqSent ? Colors.amber[800] : Colors.white,
-                            size: 20,
-                          ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-
-              // 4. CP (Couple Partner) Request Button (Rose Gold Disc)
-              GestureDetector(
-                onTap: isPartner || _isSendingCPReq ? null : () => _sendCPRequest(userData),
-                child: Tooltip(
-                  message: isPartner ? "Active CP Partner ❤️" : "Send CP Invite 💕",
-                  child: Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      gradient: isPartner
-                          ? null
-                          : const LinearGradient(
-                              colors: [Color(0xFFEC4899), Color(0xFFF43F5E)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                      color: isPartner ? Colors.pink.withOpacity(0.18) : null,
-                      shape: BoxShape.circle,
-                      boxShadow: isPartner
-                          ? null
-                          : [
-                              BoxShadow(
-                                color: const Color(0xFFEC4899).withOpacity(0.35),
-                                blurRadius: 8,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                      border: isPartner ? Border.all(color: Colors.pink.withOpacity(0.4), width: 1.5) : null,
-                    ),
-                    child: _isSendingCPReq
-                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
-                        : Icon(
-                            isPartner ? Icons.favorite_rounded : Icons.volunteer_activism_rounded,
-                            color: isPartner ? Colors.pink[700] : Colors.white,
-                            size: 20,
-                          ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-    );
-  }
-
-  Future<void> _sendFriendRequest(String targetUid) async {
-    setState(() => _isSendingFriendReq = true);
-    try {
-      await ref.read(relationshipServiceProvider).sendFriendRequest(targetUid);
-      setState(() => _sentFriendReqs.add(targetUid));
-      _showCuteSnackBar("Friend request sent! 💌");
-    } catch (e) {
-      _showCuteSnackBar("$e", isError: true);
-    }
-    if (mounted) setState(() => _isSendingFriendReq = false);
-  }
-
-  Future<void> _sendCPRequest(UserModel targetUser) async {
-    final me = ref.read(currentUserProfileProvider).valueOrNull;
-    if ((me?.partnerUid != null && me!.partnerUid!.isNotEmpty) ||
-        (targetUser.partnerUid != null && targetUser.partnerUid!.isNotEmpty)) {
-      _showCuteSnackBar("You or the recipient already have an active CP relationship.", isError: true);
-      return;
-    }
-
-    setState(() => _isSendingCPReq = true);
-    try {
-      await ref.read(relationshipServiceProvider).sendCPInvite(targetUser.uid);
-      _showCuteSnackBar("CP invite sent! 💕");
-    } catch (e) {
-      _showCuteSnackBar("$e", isError: true);
-    }
-    if (mounted) setState(() => _isSendingCPReq = false);
-  }
-
   Widget _buildCoverPhoto(BuildContext context, UserModel userData) {
-    final screenHeight = MediaQuery.of(context).size.height;
     return Stack(
       children: [
         Container(
           width: double.infinity,
-          height: screenHeight * 0.40,
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1B4B),
-            image: userData.profilePhotoUrl.isNotEmpty
-                ? DecorationImage(
-                    image: CachedNetworkImageProvider(userData.profilePhotoUrl),
-                    fit: BoxFit.cover,
-                  )
-                : null,
-          ),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.35),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                AppAvatar(
-                  imageUrl: userData.profilePhotoUrl,
-                  radius: 50,
-                  vipTier: userData.vipTier,
-                  frameUrl: userData.profileFrame,
-                  userLevel: userData.level,
-                  frameMultiplier: 2.0,
-                  maxFps: 18.0,
-                  maxRenderSize: const Size(200, 200),
+          height: 260,
+          color: const Color(0xFF1E1B4B),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (userData.profilePhotoUrl.isNotEmpty)
+                (userData.profilePhotoUrl.startsWith('assets/')
+                    ? Image.asset(userData.profilePhotoUrl, fit: BoxFit.cover, width: double.infinity, height: double.infinity)
+                    : CachedNetworkImage(
+                        imageUrl: userData.profilePhotoUrl,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        height: double.infinity,
+                        memCacheWidth: 720,
+                        memCacheHeight: 520,
+                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                      )),
+              Container(
+                color: Colors.black.withOpacity(0.35),
+                child: Center(
+                  child: AppAvatar(
+                    imageUrl: userData.profilePhotoUrl,
+                    radius: 50,
+                    vipTier: userData.vipTier,
+                    frameUrl: userData.profileFrame,
+                    userLevel: userData.level,
+                    frameMultiplier: 2.0,
+                    staticFrame: false,
+                    maxFps: 24.0,
+                    maxRenderSize: const Size(200, 200),
+                  ),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         // Gradient overlay for readability
@@ -554,7 +282,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         ),
         // Visitor Badge (Dynamic)
         Positioned(
-          bottom: 16,
+          bottom: 24,
           right: 16,
           child: Container(
             padding: const EdgeInsets.all(4),
@@ -838,12 +566,22 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
               width: 32, // Increased size
               height: 32,
               child: (iconUrl != null && iconUrl.isNotEmpty)
-                  ? CachedNetworkImage(
-                      imageUrl: iconUrl, 
-                      fit: BoxFit.contain,
-                      placeholder: (_, __) => Icon(icon, color: color, size: 16),
-                      errorWidget: (_, __, ___) => Icon(icon, color: color, size: 16),
-                    )
+                  ? (iconUrl.startsWith('assets/')
+                      ? Image.asset(
+                          iconUrl,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Icon(icon, color: color, size: 16),
+                        )
+                      : (Uri.tryParse(iconUrl)?.hasAbsolutePath == true)
+                          ? CachedNetworkImage(
+                              imageUrl: iconUrl, 
+                              fit: BoxFit.contain,
+                              memCacheWidth: 64,
+                              memCacheHeight: 64,
+                              placeholder: (_, __) => Icon(icon, color: color, size: 16),
+                              errorWidget: (_, __, ___) => Icon(icon, color: color, size: 16),
+                            )
+                          : Icon(icon, color: color, size: 16))
                   : Icon(icon, color: color, size: 16),
             ),
           ),
@@ -893,10 +631,6 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
     final rawBadges = getBadgesForUser(userData);
     if (rawBadges.isEmpty) return const SizedBox.shrink();
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    // Calculate width for 4 items: (Width - Padding - Spacings) / 4
-    final itemWidth = (screenWidth - 32 - 12) / 4; 
-
     final badges = rawBadges.map((b) {
        return b is UserBadge ? UserBadge(
          label: b.label,
@@ -906,15 +640,15 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
          imageAsset: b.imageAsset,
          customFrameAsset: b.customFrameAsset,
          preferStaticFrame: true,
-         margin: const EdgeInsets.only(right: 8, bottom: 8),
+         margin: EdgeInsets.zero,
        ) : b;
     }).toList();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Wrap(
-        spacing: 4,
-        runSpacing: 8,
+        spacing: 6,
+        runSpacing: 6,
         children: badges,
       ),
     );
@@ -1008,18 +742,12 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         children: [
           // 0. Family Badge Card (if user is in a family)
           if (userData.familyId != null) ...[
-            SizedBox(
-              width: 180,
-              child: _buildFamilyBadgeCard(userData),
-            ),
-            const SizedBox(width: 8),
+            _buildFamilyBadgeCard(userData),
+            const SizedBox(width: 10),
           ],
 
           // 1. Contribution Card (Top List)
-          SizedBox(
-            width: 160,
-            child: _buildContributionCard(userData),
-          ),
+          _buildContributionCard(userData),
         ],
       ),
     );
@@ -1028,7 +756,6 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   // ... (Other methods) ...
 
   Widget _buildContributionCard(UserModel userData) {
-    debugPrint("Building contribution card for: ${userData.uid}");
     final contributorsAsync = ref.watch(topContributorsProvider(userData.uid));
     
     return contributorsAsync.when(
@@ -1042,40 +769,92 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             },
           ),
           child: Container(
-            padding: const EdgeInsets.all(8),
+            constraints: const BoxConstraints(minWidth: 145, maxWidth: 175),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.black.withOpacity(0.05)),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF1E1A2E),
+                  Color(0xFF101422),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFF818CF8).withOpacity(0.35),
+                width: 1.2,
+              ),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2)),
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: const Color(0xFF818CF8).withOpacity(0.08),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
               ],
             ),
             child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 if (contributors.isEmpty)
-                   Container(
-                     padding: const EdgeInsets.all(4),
-                     decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), shape: BoxShape.circle),
-                     child: const Icon(Icons.stars_rounded, color: Colors.amber, size: 20),
-                   )
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: LinearGradient(
+                        colors: [
+                          const Color(0xFF818CF8).withOpacity(0.2),
+                          const Color(0xFF6366F1).withOpacity(0.05),
+                        ],
+                      ),
+                      border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.4), width: 1),
+                    ),
+                    child: const Center(
+                      child: Icon(Icons.stars_rounded, color: Color(0xFF818CF8), size: 18),
+                    ),
+                  )
                 else
                   SizedBox(
-                    height: 24,
-                    width: 40,
+                    height: 28,
+                    width: 44,
                     child: Stack(
                       children: List.generate(contributors.length.clamp(0, 3), (index) {
                         final c = contributors[index];
                         final avatar = c['photoUrl'] ?? c['avatarUrl'] ?? "";
+                        final ringColors = [
+                          const Color(0xFFFFD700),
+                          const Color(0xFFE2E8F0),
+                          const Color(0xFFCD7F32),
+                        ];
                         return Positioned(
                           left: index * 10.0,
                           child: Container(
-                            decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 1.5)),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: ringColors[index % ringColors.length],
+                                width: 1.5,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.5),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
                             child: CircleAvatar(
-                              radius: 11, 
-                              backgroundColor: Colors.grey[100],
+                              radius: 12,
+                              backgroundColor: const Color(0xFF1E293B),
                               backgroundImage: avatar.isNotEmpty ? CachedNetworkImageProvider(avatar) : null,
-                              child: avatar.isEmpty ? const Icon(Icons.person, size: 10, color: Colors.grey) : null,
+                              child: avatar.isEmpty
+                                  ? const Icon(Icons.person, size: 12, color: Colors.white54)
+                                  : null,
                             ),
                           ),
                         );
@@ -1084,23 +863,40 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   ),
                 const SizedBox(width: 8),
                 const Expanded(
-                  child: Text("Top List", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, color: Colors.black87), overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    "Top List",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11.5,
+                      color: Colors.white,
+                      letterSpacing: 0.3,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: Colors.black26, size: 14),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFF818CF8), size: 14),
               ],
             ),
           ),
         );
       },
       loading: () => Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.black.withOpacity(0.05))),
-        child: const Row(children: [SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)), SizedBox(width: 8), Text("Loading...", style: TextStyle(fontSize: 10))]),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131A26),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF818CF8))),
+            SizedBox(width: 6),
+            Text("Top List", style: TextStyle(fontSize: 11, color: Colors.white70)),
+          ],
+        ),
       ),
-      error: (e, s) {
-        debugPrint("Error loading contributors: $e");
-        return const SizedBox.shrink();
-      },
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 
@@ -1111,9 +907,9 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: const Color(0xFFF0F9FF),
+          color: const Color(0xFF161E2E),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.blue.withOpacity(0.1)),
+          border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.2)),
         ),
         child: Row(
           children: [
@@ -1122,20 +918,20 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
             else
               Container(
                 padding: const EdgeInsets.all(6), 
-                decoration: BoxDecoration(color: Colors.blue.withOpacity(0.1), borderRadius: BorderRadius.circular(6)), 
-                child: const Icon(Icons.groups_rounded, color: Colors.blue, size: 20)
+                decoration: BoxDecoration(color: const Color(0xFFFFD700).withOpacity(0.1), borderRadius: BorderRadius.circular(6)), 
+                child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD700), size: 20)
               ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11), maxLines: 1, overflow: TextOverflow.ellipsis),
-                  Text(sub, style: const TextStyle(color: Colors.black45, fontSize: 9), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.white), maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(sub, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9), maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               ),
             ),
-            if (isClickable) const Icon(Icons.chevron_right_rounded, color: Colors.black26, size: 16),
+            if (isClickable) const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 16),
           ],
         ),
       ),
@@ -1154,95 +950,195 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
         final badgeColor = _themeBadgeColor(themeIdx);
 
         return GestureDetector(
-          onTap: () => context.push(isOwner ? AppRoutes.familyPortal : AppRoutes.familyDetail, extra: isOwner ? null : family.id),
+          onTap: () => context.push(
+            isOwner ? AppRoutes.familyPortal : AppRoutes.familyDetail,
+            extra: isOwner ? null : family.id,
+          ),
           child: Container(
-            padding: const EdgeInsets.all(10),
+            constraints: const BoxConstraints(minWidth: 180, maxWidth: 215),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E1E),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: badgeColor.withOpacity(0.3), width: 1),
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF1B2232),
+                  Color(0xFF0F1420),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: const Color(0xFFFFD700).withOpacity(0.35),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.4),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+                BoxShadow(
+                  color: const Color(0xFFFFD700).withOpacity(0.08),
+                  blurRadius: 12,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Row(
-                  children: [
-                    ClipOval(
-                      child: CachedNetworkImage(
-                        imageUrl: family.avatarUrl ?? '',
-                        width: 32,
-                        height: 32,
-                        fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                          child: const Icon(Icons.shield, color: Colors.white, size: 16),
-                        ),
-                      ),
+                // Glowing Gold Avatar Frame
+                Container(
+                  width: 34,
+                  height: 34,
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFFFFD700), Color(0xFFF59E0B)],
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            family.name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w900,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFFFFD700).withOpacity(0.3),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: family.avatarUrl != null && family.avatarUrl!.isNotEmpty
+                        ? CachedNetworkImage(
+                            imageUrl: family.avatarUrl!,
+                            fit: BoxFit.cover,
+                            memCacheWidth: 120,
+                            memCacheHeight: 120,
+                            errorWidget: (_, __, ___) => Container(
+                              color: const Color(0xFF0F172A),
+                              child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD700), size: 16),
                             ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
+                          )
+                        : Container(
+                            color: const Color(0xFF0F172A),
+                            child: const Icon(Icons.shield_rounded, color: Color(0xFFFFD700), size: 16),
                           ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: badgeColor,
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Text(
-                                  'Lv${family.level}',
-                                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
-                                ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Clan Name & Tier Pill
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        family.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      const SizedBox(height: 2.5),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1),
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  badgeColor,
+                                  badgeColor.withOpacity(0.7),
+                                ],
                               ),
-                              const SizedBox(width: 4),
-                              Text(
-                                family.rankName,
-                                style: TextStyle(color: badgeColor, fontSize: 9, fontWeight: FontWeight.bold),
+                              borderRadius: BorderRadius.circular(4),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: badgeColor.withOpacity(0.3),
+                                  blurRadius: 4,
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              'Lv${family.level}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w900,
                               ),
-                            ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              family.rankName,
+                              style: TextStyle(
+                                color: badgeColor,
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
                           ),
                         ],
                       ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                // Combat Power (CP) & Chevron
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700), size: 10),
+                        const SizedBox(width: 2),
+                        Text(
+                          '${_formatCompactCP(family.totalCombatPoints)} CP',
+                          style: const TextStyle(
+                            color: Color(0xFFFFD700),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      '${_formatNumber(family.totalCombatPoints)} CP',
-                      style: const TextStyle(color: Color(0xFFD4A843), fontSize: 11, fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(Icons.chevron_right_rounded, color: Colors.white24, size: 14),
                   ],
                 ),
+                const SizedBox(width: 2),
+                const Icon(Icons.chevron_right_rounded, color: Color(0xFFFFD700), size: 13),
               ],
             ),
           ),
         );
       },
       loading: () => Container(
-        padding: const EdgeInsets.all(8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFF131A26),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white10),
         ),
-        child: const SizedBox(width: 36, height: 36, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD4A843))),
+        child: const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD700)),
+        ),
       ),
       error: (_, __) => const SizedBox.shrink(),
     );
+  }
+
+  String _formatCompactCP(int n) {
+    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(1)}M';
+    if (n >= 1000) return '${(n / 1000).toStringAsFixed(1)}K';
+    return '$n';
   }
 
   Color _themeBadgeColor(int idx) {
@@ -1554,6 +1450,8 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
               child: CachedNetworkImage(
                 imageUrl: moment['imageUrl'] ?? "",
                 fit: BoxFit.cover,
+                memCacheWidth: 360,
+                memCacheHeight: 360,
                 placeholder: (context, url) => Container(color: Colors.grey[200]),
               ),
             );
@@ -1614,7 +1512,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 boxShadow: [BoxShadow(color: Colors.amber.withOpacity(0.2), blurRadius: 40, spreadRadius: 10)]
               ),
               child: const Icon(Icons.egg_rounded, size: 80, color: Colors.amber),
-            ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds).shake(hz: 1, curve: Curves.easeInOut),
+            ).animate().shimmer(duration: 3.seconds).shake(hz: 1, curve: Curves.easeInOut),
             const Gap(32),
             const Text("Your Companion Awaits", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 24, letterSpacing: -0.5)),
             const Gap(12),
@@ -1719,7 +1617,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                 BoxShadow(color: stageColor.withOpacity(0.2), blurRadius: 60, spreadRadius: 20)
               ],
             ),
-          ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2), duration: 2.seconds),
+          ).animate().scale(begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2), duration: 2.seconds),
           
           Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -1731,11 +1629,11 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                   decoration: BoxDecoration(color: Colors.amber.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
                   child: const Text("HATCHING SOON", style: TextStyle(fontSize: 10, color: Colors.amber, fontWeight: FontWeight.w900, letterSpacing: 2)),
-                ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds)
+                ).animate().shimmer(duration: 2.seconds)
               else
                 const Text("STAP ON DINO TO INTERACT", style: TextStyle(fontSize: 10, color: Colors.black26, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
             ],
-          ).animate(onPlay: (c) => c.repeat(reverse: true)).slideY(begin: 0, end: -0.05, duration: 2.seconds, curve: Curves.easeInOut),
+          ).animate().slideY(begin: 0, end: -0.05, duration: 2.seconds, curve: Curves.easeInOut),
         ],
       ),
     );
@@ -2154,6 +2052,306 @@ class _RoundUnderlinePainter extends BoxPainter {
       Offset(xPos - (decoration.width / 2), yPos),
       Offset(xPos + (decoration.width / 2), yPos),
       paint,
+    );
+  }
+}
+
+class ProfileBottomBarWidget extends ConsumerStatefulWidget {
+  final UserModel userData;
+  const ProfileBottomBarWidget({super.key, required this.userData});
+
+  @override
+  ConsumerState<ProfileBottomBarWidget> createState() => _ProfileBottomBarWidgetState();
+}
+
+class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget> {
+  bool _isActionLoading = false;
+  bool _isSendingFriendReq = false;
+  bool _isSendingCPReq = false;
+  final Set<String> _sentFriendReqs = {};
+
+  void _showCuteSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded, color: Colors.white, size: 20),
+            const Gap(12),
+            Expanded(child: Text(message, style: const TextStyle(fontWeight: FontWeight.bold))),
+          ],
+        ),
+        backgroundColor: isError ? Colors.redAccent : AppColors.primary,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _sendFriendRequest(String targetUid) async {
+    setState(() => _isSendingFriendReq = true);
+    try {
+      await ref.read(relationshipServiceProvider).sendFriendRequest(targetUid);
+      setState(() => _sentFriendReqs.add(targetUid));
+      _showCuteSnackBar("Friend request sent! 💌");
+    } catch (e) {
+      _showCuteSnackBar("$e", isError: true);
+    }
+    if (mounted) setState(() => _isSendingFriendReq = false);
+  }
+
+  Future<void> _sendCPRequest(UserModel targetUser) async {
+    final me = ref.read(currentUserProfileProvider).valueOrNull;
+    if ((me?.partnerUid != null && me!.partnerUid!.isNotEmpty) ||
+        (targetUser.partnerUid != null && targetUser.partnerUid!.isNotEmpty)) {
+      _showCuteSnackBar("You or the recipient already have an active CP relationship.", isError: true);
+      return;
+    }
+
+    setState(() => _isSendingCPReq = true);
+    try {
+      await ref.read(relationshipServiceProvider).sendCPInvite(targetUser.uid);
+      _showCuteSnackBar("CP invite sent! 💕");
+    } catch (e) {
+      _showCuteSnackBar("$e", isError: true);
+    }
+    if (mounted) setState(() => _isSendingCPReq = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userData = widget.userData;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid == null || currentUid == userData.uid) return const SizedBox.shrink();
+
+    final followingAsync = ref.watch(followingStreamProvider(currentUid));
+    final followersAsync = ref.watch(followersStreamProvider(currentUid));
+    final currentUserAsync = ref.watch(currentUserProfileProvider);
+    
+    return followingAsync.when(
+      data: (followingList) {
+        final isFollowing = followingList.contains(userData.uid);
+        final isFollower = followersAsync.value?.contains(userData.uid) ?? false;
+        final isFriends = isFollowing && isFollower;
+        final isPartner = currentUserAsync.valueOrNull?.partnerUid == userData.uid;
+        final friendReqSent = _sentFriendReqs.contains(userData.uid);
+        
+        final buttonLabel = isFriends ? "Friends" : (isFollowing ? "Following" : "Follow");
+
+        return Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 24,
+                offset: const Offset(0, 8),
+              ),
+            ],
+            border: Border.all(color: const Color(0xFFF1F5F9), width: 1.5),
+          ),
+          child: Row(
+            children: [
+              // 1. Primary Action Button: Follow / Following / Friends
+              Expanded(
+                flex: 3,
+                child: GestureDetector(
+                  onTap: _isActionLoading ? null : () async {
+                    setState(() => _isActionLoading = true);
+                    try {
+                      if (isFollowing) {
+                        await ref.read(profileServiceProvider).unfollowUser(currentUid, userData.uid);
+                        _showCuteSnackBar("Unfollowed ${userData.displayName} ✨");
+                      } else {
+                        await ref.read(profileServiceProvider).followUser(currentUid, userData.uid);
+                        _showCuteSnackBar("Success! You are now following ${userData.displayName} 💖");
+                      }
+                    } catch (e) {
+                      _showCuteSnackBar("Oops! $e", isError: true);
+                    } finally {
+                      if (mounted) setState(() => _isActionLoading = false);
+                    }
+                  },
+                  child: Container(
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: (isFollowing || isFriends)
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFF4F46E5), Color(0xFF7C3AED)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      color: (isFollowing || isFriends) ? Colors.grey[100] : null,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: (isFollowing || isFriends)
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFF4F46E5).withOpacity(0.35),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                    ),
+                    child: Center(
+                      child: _isActionLoading
+                          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  isFriends ? Icons.people_alt_rounded : (isFollowing ? Icons.check_circle_rounded : Icons.person_add_alt_1_rounded),
+                                  color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
+                                  size: 19,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  buttonLabel,
+                                  style: TextStyle(
+                                    color: (isFollowing || isFriends) ? Colors.black87 : Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 2. Direct Chat Button (Vibrant Indigo Disc)
+              GestureDetector(
+                onTap: () async {
+                  try {
+                    final chatService = ref.read(chatServiceProvider);
+                    final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
+                    if (context.mounted) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid),
+                        ),
+                      );
+                    }
+                  } catch (e) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
+                    }
+                  }
+                },
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF4F46E5).withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.forum_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 3. Friendship Request Button (Emerald Disc)
+              GestureDetector(
+                onTap: friendReqSent || _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
+                child: Tooltip(
+                  message: friendReqSent ? "Friendship Request Sent" : "Send Friend Request",
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: friendReqSent
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      color: friendReqSent ? Colors.amber.withOpacity(0.15) : null,
+                      shape: BoxShape.circle,
+                      boxShadow: friendReqSent
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFF10B981).withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                      border: friendReqSent ? Border.all(color: Colors.amber.withOpacity(0.4), width: 1.5) : null,
+                    ),
+                    child: _isSendingFriendReq
+                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        : Icon(
+                            friendReqSent ? Icons.hourglass_bottom_rounded : Icons.diversity_3_rounded,
+                            color: friendReqSent ? Colors.amber[800] : Colors.white,
+                            size: 20,
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // 4. CP (Couple Partner) Request Button (Rose Gold Disc)
+              GestureDetector(
+                onTap: isPartner || _isSendingCPReq ? null : () => _sendCPRequest(userData),
+                child: Tooltip(
+                  message: isPartner ? "Active CP Partner ❤️" : "Send CP Invite 💕",
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: isPartner
+                          ? null
+                          : const LinearGradient(
+                              colors: [Color(0xFFEC4899), Color(0xFFF43F5E)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      color: isPartner ? Colors.pink.withOpacity(0.18) : null,
+                      shape: BoxShape.circle,
+                      boxShadow: isPartner
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: const Color(0xFFEC4899).withOpacity(0.35),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                      border: isPartner ? Border.all(color: Colors.pink.withOpacity(0.4), width: 1.5) : null,
+                    ),
+                    child: _isSendingCPReq
+                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        : Icon(
+                            isPartner ? Icons.favorite_rounded : Icons.volunteer_activism_rounded,
+                            color: isPartner ? Colors.pink[700] : Colors.white,
+                            size: 20,
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
     );
   }
 }

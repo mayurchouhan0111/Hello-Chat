@@ -11,6 +11,7 @@ import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/router/app_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:country_picker/country_picker.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
@@ -30,9 +31,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final phoneNum = _phoneController.text.trim();
     final phone = "+$_selectedCountryCode$phoneNum";
     if (phoneNum.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid phone number")),
-      );
+      AppToast.showError(context, "Please enter a valid phone number");
       return;
     }
 
@@ -48,9 +47,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         },
         verificationFailed: (FirebaseAuthException e) {
           setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.message ?? "Verification failed")),
-          );
+          AppToast.showError(context, e.message ?? "Verification failed");
         },
         codeSent: (String verificationId, int? resendToken) {
           setState(() => _isLoading = false);
@@ -63,9 +60,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       );
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      AppToast.showError(context, e.toString());
     }
   }
 
@@ -190,9 +185,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           if (mounted) context.go(AppRoutes.home);
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text("Google Login Failed: $e")),
-                            );
+                            AppToast.showError(context, "Google Login Failed: $e");
                           }
                         }
                       },
@@ -211,9 +204,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           if (mounted) context.go(AppRoutes.home);
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text("Facebook Login Failed: $e")),
-                            );
+                            AppToast.showError(context, "Facebook Login Failed: $e");
                           }
                         }
                       },

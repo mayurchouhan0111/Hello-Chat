@@ -34,6 +34,10 @@ class UserModel {
   final String chatBubble;
   final String entryAnimation;
   final String badgeIcon;
+  final String equippedCrown;
+  final String equippedMicWave;
+  final String profileTheme;
+  final String prettyId;
   final List<String> tags;
   final String vipTier;
   final DateTime? vipExpiry;
@@ -50,6 +54,10 @@ class UserModel {
   final int combatPoints;
   final int? svipLevel;
   final int? svipPoints;
+  final DateTime? svipCycleEndDate;
+  final DateTime? svipCycleStartDate;
+  final DateTime? lastSvipRewardClaimAt;
+  final DateTime? assignedProtectionExpiresAt;
   final int? monthlyRecharge;
   final List<dynamic>? claimedMilestones;
   final List<String> blockedUids;
@@ -84,6 +92,7 @@ class UserModel {
   final double walletBalance;
   final String? activeRoomId;
   final String role;
+  final String? branchId;
   final String? superAdminId;
   final String? adminId;
   final double usdCommissionBalance;
@@ -91,6 +100,7 @@ class UserModel {
   final double totalCommissionEarned;
   final double totalRechargeGenerated;
   final double totalWithdrawnUSD;
+  final int? monthlyTargetBeans;
 
 UserModel({
     required this.uid,
@@ -125,6 +135,10 @@ UserModel({
     this.chatBubble = '',
     this.entryAnimation = '',
     this.badgeIcon = '',
+    this.equippedCrown = '',
+    this.equippedMicWave = '',
+    this.profileTheme = '',
+    this.prettyId = '',
     this.tags = const [],
     this.vipTier = 'none',
     this.vipExpiry,
@@ -141,6 +155,10 @@ UserModel({
     this.isFamilyOwner = false,
     this.svipLevel = 0,
     this.svipPoints = 0,
+    this.svipCycleEndDate,
+    this.svipCycleStartDate,
+    this.lastSvipRewardClaimAt,
+    this.assignedProtectionExpiresAt,
     this.monthlyRecharge = 0,
     this.claimedMilestones = const [],
     this.blockedUids = const [],
@@ -176,6 +194,7 @@ this.verificationStatus = 'unverified',
     this.bestFriendName,
     this.bestFriendAvatar,
     this.role = 'host',
+    this.branchId,
     this.superAdminId,
     this.adminId,
     this.usdCommissionBalance = 0.0,
@@ -183,6 +202,7 @@ this.verificationStatus = 'unverified',
     this.totalCommissionEarned = 0.0,
     this.totalRechargeGenerated = 0.0,
     this.totalWithdrawnUSD = 0.0,
+    this.monthlyTargetBeans,
   });
 
   static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
@@ -230,6 +250,10 @@ this.verificationStatus = 'unverified',
       chatBubble: (data['chatBubble'] as String?) ?? '',
       entryAnimation: (data['entryAnimation'] as String?) ?? '',
       badgeIcon: (data['badgeIcon'] as String?) ?? '',
+      equippedCrown: (data['equippedCrown'] as String?) ?? (data['crown'] as String?) ?? (data['badgeIcon'] as String?) ?? '',
+      equippedMicWave: (data['equippedMicWave'] as String?) ?? (data['aperture'] as String?) ?? '',
+      profileTheme: (data['profileTheme'] as String?) ?? (data['personal_page'] as String?) ?? '',
+      prettyId: (data['prettyId'] as String?) ?? (data['id'] as String?) ?? '',
       tags: (data['tags'] as Iterable?)?.whereType<String>().toList() ?? [],
       vipTier: (data['vipTier'] as String?) ?? 'none',
       vipExpiry: data['vipExpiry'] != null ? _parseDateTime(data['vipExpiry']) : null,
@@ -245,6 +269,10 @@ this.verificationStatus = 'unverified',
       isFamilyOwner: (data['isFamilyOwner'] as bool?) ?? false,
       svipLevel: (data['svipLevel'] as num?)?.toInt(),
       svipPoints: (data['svipPoints'] as num?)?.toInt(),
+      svipCycleEndDate: data['svipCycleEndDate'] != null ? _parseDateTime(data['svipCycleEndDate']) : null,
+      svipCycleStartDate: data['svipCycleStartDate'] != null ? _parseDateTime(data['svipCycleStartDate']) : null,
+      lastSvipRewardClaimAt: data['lastSvipRewardClaimAt'] != null ? _parseDateTime(data['lastSvipRewardClaimAt']) : null,
+      assignedProtectionExpiresAt: data['assignedProtectionExpiresAt'] != null ? _parseDateTime(data['assignedProtectionExpiresAt']) : null,
       monthlyRecharge: (data['monthlyRecharge'] as num?)?.toInt(),
       claimedMilestones: (data['claimedMilestones'] as List?) ?? [],
       blockedUids: (data['blockedUids'] as Iterable?)?.whereType<String>().toList() ?? [],
@@ -280,6 +308,7 @@ this.verificationStatus = 'unverified',
       bestFriendName: data['bestFriendName'] as String?,
       bestFriendAvatar: data['bestFriendAvatar'] as String?,
       role: (data['role'] as String?) ?? 'host',
+      branchId: data['branchId'] as String?,
       superAdminId: data['superAdminId'] as String?,
       adminId: data['adminId'] as String?,
       usdCommissionBalance: (data['usdCommissionBalance'] as num? ?? 0.0).toDouble(),
@@ -287,6 +316,7 @@ this.verificationStatus = 'unverified',
       totalCommissionEarned: (data['totalCommissionEarned'] as num? ?? 0.0).toDouble(),
       totalRechargeGenerated: (data['totalRechargeGenerated'] as num? ?? 0.0).toDouble(),
       totalWithdrawnUSD: (data['totalWithdrawnUSD'] as num? ?? 0.0).toDouble(),
+      monthlyTargetBeans: (data['monthlyTargetBeans'] as num?)?.toInt(),
     );
   }
 
@@ -324,6 +354,10 @@ this.verificationStatus = 'unverified',
       'chatBubble': chatBubble,
       'entryAnimation': entryAnimation,
       'badgeIcon': badgeIcon,
+      'equippedCrown': equippedCrown,
+      'equippedMicWave': equippedMicWave,
+      'profileTheme': profileTheme,
+      'prettyId': prettyId,
       'tags': tags,
       'vipTier': vipTier,
       'vipExpiry': vipExpiry,
@@ -339,6 +373,10 @@ this.verificationStatus = 'unverified',
       'isFamilyOwner': isFamilyOwner,
       'svipLevel': svipLevel,
       'svipPoints': svipPoints,
+      'svipCycleEndDate': svipCycleEndDate,
+      'svipCycleStartDate': svipCycleStartDate,
+      'lastSvipRewardClaimAt': lastSvipRewardClaimAt,
+      'assignedProtectionExpiresAt': assignedProtectionExpiresAt,
       'monthlyRecharge': monthlyRecharge,
       'blockedUids': blockedUids,
       'referralCode': referralCode,
@@ -372,6 +410,16 @@ this.verificationStatus = 'unverified',
       'idPhotoUrl': idPhotoUrl,
       'walletBalance': walletBalance,
       'activeRoomId': activeRoomId,
+      'role': role,
+      'branchId': branchId,
+      'superAdminId': superAdminId,
+      'adminId': adminId,
+      'usdCommissionBalance': usdCommissionBalance,
+      'pendingWithdrawalBalance': pendingWithdrawalBalance,
+      'totalCommissionEarned': totalCommissionEarned,
+      'totalRechargeGenerated': totalRechargeGenerated,
+      'totalWithdrawnUSD': totalWithdrawnUSD,
+      'monthlyTargetBeans': monthlyTargetBeans,
     };
   }
 
@@ -423,6 +471,10 @@ this.verificationStatus = 'unverified',
     bool? isFamilyOwner,
     int? svipLevel,
     int? svipPoints,
+    DateTime? svipCycleEndDate,
+    DateTime? svipCycleStartDate,
+    DateTime? lastSvipRewardClaimAt,
+    DateTime? assignedProtectionExpiresAt,
     int? monthlyRecharge,
     List<String>? blockedUids,
     String? referralCode,
@@ -456,6 +508,16 @@ this.verificationStatus = 'unverified',
     String? idPhotoUrl,
     double? walletBalance,
     String? activeRoomId,
+    String? role,
+    String? branchId,
+    String? superAdminId,
+    String? adminId,
+    double? usdCommissionBalance,
+    double? pendingWithdrawalBalance,
+    double? totalCommissionEarned,
+    double? totalRechargeGenerated,
+    double? totalWithdrawnUSD,
+    int? monthlyTargetBeans,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -505,6 +567,10 @@ this.verificationStatus = 'unverified',
       isFamilyOwner: isFamilyOwner ?? this.isFamilyOwner,
       svipLevel: svipLevel ?? this.svipLevel,
       svipPoints: svipPoints ?? this.svipPoints,
+      svipCycleEndDate: svipCycleEndDate ?? this.svipCycleEndDate,
+      svipCycleStartDate: svipCycleStartDate ?? this.svipCycleStartDate,
+      lastSvipRewardClaimAt: lastSvipRewardClaimAt ?? this.lastSvipRewardClaimAt,
+      assignedProtectionExpiresAt: assignedProtectionExpiresAt ?? this.assignedProtectionExpiresAt,
       monthlyRecharge: monthlyRecharge ?? this.monthlyRecharge,
       blockedUids: blockedUids ?? this.blockedUids,
       referralCode: referralCode ?? this.referralCode,
@@ -538,11 +604,24 @@ this.verificationStatus = 'unverified',
       idPhotoUrl: idPhotoUrl ?? this.idPhotoUrl,
       walletBalance: walletBalance ?? this.walletBalance,
       activeRoomId: activeRoomId ?? this.activeRoomId,
+      role: role ?? this.role,
+      branchId: branchId ?? this.branchId,
+      superAdminId: superAdminId ?? this.superAdminId,
+      adminId: adminId ?? this.adminId,
+      usdCommissionBalance: usdCommissionBalance ?? this.usdCommissionBalance,
+      pendingWithdrawalBalance: pendingWithdrawalBalance ?? this.pendingWithdrawalBalance,
+      totalCommissionEarned: totalCommissionEarned ?? this.totalCommissionEarned,
+      totalRechargeGenerated: totalRechargeGenerated ?? this.totalRechargeGenerated,
+      totalWithdrawnUSD: totalWithdrawnUSD ?? this.totalWithdrawnUSD,
+      monthlyTargetBeans: monthlyTargetBeans ?? this.monthlyTargetBeans,
     );
   }
 
-  bool get isAdmin => tags.contains('Admin') || tags.contains('SuperAdmin');
-  bool get isSuperAdmin => tags.contains('SuperAdmin');
+  bool get isAdmin => tags.contains('Admin') || tags.contains('SuperAdmin') || role == 'admin' || role == 'superadmin' || role == 'owner';
+  bool get isSuperAdmin => role == 'superadmin' || tags.contains('SuperAdmin');
+  bool get isOwner => role == 'owner' || tags.contains('Owner');
+  bool get isAdminRole => role == 'admin' || tags.contains('Admin');
+  bool get isAgencyRole => role == 'agency' || isAgencyOwner || tags.contains('Agency');
 
   bool get isVipActive {
     if (vipTier == 'none' || vipTier.isEmpty) return false;
@@ -574,7 +653,12 @@ this.verificationStatus = 'unverified',
     return nobleExpiry!.difference(DateTime.now()).inDays.clamp(0, 30);
   }
 
-  bool get isSvipProtected => (svipLevel ?? 0) >= 4;
+  bool get isSvipProtected {
+    final now = DateTime.now();
+    final isLevelProtected = (svipLevel ?? 0) >= 4 && (svipCycleEndDate == null || svipCycleEndDate!.isAfter(now));
+    final isAssigned = assignedProtectionExpiresAt != null && assignedProtectionExpiresAt!.isAfter(now);
+    return isLevelProtected || isAssigned;
+  }
 
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     return UserModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});

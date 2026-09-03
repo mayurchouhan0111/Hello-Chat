@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
@@ -347,15 +348,63 @@ class ProfileService extends BaseFirebaseService {
      }
   }
 
-  // Optimized Friends Stream (Mutual Followers)
+  // Friends = accepted friend-request relationships + legacy mutual followers
   Stream<List<String>> getFriendsStream(String uid) {
+    final relationshipFriends = _db.collection('relationships')
+        .where('participants', arrayContains: uid)
+        .where('type', isEqualTo: 'friendship')
+        .where('status', isEqualTo: 'active')
+        .snapshots()
+        .map((snapshot) {
+          final friends = <String>[];
+          for (final doc in snapshot.docs) {
+            final participants = (doc.data()['participants'] as List?)?.cast<String>() ?? const [];
+            final other = participants.length > 1
+                ? participants.firstWhere((p) => p != uid, orElse: () => '')
+                : '';
+            if (other.isNotEmpty) friends.add(other);
+          }
+          return friends;
+        });
+
     final following = getFollowingStream(uid);
     final followers = getFollowersStream(uid);
-    
-    return following.asyncMap((followingList) async {
-       final followersList = await followers.first;
-       return followingList.where((id) => followersList.contains(id)).toList();
-    });
+    final mutualFollowers = _mergeStreams(
+      following,
+      followers,
+      (List<String> a, List<String> b) => a.where((id) => b.contains(id)).toList(),
+    );
+
+    return _mergeStreams(
+      relationshipFriends,
+      mutualFollowers,
+      (List<String> a, List<String> b) => {...a, ...b}.toList(),
+    );
+  }
+
+  // Combine two streams reactively, emitting whenever either side changes.
+  Stream<List<T>> _mergeStreams<T>(
+    Stream<List<T>> a,
+    Stream<List<T>> b,
+    List<T> Function(List<T>, List<T>) combiner,
+  ) {
+    final controller = StreamController<List<T>>();
+    List<T> aVal = const [];
+    List<T> bVal = const [];
+    bool hasA = false;
+    bool hasB = false;
+
+    void emit() {
+      if (hasA && hasB) controller.add(combiner(aVal, bVal));
+    }
+
+    final subA = a.listen((v) { aVal = v; hasA = true; emit(); });
+    final subB = b.listen((v) { bVal = v; hasB = true; emit(); });
+    controller.onCancel = () {
+      subA.cancel();
+      subB.cancel();
+    };
+    return controller.stream;
   }
 
   // Family Rooms Stream

@@ -77,6 +77,19 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
             return const Center(child: Text('User profile not found', style: TextStyle(color: Colors.white70)));
           }
 
+          if (user.isSuperAdmin && !user.isOwner) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Super Admins operate as branch supervision authorities and do not participate in the commission wallet system.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white60, fontSize: 14),
+                ),
+              ),
+            );
+          }
+
           final usdBalance = user.usdCommissionBalance;
           final pendingBalance = user.pendingWithdrawalBalance;
           final totalEarned = user.totalCommissionEarned;

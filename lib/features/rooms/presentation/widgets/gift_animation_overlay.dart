@@ -9,6 +9,9 @@ import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:hello_chat/core/widgets/vap_player.dart';
+import 'bell_winning_dialog.dart';
 import '../../../../core/utils/app_persistent_cache.dart';
 import '../../../../core/models/gift_model.dart';
 import '../../../../core/models/message_model.dart';
@@ -42,7 +45,6 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
   @override
   void initState() {
     super.initState();
-    _preloadGifts();
   }
 
   void _preloadGifts() async {
@@ -54,25 +56,18 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
         });
       }
       for (final gift in gifts) {
+        if (!mounted) return;
         final url = gift.lottieAssetPath.trim();
         if (url.isNotEmpty) {
           if (url.toLowerCase().contains('.svga')) {
             final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
             if (localPath != null) {
-              debugPrint("[GiftCache] Using local SVGA asset for: ${gift.name} ($localPath)");
               SvgaParserUtil.decodeSafeFromAssets(localPath);
-            } else if (url.startsWith('http')) {
-              debugPrint("[GiftCache] Preloading SVGA gift: ${gift.name} from $url");
-              SvgaCache.preload(url);
             }
           } else {
             final localLottie = SvgaParserUtil.getLocalLottiePath(url);
             if (localLottie != null) {
-              debugPrint("[GiftCache] Using local Lottie asset for: ${gift.name} ($localLottie)");
               LottieCache.preloadLocal(localLottie);
-            } else if (url.startsWith('http')) {
-              debugPrint("[GiftCache] Preloading Lottie gift: ${gift.name} from $url");
-              LottieCache.preload(url);
             }
           }
         }
@@ -95,13 +90,25 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
         
         final giftUrl = msg.animationUrl!.trim();
         String? imageUrl;
+        String? soundUrl;
+        String format = 'json';
+        String category = 'Normal';
+        String giftName = '';
+
         try {
           final matchedGift = _gifts.firstWhere(
-            (g) => g.lottieAssetPath.trim() == giftUrl,
+            (g) => g.lottieAssetPath.trim() == giftUrl || g.imageUrl.trim() == giftUrl,
           );
           imageUrl = matchedGift.imageUrl;
+          soundUrl = matchedGift.soundUrl;
+          format = matchedGift.animationFormat;
+          category = matchedGift.category;
+          giftName = matchedGift.name;
         } catch (_) {
-          // If not found in memory, try to find a match in the active gifts list
+          // Fallback inference if gift not preloaded
+          if (giftUrl.toLowerCase().contains('.svga')) format = 'svga';
+          else if (giftUrl.toLowerCase().contains('.vpa') || giftUrl.toLowerCase().contains('.mp4')) format = 'mp4';
+          else if (giftUrl.toLowerCase().contains('.png') || giftUrl.toLowerCase().contains('.jpg') || giftUrl.toLowerCase().contains('.webp') || giftUrl.toLowerCase().contains('.gif')) format = 'image';
         }
 
         final qty = msg.quantity;
@@ -112,6 +119,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
             senderUid: msg.uid,
             text: msg.text,
             imageUrl: imageUrl,
+            soundUrl: soundUrl,
+            format: format,
+            giftCategory: category,
+            giftName: giftName,
           );
           
           // Prevent queue from growing indefinitely (cap at 50 items for spam protection)
@@ -196,7 +207,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
       child: IgnorePointer(
         child: Stack(
           children: [
-            // Full screen animation player (Lottie or SVGA)
+            // Full screen animation player (Lottie, SVGA, VAP, MP4, Image, Sound)
             _GiftAnimationPlayer(
               animation: anim,
               onComplete: _onAnimationFinished,
@@ -222,6 +233,11 @@ class _ActiveGiftAnimation {
   final String senderUid;
   final String text;
   final String? imageUrl;
+  final String? soundUrl;
+  final String format;
+  final String giftCategory;
+  final String giftName;
+  final String? targetUid;
 
   _ActiveGiftAnimation({
     required this.id, 
@@ -229,6 +245,11 @@ class _ActiveGiftAnimation {
     required this.senderUid,
     required this.text,
     this.imageUrl,
+    this.soundUrl,
+    this.format = 'json',
+    this.giftCategory = 'Normal',
+    this.giftName = '',
+    this.targetUid,
   });
 }
 
@@ -305,6 +326,43 @@ class _GiftAnimationPlayer extends StatefulWidget {
 
 class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
   bool _hasError = false;
+  AudioPlayer? _audioPlayer;
+
+  @override
+  void initState() {
+    super.initState();
+    _playSound();
+  }
+
+  void _playSound() async {
+    final soundUrl = widget.animation.soundUrl?.trim() ?? '';
+    if (soundUrl.isNotEmpty) {
+      try {
+        _audioPlayer = AudioPlayer();
+        if (soundUrl.startsWith('http')) {
+          await _audioPlayer?.play(UrlSource(soundUrl));
+        } else if (soundUrl.startsWith('assets/')) {
+          await _audioPlayer?.play(AssetSource(soundUrl.replaceFirst('assets/', '')));
+        }
+      } catch (e) {
+        debugPrint("[GiftAudio] Error playing gift sound: $e");
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer?.dispose();
+    super.dispose();
+  }
+
+  void _handleError() {
+    if (mounted) {
+      setState(() {
+        _hasError = true;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -316,37 +374,44 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     }
 
     final url = widget.animation.url.trim();
-    final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
+    final lowerUrl = url.toLowerCase();
+    final fmt = widget.animation.format.toLowerCase();
 
-    if (localPath != null) {
-      return _SvgaLocalPlayer(
-        assetPath: localPath,
-        onComplete: widget.onComplete,
-        onError: () {
-          if (mounted) {
-            setState(() {
-              _hasError = true;
-            });
-          }
-        },
-      );
-    }
-
-    final isSvga = url.toLowerCase().contains('.svga');
-    if (isSvga) {
+    // 1. SVGA Animation Format
+    if (lowerUrl.endsWith('.svga') || fmt == 'svga') {
+      final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
+      if (localPath != null) {
+        return _SvgaLocalPlayer(
+          assetPath: localPath,
+          onComplete: widget.onComplete,
+          onError: _handleError,
+        );
+      }
       return _SvgaNetworkPlayer(
         url: url,
         onComplete: widget.onComplete,
-        onError: () {
-          if (mounted) {
-            setState(() {
-              _hasError = true;
-            });
-          }
-        },
+        onError: _handleError,
       );
     }
 
+    // 2. VPA / MP4 Video Format
+    if (lowerUrl.endsWith('.vpa') || lowerUrl.endsWith('.mp4') || fmt == 'vpa' || fmt == 'mp4') {
+      return _VapNetworkPlayer(
+        url: url,
+        onComplete: widget.onComplete,
+        onError: _handleError,
+      );
+    }
+
+    // 3. Static / Animated Image Format (PNG, JPG, WEBP, GIF)
+    if (lowerUrl.endsWith('.png') || lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg') || lowerUrl.endsWith('.gif') || lowerUrl.endsWith('.webp') || fmt == 'image') {
+      return _ImageGiftPlayer(
+        imageUrl: url.isNotEmpty ? url : (widget.animation.imageUrl ?? ''),
+        onComplete: widget.onComplete,
+      );
+    }
+
+    // 4. Lottie JSON Format (Default)
     final localLottiePath = SvgaParserUtil.getLocalLottiePath(url);
     if (localLottiePath != null) {
       return Center(
@@ -354,13 +419,7 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
           assetPath: localLottiePath,
           originalUrl: url,
           onComplete: widget.onComplete,
-          onError: () {
-            if (mounted) {
-              setState(() {
-                _hasError = true;
-              });
-            }
-          },
+          onError: _handleError,
         ),
       );
     }
@@ -369,14 +428,94 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
       child: _LottieNetworkPlayer(
         url: url,
         onComplete: widget.onComplete,
-        onError: () {
-          if (mounted) {
-            setState(() {
-              _hasError = true;
-            });
-          }
-        },
+        onError: _handleError,
       ),
+    );
+  }
+}
+
+class _VapNetworkPlayer extends StatefulWidget {
+  final String url;
+  final VoidCallback onComplete;
+  final VoidCallback onError;
+
+  const _VapNetworkPlayer({
+    required this.url,
+    required this.onComplete,
+    required this.onError,
+  });
+
+  @override
+  State<_VapNetworkPlayer> createState() => _VapNetworkPlayerState();
+}
+
+class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Safety completion timer for VAP video duration (default 4.5 seconds)
+    _timer = Timer(const Duration(milliseconds: 4500), widget.onComplete);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: VapAnimation(
+        assetPath: widget.url,
+        onComplete: widget.onComplete,
+      ),
+    );
+  }
+}
+
+class _ImageGiftPlayer extends StatefulWidget {
+  final String imageUrl;
+  final VoidCallback onComplete;
+
+  const _ImageGiftPlayer({
+    required this.imageUrl,
+    required this.onComplete,
+  });
+
+  @override
+  State<_ImageGiftPlayer> createState() => _ImageGiftPlayerState();
+}
+
+class _ImageGiftPlayerState extends State<_ImageGiftPlayer> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 3500), widget.onComplete);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.imageUrl.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Center(
+      child: CachedNetworkImage(
+        imageUrl: widget.imageUrl,
+        fit: BoxFit.contain,
+        placeholder: (_, __) => const SizedBox(),
+        errorWidget: (_, __, ___) => const SizedBox(),
+      ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack).fade(),
     );
   }
 }

@@ -16,13 +16,14 @@ import {
   Zap,
   Settings,
   DollarSign,
-  Diamond
+  Diamond,
+  Lock
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAdmin } from '../context/AdminContext';
 
 export const FinancialManagement = () => {
-  const { isAdmin } = useAdmin();
+  const { isAdmin, isOwner } = useAdmin();
   const [recharges, setRecharges] = useState([]);
   const [withdrawals, setWithdrawals] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -200,12 +201,19 @@ export const FinancialManagement = () => {
 
       {/* SECTION: Owner Financial Controls Panel */}
       <div className="p-8 bg-slate-900/60 border border-white/10 rounded-[32px] shadow-2xl">
-        <div className="flex items-center gap-3 mb-6">
-          <Settings className="text-emerald-400" size={24} />
-          <div>
-            <h3 className="text-xl font-black uppercase tracking-wider">Financial Policy Configuration (Owner Exclusive)</h3>
-            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Centralized commission rates & USD-to-Diamond conversion rate</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <Settings className="text-emerald-400" size={24} />
+            <div>
+              <h3 className="text-xl font-black uppercase tracking-wider">Financial Policy Configuration (Owner Exclusive)</h3>
+              <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Centralized commission rates & USD-to-Diamond conversion rate</p>
+            </div>
           </div>
+          {!isOwner && (
+            <span className="px-4 py-2 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-2xl text-xs font-black uppercase flex items-center gap-2">
+              <Lock size={14} /> Owner Controlled (Read Only)
+            </span>
+          )}
         </div>
 
         {policyMessage && <div className="mb-4 p-4 bg-slate-800 rounded-2xl text-xs font-bold">{policyMessage}</div>}
@@ -213,11 +221,12 @@ export const FinancialManagement = () => {
         <form onSubmit={handleSavePolicies} className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Agency Commission Rate</label>
-            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+            <div className={`flex items-center bg-black border ${!isOwner ? 'border-white/5 opacity-70' : 'border-white/10'} rounded-2xl px-4 py-3`}>
               <DollarSign className="text-emerald-400 mr-2" size={18} />
               <input 
                 type="number" step="0.01" min="0" max="1"
-                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                disabled={!isOwner}
+                className="w-full bg-transparent text-white font-black text-lg outline-none disabled:cursor-not-allowed"
                 value={agencyRate}
                 onChange={e => setAgencyRate(e.target.value)}
               />
@@ -227,11 +236,12 @@ export const FinancialManagement = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Admin Commission Rate</label>
-            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+            <div className={`flex items-center bg-black border ${!isOwner ? 'border-white/5 opacity-70' : 'border-white/10'} rounded-2xl px-4 py-3`}>
               <DollarSign className="text-indigo-400 mr-2" size={18} />
               <input 
                 type="number" step="0.01" min="0" max="1"
-                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                disabled={!isOwner}
+                className="w-full bg-transparent text-white font-black text-lg outline-none disabled:cursor-not-allowed"
                 value={adminRate}
                 onChange={e => setAdminRate(e.target.value)}
               />
@@ -241,11 +251,12 @@ export const FinancialManagement = () => {
 
           <div className="space-y-2">
             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">USD &rarr; Diamond Rate (per $1 USD)</label>
-            <div className="flex items-center bg-black border border-white/10 rounded-2xl px-4 py-3">
+            <div className={`flex items-center bg-black border ${!isOwner ? 'border-white/5 opacity-70' : 'border-white/10'} rounded-2xl px-4 py-3`}>
               <Diamond className="text-cyan-400 mr-2" size={18} />
               <input 
                 type="number"
-                className="w-full bg-transparent text-white font-black text-lg outline-none"
+                disabled={!isOwner}
+                className="w-full bg-transparent text-white font-black text-lg outline-none disabled:cursor-not-allowed"
                 value={conversionRate}
                 onChange={e => setConversionRate(e.target.value)}
               />
@@ -255,10 +266,10 @@ export const FinancialManagement = () => {
           <div className="md:col-span-3 flex justify-end">
             <button 
               type="submit"
-              disabled={savingPolicy}
-              className="px-8 py-4 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all disabled:opacity-50"
+              disabled={!isOwner || savingPolicy}
+              className="px-8 py-4 bg-emerald-500 hover:bg-emerald-600 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {savingPolicy ? 'Saving Policies...' : 'Save Financial Rules'}
+              {savingPolicy ? 'Saving Policies...' : isOwner ? 'Save Financial Rules' : 'Locked (Owner Access Only)'}
             </button>
           </div>
         </form>

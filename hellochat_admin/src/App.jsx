@@ -27,8 +27,10 @@ import { RechargeEventManagement } from './screens/RechargeEventManagement';
 import { RelationshipManagement } from './screens/RelationshipManagement';
 import { RoleFrameManagement } from './screens/RoleFrameManagement';
 import { RocketManagement } from './screens/RocketManagement';
+import { WinningConfigManagement } from './screens/WinningConfigManagement';
 
 import { SVIPManagement } from './screens/SVIPManagement';
+import { HierarchyManagement } from './screens/HierarchyManagement';
 
 function App() {
   return (
@@ -59,6 +61,11 @@ function App() {
           <Route path="/gifts" element={
             <AdminLayout>
               <GiftManagement />
+            </AdminLayout>
+          } />
+          <Route path="/winning-config" element={
+            <AdminLayout>
+              <WinningConfigManagement />
             </AdminLayout>
           } />
           <Route path="/vip" element={
@@ -164,6 +171,11 @@ function App() {
           <Route path="/relationships" element={
             <AdminLayout>
               <RelationshipManagement />
+            </AdminLayout>
+          } />
+          <Route path="/hierarchy" element={
+            <AdminLayout>
+              <HierarchyManagement />
             </AdminLayout>
           } />
         </Routes>

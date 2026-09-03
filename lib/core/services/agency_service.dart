@@ -97,7 +97,47 @@ class AgencyService {
         .map((snap) => snap.docs.map((doc) => UserModel.fromMap(doc.data())).toList());
   }
 
-  // 6. Get All Agencies (for exploration)
+  // 7. Add Host by Hello ID or UID
+  Future<void> addHostToAgency(String agencyId, String targetQuery) async {
+    final query = targetQuery.trim();
+    if (query.isEmpty) throw Exception("Please enter a valid User ID");
+
+    QuerySnapshot snap;
+    final numericId = int.tryParse(query);
+    if (numericId != null) {
+      snap = await _db.collection('users').where('helloId', isEqualTo: numericId).limit(1).get();
+    } else {
+      snap = await _db.collection('users').where('username', isEqualTo: query).limit(1).get();
+      if (snap.docs.isEmpty) {
+        final doc = await _db.collection('users').doc(query).get();
+        if (doc.exists) {
+          final userRef = _db.collection('users').doc(query);
+          await _db.collection('agencies').doc(agencyId).update({
+            'hostUids': FieldValue.arrayUnion([query]),
+          });
+          await userRef.update({'agencyId': agencyId, 'isAgencyOwner': false});
+          return;
+        }
+      }
+    }
+
+    if (snap.docs.isEmpty) throw Exception("User not found");
+    final targetUid = snap.docs.first.id;
+
+    await _db.collection('agencies').doc(agencyId).update({
+      'hostUids': FieldValue.arrayUnion([targetUid]),
+    });
+    await _db.collection('users').doc(targetUid).update({'agencyId': agencyId, 'isAgencyOwner': false});
+  }
+
+  // 8. Set Host Monthly Target
+  Future<void> setHostTarget(String hostUid, int targetBeans) async {
+    await _db.collection('users').doc(hostUid).update({
+      'monthlyTargetBeans': targetBeans,
+    });
+  }
+
+  // 9. Get All Agencies (for exploration)
   Stream<List<AgencyModel>> streamAllAgencies() {
     return _db.collection('agencies')
         .where('isActive', isEqualTo: true)

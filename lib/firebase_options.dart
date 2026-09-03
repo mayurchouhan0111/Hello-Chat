@@ -55,6 +55,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '657653942476',
     projectId: 'hellochat-e8965',
     storageBucket: 'hellochat-e8965.firebasestorage.app',
+    databaseURL: 'https://hellochat-e8965-default-rtdb.asia-southeast1.firebasedatabase.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
@@ -63,6 +64,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '657653942476',
     projectId: 'hellochat-e8965',
     storageBucket: 'hellochat-e8965.firebasestorage.app',
+    databaseURL: 'https://hellochat-e8965-default-rtdb.asia-southeast1.firebasedatabase.app',
     iosBundleId: 'com.example.hellochat',
   );
 }

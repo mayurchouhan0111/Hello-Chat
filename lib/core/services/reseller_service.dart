@@ -40,7 +40,53 @@ class ResellerService extends BaseFirebaseService {
       return txs.map((t) => castMap(t)).toList();
     });
   }
+  Stream<List<Map<String, dynamic>>> getActiveResellers() {
+    return _db.collection('users')
+        .where('isReseller', isEqualTo: true)
+        .snapshots()
+        .map((snap) {
+          if (snap.docs.isEmpty) {
+            return _defaultSampleResellers;
+          }
+          return snap.docs.map((doc) {
+            final data = doc.data();
+            return {
+              'uid': doc.id,
+              'displayName': data['displayName'] ?? data['username'] ?? 'Official Reseller',
+              'helloId': data['helloId']?.toString() ?? data['displayId']?.toString() ?? '888001',
+              'profilePhotoUrl': data['profilePhotoUrl'] ?? '',
+              'whatsappNumber': data['phoneNumber'] ?? '+601112280539',
+              'status': data['status'] ?? 'Online',
+              'discountRate': 'Official 5% Bonus',
+            };
+          }).toList();
+        }).handleError((_) => _defaultSampleResellers);
+  }
+
+  static const List<Map<String, dynamic>> _defaultSampleResellers = [
+    {
+      'uid': 'reseller_official_1',
+      'displayName': 'Global Diamond Reseller #1',
+      'helloId': '97702581',
+      'profilePhotoUrl': 'https://picsum.photos/seed/reseller1/200',
+      'whatsappNumber': '+601112280539',
+      'status': 'Online 24/7',
+      'discountRate': '5% Bonus Coins',
+    },
+    {
+      'uid': 'reseller_official_2',
+      'displayName': 'Speedy Recharge Merchant',
+      'helloId': '10079037',
+      'profilePhotoUrl': 'https://picsum.photos/seed/reseller2/200',
+      'whatsappNumber': '+601112280539',
+      'status': 'Fast Delivery',
+      'discountRate': 'Instant Credit',
+    },
+  ];
 }
 
-
 final resellerServiceProvider = Provider<ResellerService>((ref) => ResellerService());
+
+final activeResellersProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+  return ref.watch(resellerServiceProvider).getActiveResellers();
+});

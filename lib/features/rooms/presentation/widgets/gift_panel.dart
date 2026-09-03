@@ -13,6 +13,8 @@ import 'package:gap/gap.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 
+import 'bell_winning_dialog.dart';
+
 class GiftPanel extends StatefulWidget {
   final String roomId;
   final String? targetUid;
@@ -54,7 +56,7 @@ class _GiftPanelState extends State<GiftPanel> {
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
 
         return Container(
-          height: 600,
+          height: MediaQuery.of(context).size.height * 0.72,
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               colors: [Color(0xFF0F0F1A), Color(0xFF181726)],
@@ -118,7 +120,7 @@ class _GiftPanelState extends State<GiftPanel> {
                         crossAxisCount: 4,
                         mainAxisSpacing: 8,
                         crossAxisSpacing: 8,
-                        childAspectRatio: 0.75,
+                        childAspectRatio: 0.78,
                       ),
                       itemCount: displayGifts.length,
                       itemBuilder: (context, index) {
@@ -376,18 +378,29 @@ class _GiftPanelState extends State<GiftPanel> {
         GestureDetector(
           onTap: () => _showLuckyBagDialog(context, ref),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: Colors.pink.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.pinkAccent.withOpacity(0.4)),
+              gradient: const LinearGradient(
+                colors: [Color(0xFFFF1744), Color(0xFFD50000)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFF1744).withOpacity(0.4),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+              border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.6), width: 1),
             ),
             child: const Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text("🧧", style: TextStyle(fontSize: 12)),
-                Gap(4),
-                Text("Lucky Bag", style: TextStyle(color: Colors.pinkAccent, fontSize: 11, fontWeight: FontWeight.bold)),
+                Text("🧧", style: TextStyle(fontSize: 14)),
+                Gap(5),
+                Text("Lucky Bag", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.3)),
               ],
             ),
           ),
@@ -424,7 +437,7 @@ class _GiftPanelState extends State<GiftPanel> {
   void _showLuckyBagDialog(BuildContext context, WidgetRef ref) {
     final amountController = TextEditingController(text: '50000');
     final winnersController = TextEditingController(text: '10');
-    int currentStep = 1; // Step 1: Diamond Pool, Step 2: Winner Count
+    int currentStep = 1;
     bool isDropping = false;
 
     final quickPools = [10000, 50000, 100000, 500000];
@@ -447,7 +460,6 @@ class _GiftPanelState extends State<GiftPanel> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Step Indicator Header
                   Row(
                     children: [
                       const Text("🧧", style: TextStyle(fontSize: 26)),
@@ -476,7 +488,6 @@ class _GiftPanelState extends State<GiftPanel> {
 
                   const SizedBox(height: 14),
 
-                  // Step Progress Bar
                   Row(
                     children: [
                       Expanded(
@@ -505,7 +516,6 @@ class _GiftPanelState extends State<GiftPanel> {
 
                   const SizedBox(height: 20),
 
-                  // STEP 1 CONTENT: Diamond Pool
                   if (currentStep == 1) ...[
                     const Text(
                       "Quick Select Pool:",
@@ -590,7 +600,6 @@ class _GiftPanelState extends State<GiftPanel> {
                       ),
                     ),
                   ] else ...[
-                    // STEP 2 CONTENT: Winner Count & Summary
                     const Text(
                       "Quick Select Winners:",
                       style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
@@ -643,7 +652,6 @@ class _GiftPanelState extends State<GiftPanel> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    // Summary Box
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -670,29 +678,40 @@ class _GiftPanelState extends State<GiftPanel> {
                     Row(
                       children: [
                         Expanded(
+                          flex: 2,
                           child: SizedBox(
-                            height: 44,
+                            height: 48,
                             child: OutlinedButton(
                               style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
                                 side: const BorderSide(color: Colors.white24),
                                 foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                               ),
                               onPressed: () => setDlgState(() => currentStep = 1),
-                              child: const Text("Back", style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: const Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.arrow_back_rounded, size: 16),
+                                  SizedBox(width: 4),
+                                  Text("Back", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1),
+                                ],
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
-                          flex: 2,
+                          flex: 3,
                           child: SizedBox(
-                            height: 44,
+                            height: 48,
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 8),
                                 backgroundColor: const Color(0xFFFFD700),
                                 foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                               ),
                               onPressed: isDropping ? null : () async {
                                 setDlgState(() => isDropping = true);
@@ -706,23 +725,57 @@ class _GiftPanelState extends State<GiftPanel> {
                                     Navigator.pop(ctx);
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(
-                                        content: Text("🎉 Dropped Lucky Bag ($amt 💎) to room!"),
-                                        backgroundColor: Colors.amber[800],
+                                        content: Row(
+                                          children: [
+                                            const Text("🎉", style: TextStyle(fontSize: 18)),
+                                            const SizedBox(width: 8),
+                                            Expanded(child: Text("Dropped Lucky Bag ($amt 💎) to room!", style: const TextStyle(fontWeight: FontWeight.bold))),
+                                          ],
+                                        ),
+                                        backgroundColor: const Color(0xFFD97706),
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                       ),
                                     );
                                   }
                                 } catch (e) {
                                   if (ctx.mounted) {
                                     setDlgState(() => isDropping = false);
+                                    String humanError = "Could not drop lucky bag. Please check your diamond balance.";
+                                    final errStr = e.toString().toLowerCase();
+                                    if (errStr.contains("balance") || errStr.contains("diamond") || errStr.contains("insufficient")) {
+                                      humanError = "Insufficient diamonds! Please top-up to send lucky bag.";
+                                    } else if (errStr.contains("network") || errStr.contains("socket") || errStr.contains("connection")) {
+                                      humanError = "Network connection issue. Please check your internet.";
+                                    }
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text(e.toString()), backgroundColor: Colors.redAccent),
+                                      SnackBar(
+                                        content: Row(
+                                          children: [
+                                            const Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
+                                            const SizedBox(width: 8),
+                                            Expanded(child: Text(humanError, style: const TextStyle(fontWeight: FontWeight.bold))),
+                                          ],
+                                        ),
+                                        backgroundColor: Colors.redAccent.shade700,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      ),
                                     );
                                   }
                                 }
                               },
                               child: isDropping 
                                   ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                                  : const Text("DROP BAG 🧧", style: TextStyle(fontWeight: FontWeight.w900)),
+                                  : const Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text("DROP BAG", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13), maxLines: 1),
+                                        SizedBox(width: 6),
+                                        Text("🧧", style: TextStyle(fontSize: 16)),
+                                      ],
+                                    ),
                             ),
                           ),
                         ),
@@ -743,31 +796,37 @@ class _GiftPanelState extends State<GiftPanel> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const PremiumDiamond(size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  "$diamondBalance",
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
-                ),
-                const SizedBox(width: 6),
-                const Text(
-                  "Top-up >",
-                  style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 11),
-                ),
-              ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const PremiumDiamond(size: 16),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      "$diamondBalance",
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    "Top-up >",
+                    style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 11),
+                  ),
+                ],
+              ),
             ),
           ),
-          const Spacer(),
+          const SizedBox(width: 12),
           GestureDetector(
             onTap: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
             child: AnimatedContainer(
@@ -822,31 +881,56 @@ class _GiftPanelState extends State<GiftPanel> {
         ? ref.read(roomParticipantsProvider(widget.roomId)).value?.where((p) => 
             (p.role == 'host' || p.seatIndex != -1) && p.uid != currentUserUid
           ).map((e) => e.uid).toList() ?? []
-        : List<String>.from(_selectedTargetUids);
+        : _selectedTargetUids;
 
     if (finalTargets.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("No recipients selected")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please select at least one recipient!")));
       return;
     }
 
-    if (finalTargets.contains(currentUserUid)) {
-      finalTargets.remove(currentUserUid);
-      if (finalTargets.isEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("You cannot send a gift to yourself")));
-        return;
-      }
-    }
-    
     setState(() => _isSending = true);
+
     try {
-      await ref.read(giftServiceProvider).sendGift(
+      final results = await ref.read(giftServiceProvider).sendGift(
         roomId: widget.roomId,
         gift: _selectedGift!,
         targetUids: finalTargets,
         quantity: _selectedQuantity,
         isMoment: widget.isMoment,
       );
-      if (mounted) Navigator.pop(context);
+
+      if (mounted) {
+        Navigator.pop(context);
+
+        final isLucky = (_selectedGift!.category.toLowerCase() == 'lucky') || _selectedGift!.name.toLowerCase().contains('bell');
+        if (isLucky && results.isNotEmpty) {
+          final res = results.first;
+          final multiplier = (res['luckyMultiplier'] as num?)?.toInt() ?? 0;
+          final winningAmount = (res['winningAmount'] as num?)?.toInt() ?? (res['luckyRewardCoins'] as num?)?.toInt() ?? 0;
+          final receiverBeans = (res['receiverBeans'] as num?)?.toInt() ?? 1;
+
+          final currentUserUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+          final senderUser = ref.read(userProfileProvider(currentUserUid)).value;
+          final senderName = senderUser?.displayName ?? "User";
+          String receiverName = "User";
+          try {
+            final targetUid = finalTargets.first;
+            final participants = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
+            final targetUser = participants.firstWhere((p) => p.uid == targetUid);
+            receiverName = targetUser.displayName;
+          } catch (_) {}
+
+          BellWinningDialog.show(
+            context: context,
+            senderName: senderName,
+            receiverName: receiverName,
+            giftPrice: _selectedGift!.priceInDiamonds,
+            multiplier: multiplier,
+            winningAmount: winningAmount,
+            receiverBeans: receiverBeans,
+          );
+        }
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
     } finally {
@@ -898,7 +982,7 @@ class _GiftTile extends StatelessWidget {
               ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10)]
               : [],
         ),
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.all(5),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -907,22 +991,22 @@ class _GiftTile extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 SizedBox(
-                  width: 48,
-                  height: 48,
+                  width: 42,
+                  height: 42,
                   child: gift.imageUrl.startsWith('http') 
                     ? CachedNetworkImage(
                         imageUrl: gift.imageUrl,
                         fit: BoxFit.contain,
-                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 28),
-                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 28),
+                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
+                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                       )
-                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 32))),
+                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 28))),
                 ),
                 if (isLucky)
                   Positioned(
                     top: -8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(colors: [Color(0xFFFF0055), Color(0xFFFF5000)]),
                         borderRadius: BorderRadius.circular(6),
@@ -930,18 +1014,18 @@ class _GiftTile extends StatelessWidget {
                       ),
                       child: const Text(
                         "JACKPOT",
-                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                        style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.w900, letterSpacing: 0.4),
                       ),
                     ),
                   ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               gift.name, 
               style: TextStyle(
                 color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
-                fontSize: 11,
+                fontSize: 10.5,
                 fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
               ), 
               overflow: TextOverflow.ellipsis,
@@ -954,10 +1038,10 @@ class _GiftTile extends StatelessWidget {
               children: [
                 Text(
                   "${gift.priceInDiamonds}", 
-                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.w900),
+                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 9.5, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(width: 2),
-                const PremiumDiamond(size: 10),
+                const PremiumDiamond(size: 9),
               ],
             ),
           ],

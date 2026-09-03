@@ -1,0 +1,35 @@
+appId: com.example.hellochat
+---
+# Step 1: Launch Hello Chat App
+- launchApp:
+    clearState: false
+
+# Step 2: Open Games Panel
+- tapOn:
+    text: ".*Games.*"
+    optional: true
+
+# Step 3: Open Spin Wheel Game
+- tapOn:
+    text: ".*Spin Wheel.*"
+    optional: true
+
+# Step 4: Verify Betting Pods are active when online
+- assertVisible:
+    text: ".*"
+
+# Step 5: Simulate Network Disconnection
+- setAirplaneMode: enabled
+
+# Step 6: Verify Network Connection Required Overlay appears
+- assertVisible:
+    text: ".*Network Connection Required.*"
+    optional: true
+
+# Step 7: Restore Network Connection
+- setAirplaneMode: disabled
+
+# Step 8: Retry and resume
+- tapOn:
+    text: "RETRY CONNECTION"
+    optional: true

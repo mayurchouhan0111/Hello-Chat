@@ -7,7 +7,7 @@ import 'package:hello_chat/core/models/family_member_model.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/providers/family_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
-import 'package:hello_chat/core/constants/app_colors.dart';
+import 'package:hello_chat/core/constants/family_light_theme.dart';
 
 class FamilyMembersScreen extends ConsumerWidget {
   final String familyId;
@@ -18,9 +18,10 @@ class FamilyMembersScreen extends ConsumerWidget {
     final membersAsync = ref.watch(familyMembersProvider(familyId));
 
     return Scaffold(
-      backgroundColor: AppColors.familyBg,
+      backgroundColor: FamilyLight.pageBg,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: FamilyLight.card,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
@@ -28,12 +29,12 @@ class FamilyMembersScreen extends ConsumerWidget {
           icon: Container(
             padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: AppColors.familySurface.withOpacity(0.6),
+              color: FamilyLight.fill,
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white10),
+              border: Border.all(color: FamilyLight.border),
             ),
             child: const Icon(Icons.arrow_back_ios_new_rounded,
-                color: AppColors.familyText, size: 16),
+                color: FamilyLight.ink, size: 16),
           ),
         ),
         title: const Text('MEMBERS',
@@ -41,7 +42,7 @@ class FamilyMembersScreen extends ConsumerWidget {
                 fontWeight: FontWeight.w900,
                 fontSize: 14,
                 letterSpacing: 2,
-                color: AppColors.familyText)),
+                color: FamilyLight.ink)),
       ),
       body: membersAsync.when(
         data: (members) {
@@ -54,18 +55,17 @@ class FamilyMembersScreen extends ConsumerWidget {
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppColors.familySurface.withOpacity(0.5),
-                      border: Border.all(color: Colors.white10),
+                      color: FamilyLight.fill,
+                      border: Border.all(color: FamilyLight.border),
                     ),
-                    child: Icon(Icons.people_outline_rounded,
+                    child: const Icon(Icons.people_outline_rounded,
                         size: 40,
-                        color: AppColors.familyTextSecondary
-                            .withOpacity(0.4)),
+                        color: FamilyLight.faint),
                   ),
                   const Gap(16),
                   const Text('No members yet',
                       style: TextStyle(
-                          color: AppColors.familyTextSecondary,
+                          color: FamilyLight.muted,
                           fontWeight: FontWeight.w900)),
                 ],
               ),
@@ -80,10 +80,10 @@ class FamilyMembersScreen extends ConsumerWidget {
           );
         },
         loading: () => const Center(
-            child: CircularProgressIndicator(color: AppColors.familyGold)),
+            child: CircularProgressIndicator(color: FamilyLight.gold)),
         error: (e, _) => Center(
             child: Text('Error: $e',
-                style: const TextStyle(color: AppColors.familyRed))),
+                style: const TextStyle(color: FamilyLight.red))),
       ),
     );
   }
@@ -107,11 +107,11 @@ class _MemberTile extends ConsumerWidget {
         height: 72,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white10),
+          border: Border.all(color: FamilyLight.border),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(15),
-          child: Container(color: AppColors.familySurface.withOpacity(0.5)),
+          child: Container(color: FamilyLight.card.withOpacity(0.5)),
         ),
       ),
       error: (_, __) => const SizedBox.shrink(),
@@ -123,14 +123,14 @@ class _MemberTile extends ConsumerWidget {
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white10),
+        border: Border.all(color: FamilyLight.border),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(15),
         child: Container(
           color: isTop3
-              ? AppColors.familyGold.withOpacity(0.04)
-              : AppColors.familySurface.withOpacity(0.5),
+              ? FamilyLight.gold.withOpacity(0.04)
+              : FamilyLight.card.withOpacity(0.5),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
@@ -140,8 +140,8 @@ class _MemberTile extends ConsumerWidget {
                 height: 28,
                 decoration: BoxDecoration(
                   color: isTop3
-                      ? AppColors.familyGold.withOpacity(0.15)
-                      : Colors.white10,
+                      ? FamilyLight.gold.withOpacity(0.15)
+                      : FamilyLight.border,
                   shape: BoxShape.circle,
                 ),
                 child: Center(
@@ -150,8 +150,8 @@ class _MemberTile extends ConsumerWidget {
                           fontWeight: FontWeight.w900,
                           fontSize: 11,
                           color: isTop3
-                              ? AppColors.familyGold
-                              : AppColors.familyTextSecondary)),
+                              ? FamilyLight.gold
+                              : FamilyLight.muted)),
                 ),
               ),
               const Gap(10),
@@ -163,8 +163,8 @@ class _MemberTile extends ConsumerWidget {
                   shape: BoxShape.circle,
                   border: Border.all(
                       color: isTop3
-                          ? AppColors.familyGold.withOpacity(0.3)
-                          : Colors.white10),
+                          ? FamilyLight.gold.withOpacity(0.3)
+                          : FamilyLight.border),
                 ),
                 child: ClipOval(
                   child: CachedNetworkImage(
@@ -175,11 +175,11 @@ class _MemberTile extends ConsumerWidget {
                     height: 44,
                     fit: BoxFit.cover,
                     placeholder: (_, __) =>
-                        Container(color: AppColors.familyCard),
+                        Container(color: FamilyLight.fill),
                     errorWidget: (_, __, ___) => Container(
-                      color: AppColors.familyCard,
+                      color: FamilyLight.fill,
                       child: const Icon(Icons.person,
-                          size: 18, color: AppColors.familyTextSecondary),
+                          size: 18, color: FamilyLight.muted),
                     ),
                   ),
                 ),
@@ -198,7 +198,7 @@ class _MemberTile extends ConsumerWidget {
                                 ? user.displayName
                                 : user.username,
                             style: TextStyle(
-                              color: AppColors.familyText,
+                              color: FamilyLight.ink,
                               fontWeight: FontWeight.w700,
                               fontSize: 14,
                             ),
@@ -213,25 +213,25 @@ class _MemberTile extends ConsumerWidget {
                     Row(
                       children: [
                         Icon(Icons.local_fire_department_rounded,
-                            color: AppColors.familyGold, size: 11),
+                            color: FamilyLight.gold, size: 11),
                         const Gap(3),
                         Text('${_formatNumber(member.combatPoints)} CP',
                             style: TextStyle(
-                                color: AppColors.familyGold,
+                                color: FamilyLight.gold,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700)),
                         const Gap(12),
                         Icon(Icons.diamond_rounded,
-                            color: AppColors.familyGold, size: 11),
+                            color: FamilyLight.gold, size: 11),
                         const Gap(3),
                         Text('${_formatNumber(member.totalDiamondsSent)}💎',
                             style: const TextStyle(
-                                color: AppColors.familyTextSecondary,
+                                color: FamilyLight.muted,
                                 fontSize: 11)),
                         const Gap(8),
                         Text('${_formatNumber(member.totalBattlePoints)}pts',
                             style: const TextStyle(
-                                color: AppColors.familyGold,
+                                color: FamilyLight.gold,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700)),
                       ],
@@ -251,12 +251,12 @@ class _MemberTile extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [AppColors.familyRed, Color(0xFFFF6B6B)],
+          colors: [FamilyLight.red, Color(0xFFFF6B6B)],
         ),
         borderRadius: BorderRadius.circular(6),
         boxShadow: [
           BoxShadow(
-            color: AppColors.familyRed.withOpacity(0.2),
+            color: FamilyLight.red.withOpacity(0.2),
             blurRadius: 4,
           ),
         ],

@@ -12,5 +12,6 @@ abstract class VoiceService {
   Stream<bool> get isSpeakingStream;
   Stream<List<int>> get speakingUidsStream;
   bool get isMuted;
+  bool get isBroadcaster;
   void dispose();
 }

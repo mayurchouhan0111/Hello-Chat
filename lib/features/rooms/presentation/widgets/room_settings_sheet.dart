@@ -13,6 +13,8 @@ import 'administrator_sheet.dart';
 import 'room_music_sheet.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:go_router/go_router.dart';
+import '../../../../core/router/app_router.dart';
 
 class RoomSettingsSheet extends ConsumerStatefulWidget {
   final RoomModel room;
@@ -200,7 +202,16 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                       
                       _buildLabel("Room Notice"),
                       _buildTextField(_noticeController, "notice", room.roomId),
-                      const Gap(20),
+                      const Gap(12),
+
+                      _buildSettingRow("Room Welcome Message", 
+                        value: room.welcomeMessage.isNotEmpty ? room.welcomeMessage : "",
+                        onTap: () {
+                          Navigator.pop(context);
+                          context.push(AppRoutes.roomWelcomeMessage, extra: room);
+                        },
+                      ),
+                      const Gap(12),
                       
                       _buildSettingRow("Mic mode", 
                         value: room.micMode.capitalize(), 
@@ -218,34 +229,44 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                       
                       const Gap(30),
                       
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _buildBottomAction(Icons.cleaning_services_rounded, "Clear Screen", onTap: () async {
-                             final room = roomAsync.value;
-                             if (room == null) return;
-                             await ref.read(roomServiceProvider).clearRoomMessages(room.roomId);
-                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat cleared!")));
-                          }),
-                          _buildBottomAction(Icons.image_outlined, "Theme", onTap: () => _showThemePicker(room)),
-                          if (room.ownerUid == uid || room.admins.contains(uid))
+                      SizedBox(
+                        height: 80,
+                        child: ListView(
+                          scrollDirection: Axis.horizontal,
+                          children: [
+                            _buildBottomAction(Icons.cleaning_services_rounded, "Clear Screen", onTap: () async {
+                               final room = roomAsync.value;
+                               if (room == null) return;
+                               await ref.read(roomServiceProvider).clearRoomMessages(room.roomId);
+                               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Chat cleared!")));
+                            }),
+                            const SizedBox(width: 6),
+                            _buildBottomAction(Icons.image_outlined, "Theme", onTap: () => _showThemePicker(room)),
+                            if (room.ownerUid == uid || room.admins.contains(uid)) ...[
+                              const SizedBox(width: 6),
+                              _buildBottomAction(
+                                Icons.music_note_rounded, 
+                                "Music", 
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  _showMusicSheet(room);
+                                }
+                              ),
+                            ],
+                            const SizedBox(width: 6),
                             _buildBottomAction(
-                              Icons.music_note_rounded, 
-                              "Music", 
-                              onTap: () {
-                                Navigator.pop(context);
-                                _showMusicSheet(room);
-                              }
+                              room.isPrivate ? Icons.lock_rounded : Icons.lock_open_rounded, 
+                              "Lock", 
+                              onTap: () => _showPasswordDialog(room)
                             ),
-                          _buildBottomAction(
-                            room.isPrivate ? Icons.lock_rounded : Icons.lock_open_rounded, 
-                            "Lock", 
-                            onTap: () => _showPasswordDialog(room)
-                          ),
-                          _buildBottomAction(Icons.admin_panel_settings_outlined, "Admin", onTap: () => _showAdminPanel(room)),
-                          if (room.bannedUids.isNotEmpty)
-                            _buildBottomAction(Icons.block, "Bans", onTap: () => _showBannedUsers(room)),
-                        ],
+                            const SizedBox(width: 6),
+                            _buildBottomAction(Icons.admin_panel_settings_outlined, "Admin", onTap: () => _showAdminPanel(room)),
+                            if (room.bannedUids.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              _buildBottomAction(Icons.block, "Bans", onTap: () => _showBannedUsers(room)),
+                            ],
+                          ],
+                        ),
                       ),
                       const Gap(40),
                     ],
@@ -460,16 +481,18 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   Widget _buildTextField(TextEditingController controller, String field, String roomId) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.04),
-        borderRadius: BorderRadius.circular(20),
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: TextField(
         controller: controller,
-        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5, color: Color(0xFF0F172A)),
         onSubmitted: (val) => _update(roomId, field, val.trim()),
         decoration: InputDecoration(
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
           suffixIcon: IconButton(
             icon: const Icon(Icons.check_circle, color: AppColors.primary),
             onPressed: () {
@@ -509,22 +532,31 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      child: Container(
+        width: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.all(12),
+              width: 48,
+              height: 48,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: Colors.white, 
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 4, offset: const Offset(0, 2))],
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 2))],
               ),
-              child: Icon(icon, color: AppColors.primary, size: 24),
+              child: Icon(icon, color: AppColors.primary, size: 22),
             ),
             const Gap(6),
-            Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54, fontWeight: FontWeight.bold)),
+            Text(
+              label, 
+              style: const TextStyle(fontSize: 10, color: Colors.black87, fontWeight: FontWeight.bold), 
+              maxLines: 1, 
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,19 +17,57 @@ final userProfileProvider = StreamProvider.family<UserModel?, String>((ref, uid)
   return ref.watch(profileServiceProvider).getProfileStream(uid);
 });
 
-final userProfileCacheProvider = StateProvider<Map<String, UserModel>>((ref) => {});
+final cachedUserProfileProvider = StreamProvider.family<UserModel?, String>((ref, uid) {
+  if (uid.isEmpty) return Stream.value(null);
+  return ref.watch(profileServiceProvider).getProfileStream(uid);
+});
 
-final cachedUserProfileProvider = FutureProvider.family<UserModel?, String>((ref, uid) async {
-  if (uid.isEmpty) return null;
-  final cache = ref.read(userProfileCacheProvider);
-  if (cache.containsKey(uid)) return cache[uid];
-
-  final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-  if (!doc.exists) return null;
-
-  final user = UserModel.fromMap(Map<String, dynamic>.from(doc.data()!));
-  ref.read(userProfileCacheProvider.notifier).update((state) => {...state, uid: user});
-  return user;
+/// Batched provider: fetches profiles for multiple UIDs in a single Firestore query.
+/// Returns a Map<uid, UserModel?>. Replaces N individual Firestore listeners with 1.
+final batchedProfilesProvider = StreamProvider.family<Map<String, UserModel?>, List<String>>((ref, uids) {
+  if (uids.isEmpty) return Stream.value({});
+  
+  final db = FirebaseFirestore.instance;
+  
+  // Firestore 'whereIn' supports max 30 items per query
+  // Split into batches of 30
+  final batches = <List<String>>[];
+  for (int i = 0; i < uids.length; i += 30) {
+    batches.add(uids.skip(i).take(30).toList());
+  }
+  
+  final controller = StreamController<Map<String, UserModel?>>.broadcast();
+  final results = <String, UserModel?>{};
+  final subscriptions = <StreamSubscription>[];
+  
+  // Listen to each batch in parallel
+  for (final batch in batches) {
+    final sub = db.collection('users').where(FieldPath.documentId, whereIn: batch)
+      .snapshots()
+      .listen((snapshot) {
+        for (final doc in snapshot.docs) {
+          try {
+            results[doc.id] = UserModel.fromMap(Map<String, dynamic>.from(doc.data()));
+          } catch (e) {
+            results[doc.id] = null;
+          }
+        }
+        if (!controller.isClosed) {
+          controller.add(Map.from(results));
+        }
+      });
+    subscriptions.add(sub);
+  }
+  
+  // Clean up subscriptions when no one is listening
+  ref.onDispose(() {
+    for (final sub in subscriptions) {
+      sub.cancel();
+    }
+    controller.close();
+  });
+  
+  return controller.stream;
 });
 
 final currentUserProfileProvider = StreamProvider<UserModel?>((ref) {
@@ -346,5 +386,8 @@ final userSenderRankingsProvider = StreamProvider.family<List<Map<String, dynami
           });
         }
         return results;
+      }).handleError((error) {
+        debugPrint("Error fetching sender rankings: $error");
+        return <Map<String, dynamic>>[];
       });
 });

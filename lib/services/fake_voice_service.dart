@@ -12,6 +12,9 @@ class FakeVoiceService implements VoiceService {
   bool get isMuted => _isMuted;
 
   @override
+  bool get isBroadcaster => !_isMuted;
+
+  @override
   Stream<bool> get isSpeakingStream => _speakingController.stream;
 
   @override

@@ -83,7 +83,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
         labelColor: Colors.black,
         unselectedLabelColor: Colors.black26,
         labelPadding: const EdgeInsets.only(right: 20),
-        labelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, family: 'Roboto'),
+        labelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, fontFamily: 'Roboto'),
         unselectedLabelStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.normal),
         indicator: const RoundUnderlineTabIndicator(
           borderSide: BorderSide(width: 4, color: Colors.orangeAccent),
@@ -148,6 +148,19 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
       case TransactionType.gift_received:
         icon = Icons.archive_rounded;
         color = Colors.green;
+        break;
+      case TransactionType.exchange:
+        icon = Icons.swap_horiz_rounded;
+        color = Colors.teal;
+        break;
+      case TransactionType.noble_purchase:
+      case TransactionType.vip_purchase:
+        icon = Icons.workspace_premium_rounded;
+        color = const Color(0xFF8E54E9);
+        break;
+      case TransactionType.purchase:
+        icon = Icons.shopping_cart_rounded;
+        color = Colors.deepOrange;
         break;
       case TransactionType.cash_out:
         icon = Icons.account_balance_wallet_rounded;

@@ -9,6 +9,8 @@ import '../../../../core/models/user_model.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/features/profile/presentation/screens/user_contribution_ranking_screen.dart';
 import '../../../../core/providers/room_provider.dart';
+import '../../../../core/services/report_service.dart';
+import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/user_profile_card.dart';
 import '../../../../core/router/app_router.dart';
@@ -58,6 +60,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
       vipTier: widget.participant.vipTier,
       level: widget.participant.level,
       tags: widget.participant.tags,
+      badges: widget.participant.tags,
       helloId: widget.participant.helloId,
       lastActive: widget.participant.lastActive,
       role: widget.participant.role,
@@ -66,9 +69,9 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
     final badges = getBadgesForUser(u);
     
-    final svipLevel = u.svipLevel ?? 0;
-    final vipLevel = _getVipLevel(u.vipTier);
-    final hasVipBg = svipLevel > 0 || vipLevel == 1 || vipLevel == 2 || (vipLevel >= 3 && vipLevel <= 8);
+    final svipLevel = _getSvipLevel(u);
+    final vipLevel = _getVipLevel(u);
+    final hasVipBg = svipLevel > 0 || vipLevel > 0;
     final textColor = hasVipBg ? Colors.white : Colors.black87;
     final subTextColor = hasVipBg ? Colors.white70 : Colors.black38;
     final iconColor = hasVipBg ? Colors.white70 : Colors.black54;
@@ -77,67 +80,120 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
           clipBehavior: Clip.none,
           alignment: Alignment.topCenter,
           children: [
-            // Main Bottom Sheet Card (positioned with top margin so avatar floats over top edge)
+            // Main Bottom Sheet Card (With transparent backdrop so SVGA wings spread behind avatar & actions)
             Padding(
               padding: const EdgeInsets.only(top: 48),
               child: UserProfileCard(
                 user: u,
                 fit: BoxFit.fitWidth,
-                crownTop: -54,
-                crownBottom: null,
-                crownLeft: -25,
-                crownRight: -25,
+                crownTop: -48,
+                crownBottom: 0,
+                crownLeft: 0,
+                crownRight: 0,
+                showCrown: true,
+                showStrip: false,
+                backgroundColor: hasVipBg ? Colors.transparent : Colors.white,
                 padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).padding.bottom),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                boxShadow: const [
+                boxShadow: hasVipBg ? const [] : const [
                   BoxShadow(color: Colors.black26, blurRadius: 20, spreadRadius: 0, offset: Offset(0, -5)),
                 ],
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Gap(46), // Compact gap inside card below top edge for floating avatar
+                    const Gap(50), // Clearance inside card below top edge for floating avatar
 
                     // Username & Badges Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        u.displayName,
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: textColor),
-                      ),
-                      const Gap(6),
-                      // Verified/Teal icon
-                      if (u.isVerified) ...[
-                        const Icon(Icons.verified_rounded, color: Color(0xFF00E5FF), size: 18),
-                        const Gap(4),
-                      ] else ...[
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(color: Colors.teal, borderRadius: BorderRadius.circular(4)),
-                          child: const Icon(Icons.person_rounded, color: Colors.white, size: 10),
-                        ),
-                        const Gap(4),
-                      ],
-                      // Gender
-                      if (u.gender.isNotEmpty)
-                        Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            color: u.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pinkAccent,
-                            borderRadius: BorderRadius.circular(4),
+                  Builder(
+                    builder: (context) {
+                      final roomData = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
+                      final isRoomOwner = roomData?.ownerUid == u.uid;
+                      final isRoomAdmin = (roomData?.admins.contains(u.uid) ?? false) || widget.isAdmin;
+
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              u.displayName,
+                              style: TextStyle(
+                                fontSize: 20, 
+                                fontWeight: FontWeight.w900, 
+                                color: textColor,
+                                shadows: hasVipBg ? const [
+                                  Shadow(color: Colors.black, blurRadius: 10, offset: Offset(0, 2)),
+                                  Shadow(color: Colors.black, blurRadius: 4, offset: Offset(0, 1)),
+                                ] : null,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          child: Icon(
-                            u.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
-                            color: Colors.white, size: 10,
-                          ),
-                        ),
-                    ],
+                          const Gap(6),
+                          if (isRoomOwner)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD700),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                              ),
+                              child: const Text(
+                                "Owner",
+                                style: TextStyle(color: Colors.black87, fontSize: 10.5, fontWeight: FontWeight.w900),
+                              ),
+                            )
+                          else if (isRoomAdmin)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: const [BoxShadow(color: Color(0x6600E5FF), blurRadius: 6)],
+                              ),
+                              child: const Text(
+                                "Admin",
+                                style: TextStyle(color: Colors.black87, fontSize: 10.5, fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                          const Gap(6),
+                          // Verified/Teal icon
+                          if (u.isVerified) ...[
+                            const Icon(Icons.verified_rounded, color: Color(0xFF00E5FF), size: 18),
+                            const Gap(4),
+                          ] else ...[
+                            Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(color: Colors.teal, borderRadius: BorderRadius.circular(4)),
+                              child: const Icon(Icons.person_rounded, color: Colors.white, size: 10),
+                            ),
+                            const Gap(4),
+                          ],
+                          // Gender
+                          if (u.gender.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: BoxDecoration(
+                                color: u.gender.toLowerCase() == 'male' ? Colors.blue : Colors.pinkAccent,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Icon(
+                                u.gender.toLowerCase() == 'male' ? Icons.male_rounded : Icons.female_rounded,
+                                color: Colors.white, size: 10,
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                   const Gap(4),
                   
-                  // User ID
+                  // User ID (Tap opens profile page, long press copies ID)
                   GestureDetector(
                     onTap: () {
+                      Navigator.pop(context);
+                      context.push(AppRoutes.userProfile, extra: u.uid);
+                    },
+                    onLongPress: () {
                       if (u.helloId != null) {
                         Clipboard.setData(ClipboardData(text: u.helloId.toString()));
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -145,9 +201,23 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                         );
                       }
                     },
-                    child: Text(
-                      "ID:${u.helloId ?? '...'}", 
-                      style: TextStyle(color: subTextColor, fontSize: 12, fontWeight: FontWeight.w600)
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          "ID:${u.helloId ?? '...'}", 
+                          style: TextStyle(
+                            color: subTextColor, 
+                            fontSize: 12, 
+                            fontWeight: FontWeight.w700,
+                            shadows: hasVipBg ? const [
+                              Shadow(color: Colors.black, blurRadius: 6, offset: Offset(0, 1)),
+                            ] : null,
+                          ),
+                        ),
+                        const Gap(2),
+                        Icon(Icons.chevron_right_rounded, size: 14, color: subTextColor),
+                      ],
                     ),
                   ),
                   
@@ -256,7 +326,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                             child: GestureDetector(
                               onTap: currentUid == null ? null : () {
                                   Navigator.pop(context);
-                                  final cid = currentUid.compareTo(u.uid) < 0 ? '${currentUid}_${u.uid}' : '${u.uid}_${currentUid}';
+                                  final cid = currentUid.compareTo(u.uid) < 0 ? '${currentUid}_${u.uid}' : '${u.uid}_$currentUid';
                                   context.push(AppRoutes.chatDetail, extra: {'chatId': cid, 'otherUid': u.uid});
                               },
                               child: Container(
@@ -447,23 +517,31 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
             // Corner Actions Icons
             // Top Left: REPORT
             Positioned(
-              top: 60,
+              top: 54,
               left: 16,
               child: GestureDetector(
-                onTap: () {}, // TODO: Handle report
-                child: Row(
-                  children: [
-                    Icon(Icons.campaign_rounded, color: iconColor, size: 20),
-                    const Gap(4),
-                    Text("REPORT", style: TextStyle(color: iconColor, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
-                  ],
+                onTap: () => _showReportDialog(context, u),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.35),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white12),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.campaign_rounded, color: Colors.white70, size: 16),
+                      Gap(4),
+                      Text("REPORT", style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                    ],
+                  ),
                 ),
               ),
             ),
             
             // Top Right: Gift Status (Top Senders List)
             Positioned(
-              top: 60,
+              top: 54,
               right: 16,
               child: GestureDetector(
                 onTap: () {
@@ -561,11 +639,22 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               onPressed: () async {
                 Navigator.pop(dialogContext);
-                await ref.read(roomServiceProvider).kickUser(
-                  widget.roomId, targetUid,
-                  durationMinutes: selectedDuration > 0 ? selectedDuration : null,
-                  reason: reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null,
-                );
+                try {
+                  await ref.read(roomServiceProvider).kickUser(
+                    widget.roomId, targetUid,
+                    durationMinutes: selectedDuration > 0 ? selectedDuration : null,
+                    reason: reasonController.text.trim().isNotEmpty ? reasonController.text.trim() : null,
+                  );
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(e.toString().replaceAll('Exception:', '').replaceAll('FirebaseFunctionsException:', '').trim()),
+                        backgroundColor: Colors.redAccent,
+                      ),
+                    );
+                  }
+                }
               },
               child: const Text('Kick', style: TextStyle(fontWeight: FontWeight.bold)),
             ),
@@ -612,20 +701,114 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
     );
   }
 
-  int _getVipLevel(String vipTierName) {
-    final clean = vipTierName.toLowerCase().replaceAll(' ', '');
-    if (clean.startsWith('vip')) {
-      final numStr = clean.substring(3);
-      final val = int.tryParse(numStr);
-      if (val != null) return val;
+  int _getSvipLevel(UserModel user) {
+    if (user.svipLevel != null && user.svipLevel! > 0) return user.svipLevel!;
+    for (final tag in user.tags) {
+      final clean = tag.toLowerCase().replaceAll(' ', '');
+      if (clean.startsWith('svip')) {
+        final val = int.tryParse(clean.substring(4));
+        if (val != null && val > 0) return val;
+      }
+    }
+    for (final badge in user.badges) {
+      final clean = badge.toLowerCase().replaceAll(' ', '');
+      if (clean.startsWith('svip')) {
+        final val = int.tryParse(clean.substring(4));
+        if (val != null && val > 0) return val;
+      }
     }
     return 0;
   }
 
-  String? _getVipCrownPath(int level) {
-    if (level < 1 || level > 8) return null;
-    if (level == 1) return 'assets/VIP/VIP 1/Crown 2.webp';
-    if (level == 5) return 'assets/VIP/VIP 5/VIP 5/5.webp';
-    return 'assets/VIP/VIP $level/VIP $level/Crown 2.webp';
+  int _getVipLevel(UserModel user) {
+    final clean = user.vipTier.toLowerCase().replaceAll(' ', '');
+    if (clean.startsWith('vip')) {
+      final val = int.tryParse(clean.substring(3));
+      if (val != null && val > 0) return val;
+    }
+    for (final tag in user.tags) {
+      final cleanTag = tag.toLowerCase().replaceAll(' ', '');
+      if (cleanTag.startsWith('vip') && !cleanTag.startsWith('svip')) {
+        final val = int.tryParse(cleanTag.substring(3));
+        if (val != null && val > 0) return val;
+      }
+    }
+    for (final badge in user.badges) {
+      final cleanBadge = badge.toLowerCase().replaceAll(' ', '');
+      if (cleanBadge.startsWith('vip') && !cleanBadge.startsWith('svip')) {
+        final val = int.tryParse(cleanBadge.substring(3));
+        if (val != null && val > 0) return val;
+      }
+    }
+    return 0;
+  }
+
+  void _showReportDialog(BuildContext context, UserModel targetUser) {
+    final reasons = ["Harassment", "Spam", "Nudity / Inappropriate", "Hate Speech", "Fake Account"];
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.55,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              "Report ${targetUser.displayName}",
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              "Select a reason for reporting this user",
+              style: TextStyle(color: Color(0xFF64748B), fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView.separated(
+                itemCount: reasons.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) => ListTile(
+                  title: Text(
+                    reasons[i],
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF0F172A)),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    try {
+                      await ref.read(reportServiceProvider).submitReport(
+                        targetUid: targetUser.uid,
+                        reason: reasons[i],
+                      );
+                      if (context.mounted) {
+                        AppToast.showSuccess(context, "Thanks for reporting! Our team will review this user.");
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        AppToast.showError(context, "Report failed: $e");
+                      }
+                    }
+                  },
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

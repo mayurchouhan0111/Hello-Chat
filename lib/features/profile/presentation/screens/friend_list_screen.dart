@@ -72,24 +72,24 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
     if (uid == null) return const SizedBox();
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0A),
+      backgroundColor: AppColors.background,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF0A0A0A),
+        backgroundColor: AppColors.background,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 18),
+          icon: const Icon(Icons.arrow_back_ios_new, color: AppColors.textPrimary, size: 18),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text("Friends", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+        title: const Text("Friends", style: TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.w900, fontSize: 16)),
         centerTitle: true,
         actions: [
           IconButton(
-            icon: const Icon(Icons.people_alt_rounded, color: Colors.white70, size: 22),
+            icon: const Icon(Icons.people_alt_rounded, color: AppColors.textSecondary, size: 22),
             onPressed: () => context.push(AppRoutes.friendshipPortal),
             tooltip: "Friendship Hall",
           ),
           IconButton(
-            icon: const Icon(Icons.person_add_alt_1, color: Colors.white70, size: 22),
+            icon: const Icon(Icons.person_add_alt_1, color: AppColors.textSecondary, size: 22),
             onPressed: () => context.push(AppRoutes.friendRequests),
           ),
         ],
@@ -111,7 +111,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
                 );
               },
               loading: () => const Center(
-                child: CircularProgressIndicator(color: AppColors.diamond),
+                child: CircularProgressIndicator(color: AppColors.primary),
               ),
               error: (err, _) => Center(
                 child: Text("Error: $err", style: const TextStyle(color: Colors.redAccent)),
@@ -129,14 +129,14 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
       child: TextField(
         controller: _searchCtrl,
         onChanged: _searchUsers,
-        style: const TextStyle(color: Colors.white, fontSize: 14),
+        style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
         decoration: InputDecoration(
           hintText: "Search by username or name...",
-          hintStyle: const TextStyle(color: Colors.white24, fontSize: 13),
-          prefixIcon: const Icon(Icons.search, color: Colors.white38, size: 20),
+          hintStyle: const TextStyle(color: AppColors.textTertiary, fontSize: 13),
+          prefixIcon: const Icon(Icons.search, color: AppColors.textTertiary, size: 20),
           suffixIcon: _searchCtrl.text.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.white38, size: 18),
+                  icon: const Icon(Icons.clear, color: AppColors.textTertiary, size: 18),
                   onPressed: () {
                     _searchCtrl.clear();
                     _searchUsers('');
@@ -144,7 +144,7 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
                 )
               : null,
           filled: true,
-          fillColor: const Color(0xFF1A1A1A),
+          fillColor: AppColors.surface,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,
@@ -160,14 +160,17 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
       constraints: const BoxConstraints(maxHeight: 260),
       margin: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4)),
+        ],
       ),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(vertical: 8),
         shrinkWrap: true,
         itemCount: _searchResults.length,
-        separatorBuilder: (_, __) => const Divider(color: Colors.white10, height: 1, indent: 56),
+        separatorBuilder: (_, __) => const Divider(color: AppColors.divider, height: 1, indent: 56),
         itemBuilder: (context, index) {
           final user = _searchResults[index];
           final isSelf = user['uid'] == ref.read(authStateProvider).value?.uid;
@@ -179,32 +182,32 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
                   ? CachedNetworkImageProvider(user['profilePhotoUrl'] as String)
                   : null,
               child: (user['profilePhotoUrl'] as String? ?? '').isEmpty
-                  ? const Icon(Icons.person, color: Colors.white38, size: 20)
+                  ? const Icon(Icons.person, color: AppColors.textTertiary, size: 20)
                   : null,
             ),
             title: Text(
               user['displayName'] as String? ?? '',
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
             ),
             subtitle: Text(
               '@${user['username'] as String? ?? ''}',
-              style: const TextStyle(color: Colors.white38, fontSize: 11),
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 11),
             ),
             trailing: isSelf
-                ? const Text("You", style: TextStyle(color: Colors.white24, fontSize: 11))
+                ? const Text("You", style: TextStyle(color: AppColors.textTertiary, fontSize: 11))
                 : SizedBox(
                     height: 32,
                     child: ElevatedButton(
                       onPressed: isLoading ? null : () => _addFriend(user['uid'] as String),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.diamond.withOpacity(0.15),
-                        foregroundColor: AppColors.diamond,
+                        backgroundColor: AppColors.primary.withOpacity(0.1),
+                        foregroundColor: AppColors.primary,
                         padding: const EdgeInsets.symmetric(horizontal: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
                       child: isLoading
-                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.diamond))
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary))
                           : const Text("Add", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
                     ),
                   ),
@@ -223,14 +226,14 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.white.withOpacity(0.05),
+              color: AppColors.surfaceLight,
             ),
-            child: const Icon(Icons.people_outline, color: Colors.white24, size: 56),
+            child: const Icon(Icons.people_outline, color: AppColors.textTertiary, size: 56),
           ),
           const Gap(16),
-          const Text("No friends yet", style: TextStyle(color: Colors.white38, fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text("No friends yet", style: TextStyle(color: AppColors.textSecondary, fontSize: 16, fontWeight: FontWeight.bold)),
           const Gap(8),
-          const Text("Search for users by name above\nto send a friend request.", style: TextStyle(color: Colors.white24, fontSize: 12), textAlign: TextAlign.center),
+          const Text("Search for users by name above\nto send a friend request.", style: TextStyle(color: AppColors.textTertiary, fontSize: 12), textAlign: TextAlign.center),
         ],
       ),
     );
@@ -255,8 +258,9 @@ class _FriendTile extends ConsumerWidget {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF1A1A1A),
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border.withOpacity(0.5)),
               ),
               child: Row(
                 children: [
@@ -266,7 +270,7 @@ class _FriendTile extends ConsumerWidget {
                         ? CachedNetworkImageProvider(user.profilePhotoUrl)
                         : null,
                     child: user.profilePhotoUrl.isEmpty
-                        ? const Icon(Icons.person, color: Colors.white38)
+                        ? const Icon(Icons.person, color: AppColors.textTertiary)
                         : null,
                   ),
                   const Gap(12),
@@ -276,17 +280,17 @@ class _FriendTile extends ConsumerWidget {
                       children: [
                         Text(
                           user.displayName.isNotEmpty ? user.displayName : user.username,
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 14),
                         ),
                         if (user.displayName.isNotEmpty && user.username.isNotEmpty)
-                          Text("@${user.username}", style: const TextStyle(color: Colors.white38, fontSize: 11)),
+                          Text("@${user.username}", style: const TextStyle(color: AppColors.textSecondary, fontSize: 11)),
                       ],
                     ),
                   ),
                   if (user.status == 'online')
                     Container(
                       width: 8, height: 8,
-                      decoration: const BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle),
+                      decoration: const BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
                     ),
                 ],
               ),

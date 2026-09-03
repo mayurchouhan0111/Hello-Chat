@@ -126,6 +126,9 @@ class SalaryService extends BaseFirebaseService {
     return _db.collection('salaryStatus').doc(uid).snapshots().map((doc) {
       if (!doc.exists) return null;
       return SalaryStatus.fromMap(doc.data()!);
+    }).handleError((err) {
+      print("Error fetching salary status: $err");
+      return null;
     });
   }
 
@@ -133,9 +136,16 @@ class SalaryService extends BaseFirebaseService {
   Stream<List<SalaryPayout>> getPayoutHistory(String uid) {
     return _db.collection('salaryPayouts')
         .where('uid', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => SalaryPayout.fromMap(doc.data(), doc.id)).toList());
+        .map((snap) {
+          final list = snap.docs.map((doc) => SalaryPayout.fromMap(doc.data(), doc.id)).toList();
+          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          return list;
+        })
+        .handleError((err) {
+          print("Error fetching payout history: $err");
+          return <SalaryPayout>[];
+        });
   }
 
   /// (Admin Utility) Processes all due payouts and updates wallet balances.
@@ -227,18 +237,46 @@ class SalaryService extends BaseFirebaseService {
     }
   }
 
-  /// (Admin) Get total volume of payouts for a specific type.
-  Future<double> getAdminTotalPayouts(String type) async {
-    final query = await _db.collection('salaryPayouts')
-        .where('type', isEqualTo: type)
-        .where('status', isEqualTo: 'paid')
-        .get();
-    
-    double total = 0;
-    for (var doc in query.docs) {
-      total += (doc.data()['amount'] as num).toDouble();
-    }
-    return total;
+  /// Generates ISO 8601 UTC week ID (e.g. 2026-W35) matching Monday-Sunday week bounds.
+  static String getUtcWeekId(DateTime date) {
+    final d = DateTime.utc(date.year, date.month, date.day);
+    final dayNum = d.weekday;
+    final thursday = d.add(Duration(days: 4 - dayNum));
+    final yearStart = DateTime.utc(thursday.year, 1, 1);
+    final weekNo = ((thursday.difference(yearStart).inDays) / 7).floor() + 1;
+    final weekStr = weekNo < 10 ? '0$weekNo' : '$weekNo';
+    return '${thursday.year}-W$weekStr';
+  }
+
+  /// Stream strictly current week's earnings and target progress (resetting Monday 00:00 UTC)
+  Stream<Map<String, dynamic>> getWeeklyTargetStatus(String uid) {
+    final currentWeekId = getUtcWeekId(DateTime.now().toUtc());
+    return _db.collection('users').doc(uid).collection('weeklyTargets').doc(currentWeekId).snapshots().map((doc) {
+      if (!doc.exists) {
+        return {
+          'weekId': currentWeekId,
+          'weeklyBeans': 0,
+          'targetBeans': 50000,
+          'progress': 0.0,
+        };
+      }
+      final data = doc.data()!;
+      final beans = (data['weeklyBeans'] as num?)?.toInt() ?? 0;
+      final target = (data['targetBeans'] as num?)?.toInt() ?? 50000;
+      return {
+        'weekId': currentWeekId,
+        'weeklyBeans': beans,
+        'targetBeans': target,
+        'progress': target > 0 ? (beans / target).clamp(0.0, 1.0) : 0.0,
+      };
+    }).handleError((_) {
+      return {
+        'weekId': currentWeekId,
+        'weeklyBeans': 0,
+        'targetBeans': 50000,
+        'progress': 0.0,
+      };
+    });
   }
 }
 
@@ -250,4 +288,8 @@ final salaryStatusProvider = StreamProvider.family<SalaryStatus?, String>((ref, 
 
 final payoutHistoryProvider = StreamProvider.family<List<SalaryPayout>, String>((ref, uid) {
   return ref.watch(salaryServiceProvider).getPayoutHistory(uid);
+});
+
+final weeklyTargetStatusProvider = StreamProvider.family<Map<String, dynamic>, String>((ref, uid) {
+  return ref.watch(salaryServiceProvider).getWeeklyTargetStatus(uid);
 });

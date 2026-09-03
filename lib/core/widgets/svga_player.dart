@@ -3,7 +3,57 @@ import 'package:flutter/material.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
-import 'package:hello_chat/core/utils/svga_static_util.dart';
+
+class _SkeletonShimmer extends StatefulWidget {
+  final BoxFit fit;
+  const _SkeletonShimmer({required this.fit});
+
+  @override
+  State<_SkeletonShimmer> createState() => _SkeletonShimmerState();
+}
+
+class _SkeletonShimmerState extends State<_SkeletonShimmer> with SingleTickerProviderStateMixin {
+  late AnimationController _shimmerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _shimmerController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _shimmerController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _shimmerController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            gradient: LinearGradient(
+              begin: Alignment(-1.0 + 2.0 * _shimmerController.value, 0),
+              end: Alignment(-0.5 + 2.0 * _shimmerController.value, 0),
+              colors: const [
+                Color(0x0DFFFFFF), // white 0.05
+                Color(0x26FFFFFF), // white 0.15
+                Color(0x0DFFFFFF), // white 0.05
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class SvgaPlayer extends StatefulWidget {
   final String? assetPath;
@@ -25,42 +75,56 @@ class SvgaPlayer extends StatefulWidget {
     this.maxFps,
     this.maxRenderSize,
     this.pauseWhenInvisible = false,
-  }) : assert(assetPath != null || url != null, 'Either assetPath or url must be provided');
+  });
 
   @override
   State<SvgaPlayer> createState() => _SvgaPlayerState();
 }
 
-class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateMixin {
+class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   SVGAAnimationController? _controller;
   bool _hasError = false;
   bool _isLoading = true;
-  bool _isVisibleInViewport = true;
-  double _lastTickTime = 0.0;
+  bool _isScrolling = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = SVGAAnimationController(vsync: this);
-    if (widget.maxFps != null && widget.maxFps! > 0) {
-      _controller?.addListener(_onControllerTick);
-    }
     _loadAnimation();
   }
 
-  void _onControllerTick() {
-    if (widget.maxFps == null || widget.maxFps! <= 0) return;
-    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final interval = 1.0 / widget.maxFps!;
-    if (now - _lastTickTime < interval) {
-      // Throttle rapid sub-frame repaints
-      return;
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_controller == null || !mounted) return;
+    if (state == AppLifecycleState.resumed) {
+      if (widget.loop && !_controller!.isAnimating && !_isScrolling) {
+        _controller!.repeat();
+      }
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_controller!.isAnimating) {
+        _controller!.stop();
+      }
     }
-    _lastTickTime = now;
   }
 
   Future<void> _loadAnimation() async {
     if (!mounted) return;
+
+    final hasAsset = widget.assetPath != null && widget.assetPath!.trim().isNotEmpty;
+    final hasUrl = widget.url != null && widget.url!.trim().isNotEmpty;
+
+    if (!hasAsset && !hasUrl) {
+      if (mounted) {
+        setState(() {
+          _hasError = true;
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _hasError = false;
@@ -68,9 +132,9 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
 
     try {
       MovieEntity? videoItem;
-      if (widget.assetPath != null) {
+      if (hasAsset) {
         videoItem = await SvgaParserUtil.decodeSafeFromAssets(widget.assetPath!);
-      } else if (widget.url != null) {
+      } else if (hasUrl) {
         videoItem = await SvgaParserUtil.decodeSafeFromUrl(widget.url!);
       }
 
@@ -95,7 +159,7 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
         });
       }
     } catch (e, stack) {
-      debugPrint("🚨🚨🚨 SVGA PLAYER ERROR: Failed to load ${widget.assetPath ?? widget.url}. Error: $e");
+      debugPrint("🚨 SVGA PLAYER ERROR: Failed to load ${widget.assetPath ?? widget.url}. Error: $e");
       debugPrint(stack.toString());
       if (mounted) {
         setState(() {
@@ -120,29 +184,24 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
 
   @override
   void dispose() {
-    _controller?.removeListener(_onControllerTick);
+    WidgetsBinding.instance.removeObserver(this);
     _controller?.stop();
     _controller?.dispose();
     super.dispose();
   }
 
   Widget _buildFallback() {
-    if (widget.fallbackImagePath != null) {
-      return Image.asset(
-        widget.fallbackImagePath!,
-        fit: widget.fit,
-        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-      );
+    if (_hasError) {
+      if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
+        return Image.asset(
+          widget.fallbackImagePath!,
+          fit: widget.fit,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        );
+      }
+      return const SizedBox.shrink();
     }
-    if (widget.assetPath != null) {
-      final staticFallback = SvgaStaticUtil.staticPathForSvga(widget.assetPath);
-      return Image.asset(
-        staticFallback,
-        fit: widget.fit,
-        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-      );
-    }
-    return const SizedBox.shrink();
+    return _SkeletonShimmer(fit: widget.fit);
   }
 
   @override
@@ -163,22 +222,22 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
       return playerWidget;
     }
 
-    // Scrollable Visibility Optimization
+    // Zero-overhead scroll-aware animation governor
     return NotificationListener<ScrollNotification>(
       onNotification: (scrollNotification) {
-        if (!mounted) return false;
-        final renderBox = context.findRenderObject() as RenderBox?;
-        if (renderBox != null && renderBox.hasSize) {
-          final bounds = renderBox.localToGlobal(Offset.zero) & renderBox.size;
-          final screenHeight = MediaQuery.of(context).size.height;
-          final isVisible = bounds.bottom > 0 && bounds.top < screenHeight;
-          if (isVisible != _isVisibleInViewport) {
-            _isVisibleInViewport = isVisible;
-            if (isVisible) {
-              if (widget.loop && !_controller!.isAnimating) _controller!.repeat();
-            } else {
-              if (_controller!.isAnimating) _controller!.stop();
+        if (!mounted || _controller == null) return false;
+        
+        if (scrollNotification is ScrollStartNotification || scrollNotification is UserScrollNotification) {
+          if (!_isScrolling) {
+            _isScrolling = true;
+            if (_controller!.isAnimating) {
+              _controller!.stop();
             }
+          }
+        } else if (scrollNotification is ScrollEndNotification) {
+          _isScrolling = false;
+          if (widget.loop && !_controller!.isAnimating) {
+            _controller!.repeat();
           }
         }
         return false;

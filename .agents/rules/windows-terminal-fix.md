@@ -1,3 +1,8 @@
+---
+name: windows-terminal-fix
+description: On Windows, shell commands executed by the agent must use the cmd /c prefix so the process terminates and closes the ConPTY pipe. Without this, commands hang forever on "Working..".
+---
+
 # Windows Terminal Fix
 
 ## Critical: Shell Command Execution on Windows
