@@ -18,21 +18,22 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ### Date: 2026-09-10
 - **What Client Asked / Problem**:
-  "Shift this part little down and center the components. You didn't add the bet part, didn't match the bottom nav bar, and some lists which are there in the Flutter app—check and add them fast."
+  "Place them in the space white (chips inside the 4 white booth slots). Create a solid red background behind this part (bottom dashboard) and use the same font in the whole screen."
 - **What We Did**:
-  1. **Perfect Centering of Wheel Components**:
-     - Analyzed `processed_image.webp` (1376 x 2727, 1:1.98 aspect ratio) and locked the container with CSS aspect ratio.
-     - Converted all positions to percentage coordinates (`topPct`, `leftPct`) calibrated directly to the wheel center (34.9% Y, 50.0% X).
-     - Shifted food emojis and labels down so every item (🌭, 🍢, 🍗, 🥩, 🥕, 🌽, 🥬, 🍅) sits dead-center inside its white circular gondola.
-     - Centered the Panda face and timer inside the red hub.
-  2. **Fixed Betting Chips & Booth Windows**:
-     - Repositioned the 4 betting chips (`100`, `1k`, `10k`, `100k`) to `top: 70.6%`, placing them cleanly inside the 4 blue booth windows without any overlap or clipping from the bottom red dashboard.
-     - Added dynamic coin stack indicators (`🪙`) and instant tactile Web Audio synthesizer click/win sounds.
-  3. **Added Flutter Modal Bottom Sheets & Lists**:
-     - **Catatan saya (Game Records)**: Clicking "Catatan saya >" or "My Play History" opens the records sheet displaying past rounds, Order IDs, winning food emojis, win coin amounts, coin balance before/after, and authentic rotated WIN/LOSE stamps with `★ ★ ★`.
-     - **Daily Top Players Leaderboard**: Clicking "Daily Top Players" opens the leaderboard sheet featuring Gold 🥇, Silver 🥈, Bronze 🥉 rank badges, player avatars, names, and diamond totals.
-     - **Rules Sheet**: Clicking "Rules >" opens the comprehensive game rules breakdown with all 8 food multipliers and Salad/Pizza jackpot categories.
-  4. Verified all interactions and visual alignment in the headless browser subagent.
+  1. **Seated Chips Inside the 4 White Booth Slots**:
+     - Adjusted the chip selector row position to `top: 69.5%`, placing all 4 chips (`100`, `1k`, `10k`, `100k`) dead-center inside the 4 white booth slot frames on the blue carnival desk.
+  2. **Solid Red Background Behind Bottom Dashboard**:
+     - Implemented a clean, solid vibrant red container (`#e52828`) with a subtle top border (`#b91c1c`) for the bottom dashboard.
+     - Completely eliminated any background artwork cutouts or ghost outlines peeking out behind the pills and refresh button.
+  3. **Unified Typography Across Entire Screen**:
+     - Standardized all UI text, numbers, buttons, pills, cards, and modal sheets to use a single unified modern font family (`Fredoka`, `Nunito`, sans-serif).
+  4. **Preserved Complete Feature Set & Modal Sheets**:
+     - Catatan saya (Game Records) sheet with WIN/LOSE stamps.
+     - Daily Top Players Leaderboard sheet.
+     - Lucky Spin Rules sheet.
+     - Direct on-pod tap betting with green badges (`1k ✓`) and coin stacks (`🪙`).
+     - Stationary wheel with luminous clockwise-hopping spotlight marker.
+  5. Verified the final layout and interactions with browser subagent screenshots.
 - **Files Touched**:
   - `assets/games/spin_wheel.html`
   - `PROJECT_WORKLOG.md`
