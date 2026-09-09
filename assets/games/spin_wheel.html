@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Today's Round - Lucky Spin</title>
+  <style>
+    /* RESET & BASE */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    body {
+      background-color: #121212;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      overflow: hidden;
+      color: #333;
+    }
+
+    /* MAIN MOBILE FRAME */
+    .app-container {
+      width: 100%;
+      max-width: 430px;
+      height: 100vh;
+      max-height: 932px;
+      background-color: #F8DA3B;
+      background-image: radial-gradient(#E5C421 1.2px, transparent 1.2px);
+      background-size: 14px 14px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    }
+
+    /* FLOATING PERSPECTIVE DIAMONDS */
+    .floating-gem {
+      position: absolute;
+      pointer-events: none;
+      z-index: 1;
+      filter: drop-shadow(0 4px 6px rgba(0,0,0,0.15));
+      animation: floatGems 6s ease-in-out infinite alternate;
+    }
+    .gem-left-top { top: 180px; left: 14px; width: 22px; transform: rotate(15deg); }
+    .gem-left-mid { top: 410px; left: 8px; width: 18px; transform: rotate(-25deg); animation-delay: 1.5s; }
+    .gem-right-mid { top: 430px; right: 10px; width: 20px; transform: rotate(30deg); animation-delay: 3s; }
+
+    @keyframes floatGems {
+      0% { transform: translateY(0px) rotate(0deg); }
+      100% { transform: translateY(-12px) rotate(15deg); }
+    }
+
+    /* TOP HEADER BAR */
+    .top-bar {
+      position: relative;
+      z-index: 10;
+      padding: env(safe-area-inset-top, 16px) 16px 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .back-btn {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #FFF;
+      font-size: 26px;
+      font-weight: 700;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.3);
+      transition: transform 0.15s;
+    }
+    .back-btn:active { transform: scale(0.9); }
+
+    .round-title {
+      color: #E6392D;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.3px;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.4);
+      flex: 1;
+      margin-left: 4px;
+    }
+
+    .rules-btn {
+      background: #FFFFFF;
+      color: #222222;
+      font-size: 14px;
+      font-weight: 700;
+      padding: 7px 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(0,0,0,0.06);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+      cursor: pointer;
+      transition: transform 0.15s, background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+    .rules-btn:active { transform: scale(0.95); background: #F3F4F6; }
+
+    /* FERRIS WHEEL ARENA */
+    .wheel-arena {
+      flex: 1;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+    }
+
+    /* A-FRAME STRIPED CARNIVAL STAND */
+    .carnival-stand {
+      position: absolute;
+      bottom: 22px;
+      width: 210px;
+      height: 250px;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* THE ROTATING FERRIS WHEEL CONTAINER */
+    .ferris-wheel-wrap {
+      position: relative;
+      width: 320px;
+      height: 320px;
+      z-index: 6;
+    }
+
+    .wheel-rotor {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      will-change: transform;
+      transition: transform 4.8s cubic-bezier(0.12, 0.8, 0.22, 1);
+    }
+
+    /* BLUE SPOKE RINGS */
+    .wheel-rim {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 250px;
+      height: 250px;
+      border: 6px solid #1E3A8A;
+      border-radius: 50%;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+
+    .wheel-spoke {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 4px;
+      height: 125px;
+      background: #1E3A8A;
+      transform-origin: top center;
+    }
+
+    /* 8 CIRCULAR FOOD GONDOLAS */
+    .food-gondola {
+      position: absolute;
+      width: 82px;
+      height: 82px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 4px solid #1E3A8A;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s;
+      z-index: 8;
+    }
+
+    .food-gondola:active {
+      transform: scale(0.92);
+    }
+
+    /* ACTIVE SPOTLIGHT HALO ON SECTOR */
+    .food-gondola.highlighted {
+      border-color: #FBBF24;
+      box-shadow: 0 0 25px 8px rgba(254, 240, 138, 0.95), 0 4px 12px rgba(0,0,0,0.3);
+      animation: pulseHighlight 0.6s infinite alternate;
+    }
+
+    @keyframes pulseHighlight {
+      0% { transform: scale(1.02); filter: brightness(1.1); }
+      100% { transform: scale(1.08); filter: brightness(1.25); }
+    }
+
+    .food-icon {
+      font-size: 32px;
+      line-height: 1;
+      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.15));
+    }
+
+    .food-win-text {
+      font-size: 10px;
+      font-weight: 800;
+      color: #111827;
+      margin-top: 3px;
+      letter-spacing: -0.2px;
+      white-space: nowrap;
+    }
+
+    .placed-bet-badge {
+      position: absolute;
+      top: -6px;
+      right: -6px;
+      background: #E11D48;
+      color: #FFF;
+      font-size: 9px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 10px;
+      border: 1.5px solid #FFF;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+      display: none;
+    }
+    .placed-bet-badge.visible { display: block; }
+
+    /* CENTER RED PANDA HUB */
+    .center-hub {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 124px;
+      height: 124px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #F43F5E, #E11D48 60%, #BE123C);
+      border: 4.5px solid #1E293B;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+      z-index: 15;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .panda-face {
+      width: 50px;
+      height: 44px;
+      background: #FFFFFF;
+      border-radius: 50% 50% 45% 45%;
+      position: relative;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .panda-ear {
+      position: absolute;
+      width: 15px;
+      height: 15px;
+      background: #111827;
+      border-radius: 50%;
+      top: -3px;
+    }
+    .panda-ear.left { left: 1px; }
+    .panda-ear.right { right: 1px; }
+
+    .panda-eye-patch {
+      position: absolute;
+      width: 13px;
+      height: 11px;
+      background: #111827;
+      border-radius: 50%;
+      top: 15px;
+      transform: rotate(-15deg);
+    }
+    .panda-eye-patch.right {
+      right: 9px;
+      transform: rotate(15deg);
+    }
+    .panda-eye-patch.left {
+      left: 9px;
+    }
+    .panda-pupil {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: #FFFFFF;
+      border-radius: 50%;
+      top: 3px;
+      left: 4px;
+    }
+    .panda-nose {
+      position: absolute;
+      width: 8px;
+      height: 5px;
+      background: #111827;
+      border-radius: 50% 50% 40% 40%;
+      top: 25px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .panda-mouth {
+      position: absolute;
+      width: 10px;
+      height: 4px;
+      border-bottom: 2px solid #111827;
+      border-radius: 0 0 50% 50%;
+      top: 31px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    .hub-status-text {
+      color: #FFFFFF;
+      font-size: 11px;
+      font-weight: 900;
+      margin-top: 5px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    .hub-timer-text {
+      color: #FFFFFF;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1.1;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+
+    /* CENTER DARK "BETS CLOSED" PILL OVERLAY */
+    .center-banner-pill {
+      position: absolute;
+      top: 52%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(40, 44, 52, 0.88);
+      backdrop-filter: blur(4px);
+      padding: 10px 24px;
+      border-radius: 26px;
+      color: #FFFFFF;
+      font-size: 20px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      z-index: 25;
+      pointer-events: none;
+      transition: opacity 0.25s, transform 0.25s;
+    }
+    .center-banner-pill.hidden {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.85);
+    }
+
+    /* FLANKING PEDESTALS (SALAD & PIZZA) */
+    .side-pedestal {
+      position: absolute;
+      bottom: 28px;
+      width: 70px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: transform 0.15s;
+    }
+    .side-pedestal:active { transform: scale(0.92); }
+    .side-pedestal.left { left: 32px; }
+    .side-pedestal.right { right: 32px; }
+
+    .pedestal-circle {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 3.5px solid #FBBF24;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+
+    .pedestal-stand-base {
+      width: 48px;
+      height: 14px;
+      background: linear-gradient(to bottom, #FBBF24, #D97706);
+      border-radius: 4px;
+      margin-top: -6px;
+      border: 1.5px solid #B45309;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .pedestal-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: #451A03;
+      margin-top: 2px;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    /* CARNIVAL BASE STAGE WITH BOOTH STALLS */
+    .carnival-base-stage {
+      position: absolute;
+      bottom: -6px;
+      width: 100%;
+      height: 60px;
+      background: #0284C7;
+      border-top: 3px solid #0369A1;
+      border-bottom: 2px solid #075985;
+      display: flex;
+      justify-content: space-evenly;
+      align-items: flex-start;
+      padding-top: 6px;
+      z-index: 4;
+    }
+    .booth-seat {
+      width: 54px;
+      height: 38px;
+      border-radius: 8px 8px 0 0;
+      border: 2px solid rgba(255,255,255,0.4);
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .booth-seat.red { background: #EF4444; }
+    .booth-seat.yellow { background: #FBBF24; }
+
+    /* LOWER SECTION (RED DASHBOARD & CONTROLS) */
+    .lower-dashboard {
+      background: #E52E2E;
+      border-top: 3px solid #BE123C;
+      padding: 12px 14px 14px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 20;
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.18);
+    }
+
+    /* ROW 1: REFRESH + CURRENT AMOUNT + PLAY HISTORY */
+    .dash-row-1 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .circle-icon-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 2px solid #F59E0B;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #F59E0B;
+      font-size: 20px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+      flex-shrink: 0;
+      transition: transform 0.2s;
+    }
+    .circle-icon-btn:active { transform: scale(0.92) rotate(180deg); }
+
+    .stat-pill {
+      flex: 1;
+      background: #FFFFFF;
+      border-radius: 24px;
+      padding: 5px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+      height: 44px;
+      cursor: pointer;
+    }
+    .stat-pill-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #4B5563;
+      text-align: center;
+    }
+    .stat-pill-val {
+      font-size: 12px;
+      font-weight: 900;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .stat-pill-val.green { color: #059669; }
+
+    /* ROW 2: RESULT TITLE + RECENT HISTORY CHIPS */
+    .dash-row-result {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 2px 0;
+    }
+
+    .result-heading {
+      color: #111827;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: -0.2px;
+      padding-left: 2px;
+    }
+
+    .result-chips-scroll {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      padding-right: 4px;
+    }
+    .result-chips-scroll::-webkit-scrollbar { display: none; }
+
+    .history-item-circle {
+      position: relative;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 1.5px solid #F3F4F6;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 19px;
+      flex-shrink: 0;
+    }
+    .new-tag {
+      position: absolute;
+      bottom: -4px;
+      background: #FACC15;
+      color: #000000;
+      font-size: 8px;
+      font-weight: 900;
+      padding: 1px 4px;
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+
+    /* ROW 3: DAILY TOP PLAYERS + PREV WINNER */
+    .dash-row-bottom-cards {
+      display: flex;
+      gap: 8px;
+    }
+
+    .white-card {
+      flex: 1;
+      background: #FFFFFF;
+      border-radius: 10px;
+      padding: 6px 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+      cursor: pointer;
+    }
+    .card-title {
+      font-size: 10px;
+      font-weight: 700;
+      color: #4B5563;
+      text-align: center;
+    }
+    .card-detail {
+      font-size: 12px;
+      font-weight: 900;
+      color: #111827;
+      text-align: center;
+      margin-top: 1px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+    .card-detail.blue { color: #0284C7; }
+
+    /* FOOTER TEXT */
+    .catatan-footer {
+      text-align: center;
+      color: #7F1D1D;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      padding-top: 2px;
+    }
+
+    /* BETTING DRAWER / MODAL */
+    .betting-sheet {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #111827;
+      border-radius: 24px 24px 0 0;
+      border-top: 2px solid #F59E0B;
+      box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+      padding: 16px 16px env(safe-area-inset-bottom, 20px) 16px;
+      z-index: 50;
+      transform: translateY(105%);
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .betting-sheet.open { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 38px;
+      height: 4px;
+      background: #4B5563;
+      border-radius: 2px;
+      margin: 0 auto 14px auto;
+    }
+
+    .sheet-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      color: #FFFFFF;
+    }
+    .sheet-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #FBBF24;
+    }
+
+    /* 8-GRID SECTOR BET CARDS */
+    .bet-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .bet-card {
+      background: #1F2937;
+      border: 1.5px solid #374151;
+      border-radius: 12px;
+      padding: 8px 4px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      transition: transform 0.1s, border-color 0.15s, background 0.15s;
+    }
+    .bet-card:active {
+      transform: scale(0.94);
+      background: #374151;
+      border-color: #FBBF24;
+    }
+    .bet-card-icon { font-size: 22px; }
+    .bet-card-name { font-size: 10px; font-weight: 700; color: #E5E7EB; margin-top: 2px; }
+    .bet-card-mult {
+      background: #D97706;
+      color: #FFF;
+      font-size: 9px;
+      font-weight: 900;
+      padding: 1px 5px;
+      border-radius: 6px;
+      margin-top: 3px;
+    }
+    .bet-card-placed {
+      font-size: 10px;
+      font-weight: 800;
+      color: #34D399;
+      margin-top: 3px;
+    }
+
+    /* CHIP SELECTOR ROW */
+    .chip-selector-bar {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      background: #1F2937;
+      border-radius: 30px;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+    }
+    .chip-item {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      border: 2px dashed #F59E0B;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 900;
+      color: #FFFFFF;
+      background: radial-gradient(circle at 35% 35%, #D97706, #B45309);
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      transition: transform 0.15s, border 0.15s;
+    }
+    .chip-item.active {
+      transform: scale(1.15);
+      border: 2.5px solid #FDE047;
+      box-shadow: 0 0 15px rgba(253, 224, 71, 0.8);
+    }
+
+    /* ACTION BUTTONS ROW */
+    .bet-action-btns {
+      display: flex;
+      gap: 10px;
+    }
+    .action-btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 800;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+    .action-btn:active { transform: scale(0.96); }
+    .action-btn.clear { background: #374151; color: #E5E7EB; }
+    .action-btn.confirm { background: linear-gradient(to right, #F59E0B, #D97706); color: #000; font-weight: 900; }
+
+    /* RESULT CELEBRATION MODAL */
+    .result-modal {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: flex;
+      align-items: flex-end;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+    }
+    .result-modal.show {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .result-card {
+      width: 100%;
+      background: linear-gradient(180deg, #1E293B, #0F172A);
+      border-top: 3px solid #F59E0B;
+      border-radius: 28px 28px 0 0;
+      padding: 24px 20px 32px 20px;
+      text-align: center;
+      transform: translateY(100%);
+      transition: transform 0.35s cubic-bezier(0.18, 0.9, 0.28, 1);
+    }
+    .result-modal.show .result-card { transform: translateY(0); }
+
+    .result-headline {
+      font-size: 26px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+    .result-headline.win { color: #FACC15; text-shadow: 0 0 15px rgba(250, 204, 21, 0.6); }
+    .result-headline.lost { color: #9CA3AF; }
+
+    .result-item-badge {
+      width: 90px;
+      height: 90px;
+      border-radius: 50%;
+      background: #FFFFFF;
+      border: 4px solid #F59E0B;
+      box-shadow: 0 0 25px rgba(245, 158, 11, 0.5);
+      margin: 12px auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 46px;
+      animation: popBadge 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    @keyframes popBadge {
+      0% { transform: scale(0.4); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .result-item-name {
+      font-size: 18px;
+      font-weight: 800;
+      color: #FFFFFF;
+    }
+    .result-prize-text {
+      font-size: 22px;
+      font-weight: 900;
+      color: #34D399;
+      margin-top: 6px;
+    }
+
+    /* RULES / INFO MODAL */
+    .generic-modal {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(6px);
+      z-index: 150;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    .generic-modal.show { opacity: 1; pointer-events: auto; }
+    .generic-dialog {
+      width: 88%;
+      background: #1E293B;
+      border: 2px solid #F59E0B;
+      border-radius: 20px;
+      padding: 20px;
+      color: #FFFFFF;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      font-size: 18px;
+      font-weight: 800;
+      color: #FBBF24;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+    .rule-line {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #D1D5DB;
+      margin-bottom: 8px;
+    }
+    .dialog-close-btn {
+      width: 100%;
+      padding: 10px;
+      background: #F59E0B;
+      color: #000;
+      font-weight: 800;
+      border: none;
+      border-radius: 12px;
+      margin-top: 14px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-container" id="app">
+
+    <!-- FLOATING PERSPECTIVE DIAMONDS -->
+    <svg class="floating-gem gem-left-top" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 9L12 22L22 9L12 2Z" fill="#FBBF24" stroke="#B45309" stroke-width="1.5" />
+      <path d="M2 9H22M12 2L7 9L12 22L17 9L12 2Z" fill="#FDE68A" fill-opacity="0.5" />
+    </svg>
+    <svg class="floating-gem gem-left-mid" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 9L12 22L22 9L12 2Z" fill="#F59E0B" stroke="#B45309" stroke-width="1.5" />
+    </svg>
+    <svg class="floating-gem gem-right-mid" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 9L12 22L22 9L12 2Z" fill="#FBBF24" stroke="#B45309" stroke-width="1.5" />
+    </svg>
+
+    <!-- TOP BAR -->
+    <header class="top-bar">
+      <div class="back-btn" id="backBtn">&#10094;</div>
+      <h1 class="round-title" id="roundTitleDisplay">Today's 1155 Round</h1>
+      <button class="rules-btn" id="openRulesBtn">Rules &gt;</button>
+    </header>
+
+    <!-- FERRIS WHEEL ARENA -->
+    <main class="wheel-arena">
+      <!-- CARNIVAL A-FRAME STAND SVG -->
+      <svg class="carnival-stand" viewBox="0 0 200 240" fill="none">
+        <!-- Blue Striped Legs -->
+        <polygon points="100,30 20,240 45,240 100,55" fill="#0284C7" />
+        <polygon points="100,30 180,240 155,240 100,55" fill="#0284C7" />
+        <!-- Diagonal Light Stripes -->
+        <polygon points="45,200 70,140 85,150 55,210" fill="#38BDF8" opacity="0.8" />
+        <polygon points="155,200 130,140 115,150 145,210" fill="#38BDF8" opacity="0.8" />
+        <!-- Horizontal cross braces -->
+        <rect x="52" y="145" width="96" height="8" rx="4" fill="#0369A1" />
+        <rect x="36" y="210" width="128" height="10" rx="4" fill="#0369A1" />
+      </svg>
+
+      <!-- THE WHEEL WRAPPER -->
+      <div class="ferris-wheel-wrap" id="wheelWrap">
+        <!-- ROTATING ROTOR (Spokes & Gondolas) -->
+        <div class="wheel-rotor" id="wheelRotor">
+          <div class="wheel-rim"></div>
+          <!-- 8 SPOKES -->
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(0deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(45deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(90deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(135deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(180deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(225deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(270deg);"></div>
+          <div class="wheel-spoke" style="transform: translate(-50%, 0) rotate(315deg);"></div>
+
+          <!-- 8 FOOD GONDOLAS (positioned along perimeter, counter-rotated) -->
+          <!-- 0: Hotdog (12 o'clock / 0 deg) -->
+          <div class="food-gondola" id="gondola-0" data-sector="0" style="top: -6px; left: 119px;" onclick="openBettingSheetForSector(0)">
+            <span class="food-icon">&#127789;</span>
+            <span class="food-win-text">win 10 times</span>
+            <span class="placed-bet-badge" id="badge-0">0</span>
+          </div>
+
+          <!-- 1: Skewer (1:30 / 45 deg) -->
+          <div class="food-gondola" id="gondola-1" data-sector="1" style="top: 32px; left: 216px;" onclick="openBettingSheetForSector(1)">
+            <span class="food-icon">&#127835;</span>
+            <span class="food-win-text">win 15 times</span>
+            <span class="placed-bet-badge" id="badge-1">0</span>
+          </div>
+
+          <!-- 2: Chicken (3 o'clock / 90 deg) -->
+          <div class="food-gondola" id="gondola-2" data-sector="2" style="top: 119px; left: 246px;" onclick="openBettingSheetForSector(2)">
+            <span class="food-icon">&#127831;</span>
+            <span class="food-win-text">win 25 times</span>
+            <span class="placed-bet-badge" id="badge-2">0</span>
+          </div>
+
+          <!-- 3: Steak (4:30 / 135 deg) -->
+          <div class="food-gondola" id="gondola-3" data-sector="3" style="top: 216px; left: 216px;" onclick="openBettingSheetForSector(3)">
+            <span class="food-icon">&#129385;</span>
+            <span class="food-win-text">win 45 times</span>
+            <span class="placed-bet-badge" id="badge-3">0</span>
+          </div>
+
+          <!-- 4: Carrot (6 o'clock / 180 deg) -->
+          <div class="food-gondola" id="gondola-4" data-sector="4" style="top: 246px; left: 119px;" onclick="openBettingSheetForSector(4)">
+            <span class="food-icon">&#129365;</span>
+            <span class="food-win-text">win 5 times</span>
+            <span class="placed-bet-badge" id="badge-4">0</span>
+          </div>
+
+          <!-- 5: Corn (7:30 / 225 deg) -->
+          <div class="food-gondola" id="gondola-5" data-sector="5" style="top: 216px; left: 22px;" onclick="openBettingSheetForSector(5)">
+            <span class="food-icon">&#127805;</span>
+            <span class="food-win-text">win 5 times</span>
+            <span class="placed-bet-badge" id="badge-5">0</span>
+          </div>
+
+          <!-- 6: Cabbage (9 o'clock / 270 deg) -->
+          <div class="food-gondola" id="gondola-6" data-sector="6" style="top: 119px; left: -8px;" onclick="openBettingSheetForSector(6)">
+            <span class="food-icon">&#129388;</span>
+            <span class="food-win-text">win 5 times</span>
+            <span class="placed-bet-badge" id="badge-6">0</span>
+          </div>
+
+          <!-- 7: Tomato (10:30 / 315 deg) -->
+          <div class="food-gondola" id="gondola-7" data-sector="7" style="top: 32px; left: 22px;" onclick="openBettingSheetForSector(7)">
+            <span class="food-icon">&#127813;</span>
+            <span class="food-win-text">win 5 times</span>
+            <span class="placed-bet-badge" id="badge-7">0</span>
+          </div>
+        </div>
+
+        <!-- CENTER RED PANDA HUB -->
+        <div class="center-hub">
+          <div class="panda-face">
+            <div class="panda-ear left"></div>
+            <div class="panda-ear right"></div>
+            <div class="panda-eye-patch left"><div class="panda-pupil"></div></div>
+            <div class="panda-eye-patch right"><div class="panda-pupil"></div></div>
+            <div class="panda-nose"></div>
+            <div class="panda-mouth"></div>
+          </div>
+          <div class="hub-status-text" id="hubStatusText">BETS CLOSED</div>
+          <div class="hub-timer-text" id="hubTimerText">9s</div>
+        </div>
+      </div>
+
+      <!-- CENTER DARK OVERLAY BANNER -->
+      <div class="center-banner-pill" id="centerBannerPill">BETS CLOSED</div>
+
+      <!-- FLANKING PEDESTALS: SALAD & PIZZA -->
+      <div class="side-pedestal left" onclick="openSaladInfo()">
+        <div class="pedestal-circle">&#129367;</div>
+        <div class="pedestal-stand-base"></div>
+        <div class="pedestal-label">Salad &gt;</div>
+      </div>
+
+      <div class="side-pedestal right" onclick="openPizzaInfo()">
+        <div class="pedestal-circle">&#127829;</div>
+        <div class="pedestal-stand-base"></div>
+        <div class="pedestal-label">Pizza &gt;</div>
+      </div>
+
+      <!-- CARNIVAL BASE STAGE -->
+      <div class="carnival-base-stage">
+        <div class="booth-seat red"></div>
+        <div class="booth-seat yellow"></div>
+        <div class="booth-seat yellow"></div>
+        <div class="booth-seat red"></div>
+      </div>
+    </main>
+
+    <!-- LOWER SECTION (RED CONTROLS & DASHBOARD) -->
+    <footer class="lower-dashboard">
+      <!-- ROW 1: REFRESH + CURRENT AMOUNT + PLAY HISTORY -->
+      <div class="dash-row-1">
+        <button class="circle-icon-btn" id="refreshBtn" title="Refresh Bets / Quick Bet">&#8635;</button>
+
+        <div class="stat-pill" onclick="toggleBettingSheet()">
+          <span class="stat-pill-label">Current Amount</span>
+          <span class="stat-pill-val">
+            <span style="color:#FBBF24;">&#128142;</span>
+            <span id="userBalanceDisplay">9998614656842</span>
+          </span>
+        </div>
+
+        <div class="stat-pill" onclick="openHistoryDialog()">
+          <span class="stat-pill-label">My Play History</span>
+          <span class="stat-pill-val green" id="playHistoryStats">
+            &#128200; Games: 0 | Win: 0 &gt;
+          </span>
+        </div>
+      </div>
+
+      <!-- ROW 2: RESULT TITLE + RECENT HISTORY CHIPS -->
+      <div class="dash-row-result">
+        <div class="result-heading">Result</div>
+        <div class="result-chips-scroll" id="recentHistoryStrip">
+          <!-- Populated by JS with recent items & "New" tag -->
+          <div class="history-item-circle">&#127789;<span class="new-tag">New</span></div>
+          <div class="history-item-circle">&#127805;</div>
+          <div class="history-item-circle">&#127813;</div>
+          <div class="history-item-circle">&#127835;</div>
+          <div class="history-item-circle">&#129365;</div>
+          <div class="history-item-circle">&#129388;</div>
+          <div class="history-item-circle">&#127831;</div>
+        </div>
+      </div>
+
+      <!-- ROW 3: DAILY TOP PLAYERS + PREV WINNER -->
+      <div class="dash-row-bottom-cards">
+        <div class="white-card" onclick="openLeaderboardDialog()">
+          <div class="card-title">Daily Top Players</div>
+          <div class="card-detail">&#127942; None: 0 &gt;</div>
+        </div>
+
+        <div class="white-card" onclick="toggleBettingSheet()">
+          <div class="card-title">Prev Winner</div>
+          <div class="card-detail blue">&#9201; v: 1500000</div>
+        </div>
+      </div>
+
+      <!-- FOOTER TEXT -->
+      <div class="catatan-footer" onclick="openHistoryDialog()">Catatan saya &gt;</div>
+    </footer>
+
+    <!-- INTERACTIVE BETTING DRAWER SHEET -->
+    <div class="betting-sheet" id="bettingSheet">
+      <div class="sheet-handle" onclick="toggleBettingSheet()"></div>
+      <div class="sheet-title-row">
+        <span class="sheet-title">&#127920; Place Your Bets</span>
+        <span style="font-size: 11px; color: #9CA3AF;">Total Bet: <b id="drawerTotalBet" style="color:#FBBF24;">0</b> 💎</span>
+      </div>
+
+      <!-- 8-GRID SECTOR CARDS -->
+      <div class="bet-grid">
+        <div class="bet-card" onclick="addBet(0)"><span class="bet-card-icon">&#127789;</span><span class="bet-card-name">Hotdog</span><span class="bet-card-mult">10x</span><span class="bet-card-placed" id="grid-bet-0">0</span></div>
+        <div class="bet-card" onclick="addBet(1)"><span class="bet-card-icon">&#127835;</span><span class="bet-card-name">Skewer</span><span class="bet-card-mult">15x</span><span class="bet-card-placed" id="grid-bet-1">0</span></div>
+        <div class="bet-card" onclick="addBet(2)"><span class="bet-card-icon">&#127831;</span><span class="bet-card-name">Chicken</span><span class="bet-card-mult">25x</span><span class="bet-card-placed" id="grid-bet-2">0</span></div>
+        <div class="bet-card" onclick="addBet(3)"><span class="bet-card-icon">&#129385;</span><span class="bet-card-name">Steak</span><span class="bet-card-mult">45x</span><span class="bet-card-placed" id="grid-bet-3">0</span></div>
+        <div class="bet-card" onclick="addBet(4)"><span class="bet-card-icon">&#129365;</span><span class="bet-card-name">Carrot</span><span class="bet-card-mult">5x</span><span class="bet-card-placed" id="grid-bet-4">0</span></div>
+        <div class="bet-card" onclick="addBet(5)"><span class="bet-card-icon">&#127805;</span><span class="bet-card-name">Corn</span><span class="bet-card-mult">5x</span><span class="bet-card-placed" id="grid-bet-5">0</span></div>
+        <div class="bet-card" onclick="addBet(6)"><span class="bet-card-icon">&#129388;</span><span class="bet-card-name">Cabbage</span><span class="bet-card-mult">5x</span><span class="bet-card-placed" id="grid-bet-6">0</span></div>
+        <div class="bet-card" onclick="addBet(7)"><span class="bet-card-icon">&#127813;</span><span class="bet-card-name">Tomato</span><span class="bet-card-mult">5x</span><span class="bet-card-placed" id="grid-bet-7">0</span></div>
+      </div>
+
+      <!-- CHIP SELECTOR -->
+      <div class="chip-selector-bar">
+        <div class="chip-item active" onclick="selectChip(100, this)">100</div>
+        <div class="chip-item" onclick="selectChip(1000, this)">1K</div>
+        <div class="chip-item" onclick="selectChip(10000, this)">10K</div>
+        <div class="chip-item" onclick="selectChip(100000, this)">100K</div>
+        <div class="chip-item" onclick="selectChip(1000000, this)">1M</div>
+      </div>
+
+      <!-- ACTION BUTTONS -->
+      <div class="bet-action-btns">
+        <button class="action-btn clear" onclick="clearAllBets()">Clear</button>
+        <button class="action-btn confirm" onclick="toggleBettingSheet()">Done</button>
+      </div>
+    </div>
+
+    <!-- RESULT CELEBRATION MODAL -->
+    <div class="result-modal" id="resultModal" onclick="closeResultModal()">
+      <div class="result-card" onclick="event.stopPropagation()">
+        <div class="result-headline" id="resultHeadline">YOU WIN!</div>
+        <div class="result-item-badge" id="resultItemBadge">&#127789;</div>
+        <div class="result-item-name" id="resultItemName">Hotdog (10x)</div>
+        <div class="result-prize-text" id="resultPrizeText">+50,000 &#128142;</div>
+        <button class="action-btn confirm" style="width: 100%; margin-top: 18px;" onclick="closeResultModal()">CONTINUE</button>
+      </div>
+    </div>
+
+    <!-- GENERIC DIALOG (RULES, HISTORY, SALAD) -->
+    <div class="generic-modal" id="genericModal" onclick="closeGenericDialog()">
+      <div class="generic-dialog" onclick="event.stopPropagation()">
+        <div class="dialog-header" id="genericDialogTitle">GAME RULES</div>
+        <div id="genericDialogBody"></div>
+        <button class="dialog-close-btn" onclick="closeGenericDialog()">GOT IT</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- COMPLETE GAME ENGINE JAVASCRIPT -->
+  <script>
+    // SECTOR DATA (Matching Flutter & Server Exact Configuration)
+    const SECTORS = [
+      { id: 0, name: "Hotdog", mult: 10, icon: "🌭", angle: 0, category: "fastfood" },
+      { id: 1, name: "Skewer", mult: 15, icon: "🍢", angle: 45, category: "bbq" },
+      { id: 2, name: "Chicken", mult: 25, icon: "🍗", angle: 90, category: "meat" },
+      { id: 3, name: "Steak", mult: 45, icon: "🥩", angle: 135, category: "meat" },
+      { id: 4, name: "Carrot", mult: 5, icon: "🥕", angle: 180, category: "veggie" },
+      { id: 5, name: "Corn", mult: 5, icon: "🌽", angle: 225, category: "veggie" },
+      { id: 6, name: "Cabbage", mult: 5, icon: "🥬", angle: 270, category: "veggie" },
+      { id: 7, name: "Tomato", mult: 5, icon: "🍅", angle: 315, category: "veggie" }
+    ];
+
+    // STATE VARIABLES
+    let userBalance = 9998614656842;
+    let selectedChip = 100;
+    let bets = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+    let gamesPlayedCount = 0;
+    let gamesWonCount = 0;
+    let currentWheelRotation = 0;
+    let isSpinning = false;
+    let lastOutcomeSector = 0;
+    let historyResults = [0, 5, 7, 1, 4, 6, 2]; // Initial demo history
+
+    // WEB AUDIO SYNTHESIZER (Zero external MP3 dependencies)
+    const AudioEngine = {
+      ctx: null,
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      },
+      playTick() {
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.04);
+          gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.04);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.04);
+        } catch (_) {}
+      },
+      playChip() {
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = "triangle";
+          osc.frequency.setValueAtTime(1200, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(600, this.ctx.currentTime + 0.06);
+          gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.06);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.06);
+        } catch (_) {}
+      },
+      playWinFanfare() {
+        try {
+          this.init();
+          const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+          notes.forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(freq, this.ctx.currentTime + idx * 0.1);
+            gain.gain.setValueAtTime(0.25, this.ctx.currentTime + idx * 0.1);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + idx * 0.1 + 0.35);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(this.ctx.currentTime + idx * 0.1);
+            osc.stop(this.ctx.currentTime + idx * 0.1 + 0.35);
+          });
+        } catch (_) {}
+      }
+    };
+
+    // UI ELEMENTS
+    const roundTitleDisplay = document.getElementById("roundTitleDisplay");
+    const wheelRotor = document.getElementById("wheelRotor");
+    const hubStatusText = document.getElementById("hubStatusText");
+    const hubTimerText = document.getElementById("hubTimerText");
+    const centerBannerPill = document.getElementById("centerBannerPill");
+    const userBalanceDisplay = document.getElementById("userBalanceDisplay");
+    const playHistoryStats = document.getElementById("playHistoryStats");
+    const recentHistoryStrip = document.getElementById("recentHistoryStrip");
+    const bettingSheet = document.getElementById("bettingSheet");
+    const drawerTotalBet = document.getElementById("drawerTotalBet");
+    const resultModal = document.getElementById("resultModal");
+    const resultHeadline = document.getElementById("resultHeadline");
+    const resultItemBadge = document.getElementById("resultItemBadge");
+    const resultItemName = document.getElementById("resultItemName");
+    const resultPrizeText = document.getElementById("resultPrizeText");
+    const genericModal = document.getElementById("genericModal");
+    const genericDialogTitle = document.getElementById("genericDialogTitle");
+    const genericDialogBody = document.getElementById("genericDialogBody");
+
+    // 40-SECOND REAL-TIME SYNCHRONIZED MASTER LOOP
+    // 0s-20s: Phase 1 (Betting Open)
+    // 20s-30s: Phase 1b (Bets Closed / Pre-spin)
+    // 30s-35s: Phase 2 (Wheel Spin Animation - 5 seconds)
+    // 35s-38s: Phase 3 (Celebration Result Popup)
+    // 38s-40s: Phase 4 (Cleanup & Next Round Prep)
+    function masterClockTick() {
+      const now = Date.now();
+      const cycleMs = now % 40000;
+      const secondsIntoCycle = Math.floor(cycleMs / 1000);
+      const currentRoundNumber = Math.floor((now - new Date().setHours(0,0,0,0)) / 40000) + 1;
+      
+      roundTitleDisplay.textContent = `Today's ${currentRoundNumber} Round`;
+
+      // PHASE 1: BETTING OPEN (0s to 20s)
+      if (secondsIntoCycle < 20) {
+        const remaining = 20 - secondsIntoCycle;
+        hubStatusText.textContent = "SELECT TIME";
+        hubTimerText.textContent = `${remaining}s`;
+        centerBannerPill.classList.add("hidden");
+        centerBannerPill.textContent = "BETS CLOSED";
+        clearWheelHighlights();
+
+        if (remaining <= 5 && remaining > 0) {
+          AudioEngine.playTick();
+        }
+      }
+      // PHASE 1b: BETS CLOSED (20s to 30s)
+      else if (secondsIntoCycle >= 20 && secondsIntoCycle < 30) {
+        const remaining = 30 - secondsIntoCycle;
+        hubStatusText.textContent = "BETS CLOSED";
+        hubTimerText.textContent = `${remaining}s`;
+        centerBannerPill.classList.remove("hidden");
+        centerBannerPill.textContent = "BETS CLOSED";
+
+        // Auto close betting drawer when bets lock
+        if (bettingSheet.classList.contains("open")) {
+          bettingSheet.classList.remove("open");
+        }
+      }
+      // PHASE 2: WHEEL SPINNING (30s to 35s)
+      else if (secondsIntoCycle >= 30 && secondsIntoCycle < 35) {
+        hubStatusText.textContent = "SPINNING";
+        hubTimerText.textContent = "...";
+        centerBannerPill.classList.add("hidden");
+
+        if (!isSpinning) {
+          startWheelSpinAnimation(currentRoundNumber);
+        }
+      }
+      // PHASE 3: RESULTS POPUP (35s to 38s)
+      else if (secondsIntoCycle >= 35 && secondsIntoCycle < 38) {
+        hubStatusText.textContent = "WINNING";
+        hubTimerText.textContent = "!";
+        centerBannerPill.classList.add("hidden");
+
+        // Highlight winning gondola
+        highlightGondola(lastOutcomeSector);
+      }
+      // PHASE 4: CLEANUP & ROLLOVER (38s to 40s)
+      else {
+        hubStatusText.textContent = "NEXT ROUND";
+        hubTimerText.textContent = "1s";
+        centerBannerPill.classList.add("hidden");
+
+        if (resultModal.classList.contains("show")) {
+          closeResultModal();
+        }
+        // Wipe bets at second 39
+        if (secondsIntoCycle === 39) {
+          resetAllBetsForNextRound();
+        }
+      }
+    }
+
+    setInterval(masterClockTick, 250);
+
+    // SPIN PHYSICS & DECELERATION
+    function startWheelSpinAnimation(roundNum) {
+      isSpinning = true;
+      AudioEngine.init();
+
+      // Deterministic pseudo-random winning sector matching round number
+      const targetSectorIndex = (roundNum * 7 + 3) % SECTORS.length;
+      lastOutcomeSector = targetSectorIndex;
+
+      // Calculate target rotation degrees
+      // Full spins (4 to 5 turns) + target angle offset
+      const targetSector = SECTORS[targetSectorIndex];
+      const fullTurns = 5 * 360;
+      // Invert angle because rotating the rotor clockwise brings top down
+      const targetDegree = currentWheelRotation + fullTurns + (360 - targetSector.angle);
+
+      wheelRotor.style.transform = `rotate(${targetDegree}deg)`;
+      currentWheelRotation = targetDegree;
+
+      // Audible sector ticks during spin
+      let tickCount = 0;
+      const tickInterval = setInterval(() => {
+        AudioEngine.playTick();
+        tickCount++;
+        if (tickCount >= 22) clearInterval(tickInterval);
+      }, 160);
+
+      // Spin duration ends at 4.8 seconds
+      setTimeout(() => {
+        isSpinning = false;
+        highlightGondola(targetSectorIndex);
+        resolveRoundPayout(targetSector);
+      }, 4800);
+    }
+
+    // WIN RESOLUTION & PAYOUT
+    function resolveRoundPayout(winningItem) {
+      const userWagerOnWinner = bets[winningItem.id] || 0;
+      const totalRoundBet = Object.values(bets).reduce((a, b) => a + b, 0);
+      gamesPlayedCount++;
+
+      let totalPrize = 0;
+      if (userWagerOnWinner > 0) {
+        totalPrize = userWagerOnWinner * winningItem.mult;
+        userBalance += totalPrize;
+        gamesWonCount++;
+        AudioEngine.playWinFanfare();
+      }
+
+      // Add to history strip
+      historyResults.unshift(winningItem.id);
+      if (historyResults.length > 10) historyResults.pop();
+      renderHistoryStrip();
+
+      // Show Result Popup
+      if (totalRoundBet > 0) {
+        if (totalPrize > 0) {
+          resultHeadline.className = "result-headline win";
+          resultHeadline.textContent = "YOU WIN!";
+          resultPrizeText.textContent = `+${totalPrize.toLocaleString()} 💎`;
+        } else {
+          resultHeadline.className = "result-headline lost";
+          resultHeadline.textContent = "YOU LOST";
+          resultPrizeText.textContent = `-${totalRoundBet.toLocaleString()} 💎`;
+        }
+      } else {
+        resultHeadline.className = "result-headline win";
+        resultHeadline.textContent = "ROUND COMPLETED";
+        resultPrizeText.textContent = `Landed on ${winningItem.name}`;
+      }
+
+      resultItemBadge.textContent = winningItem.icon;
+      resultItemName.textContent = `${winningItem.name} (${winningItem.mult}x)`;
+      resultModal.classList.add("show");
+
+      updateBalanceDisplay();
+    }
+
+    // GONDOLA HIGHLIGHT
+    function highlightGondola(sectorIdx) {
+      clearWheelHighlights();
+      const gondola = document.getElementById(`gondola-${sectorIdx}`);
+      if (gondola) gondola.classList.add("highlighted");
+    }
+
+    function clearWheelHighlights() {
+      for (let i = 0; i < 8; i++) {
+        const g = document.getElementById(`gondola-${i}`);
+        if (g) g.classList.remove("highlighted");
+      }
+    }
+
+    // CHIP & BETTING LOGIC
+    function selectChip(amount, el) {
+      selectedChip = amount;
+      document.querySelectorAll(".chip-item").forEach(c => c.classList.remove("active"));
+      el.classList.add("active");
+      AudioEngine.playChip();
+    }
+
+    function addBet(sectorIdx) {
+      AudioEngine.playChip();
+      if (userBalance < selectedChip) {
+        alert("Insufficient diamond balance!");
+        return;
+      }
+      userBalance -= selectedChip;
+      bets[sectorIdx] = (bets[sectorIdx] || 0) + selectedChip;
+
+      updateBetBadges();
+      updateBalanceDisplay();
+    }
+
+    function updateBetBadges() {
+      let totalWager = 0;
+      for (let i = 0; i < 8; i++) {
+        const amount = bets[i] || 0;
+        totalWager += amount;
+
+        // Wheel badge
+        const badge = document.getElementById(`badge-${i}`);
+        if (badge) {
+          if (amount > 0) {
+            badge.textContent = formatChipText(amount);
+            badge.classList.add("visible");
+          } else {
+            badge.classList.remove("visible");
+          }
+        }
+
+        // Grid badge
+        const gridBet = document.getElementById(`grid-bet-${i}`);
+        if (gridBet) gridBet.textContent = amount > 0 ? formatChipText(amount) : "0";
+      }
+      drawerTotalBet.textContent = totalWager.toLocaleString();
+    }
+
+    function clearAllBets() {
+      AudioEngine.playChip();
+      const totalToRefund = Object.values(bets).reduce((a, b) => a + b, 0);
+      userBalance += totalToRefund;
+      bets = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+      updateBetBadges();
+      updateBalanceDisplay();
+    }
+
+    function resetAllBetsForNextRound() {
+      bets = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+      updateBetBadges();
+    }
+
+    function formatChipText(num) {
+      if (num >= 1000000) return (num / 1000000) + "M";
+      if (num >= 1000) return (num / 1000) + "K";
+      return num.toString();
+    }
+
+    function updateBalanceDisplay() {
+      userBalanceDisplay.textContent = userBalance.toLocaleString();
+      playHistoryStats.textContent = `📈 Games: ${gamesPlayedCount} | Win: ${gamesWonCount} >`;
+    }
+
+    // HISTORY STRIP RENDERING
+    function renderHistoryStrip() {
+      recentHistoryStrip.innerHTML = "";
+      historyResults.forEach((secIdx, idx) => {
+        const item = SECTORS[secIdx];
+        const circle = document.createElement("div");
+        circle.className = "history-item-circle";
+        circle.innerHTML = `${item.icon}${idx === 0 ? '<span class="new-tag">New</span>' : ''}`;
+        recentHistoryStrip.appendChild(circle);
+      });
+    }
+
+    // MODAL HANDLERS
+    function toggleBettingSheet() {
+      AudioEngine.playChip();
+      bettingSheet.classList.toggle("open");
+    }
+
+    function openBettingSheetForSector(secIdx) {
+      // If betting is open (0-20s), add bet directly and open drawer
+      const cycleSec = Math.floor((Date.now() % 40000) / 1000);
+      if (cycleSec < 20) {
+        addBet(secIdx);
+        bettingSheet.classList.add("open");
+      }
+    }
+
+    function closeResultModal() {
+      resultModal.classList.remove("show");
+    }
+
+    function openRulesBtn() {
+      openGenericDialog("GAME RULES", `
+        <div class="rule-line"><b>1. Objective:</b> Predict which of the 8 food gondolas the Ferris Wheel will stop on.</div>
+        <div class="rule-line"><b>2. Payouts:</b><br/>
+          • 🥩 Steak: 45x Win<br/>
+          • 🍗 Chicken: 25x Win<br/>
+          • 🍢 Skewer: 15x Win<br/>
+          • 🌭 Hotdog: 10x Win<br/>
+          • 🥕 Carrot, 🌽 Corn, 🥬 Cabbage, 🍅 Tomato: 5x Win
+        </div>
+        <div class="rule-line"><b>3. Salad Combo:</b> When Salad lands, all 4 vegetable bets (Carrot, Corn, Cabbage, Tomato) pay 5x simultaneously!</div>
+        <div class="rule-line"><b>4. Round Schedule:</b> Each round takes exactly 40 seconds (20s Betting, 10s Bets Closed, 5s Spin, 5s Celebration).</div>
+      `);
+    }
+
+    function openSaladInfo() {
+      openGenericDialog("🥗 SALAD SPECIAL COMBO", `
+        <div class="rule-line">The Salad Combo pays out <b>5x</b> on ALL placed vegetable bets!</div>
+        <div class="rule-line">• 🍅 Tomato (5x)<br/>• 🥬 Lettuce/Cabbage (5x)<br/>• 🌽 Corn (5x)<br/>• 🥕 Carrot (5x)</div>
+        <div class="rule-line">Betting on multiple vegetables maximizes your combined payout when Salad hits!</div>
+      `);
+    }
+
+    function openPizzaInfo() {
+      openGenericDialog("🍕 PIZZA GRAND JACKPOT", `
+        <div class="rule-line">The Pizza Grand Jackpot awards up to <b>45x</b> payout with golden victory celebrations!</div>
+        <div class="rule-line">Top winners receive podium placements on the daily leaderboard!</div>
+      `);
+    }
+
+    function openLeaderboardDialog() {
+      openGenericDialog("🏆 DAILY TOP PLAYERS", `
+        <div class="rule-line"><b>1.</b> Alex VIP • 45,000,000 💎</div>
+        <div class="rule-line"><b>2.</b> Sam Pro • 22,500,000 💎</div>
+        <div class="rule-line"><b>3.</b> Jordan • 15,000,000 💎</div>
+        <div class="rule-line"><b>4.</b> Player_99 • 8,200,000 💎</div>
+        <div class="rule-line"><b>5.</b> Dragon_X • 5,400,000 💎</div>
+      `);
+    }
+
+    function openHistoryDialog() {
+      openGenericDialog("📜 CATATAN SAYA (GAME RECORDS)", `
+        <div class="rule-line">Total Rounds Played: <b>${gamesPlayedCount}</b></div>
+        <div class="rule-line">Total Rounds Won: <b>${gamesWonCount}</b></div>
+        <div class="rule-line">Win Rate: <b>${gamesPlayedCount > 0 ? Math.round((gamesWonCount/gamesPlayedCount)*100) : 0}%</b></div>
+        <div class="rule-line" style="margin-top: 10px; color:#9CA3AF;">Detailed round-by-round ledger is synced with the game server.</div>
+      `);
+    }
+
+    function openGenericDialog(title, htmlContent) {
+      genericDialogTitle.textContent = title;
+      genericDialogBody.innerHTML = htmlContent;
+      genericModal.classList.add("show");
+    }
+
+    function closeGenericDialog() {
+      genericModal.classList.remove("show");
+    }
+
+    // BACK BUTTON
+    document.getElementById("backBtn").addEventListener("click", () => {
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        alert("Back to Room");
+      }
+    });
+
+    document.getElementById("openRulesBtn").addEventListener("click", openRulesBtn);
+    document.getElementById("refreshBtn").addEventListener("click", () => {
+      AudioEngine.playChip();
+      toggleBettingSheet();
+    });
+
+    // INITIAL SETUP
+    renderHistoryStrip();
+    updateBalanceDisplay();
+    masterClockTick();
+  </script>
+</body>
+</html>
