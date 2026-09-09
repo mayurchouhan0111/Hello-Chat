@@ -18,7 +18,7 @@
     }
 
     body {
-      background-color: #0d0d0f;
+      background-color: #0b0b0e;
       font-family: 'Fredoka', 'Nunito', -apple-system, BlinkMacSystemFont, sans-serif;
       overflow: hidden;
       display: flex;
@@ -28,19 +28,18 @@
       color: #fff;
     }
 
-    /* Outer Viewport for 1:1 mobile aspect ratio matching Vivo screenshot */
+    /* Outer Viewport locked to the exact 1376 x 2727 (1:1.98) aspect ratio of processed_image.webp */
     .app-viewport {
       position: relative;
-      width: 100vw;
-      max-width: 412px;
-      height: 100vh;
-      max-height: 890px;
+      width: min(100vw, 412px);
+      height: calc(min(100vw, 412px) * 1.98);
+      max-height: 100vh;
       overflow: hidden;
       background-color: #ffd83d;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+      box-shadow: 0 10px 40px rgba(0,0,0,0.65);
     }
 
-    /* Background image from Flutter */
+    /* Carnival background image from Flutter */
     .carnival-bg {
       position: absolute;
       top: 0;
@@ -57,13 +56,13 @@
     /* TOP HEADER */
     .header-bar {
       position: absolute;
-      top: 20px;
-      left: 16px;
-      right: 16px;
+      top: 2.6%;
+      left: 4%;
+      right: 4%;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      z-index: 15;
+      z-index: 20;
     }
 
     .back-btn {
@@ -73,14 +72,14 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      font-size: 28px;
+      font-size: 26px;
       color: #ffffff;
       font-weight: 700;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      text-shadow: 0 2px 4px rgba(0,0,0,0.4);
     }
 
     .round-title {
-      font-size: 21px;
+      font-size: 20px;
       font-weight: 800;
       color: #ff3333;
       text-shadow: 0 1px 2px rgba(255, 255, 255, 0.7);
@@ -90,20 +89,25 @@
     .rules-btn {
       background: #ffffff;
       color: #222222;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 800;
-      padding: 6px 14px;
+      padding: 5px 13px;
       border-radius: 18px;
       box-shadow: 0 3px 6px rgba(0,0,0,0.15);
       cursor: pointer;
       border: 1px solid rgba(0,0,0,0.06);
+      transition: transform 0.1s;
     }
 
-    /* 8 POD HIT TARGETS & LABELS (CALIBRATED TO BACKGROUND CIRCLES) */
+    .rules-btn:active {
+      transform: scale(0.94);
+    }
+
+    /* 8 POD HIT TARGETS & LABELS (PERFECTLY CALIBRATED BY PERCENTAGE) */
     .pod-item {
       position: absolute;
-      width: 82px;
-      height: 82px;
+      width: 76px;
+      height: 76px;
       border-radius: 50%;
       cursor: pointer;
       display: flex;
@@ -112,7 +116,7 @@
       justify-content: center;
       transform: translate(-50%, -50%);
       transition: transform 0.12s ease;
-      z-index: 8;
+      z-index: 10;
     }
 
     .pod-item:active {
@@ -120,7 +124,7 @@
     }
 
     .pod-emoji {
-      font-size: 34px;
+      font-size: 32px;
       line-height: 1;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
     }
@@ -129,10 +133,19 @@
       font-size: 9.5px;
       font-weight: 900;
       color: #2b2b2b;
-      margin-top: 3px;
+      margin-top: 2px;
       white-space: nowrap;
-      text-shadow: 0 1px 1px rgba(255,255,255,0.8);
+      text-shadow: 0 1px 1px rgba(255,255,255,0.85);
       letter-spacing: -0.2px;
+    }
+
+    /* DYNAMIC COIN STACK ON POD LIKE FLUTTER */
+    .pod-coins {
+      position: absolute;
+      bottom: -6px;
+      font-size: 10px;
+      display: none;
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3));
     }
 
     /* POD BET BADGE PILL */
@@ -151,7 +164,7 @@
       gap: 3px;
       animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
       border: 1px solid rgba(255,255,255,0.6);
-      z-index: 12;
+      z-index: 15;
     }
 
     @keyframes popIn {
@@ -159,21 +172,20 @@
       100% { transform: scale(1); opacity: 1; }
     }
 
-    /* GLOWING SPOTLIGHT MARKER (SPINS FROM POD TO POD) */
+    /* GLOWING SPOTLIGHT MARKER (HOPS FROM POD TO POD) */
     .spotlight-marker {
       position: absolute;
-      width: 105px;
-      height: 105px;
+      width: 95px;
+      height: 95px;
       border-radius: 50%;
       transform: translate(-50%, -50%);
       pointer-events: none;
-      z-index: 6;
+      z-index: 8;
       background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(255, 235, 120, 0.75) 45%, rgba(255, 215, 0, 0.35) 70%, rgba(255, 215, 0, 0) 100%);
       box-shadow: 0 0 28px 12px rgba(255, 220, 40, 0.75), inset 0 0 15px rgba(255, 255, 255, 0.85);
       transition: left 0.08s linear, top 0.08s linear;
     }
 
-    /* PULSING GLOW ON WINNER LAND */
     .spotlight-marker.winner-pulse {
       animation: victoryPulse 0.5s infinite alternate ease-in-out;
     }
@@ -186,32 +198,32 @@
     /* CENTER RED HUB WITH PANDA FACE */
     .center-hub {
       position: absolute;
-      top: 250px;
-      left: 206px;
+      top: 34.9%;
+      left: 50.0%;
       transform: translate(-50%, -50%);
-      width: 128px;
-      height: 128px;
+      width: 120px;
+      height: 120px;
       border-radius: 50%;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       pointer-events: none;
-      z-index: 10;
+      z-index: 12;
     }
 
-    /* CUTE PANDA FACE MATCHING SCREENSHOT */
+    /* PANDA FACE */
     .panda-wrapper {
       position: relative;
-      width: 58px;
-      height: 50px;
-      margin-top: -6px;
+      width: 56px;
+      height: 48px;
+      margin-top: -4px;
     }
 
     .panda-head {
       position: absolute;
-      width: 52px;
-      height: 44px;
+      width: 50px;
+      height: 42px;
       background: #ffffff;
       border-radius: 50% 50% 46% 46%;
       left: 3px;
@@ -221,8 +233,8 @@
 
     .panda-ear {
       position: absolute;
-      width: 16px;
-      height: 16px;
+      width: 15px;
+      height: 15px;
       background: #222222;
       border-radius: 50%;
       top: 0;
@@ -232,14 +244,14 @@
 
     .panda-eye {
       position: absolute;
-      width: 15px;
-      height: 18px;
+      width: 14px;
+      height: 17px;
       background: #222222;
       border-radius: 50%;
-      top: 14px;
+      top: 13px;
     }
-    .panda-eye.left { left: 9px; transform: rotate(-14deg); }
-    .panda-eye.right { right: 9px; transform: rotate(14deg); }
+    .panda-eye.left { left: 8px; transform: rotate(-14deg); }
+    .panda-eye.right { right: 8px; transform: rotate(14deg); }
 
     .panda-pupil {
       position: absolute;
@@ -257,8 +269,8 @@
       height: 6px;
       background: #222222;
       border-radius: 4px 4px 6px 6px;
-      top: 27px;
-      left: 22px;
+      top: 26px;
+      left: 21px;
     }
 
     .panda-mouth {
@@ -267,8 +279,8 @@
       height: 5px;
       border-bottom: 2px solid #222222;
       border-radius: 0 0 8px 8px;
-      top: 33px;
-      left: 21px;
+      top: 32px;
+      left: 20px;
     }
 
     .hub-status {
@@ -277,7 +289,7 @@
       color: #ffffff;
       text-transform: uppercase;
       letter-spacing: 0.4px;
-      margin-top: 2px;
+      margin-top: 3px;
       text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     }
 
@@ -289,17 +301,17 @@
       line-height: 1.1;
     }
 
-    /* FLOATING BETS CLOSED BANNER (OVER LOWER SPOKES) */
+    /* FLOATING BETS CLOSED BANNER */
     .center-banner-overlay {
       position: absolute;
-      top: 360px;
-      left: 206px;
+      top: 48.2%;
+      left: 50.0%;
       transform: translate(-50%, -50%);
-      background: rgba(35, 35, 35, 0.82);
+      background: rgba(35, 35, 35, 0.84);
       backdrop-filter: blur(2px);
-      padding: 10px 24px;
+      padding: 9px 24px;
       border-radius: 12px;
-      z-index: 14;
+      z-index: 18;
       display: block;
       box-shadow: 0 4px 15px rgba(0,0,0,0.45);
       border: 1px solid rgba(255,255,255,0.15);
@@ -308,20 +320,20 @@
 
     .center-banner-text {
       color: #ffffff;
-      font-size: 22px;
+      font-size: 21px;
       font-weight: 900;
       letter-spacing: 0.8px;
       text-shadow: 0 2px 4px rgba(0,0,0,0.6);
     }
 
-    /* FLANKING PEDESTALS: SALAD & PIZZA (CALIBRATED TO GOLD STANDS) */
+    /* FLANKING PEDESTALS: SALAD (LEFT) & PIZZA (RIGHT) */
     .pedestal-btn {
       position: absolute;
       display: flex;
       flex-direction: column;
       align-items: center;
       cursor: pointer;
-      z-index: 12;
+      z-index: 15;
       transition: transform 0.1s;
       transform: translate(-50%, -50%);
     }
@@ -331,18 +343,18 @@
     }
 
     .pedestal-btn.salad {
-      top: 450px;
-      left: 58px;
+      top: 58.2%;
+      left: 17.8%;
     }
 
     .pedestal-btn.pizza {
-      top: 450px;
-      left: 354px;
+      top: 58.2%;
+      left: 82.2%;
     }
 
     .pedestal-icon-wrap {
-      width: 52px;
-      height: 52px;
+      width: 50px;
+      height: 50px;
       border-radius: 50%;
       background: #ffffff;
       border: 3.5px solid #ffcc00;
@@ -350,7 +362,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 28px;
+      font-size: 27px;
       position: relative;
     }
 
@@ -363,22 +375,22 @@
       letter-spacing: 0.3px;
     }
 
-    /* BOOTH STALLS & BETTING CHIPS (PLACED INSIDE THE 4 CARNIVAL SLOTS) */
+    /* BOOTH STALLS & BETTING CHIPS - SEATED DEAD CENTER IN 4 BOOTH WINDOWS */
     .booth-chips-row {
       position: absolute;
-      top: 510px;
-      left: 206px;
+      top: 74.2%;
+      left: 50.0%;
       transform: translate(-50%, -50%);
-      width: 366px;
+      width: 90%;
       display: flex;
-      justify-content: space-around;
+      justify-content: space-between;
       align-items: center;
-      z-index: 12;
+      z-index: 15;
       padding: 0 4px;
     }
 
     .chip-item {
-      width: 62px;
+      width: 22.5%;
       height: 48px;
       border-radius: 12px;
       background: #ffd633;
@@ -405,7 +417,7 @@
     }
 
     .chip-icon {
-      font-size: 13px;
+      font-size: 12px;
       color: #ffd700;
       display: none;
       line-height: 1;
@@ -428,24 +440,21 @@
       text-shadow: 0 1px 2px rgba(0,0,0,0.5);
     }
 
-    /* BOTTOM RED DASHBOARD */
+    /* BOTTOM RED DASHBOARD - SEATED PRECISELY OVER THE RED CARNIVAL CUTOUT */
     .bottom-dashboard {
       position: absolute;
+      top: 79.0%;
       bottom: 0;
       left: 0;
       width: 100%;
-      height: 205px;
-      background: #e22828;
-      border-top: 4px solid #b71c1c;
-      z-index: 15;
-      padding: 10px 14px 14px 14px;
+      z-index: 16;
+      padding: 0 3.5% 1.5% 3.5%;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      box-shadow: 0 -4px 15px rgba(0,0,0,0.3);
     }
 
-    /* ROW 1: REFRESH + CURRENT AMOUNT + PLAY HISTORY */
+    /* ROW 1: REFRESH + CURRENT AMOUNT + PLAY HISTORY SEATED IN DARK RED CUTOUTS */
     .dash-row-1 {
       display: flex;
       align-items: center;
@@ -476,16 +485,23 @@
 
     .pill-card {
       flex: 1;
+      height: 44px;
       background: #ffffff;
-      border-radius: 24px;
-      padding: 4px 10px;
+      border-radius: 22px;
+      padding: 3px 10px;
       display: flex;
       flex-direction: column;
       justify-content: center;
       align-items: center;
-      box-shadow: 0 3px 6px rgba(0,0,0,0.12);
+      box-shadow: 0 3px 6px rgba(0,0,0,0.15);
       border: 1px solid rgba(0,0,0,0.05);
       min-width: 0;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+
+    .pill-card:active {
+      transform: scale(0.97);
     }
 
     .pill-title {
@@ -499,7 +515,7 @@
       display: flex;
       align-items: center;
       gap: 4px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 900;
       color: #111827;
       white-space: nowrap;
@@ -513,13 +529,13 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin: 3px 0;
+      margin: 1px 0;
     }
 
     .result-label {
       font-size: 16px;
       font-weight: 900;
-      color: #222222;
+      color: #1f2937;
       flex-shrink: 0;
       letter-spacing: -0.2px;
     }
@@ -531,7 +547,7 @@
       overflow-x: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
-      padding: 3px 0;
+      padding: 2px 0;
     }
 
     .results-scroll::-webkit-scrollbar {
@@ -540,14 +556,14 @@
 
     .result-bubble {
       position: relative;
-      width: 38px;
-      height: 38px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
       background: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 22px;
+      font-size: 21px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.18);
       flex-shrink: 0;
       border: 1px solid rgba(0,0,0,0.08);
@@ -577,13 +593,19 @@
     .stat-box {
       flex: 1;
       background: #ffffff;
-      border-radius: 10px;
+      border-radius: 6px;
       padding: 5px 8px;
       box-shadow: 0 2px 6px rgba(0,0,0,0.15);
       border: 1px solid rgba(0,0,0,0.06);
       display: flex;
       flex-direction: column;
       align-items: center;
+      cursor: pointer;
+      transition: transform 0.1s;
+    }
+
+    .stat-box:active {
+      transform: scale(0.97);
     }
 
     .stat-header {
@@ -605,84 +627,278 @@
     /* ROW 4: FOOTER LINK */
     .dash-row-4 {
       text-align: center;
-      margin-top: 1px;
+      padding-bottom: 2px;
     }
 
     .catatan-link {
-      color: #ffe4e4;
+      color: #2b2b2b;
       font-size: 11.5px;
-      font-weight: 800;
+      font-weight: 700;
       text-decoration: none;
       cursor: pointer;
+      letter-spacing: 0.2px;
       transition: color 0.15s;
     }
 
     .catatan-link:hover {
+      color: #000000;
+    }
+
+    /* GENERAL MODAL BOTTOM SHEETS (MATCHING FLUTTER EXACT ARCHITECTURE) */
+    .modal-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+      z-index: 50;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .modal-overlay.open {
+      display: block;
+      opacity: 1;
+    }
+
+    .bottom-sheet {
+      position: absolute;
+      bottom: -100%;
+      left: 0;
+      width: 100%;
+      max-height: 78%;
+      background: #0f172a;
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
+      padding: 18px 18px 24px 18px;
+      box-shadow: 0 -10px 35px rgba(0,0,0,0.6);
+      z-index: 55;
+      color: #f8fafc;
+      transition: bottom 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.2);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .bottom-sheet.open {
+      bottom: 0;
+    }
+
+    .sheet-handle {
+      width: 38px;
+      height: 4px;
+      background: #475569;
+      border-radius: 2px;
+      margin: 0 auto 12px auto;
+    }
+
+    .sheet-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+      padding: 0 4px;
+    }
+
+    .sheet-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
       color: #ffffff;
     }
 
-    /* VICTORY RESULT MODAL POPUP */
-    .result-sheet {
+    .sheet-close-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      color: #e2e8f0;
+    }
+
+    .sheet-list-content {
+      overflow-y: auto;
+      flex: 1;
+      padding-right: 2px;
+    }
+
+    /* LEADERBOARD ITEM */
+    .leaderboard-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.05);
+      margin-bottom: 8px;
+    }
+
+    .rank-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: 13px;
+      margin-right: 12px;
+    }
+
+    .rank-badge.gold { background: rgba(255, 215, 0, 0.2); border: 1.5px solid #ffd700; color: #ffd700; }
+    .rank-badge.silver { background: rgba(192, 192, 192, 0.2); border: 1.5px solid #c0c0c0; color: #c0c0c0; }
+    .rank-badge.bronze { background: rgba(205, 127, 50, 0.2); border: 1.5px solid #cd7f32; color: #cd7f32; }
+    .rank-badge.standard { background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.3); color: #94a3b8; }
+
+    .player-avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #334155;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      margin-right: 10px;
+    }
+
+    .player-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .player-name {
+      font-size: 13px;
+      font-weight: 800;
+      color: #f1f5f9;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-sub {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+
+    .player-winnings {
+      font-size: 13px;
+      font-weight: 900;
+      color: #ffd700;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    /* GAME HISTORY RECORD CARD (MATCHING FLUTTER ROTATED STAMP) */
+    .record-card {
+      position: relative;
+      background: rgba(30, 41, 59, 0.85);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+
+    .record-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      font-size: 12.5px;
+      color: #cbd5e1;
+    }
+
+    .record-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .record-stamp {
       position: absolute;
-      bottom: -360px;
+      right: 12px;
+      bottom: 12px;
+      transform: rotate(-10deg);
+      border-radius: 6px;
+      padding: 2px 8px;
+      text-align: center;
+      line-height: 1;
+    }
+
+    .record-stamp.win {
+      border: 2px solid #10b981;
+      color: #10b981;
+    }
+
+    .record-stamp.lose {
+      border: 2px solid #ef4444;
+      color: #ef4444;
+    }
+
+    .record-stamp-stars {
+      font-size: 6px;
+      letter-spacing: 1px;
+      margin-bottom: 1px;
+    }
+
+    .record-stamp-text {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 1px;
+    }
+
+    /* VICTORY CELEBRATION SHEET */
+    .victory-sheet {
+      position: absolute;
+      bottom: -100%;
       left: 0;
       width: 100%;
       background: #ffffff;
-      border-top-left-radius: 24px;
-      border-top-right-radius: 24px;
+      border-top-left-radius: 26px;
+      border-top-right-radius: 26px;
       padding: 20px 20px 24px 20px;
-      box-shadow: 0 -8px 30px rgba(0,0,0,0.4);
-      z-index: 30;
+      box-shadow: 0 -8px 35px rgba(0,0,0,0.5);
+      z-index: 60;
       color: #1f2937;
       text-align: center;
       transition: bottom 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     }
 
-    .result-sheet.open {
+    .victory-sheet.open {
       bottom: 0;
     }
 
-    .sheet-handle {
-      width: 40px;
-      height: 4px;
-      background: #d1d5db;
-      border-radius: 2px;
-      margin: 0 auto 14px auto;
-    }
-
     .sheet-emoji {
-      font-size: 60px;
+      font-size: 58px;
       line-height: 1;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
       filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
     }
 
-    .sheet-title {
+    .sheet-main-title {
       font-size: 20px;
       font-weight: 900;
       color: #111827;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
 
-    .sheet-multiplier {
-      font-size: 14px;
+    .sheet-multiplier-tag {
+      font-size: 13.5px;
       font-weight: 800;
       color: #ef4444;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
     }
 
     .sheet-win-box {
       background: #fef2f2;
       border: 1.5px dashed #ef4444;
       border-radius: 12px;
-      padding: 10px;
-      margin-bottom: 16px;
-    }
-
-    .sheet-win-label {
-      font-size: 11px;
-      font-weight: 700;
-      color: #6b7280;
+      padding: 9px;
+      margin-bottom: 14px;
     }
 
     .sheet-win-amount {
@@ -697,7 +913,7 @@
       color: #ffffff;
       font-size: 14px;
       font-weight: 900;
-      padding: 12px;
+      padding: 11px;
       border-radius: 14px;
       border: none;
       cursor: pointer;
@@ -708,70 +924,78 @@
 <body>
 
   <div class="app-viewport">
-    <!-- Background layers -->
+    <!-- Background layer -->
     <div class="carnival-bg"></div>
 
     <!-- TOP HEADER -->
     <div class="header-bar">
       <div class="back-btn" id="backBtn" onclick="history.back()">‹</div>
       <div class="round-title" id="roundTitle">Today's 1155 Round</div>
-      <div class="rules-btn" id="rulesBtn" onclick="alert('Lucky Spin Rules:\n1. Choose your betting chip (100 to 100k).\n2. Tap food pods or Salad/Pizza before timer hits 0s.\n3. The glowing marker spins and lands on the winner.\n4. Win up to 45x your bet!')">Rules &gt;</div>
+      <div class="rules-btn" id="rulesBtn" onclick="openRulesSheet()">Rules &gt;</div>
     </div>
 
-    <!-- 8 FOOD POD HIT AREAS (Stationary over wheel spokes) -->
+    <!-- 8 FOOD POD HIT TARGETS (PERCENTAGE CALIBRATED DIRECTLY TO BACKGROUND CIRCLES) -->
     <!-- 0: 🌭 Hotdog (10x) Top 12 o'clock -->
-    <div class="pod-item" id="pod-0" onclick="handlePodClick(0)" style="top: 108px; left: 206px;">
+    <div class="pod-item" id="pod-0" onclick="handlePodClick(0)" style="top: 16.9%; left: 50.0%;">
       <span class="pod-emoji">🌭</span>
       <span class="pod-label">win 10 times</span>
+      <span class="pod-coins" id="coins-0">🪙</span>
       <div class="pod-bet-pill" id="pill-0" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 1: 🍢 Skewer (15x) Top-Right 1:30 -->
-    <div class="pod-item" id="pod-1" onclick="handlePodClick(1)" style="top: 150px; left: 306px;">
+    <div class="pod-item" id="pod-1" onclick="handlePodClick(1)" style="top: 22.2%; left: 75.2%;">
       <span class="pod-emoji">🍢</span>
       <span class="pod-label">win 15 times</span>
+      <span class="pod-coins" id="coins-1">🪙</span>
       <div class="pod-bet-pill" id="pill-1" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 2: 🍗 Chicken (25x) Right 3 o'clock -->
-    <div class="pod-item" id="pod-2" onclick="handlePodClick(2)" style="top: 250px; left: 348px;">
+    <div class="pod-item" id="pod-2" onclick="handlePodClick(2)" style="top: 34.9%; left: 85.6%;">
       <span class="pod-emoji">🍗</span>
       <span class="pod-label">win 25 times</span>
+      <span class="pod-coins" id="coins-2">🪙</span>
       <div class="pod-bet-pill" id="pill-2" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 3: 🥩 Steak (45x) Bottom-Right 4:30 -->
-    <div class="pod-item" id="pod-3" onclick="handlePodClick(3)" style="top: 350px; left: 306px;">
+    <div class="pod-item" id="pod-3" onclick="handlePodClick(3)" style="top: 47.6%; left: 75.2%;">
       <span class="pod-emoji">🥩</span>
       <span class="pod-label">win 45 times</span>
+      <span class="pod-coins" id="coins-3">🪙</span>
       <div class="pod-bet-pill" id="pill-3" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 4: 🥕 Carrot (5x) Bottom 6 o'clock -->
-    <div class="pod-item" id="pod-4" onclick="handlePodClick(4)" style="top: 392px; left: 206px;">
+    <div class="pod-item" id="pod-4" onclick="handlePodClick(4)" style="top: 52.9%; left: 50.0%;">
       <span class="pod-emoji">🥕</span>
       <span class="pod-label">win 5 times</span>
+      <span class="pod-coins" id="coins-4">🪙</span>
       <div class="pod-bet-pill" id="pill-4" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 5: 🌽 Corn (5x) Bottom-Left 7:30 -->
-    <div class="pod-item" id="pod-5" onclick="handlePodClick(5)" style="top: 350px; left: 106px;">
+    <div class="pod-item" id="pod-5" onclick="handlePodClick(5)" style="top: 47.6%; left: 24.8%;">
       <span class="pod-emoji">🌽</span>
       <span class="pod-label">win 5 times</span>
+      <span class="pod-coins" id="coins-5">🪙</span>
       <div class="pod-bet-pill" id="pill-5" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 6: 🥬 Cabbage (5x) Left 9 o'clock -->
-    <div class="pod-item" id="pod-6" onclick="handlePodClick(6)" style="top: 250px; left: 64px;">
+    <div class="pod-item" id="pod-6" onclick="handlePodClick(6)" style="top: 34.9%; left: 14.4%;">
       <span class="pod-emoji">🥬</span>
       <span class="pod-label">win 5 times</span>
+      <span class="pod-coins" id="coins-6">🪙</span>
       <div class="pod-bet-pill" id="pill-6" style="display: none;">0k ✓</div>
     </div>
 
     <!-- 7: 🍅 Tomato (5x) Top-Left 10:30 -->
-    <div class="pod-item" id="pod-7" onclick="handlePodClick(7)" style="top: 150px; left: 106px;">
+    <div class="pod-item" id="pod-7" onclick="handlePodClick(7)" style="top: 22.2%; left: 24.8%;">
       <span class="pod-emoji">🍅</span>
       <span class="pod-label">win 5 times</span>
+      <span class="pod-coins" id="coins-7">🪙</span>
       <div class="pod-bet-pill" id="pill-7" style="display: none;">0k ✓</div>
     </div>
 
@@ -794,7 +1018,7 @@
       <div class="hub-timer" id="hubTimer">9s</div>
     </div>
 
-    <!-- FLOATING BETS CLOSED BANNER (OVER LOWER SPOKES) -->
+    <!-- FLOATING BETS CLOSED BANNER -->
     <div class="center-banner-overlay" id="centerBanner">
       <div class="center-banner-text">BETS CLOSED</div>
     </div>
@@ -816,7 +1040,7 @@
       <div class="pedestal-label">Pizza &gt;</div>
     </div>
 
-    <!-- CARNIVAL BOOTH STALLS & BETTING CHIPS (PLACED INSIDE CARNIVAL WINDOWS) -->
+    <!-- CARNIVAL BOOTH STALLS & BETTING CHIPS -->
     <div class="booth-chips-row">
       <div class="chip-item active" onclick="selectChip(100, this)" id="chip-100">
         <div class="chip-icon">★</div>
@@ -848,11 +1072,11 @@
             <span id="currentAmountVal">9998614656842</span>
           </div>
         </div>
-        <div class="pill-card">
+        <div class="pill-card" onclick="openHistorySheet()">
           <div class="pill-title">My Play History</div>
           <div class="pill-value-row">
             <span style="color: #10b981;">📈</span>
-            <span id="myHistoryVal">Games: 0 | Win: 0 &gt;</span>
+            <span id="myHistoryVal">Games: 2 | Win: 1 &gt;</span>
           </div>
         </div>
       </div>
@@ -873,11 +1097,11 @@
 
       <!-- ROW 3: DAILY TOP PLAYERS & PREV WINNER -->
       <div class="dash-row-3">
-        <div class="stat-box">
+        <div class="stat-box" onclick="openLeaderboardSheet()">
           <div class="stat-header">Daily Top Players</div>
           <div class="stat-body">
             <span>🏆</span>
-            <span id="topPlayersVal">None: 0 &gt;</span>
+            <span id="topPlayersVal">1st: King_99: 1.5M &gt;</span>
           </div>
         </div>
         <div class="stat-box">
@@ -891,46 +1115,112 @@
 
       <!-- ROW 4: CATATAN SAYA FOOTER LINK -->
       <div class="dash-row-4">
-        <a class="catatan-link" onclick="alert('Opening My Record...')">Catatan saya &gt;</a>
+        <a class="catatan-link" onclick="openHistorySheet()">Catatan saya &gt;</a>
       </div>
     </div>
 
-    <!-- RESULT SHEET MODAL -->
-    <div class="result-sheet" id="resultSheet">
+    <!-- MODAL OVERLAY -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeAllSheets()"></div>
+
+    <!-- GAME RECORDS SHEET (CATATAN SAYA) -->
+    <div class="bottom-sheet" id="historySheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header-row">
+        <div class="sheet-title">CATATAN SAYA (GAME RECORDS)</div>
+        <div class="sheet-close-btn" onclick="closeAllSheets()">✕</div>
+      </div>
+      <div class="sheet-list-content" id="historyListContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- LEADERBOARD SHEET (DAILY TOP PLAYERS) -->
+    <div class="bottom-sheet" id="leaderboardSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header-row">
+        <div class="sheet-title">DAILY TOP PLAYERS</div>
+        <div class="sheet-close-btn" onclick="closeAllSheets()">✕</div>
+      </div>
+      <div class="sheet-list-content" id="leaderboardListContainer">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- RULES SHEET -->
+    <div class="bottom-sheet" id="rulesSheet">
+      <div class="sheet-handle"></div>
+      <div class="sheet-header-row">
+        <div class="sheet-title">LUCKY SPIN RULES</div>
+        <div class="sheet-close-btn" onclick="closeAllSheets()">✕</div>
+      </div>
+      <div class="sheet-list-content">
+        <div style="font-size: 13px; line-height: 1.6; color: #cbd5e1;">
+          <p style="margin-bottom: 8px;"><strong>1. Game Cycle:</strong> Each round lasts exactly 40 seconds. Betting is open for the first 30 seconds. At 30s, bets are closed and the wheel marker spins.</p>
+          <p style="margin-bottom: 8px;"><strong>2. Multipliers:</strong></p>
+          <ul style="padding-left: 18px; margin-bottom: 10px;">
+            <li>🌭 Hotdog: 10x</li>
+            <li>🍢 Skewer: 15x</li>
+            <li>🍗 Chicken: 25x</li>
+            <li>🥩 Steak: 45x (Jackpot!)</li>
+            <li>🥕 Carrot: 5x | 🌽 Corn: 5x | 🥬 Cabbage: 5x | 🍅 Tomato: 5x</li>
+          </ul>
+          <p style="margin-bottom: 8px;"><strong>3. Salad & Pizza Jackpots:</strong></p>
+          <p>🥗 <strong>Salad:</strong> Wins if ANY vegetable lands (Carrot, Corn, Cabbage, Tomato)!<br>🍕 <strong>Pizza:</strong> Wins if ANY meat lands (Hotdog, Skewer, Chicken, Steak)!</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- VICTORY CELEBRATION SHEET -->
+    <div class="victory-sheet" id="victorySheet">
       <div class="sheet-handle"></div>
       <div class="sheet-emoji" id="sheetEmoji">🌭</div>
-      <div class="sheet-title" id="sheetTitle">Hotdog Wins!</div>
-      <div class="sheet-multiplier" id="sheetMultiplier">Multiplier: 10x</div>
+      <div class="sheet-main-title" id="sheetTitle">Hotdog Wins!</div>
+      <div class="sheet-multiplier-tag" id="sheetMultiplier">Multiplier: 10x</div>
       <div class="sheet-win-box">
-        <div class="sheet-win-label" id="sheetWinLabel">Your Winnings</div>
+        <div style="font-size: 11px; font-weight: 700; color: #6b7280;" id="sheetWinLabel">Your Winnings</div>
         <div class="sheet-win-amount" id="sheetWinAmount">+0 💎</div>
       </div>
-      <button class="sheet-btn" onclick="closeResultSheet()">Continue Playing</button>
+      <button class="sheet-btn" onclick="closeVictorySheet()">Continue Playing</button>
     </div>
   </div>
 
   <script>
-    // GAME DEFINITIONS (Aligned 1:1 with Flutter `items` & exact calibrated coordinates)
+    // GAME DEFINITIONS (Aligned with Flutter & percentages)
     const POD_ITEMS = [
-      { id: 0, name: "Hotdog", emoji: "🌭", multiplier: 10, x: 206, y: 108 },
-      { id: 1, name: "Skewer", emoji: "🍢", multiplier: 15, x: 306, y: 150 },
-      { id: 2, name: "Chicken", emoji: "🍗", multiplier: 25, x: 348, y: 250 },
-      { id: 3, name: "Steak", emoji: "🥩", multiplier: 45, x: 306, y: 350 },
-      { id: 4, name: "Carrot", emoji: "🥕", multiplier: 5, x: 206, y: 392 },
-      { id: 5, name: "Corn", emoji: "🌽", multiplier: 5, x: 106, y: 350 },
-      { id: 6, name: "Cabbage", emoji: "🥬", multiplier: 5, x: 64, y: 250 },
-      { id: 7, name: "Tomato", emoji: "🍅", multiplier: 5, x: 106, y: 150 }
+      { id: 0, name: "Hotdog", emoji: "🌭", multiplier: 10, topPct: 16.9, leftPct: 50.0 },
+      { id: 1, name: "Skewer", emoji: "🍢", multiplier: 15, topPct: 22.2, leftPct: 75.2 },
+      { id: 2, name: "Chicken", emoji: "🍗", multiplier: 25, topPct: 34.9, leftPct: 85.6 },
+      { id: 3, name: "Steak", emoji: "🥩", multiplier: 45, topPct: 47.6, leftPct: 75.2 },
+      { id: 4, name: "Carrot", emoji: "🥕", multiplier: 5, topPct: 52.9, leftPct: 50.0 },
+      { id: 5, name: "Corn", emoji: "🌽", multiplier: 5, topPct: 47.6, leftPct: 24.8 },
+      { id: 6, name: "Cabbage", emoji: "🥬", multiplier: 5, topPct: 34.9, leftPct: 14.4 },
+      { id: 7, name: "Tomato", emoji: "🍅", multiplier: 5, topPct: 22.2, leftPct: 24.8 }
+    ];
+
+    // MOCK LEADERBOARD DATA (From Flutter luckySpinLeaderboardProvider)
+    const MOCK_LEADERBOARD = [
+      { name: "King_99", totalBets: 1520000, avatar: "👑" },
+      { name: "Sultan_Dubai", totalBets: 980000, avatar: "💎" },
+      { name: "LuckyPanda", totalBets: 740000, avatar: "🐼" },
+      { name: "CryptoMaster", totalBets: 420000, avatar: "⚡" },
+      { name: "StarGamer", totalBets: 210000, avatar: "🌟" }
+    ];
+
+    // LOCAL GAME HISTORY (From Flutter userGameHistoryProvider)
+    let gameRecords = [
+      { orderId: "SPIN-89218", label: "Hotdog", emoji: "🌭", prize: 10000, balanceBefore: 9998614646842, balanceAfter: 9998614656842, date: "Today 18:18" },
+      { orderId: "SPIN-89217", label: "Corn", emoji: "🌽", prize: 0, balanceBefore: 9998614647842, balanceAfter: 9998614646842, date: "Today 18:17" }
     ];
 
     // STATE VARIABLES
     let selectedChip = 100;
     let playerBalance = 9998614656842;
-    let totalGames = 0;
-    let totalWins = 0;
+    let totalGames = 2;
+    let totalWins = 1;
     let currentBets = {};
     let confirmedBets = {};
     let isBetLocked = true;
-    let activePointerIndex = 1; // Start on index 1 matching screenshot (Skewer 🍢)
+    let activePointerIndex = 1; // Start on Skewer matching screenshot
     let currentRoundId = 1155;
     let recentResults = [
       { name: "Hotdog", emoji: "🌭", multiplier: 10 },
@@ -950,29 +1240,49 @@
     const currentAmountVal = document.getElementById('currentAmountVal');
     const myHistoryVal = document.getElementById('myHistoryVal');
     const resultsScroll = document.getElementById('resultsScroll');
-    const resultSheet = document.getElementById('resultSheet');
-    const sheetEmoji = document.getElementById('sheetEmoji');
-    const sheetTitle = document.getElementById('sheetTitle');
-    const sheetMultiplier = document.getElementById('sheetMultiplier');
-    const sheetWinLabel = document.getElementById('sheetWinLabel');
-    const sheetWinAmount = document.getElementById('sheetWinAmount');
     const roundTitle = document.getElementById('roundTitle');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const historySheet = document.getElementById('historySheet');
+    const leaderboardSheet = document.getElementById('leaderboardSheet');
+    const rulesSheet = document.getElementById('rulesSheet');
+    const victorySheet = document.getElementById('victorySheet');
+
+    // WEB AUDIO SYNTHESIZER (Guaranteed click & win sound without network 403s)
+    let audioCtx = null;
+    function playTone(freq, duration, type = "sine") {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
 
     // POSITION SPOTLIGHT ON POD
     function moveSpotlightToPod(index) {
       const pod = POD_ITEMS[index];
-      spotlightMarker.style.left = pod.x + 'px';
-      spotlightMarker.style.top = pod.y + 'px';
+      spotlightMarker.style.top = pod.topPct + '%';
+      spotlightMarker.style.left = pod.leftPct + '%';
       activePointerIndex = index;
     }
 
     // INITIAL SETUP
-    moveSpotlightToPod(1); // Point to Skewer like in screenshot
+    moveSpotlightToPod(1); // Point to Skewer
     updateBalanceDisplay();
     renderRecentResults();
+    renderLeaderboardList();
+    renderHistoryList();
 
     // CHIP SELECTION
     function selectChip(value, el) {
+      playTone(520, 0.08);
       selectedChip = value;
       document.querySelectorAll('.chip-item').forEach(c => c.classList.remove('active'));
       el.classList.add('active');
@@ -981,7 +1291,7 @@
     // POD BETTING ON TAP
     function handlePodClick(index) {
       if (isBetLocked) {
-        showToast("Bets are closed for this round!");
+        playTone(220, 0.15, "sawtooth");
         return;
       }
       if (playerBalance < selectedChip) {
@@ -989,6 +1299,7 @@
         return;
       }
 
+      playTone(740, 0.1, "triangle");
       const item = POD_ITEMS[index];
       playerBalance -= selectedChip;
       currentBets[item.name] = (currentBets[item.name] || 0) + selectedChip;
@@ -1001,7 +1312,7 @@
     // JACKPOT BETTING (SALAD & PIZZA)
     function handleJackpotClick(type) {
       if (isBetLocked) {
-        showToast("Bets are closed for this round!");
+        playTone(220, 0.15, "sawtooth");
         return;
       }
       if (playerBalance < selectedChip) {
@@ -1009,6 +1320,7 @@
         return;
       }
 
+      playTone(820, 0.12, "triangle");
       playerBalance -= selectedChip;
       currentBets[type] = (currentBets[type] || 0) + selectedChip;
       confirmedBets[type] = currentBets[type];
@@ -1021,13 +1333,18 @@
       pill.style.display = 'flex';
     }
 
-    // RENDER ON-POD BADGE
+    // RENDER ON-POD BADGE & COIN STACK
     function renderPodBetPill(index, amount) {
       const pill = document.getElementById(`pill-${index}`);
-      if (!pill) return;
-      const displayAmount = amount >= 1000 ? (amount / 1000).toFixed(0) + 'k' : amount;
-      pill.textContent = `${displayAmount} ✓`;
-      pill.style.display = 'flex';
+      if (pill) {
+        const displayAmount = amount >= 1000 ? (amount / 1000).toFixed(0) + 'k' : amount;
+        pill.textContent = `${displayAmount} ✓`;
+        pill.style.display = 'flex';
+      }
+      const coins = document.getElementById(`coins-${index}`);
+      if (coins) {
+        coins.style.display = 'block';
+      }
     }
 
     function updateBalanceDisplay() {
@@ -1052,22 +1369,18 @@
     }
 
     function triggerRefresh() {
+      playTone(600, 0.1);
       renderRecentResults();
       updateBalanceDisplay();
     }
 
-    function showToast(msg) {
-      console.log("[SPIN]", msg);
-    }
-
-    // 40-SECOND GAME CYCLE SIMULATION (0-30s Betting, 30s-35s Spin, 35s-40s Reveal)
-    let cycleSecond = 21; // Start at 21s into betting phase (9s left in betting like screenshot!)
+    // 40-SECOND GAME CYCLE SIMULATION
+    let cycleSecond = 21; // 9s left in betting
 
     setInterval(() => {
       cycleSecond = (cycleSecond + 1) % 40;
 
       if (cycleSecond < 30) {
-        // BETTING PHASE (0s - 30s)
         const timeLeft = 30 - cycleSecond;
         if (timeLeft <= 10) {
           isBetLocked = true;
@@ -1082,36 +1395,34 @@
         }
         spotlightMarker.classList.remove('winner-pulse');
       } else if (cycleSecond === 30) {
-        // SPINNING STARTS (30s)
         isBetLocked = true;
         hubStatus.textContent = "BETS CLOSED";
         hubTimer.textContent = "Spinning";
         centerBanner.style.display = "block";
         runMarkerSpin();
       } else if (cycleSecond === 35) {
-        // CELEBRATION & OUTCOME REVEAL (35s)
         centerBanner.style.display = "none";
       } else if (cycleSecond === 39) {
-        // END OF ROUND & RESET
-        closeResultSheet();
+        closeVictorySheet();
         currentRoundId++;
         roundTitle.textContent = `Today's ${currentRoundId} Round`;
         clearBets();
       }
     }, 1000);
 
-    // RUN MARKER SPIN ANIMATION (Wheel is stationary, marker spins clockwise!)
+    // RUN MARKER SPIN ANIMATION
     function runMarkerSpin() {
       const targetWinningIndex = Math.floor(Math.random() * POD_ITEMS.length);
       const winningItem = POD_ITEMS[targetWinningIndex];
 
       let currentStep = activePointerIndex;
-      let totalSteps = 24 + targetWinningIndex; // 3 full loops + target
-      let speed = 45;
+      let totalSteps = 24 + targetWinningIndex;
+      let speed = 42;
 
       function step() {
         currentStep = (currentStep + 1) % 8;
         moveSpotlightToPod(currentStep);
+        playTone(380 + (currentStep * 40), 0.04);
         totalSteps--;
 
         if (totalSteps > 12) {
@@ -1122,6 +1433,7 @@
         } else {
           moveSpotlightToPod(targetWinningIndex);
           spotlightMarker.classList.add('winner-pulse');
+          playTone(880, 0.35, "triangle");
           onSpinFinished(winningItem);
         }
       }
@@ -1142,31 +1454,56 @@
         updateBalanceDisplay();
       }
 
-      // Prepend to recent results
+      // Check category win (Salad or Pizza)
+      const isSaladItem = ['Carrot', 'Corn', 'Cabbage', 'Tomato'].includes(item.name);
+      const isPizzaItem = ['Hotdog', 'Skewer', 'Chicken', 'Steak'].includes(item.name);
+      if (isSaladItem && (currentBets['Salad'] || 0) > 0) {
+        const saladWin = currentBets['Salad'] * 2;
+        winnings += saladWin;
+        playerBalance += saladWin;
+      }
+      if (isPizzaItem && (currentBets['Pizza'] || 0) > 0) {
+        const pizzaWin = currentBets['Pizza'] * 2;
+        winnings += pizzaWin;
+        playerBalance += pizzaWin;
+      }
+
+      // Add to records list
+      gameRecords.unshift({
+        orderId: `SPIN-${Math.floor(10000 + Math.random() * 90000)}`,
+        label: item.name,
+        emoji: item.emoji,
+        prize: winnings,
+        balanceBefore: playerBalance - winnings,
+        balanceAfter: playerBalance,
+        date: "Just now"
+      });
+      renderHistoryList();
+
       recentResults.unshift({ name: item.name, emoji: item.emoji, multiplier: item.multiplier });
       if (recentResults.length > 10) recentResults.pop();
       renderRecentResults();
 
-      // Show result bottom sheet
-      sheetEmoji.textContent = item.emoji;
-      sheetTitle.textContent = `${item.name} Wins!`;
-      sheetMultiplier.textContent = `Multiplier: ${item.multiplier}x`;
+      // Show victory bottom sheet
+      document.getElementById('sheetEmoji').textContent = item.emoji;
+      document.getElementById('sheetTitle').textContent = `${item.name} Wins!`;
+      document.getElementById('sheetMultiplier').textContent = `Multiplier: ${item.multiplier}x`;
 
       if (winnings > 0) {
-        sheetWinLabel.textContent = "Congratulations! You Won";
-        sheetWinAmount.textContent = `+${winnings.toLocaleString()} 💎`;
-        sheetWinAmount.style.color = "#10b981";
+        document.getElementById('sheetWinLabel').textContent = "Congratulations! You Won";
+        document.getElementById('sheetWinAmount').textContent = `+${winnings.toLocaleString()} 💎`;
+        document.getElementById('sheetWinAmount').style.color = "#10b981";
       } else {
-        sheetWinLabel.textContent = userBet > 0 ? "You Lost This Round" : "No Bet Placed";
-        sheetWinAmount.textContent = userBet > 0 ? `-${userBet.toLocaleString()} 💎` : "0 💎";
-        sheetWinAmount.style.color = userBet > 0 ? "#ef4444" : "#6b7280";
+        document.getElementById('sheetWinLabel').textContent = userBet > 0 ? "You Lost This Round" : "No Bet Placed";
+        document.getElementById('sheetWinAmount').textContent = userBet > 0 ? `-${userBet.toLocaleString()} 💎` : "0 💎";
+        document.getElementById('sheetWinAmount').style.color = userBet > 0 ? "#ef4444" : "#6b7280";
       }
 
-      resultSheet.classList.add('open');
+      victorySheet.classList.add('open');
     }
 
-    function closeResultSheet() {
-      resultSheet.classList.remove('open');
+    function closeVictorySheet() {
+      victorySheet.classList.remove('open');
     }
 
     function clearBets() {
@@ -1175,11 +1512,94 @@
       for (let i = 0; i < 8; i++) {
         const pill = document.getElementById(`pill-${i}`);
         if (pill) pill.style.display = 'none';
+        const coins = document.getElementById(`coins-${i}`);
+        if (coins) coins.style.display = 'none';
       }
       const saladPill = document.getElementById('pill-salad');
       const pizzaPill = document.getElementById('pill-pizza');
       if (saladPill) saladPill.style.display = 'none';
       if (pizzaPill) pizzaPill.style.display = 'none';
+    }
+
+    // BOTTOM SHEETS MODAL CONTROLLERS
+    function openLeaderboardSheet() {
+      playTone(500, 0.08);
+      modalOverlay.classList.add('open');
+      leaderboardSheet.classList.add('open');
+    }
+
+    function openHistorySheet() {
+      playTone(500, 0.08);
+      modalOverlay.classList.add('open');
+      historySheet.classList.add('open');
+    }
+
+    function openRulesSheet() {
+      playTone(500, 0.08);
+      modalOverlay.classList.add('open');
+      rulesSheet.classList.add('open');
+    }
+
+    function closeAllSheets() {
+      modalOverlay.classList.remove('open');
+      leaderboardSheet.classList.remove('open');
+      historySheet.classList.remove('open');
+      rulesSheet.classList.remove('open');
+      victorySheet.classList.remove('open');
+    }
+
+    // RENDER LEADERBOARD LIST
+    function renderLeaderboardList() {
+      const container = document.getElementById('leaderboardListContainer');
+      container.innerHTML = '';
+      MOCK_LEADERBOARD.forEach((p, idx) => {
+        const rankClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : 'standard';
+        const row = document.createElement('div');
+        row.className = 'leaderboard-row';
+        row.innerHTML = `
+          <div class="rank-badge ${rankClass}">${idx + 1}</div>
+          <div class="player-avatar">${p.avatar}</div>
+          <div class="player-info">
+            <div class="player-name">${p.name}</div>
+            <div class="player-sub">Total Wins</div>
+          </div>
+          <div class="player-winnings">💎 ${p.totalBets.toLocaleString()}</div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    // RENDER GAME HISTORY LIST (CATATAN SAYA)
+    function renderHistoryList() {
+      const container = document.getElementById('historyListContainer');
+      container.innerHTML = '';
+      gameRecords.forEach(rec => {
+        const isWin = rec.prize > 0;
+        const card = document.createElement('div');
+        card.className = 'record-card';
+        card.innerHTML = `
+          <div class="record-row" style="justify-content: space-between; font-size: 11px; color: #94a3b8;">
+            <span>Order ID: ${rec.orderId}</span>
+            <span>${rec.date}</span>
+          </div>
+          <div class="record-row">
+            <span>Winning Food:&nbsp;</span>
+            <strong style="color: #ffffff;">${rec.emoji} ${rec.label.toUpperCase()}</strong>
+          </div>
+          <div class="record-row">
+            <span>Win Coins:&nbsp;</span>
+            <strong style="color: ${isWin ? '#10b981' : '#f59e0b'};">💎 ${rec.prize.toLocaleString()}</strong>
+          </div>
+          <div class="record-row" style="font-size: 11px; color: #94a3b8;">
+            <span>Balance: ${rec.balanceBefore.toLocaleString()} ➔ ${rec.balanceAfter.toLocaleString()}</span>
+          </div>
+          <div class="record-stamp ${isWin ? 'win' : 'lose'}">
+            <div class="record-stamp-stars">★ ★ ★</div>
+            <div class="record-stamp-text">${isWin ? 'WIN' : 'LOSE'}</div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
     }
   </script>
 </body>

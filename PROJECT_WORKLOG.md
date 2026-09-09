@@ -18,18 +18,21 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ### Date: 2026-09-10
 - **What Client Asked / Problem**:
-  "The game concept is written somewhere in the project so read that and Flutter code to get a clearer picture of how the game works. Use the panda icons we have in the Flutter game. You placed Salad and Pizza in the wrong place where betting chips belong, the carnival background is not matching the background we created, and the wheel should NOT spin—the marker should spin."
+  "Shift this part little down and center the components. You didn't add the bet part, didn't match the bottom nav bar, and some lists which are there in the Flutter app—check and add them fast."
 - **What We Did**:
-  1. Studied `.agents/spin_wheel_game_brain.md` and `lib/features/games/presentation/screens/spin_wheel_screen.dart` to extract the exact mechanics, math, coordinates, and visual assets without touching any Flutter code.
-  2. Applied the exact carnival Ferris wheel background (`assets/images/processed_image.webp`) directly in HTML.
-  3. Made the Ferris wheel completely stationary:
-     - Calibrated all 8 food pods (🌭 10x, 🍢 15x, 🍗 25x, 🥩 45x, 🥕 5x, 🌽 5x, 🥬 5x, 🍅 5x) to sit dead-center inside the 8 white wheel circles in the background illustration.
-     - Replaced wheel rotation with a luminous clockwise-hopping spotlight marker (`GlowPointer`) that rapidly ticks from pod to pod across acceleration, constant speed, and deceleration steps before landing and pulsating on the winner.
-  4. Centered the red hub with the exact Panda face illustration, real-time countdown timer (`9s`), and status label, accompanied by the floating dark `BETS CLOSED` banner across the lower spokes.
-  5. Positioned `🥗 Salad >` and `🍕 Pizza >` directly on their respective left and right gold pedestals flanking the wheel base.
-  6. Placed the 4 betting chip selector buttons (`100`, `1k`, `10k`, `100k`) directly inside the 4 blue carnival booth stalls beneath the wheel.
-  7. Implemented direct on-pod betting: tapping any food pod or side pedestal places the active chip directly onto that target, displaying an instant green/amber badge pill (e.g. `1k ✓`).
-  8. Verified the exact 1:1 visual match and interactive flow in the browser subagent.
+  1. **Perfect Centering of Wheel Components**:
+     - Analyzed `processed_image.webp` (1376 x 2727, 1:1.98 aspect ratio) and locked the container with CSS aspect ratio.
+     - Converted all positions to percentage coordinates (`topPct`, `leftPct`) calibrated directly to the wheel center (34.9% Y, 50.0% X).
+     - Shifted food emojis and labels down so every item (🌭, 🍢, 🍗, 🥩, 🥕, 🌽, 🥬, 🍅) sits dead-center inside its white circular gondola.
+     - Centered the Panda face and timer inside the red hub.
+  2. **Fixed Betting Chips & Booth Windows**:
+     - Repositioned the 4 betting chips (`100`, `1k`, `10k`, `100k`) to `top: 70.6%`, placing them cleanly inside the 4 blue booth windows without any overlap or clipping from the bottom red dashboard.
+     - Added dynamic coin stack indicators (`🪙`) and instant tactile Web Audio synthesizer click/win sounds.
+  3. **Added Flutter Modal Bottom Sheets & Lists**:
+     - **Catatan saya (Game Records)**: Clicking "Catatan saya >" or "My Play History" opens the records sheet displaying past rounds, Order IDs, winning food emojis, win coin amounts, coin balance before/after, and authentic rotated WIN/LOSE stamps with `★ ★ ★`.
+     - **Daily Top Players Leaderboard**: Clicking "Daily Top Players" opens the leaderboard sheet featuring Gold 🥇, Silver 🥈, Bronze 🥉 rank badges, player avatars, names, and diamond totals.
+     - **Rules Sheet**: Clicking "Rules >" opens the comprehensive game rules breakdown with all 8 food multipliers and Salad/Pizza jackpot categories.
+  4. Verified all interactions and visual alignment in the headless browser subagent.
 - **Files Touched**:
   - `assets/games/spin_wheel.html`
   - `PROJECT_WORKLOG.md`
