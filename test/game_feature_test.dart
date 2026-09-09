@@ -24,8 +24,14 @@ void main() {
       expect(find.text('ROOM GAMES'), findsOneWidget);
       expect(find.text('Spin Wheel'), findsOneWidget);
       expect(find.text('Lucky Draw'), findsOneWidget);
+      expect(find.text('Yummy Bingo'), findsOneWidget);
+      expect(find.text('Teen Patti'), findsOneWidget);
       expect(find.text('Win up to 10x prizes!'), findsOneWidget);
       expect(find.text('High stakes, big wins!'), findsOneWidget);
+      expect(find.text('5-Reel Fruit & Jackpot!'), findsOneWidget);
+      expect(find.text('Multiplayer Card Table!'), findsOneWidget);
+      expect(find.text('HOT 🔥'), findsOneWidget);
+      expect(find.text('MULTIPLAYER ♠️'), findsOneWidget);
     });
 
     test('GameResult model creation and equality', () {

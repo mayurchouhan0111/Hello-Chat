@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>YUMMY BINGO</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      width: 100vw; height: 100vh; overflow: hidden; background: #030712;
+      font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', Roboto, sans-serif;
+      user-select: none; -webkit-user-select: none;
+    }
+    .app-screen {
+      width: 100vw; height: 100vh; max-width: 100%; margin: 0;
+      padding: calc(env(safe-area-inset-top, 14px) + 2px) 8px calc(env(safe-area-inset-bottom, 10px) + 2px);
+      display: flex; flex-direction: column; justify-content: space-between;
+      position: relative; overflow: hidden;
+      background: radial-gradient(ellipse at 50% 12%, #1e3a8a 0%, #0c152e 50%, #030712 100%);
+    }
+
+    /* Ambient Background Lights */
+    .bg-lights {
+      position: absolute; inset: 0; pointer-events: none; z-index: 0;
+      background-image: 
+        radial-gradient(circle at 15% 25%, rgba(56, 189, 248, 0.14) 0%, transparent 45%),
+        radial-gradient(circle at 85% 20%, rgba(168, 85, 247, 0.16) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(245, 158, 11, 0.12) 0%, transparent 50%);
+    }
+
+    /* Sparkling Celebration Canvas */
+    #sparkleCanvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; z-index: 30;
+    }
+
+    /* Top Bar */
+    .top-bar {
+      position: relative; z-index: 10; display: flex; justify-content: space-between;
+      align-items: center; gap: 6px; padding: 0 4px;
+    }
+    .top-left-actions, .top-right-actions { display: flex; align-items: center; gap: 6px; }
+    .circle-btn {
+      width: 34px; height: 34px; border-radius: 50%; background: rgba(15, 23, 42, 0.88);
+      border: 1.5px solid rgba(255, 255, 255, 0.22); color: #ffffff; font-size: 14px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+    }
+    .circle-btn:active { transform: scale(0.92); }
+    .turbo-btn {
+      padding: 0 10px; height: 32px; border-radius: 16px; background: rgba(15, 23, 42, 0.88);
+      border: 1.5px solid rgba(255, 255, 255, 0.25); color: #94a3b8; font-size: 11px;
+      font-weight: 900; display: flex; align-items: center; gap: 4px; cursor: pointer; transition: all 0.15s ease;
+    }
+    .turbo-btn.active {
+      background: linear-gradient(135deg, #ea580c, #dc2626); border-color: #fef08a; color: #ffffff;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+    }
+    .diamond-pill {
+      background: rgba(15, 23, 42, 0.92); border: 1.5px solid rgba(250, 204, 21, 0.55);
+      border-radius: 20px; padding: 4px 10px; display: flex; align-items: center; gap: 6px;
+      color: #ffffff; font-weight: 800; font-size: 13px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    }
+    .diamond-pill .amount { color: #facc15; font-family: monospace, sans-serif; font-size: 13px; }
+    .pill-add-btn {
+      width: 19px; height: 19px; border-radius: 50%; background: #22c55e; border: none;
+      color: white; font-weight: 900; font-size: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer;
+    }
+    .free-gift-btn {
+      padding: 4px 9px; border-radius: 14px; background: linear-gradient(135deg, #10b981, #059669);
+      border: 1px solid #a7f3d0; color: white; font-size: 11px; font-weight: 900; cursor: pointer;
+      display: none; box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+    }
+
+    /* Grand Jackpot Marquee */
+    .jackpot-marquee {
+      position: relative; z-index: 8; display: flex; justify-content: center;
+      align-items: center; margin: 2px auto 4px; width: 100%;
+    }
+    .jackpot-box {
+      width: 100%; background: linear-gradient(180deg, #b45309 0%, #78350f 50%, #451a03 100%);
+      border: 2px solid #fbbf24; border-radius: 22px; padding: 4px 14px;
+      display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+    }
+    .jackpot-title {
+      font-family: 'Arial Black', Impact, sans-serif; font-size: 13.5px; font-weight: 900;
+      letter-spacing: 1.2px; color: #fef08a; display: flex; align-items: center; gap: 4px;
+    }
+    .jackpot-amount {
+      font-family: 'Arial Black', Impact, sans-serif; font-size: 17px; color: #ffffff;
+      letter-spacing: 0.8px; text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+    }
+
+    /* Bingo Bonus Bar */
+    .bingo-card-container {
+      position: relative; z-index: 8; margin: 0 auto 4px; width: 100%;
+      background: rgba(15, 23, 42, 0.92); border: 1.5px solid rgba(245, 158, 11, 0.55);
+      border-radius: 14px; padding: 6px 10px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .bingo-header {
+      display: flex; justify-content: space-between; align-items: center; font-size: 10px;
+      font-weight: 900; color: #fde047; letter-spacing: 0.6px; text-transform: uppercase;
+    }
+    .bingo-tiles-row { display: flex; justify-content: space-between; gap: 6px; }
+    .bingo-tile {
+      flex: 1; height: 32px; border-radius: 8px; background: #1e293b; border: 1.5px solid #475569;
+      display: flex; align-items: center; justify-content: center; font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 16px; font-weight: 900; color: #64748b; transition: all 0.25s ease;
+    }
+    .bingo-tile.active {
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 50%, #dc2626 100%);
+      border-color: #fef08a; color: #ffffff; transform: scale(1.06); box-shadow: 0 0 12px rgba(245, 158, 11, 0.8);
+    }
+
+    /* Full-Screen Slot Chassis */
+    .machine-wrapper {
+      position: relative; z-index: 5; margin: 0 auto; width: 100%; flex: 1;
+      display: flex; align-items: center; justify-content: center; min-height: 240px; max-height: 48vh;
+    }
+    .slot-frame {
+      position: relative; width: 100%; height: 100%;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border: 3.5px solid #d97706; border-radius: 18px; padding: 6px;
+      box-shadow: 0 0 24px rgba(217, 119, 6, 0.4), inset 0 2px 8px rgba(255, 255, 255, 0.25);
+      display: flex; flex-direction: column; justify-content: center;
+    }
+    .reels-window {
+      position: relative; width: 100%; height: 100%; min-height: 220px;
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+      background: #020617; border-radius: 12px; padding: 4px; overflow: hidden;
+      box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.95);
+    }
+    .payline-overlay {
+      position: absolute; inset: 0; pointer-events: none; z-index: 25; width: 100%; height: 100%;
+    }
+    .reel-col {
+      position: relative; width: 100%; height: 100%; overflow: hidden; border-radius: 8px;
+      background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .reel-strip {
+      position: absolute; top: 0; left: 0; width: 100%;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+    }
+    .symbol-cell {
+      width: 100%; display: flex; align-items: center; justify-content: center;
+      position: relative; padding: 4px;
+    }
+    .symbol-icon {
+      width: 100%; height: 100%; max-width: 66px; max-height: 66px;
+      display: block; pointer-events: none;
+    }
+    .symbol-cell.winning-symbol {
+      animation: winGlow 0.55s ease-in-out infinite alternate;
+      border-radius: 8px;
+      background: rgba(250, 204, 21, 0.3);
+    }
+    @keyframes winGlow {
+      from { transform: scale(0.95); filter: drop-shadow(0 0 4px #fbbf24); }
+      to { transform: scale(1.08); filter: drop-shadow(0 0 14px #f59e0b); }
+    }
+
+    /* Win Banner */
+    .floating-win {
+      position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+      z-index: 35; background: rgba(15, 23, 42, 0.96); border: 2.5px solid #fbbf24;
+      border-radius: 22px; padding: 12px 26px; display: none; align-items: center;
+      gap: 10px; box-shadow: 0 0 30px rgba(251, 191, 36, 0.9);
+      animation: popWin 0.35s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+    }
+    @keyframes popWin {
+      from { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
+      to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    }
+    .floating-win-text {
+      font-family: 'Arial Black', Impact, sans-serif; font-size: 20px;
+      color: #fef08a; text-shadow: 0 2px 5px rgba(0, 0, 0, 0.85);
+    }
+
+    /* Low Balance Prompt */
+    .low-balance-bar {
+      position: relative; z-index: 10; margin: 2px auto; width: 100%;
+      background: rgba(185, 28, 28, 0.92); border: 1.5px solid #fca5a5;
+      border-radius: 12px; padding: 6px 12px; display: none; align-items: center;
+      justify-content: space-between; gap: 6px;
+    }
+    .low-balance-title { font-size: 11.5px; font-weight: 800; color: #ffffff; }
+    .low-balance-actions { display: flex; gap: 6px; }
+    .action-btn-sm {
+      padding: 5px 10px; border-radius: 8px; border: none; font-size: 11px;
+      font-weight: 900; cursor: pointer;
+    }
+
+    /* Control Deck (Spans 100% width) */
+    .controls-deck {
+      position: relative; z-index: 10; margin: 2px auto 0; width: 100%;
+      background: rgba(15, 23, 42, 0.96); border: 1.5px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px; padding: 8px 12px; display: flex; flex-direction: column; gap: 8px;
+    }
+    .deck-top-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .deck-stepper {
+      flex: 1; background: #1e293b; border: 1.5px solid #475569; border-radius: 12px;
+      padding: 4px 8px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .deck-stepper-btn {
+      width: 28px; height: 28px; border-radius: 8px; background: #334155; border: none;
+      color: #ffffff; font-size: 17px; font-weight: 900; display: flex; align-items: center;
+      justify-content: center; cursor: pointer;
+    }
+    .deck-stepper-btn:active { background: #475569; }
+    .deck-stepper-label { text-align: center; font-size: 12px; font-weight: 900; color: #facc15; }
+    .deck-sub-label { font-size: 8.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; }
+
+    .deck-bottom-row { display: flex; align-items: center; gap: 8px; }
+    .auto-btn {
+      width: 60px; height: 50px; border-radius: 14px; background: #334155;
+      border: 1.5px solid #64748b; color: #ffffff; font-size: 12px; font-weight: 900;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .auto-btn.active {
+      background: #ea580c; border-color: #fef08a; color: white;
+      box-shadow: 0 0 12px rgba(234, 88, 12, 0.7);
+    }
+    .max-btn {
+      width: 58px; height: 50px; border-radius: 14px; background: #4338ca;
+      border: 1.5px solid #818cf8; color: #ffffff; font-size: 12px; font-weight: 900;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+    }
+    .spin-btn {
+      flex: 1; height: 52px; border-radius: 16px;
+      background: linear-gradient(180deg, #22c55e 0%, #16a34a 60%, #14532d 100%);
+      border: 2.5px solid #86efac; color: #ffffff; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      box-shadow: 0 4px 18px rgba(22, 163, 74, 0.65);
+      transition: transform 0.1s ease;
+    }
+    .spin-btn:active { transform: scale(0.96); }
+    .spin-btn:disabled {
+      background: #334155; border-color: #475569; opacity: 0.7; cursor: not-allowed;
+      box-shadow: none;
+    }
+    .spin-btn-title {
+      font-family: 'Arial Black', Impact, sans-serif; font-size: 18px; letter-spacing: 1.5px;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    }
+    .spin-btn-sub { font-size: 10px; font-weight: 800; color: #fef08a; }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.78);
+      display: none; align-items: center; justify-content: center; padding: 16px;
+    }
+    .modal-box {
+      width: 100%; max-width: 330px; background: #0f172a; border: 2.5px solid #fbbf24;
+      border-radius: 20px; padding: 18px; display: flex; flex-direction: column; gap: 12px;
+      box-shadow: 0 12px 35px rgba(0, 0, 0, 0.95);
+    }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; color: #fbbf24; }
+  </style>
+</head>
+<body>
+  <!-- Canvas for High-Performance Sparkling Confetti & Win Celebrations -->
+  <canvas id="sparkleCanvas"></canvas>
+
+  <!-- Pre-instantiated Shared SVG Symbol Defs -->
+  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+    <defs>
+      <!-- Gradients -->
+      <linearGradient id="gWild" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#F472B6"/>
+        <stop offset="50%" stop-color="#C084FC"/>
+        <stop offset="100%" stop-color="#7E22CE"/>
+      </linearGradient>
+      <radialGradient id="gCherry" cx="35%" cy="35%" r="65%">
+        <stop offset="0%" stop-color="#FF6B6B"/>
+        <stop offset="60%" stop-color="#E11D48"/>
+        <stop offset="100%" stop-color="#881337"/>
+      </radialGradient>
+      <linearGradient id="gBun" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#FBBF24"/>
+        <stop offset="100%" stop-color="#D97706"/>
+      </linearGradient>
+      <linearGradient id="gPatty" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#78350F"/>
+        <stop offset="100%" stop-color="#451A03"/>
+      </linearGradient>
+      <radialGradient id="gLemon" cx="35%" cy="35%" r="65%">
+        <stop offset="0%" stop-color="#FEF08A"/>
+        <stop offset="50%" stop-color="#FACC15"/>
+        <stop offset="100%" stop-color="#CA8A04"/>
+      </radialGradient>
+      <radialGradient id="gClover" cx="40%" cy="40%" r="60%">
+        <stop offset="0%" stop-color="#4ADE80"/>
+        <stop offset="60%" stop-color="#16A34A"/>
+        <stop offset="100%" stop-color="#14532D"/>
+      </radialGradient>
+      <linearGradient id="gBanana" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#FEF08A"/>
+        <stop offset="50%" stop-color="#FACC15"/>
+        <stop offset="100%" stop-color="#EAB308"/>
+      </linearGradient>
+      <linearGradient id="gDice" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#FDE047"/>
+        <stop offset="50%" stop-color="#EAB308"/>
+        <stop offset="100%" stop-color="#CA8A04"/>
+      </linearGradient>
+
+      <!-- Symbol: WILD -->
+      <g id="sym-wild">
+        <rect x="18" y="6" width="64" height="20" rx="10" fill="#9333EA" stroke="#FFF" stroke-width="2"/>
+        <text x="50" y="20" text-anchor="middle" font-family="'Plus Jakarta Sans', sans-serif" font-weight="900" font-size="12" fill="#FFF" letter-spacing="1">WILD</text>
+        <polygon points="50,30 82,50 68,92 32,92 18,50" fill="url(#gWild)" stroke="#FFF" stroke-width="1.5"/>
+        <polygon points="50,30 82,50 65,50 50,38" fill="#FFF" opacity="0.6"/>
+        <polygon points="50,30 18,50 35,50 50,38" fill="#FFF" opacity="0.4"/>
+        <polygon points="32,92 50,30 68,92" fill="#7E22CE" opacity="0.7"/>
+        <circle cx="50" cy="45" r="3.5" fill="#FFF" opacity="0.9"/>
+      </g>
+
+      <!-- Symbol: DICE -->
+      <g id="sym-dice">
+        <rect x="18" y="18" width="64" height="64" rx="14" fill="url(#gDice)" stroke="#FEF08A" stroke-width="3"/>
+        <circle cx="34" cy="34" r="5" fill="#78350F"/>
+        <circle cx="66" cy="34" r="5" fill="#78350F"/>
+        <circle cx="50" cy="50" r="5" fill="#78350F"/>
+        <circle cx="34" cy="66" r="5" fill="#78350F"/>
+        <circle cx="66" cy="66" r="5" fill="#78350F"/>
+        <rect x="22" y="22" width="22" height="10" rx="5" fill="#FFF" opacity="0.4"/>
+      </g>
+
+      <!-- Symbol: BURGER -->
+      <g id="sym-burger">
+        <path d="M18 42 C18 24 82 24 82 42 Z" fill="url(#gBun)" stroke="#B45309" stroke-width="1.5"/>
+        <ellipse cx="36" cy="30" rx="2" ry="1.2" fill="#FEF3C7"/>
+        <ellipse cx="50" cy="27" rx="2" ry="1.2" fill="#FEF3C7"/>
+        <ellipse cx="64" cy="31" rx="2" ry="1.2" fill="#FEF3C7"/>
+        <path d="M14 44 Q23 50 32 44 Q41 50 50 44 Q59 50 68 44 Q77 50 86 44 L84 48 Q75 54 66 48 Q57 54 48 48 Q39 54 30 48 Q21 54 12 48 Z" fill="#22C55E"/>
+        <rect x="18" y="49" width="64" height="6" rx="3" fill="#EF4444"/>
+        <polygon points="16,56 84,56 50,64" fill="#FACC15"/>
+        <rect x="16" y="58" width="68" height="10" rx="5" fill="url(#gPatty)"/>
+        <rect x="20" y="70" width="60" height="10" rx="5" fill="url(#gBun)" stroke="#B45309" stroke-width="1.5"/>
+      </g>
+
+      <!-- Symbol: FRIES -->
+      <g id="sym-fries">
+        <rect x="26" y="20" width="8" height="42" rx="2" fill="#FACC15" stroke="#CA8A04" stroke-width="1" transform="rotate(-10 30 40)"/>
+        <rect x="36" y="14" width="8" height="46" rx="2" fill="#FDE047" stroke="#EAB308" stroke-width="1" transform="rotate(-4 40 37)"/>
+        <rect x="46" y="12" width="8" height="48" rx="2" fill="#FACC15" stroke="#CA8A04" stroke-width="1"/>
+        <rect x="56" y="16" width="8" height="44" rx="2" fill="#FDE047" stroke="#EAB308" stroke-width="1" transform="rotate(5 60 38)"/>
+        <rect x="66" y="22" width="8" height="40" rx="2" fill="#FACC15" stroke="#CA8A04" stroke-width="1" transform="rotate(12 70 42)"/>
+        <polygon points="20,48 80,48 72,90 28,90" fill="#DC2626" stroke="#991B1B" stroke-width="2"/>
+        <path d="M36 48 C44 56 56 56 64 48" fill="#991B1B"/>
+        <rect x="42" y="62" width="16" height="14" rx="2" fill="#FACC15"/>
+      </g>
+
+      <!-- Symbol: CAKE -->
+      <g id="sym-cake">
+        <polygon points="50,34 88,72 12,72" fill="#FFF" stroke="#E2E8F0" stroke-width="1.5"/>
+        <rect x="12" y="70" width="76" height="12" rx="3" fill="#BE123C"/>
+        <path d="M12 66 Q50 62 88 66" stroke="#FDA4AF" stroke-width="3" stroke-linecap="round"/>
+        <path d="M50 34 C52 24 58 18 64 16" stroke="#15803D" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+        <circle cx="50" cy="34" r="8" fill="url(#gCherry)"/>
+        <circle cx="48" cy="31" r="2" fill="#FFF" opacity="0.8"/>
+      </g>
+
+      <!-- Symbol: BANANA -->
+      <g id="sym-banana">
+        <path d="M38 24 C54 28 72 44 70 74 C58 64 48 46 38 24 Z" fill="#EAB308" stroke="#CA8A04" stroke-width="1.5"/>
+        <path d="M30 28 C46 32 64 48 62 78 C50 68 40 50 30 28 Z" fill="url(#gBanana)" stroke="#CA8A04" stroke-width="1.5"/>
+        <path d="M30 28 L27 24 C28 22 32 23 34 26 Z" fill="#65A30D"/>
+        <circle cx="62" cy="78" r="2.5" fill="#854D0E"/>
+      </g>
+
+      <!-- Symbol: LEMON -->
+      <g id="sym-lemon">
+        <g transform="rotate(-30 50 50)">
+          <ellipse cx="50" cy="50" rx="36" ry="24" fill="url(#gLemon)" stroke="#A16207" stroke-width="1.5"/>
+          <path d="M14 50 Q10 50 8 48 Q10 52 14 50 Z" fill="#CA8A04"/>
+          <path d="M86 50 Q90 50 92 48 Q90 52 86 50 Z" fill="#CA8A04"/>
+          <ellipse cx="44" cy="44" rx="14" ry="7" fill="#FFF" opacity="0.6"/>
+        </g>
+      </g>
+
+      <!-- Symbol: CHERRY -->
+      <g id="sym-cherry">
+        <path d="M50 14 C51 32 37 46 36 60" stroke="#15803D" stroke-width="4" stroke-linecap="round" fill="none"/>
+        <path d="M50 14 C55 34 68 46 68 62" stroke="#15803D" stroke-width="4" stroke-linecap="round" fill="none"/>
+        <path d="M50 14 C62 8 72 14 74 20 C64 24 54 20 50 14 Z" fill="#22C55E"/>
+        <circle cx="34" cy="65" r="18" fill="url(#gCherry)"/>
+        <ellipse cx="28" cy="58" rx="5" ry="3" fill="#FFF" opacity="0.75" transform="rotate(-30 28 58)"/>
+        <circle cx="68" cy="67" r="18" fill="url(#gCherry)"/>
+        <ellipse cx="62" cy="60" rx="5" ry="3" fill="#FFF" opacity="0.75" transform="rotate(-30 62 60)"/>
+      </g>
+
+      <!-- Symbol: CLOVER -->
+      <g id="sym-clover">
+        <path d="M50 50 C52 74 60 86 64 88" stroke="#16A34A" stroke-width="5" stroke-linecap="round" fill="none"/>
+        <path d="M50 50 C38 32 38 18 50 20 C62 18 62 32 50 50 Z" fill="url(#gClover)"/>
+        <path d="M50 50 C38 68 38 82 50 80 C62 82 62 68 50 50 Z" fill="url(#gClover)"/>
+        <path d="M50 50 C32 38 18 38 20 50 C18 62 32 62 50 50 Z" fill="url(#gClover)"/>
+        <path d="M50 50 C68 38 82 38 80 50 C82 62 68 62 50 50 Z" fill="url(#gClover)"/>
+        <circle cx="50" cy="50" r="4" fill="#15803D"/>
+      </g>
+    </defs>
+  </svg>
+
+  <div class="app-screen">
+    <div class="bg-lights"></div>
+
+    <!-- Top Bar -->
+    <div class="top-bar">
+      <div class="top-left-actions">
+        <button class="circle-btn" id="exitBtn" title="Exit">✕</button>
+        <button class="circle-btn" id="rulesBtn" title="Paytable">ℹ</button>
+        <button class="circle-btn" id="soundBtn" title="Sound">🔊</button>
+      </div>
+      <div class="top-right-actions">
+        <button class="turbo-btn" id="turboBtn">⚡ TURBO</button>
+        <button class="free-gift-btn" id="freeGiftBtn">🎁 +10K</button>
+        <div class="diamond-pill" id="rechargeBtn">
+          <span>💎</span>
+          <span class="amount" id="balanceText">0</span>
+          <button class="pill-add-btn">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Jackpot Bar -->
+    <div class="jackpot-marquee">
+      <div class="jackpot-box">
+        <div class="jackpot-title">⭐ GRAND JACKPOT</div>
+        <div class="jackpot-amount" id="jackpotText">276,619 💎</div>
+      </div>
+    </div>
+
+    <!-- Bingo Card -->
+    <div class="bingo-card-container">
+      <div class="bingo-header">
+        <span>B-I-N-G-O Bonus Frenzy</span>
+        <span id="bingoStatus">0/5 COLLECTED</span>
+      </div>
+      <div class="bingo-tiles-row">
+        <div class="bingo-tile" id="tile-0">B</div>
+        <div class="bingo-tile" id="tile-1">I</div>
+        <div class="bingo-tile" id="tile-2">N</div>
+        <div class="bingo-tile" id="tile-3">G</div>
+        <div class="bingo-tile" id="tile-4">O</div>
+      </div>
+    </div>
+
+    <!-- Fullscreen Slot Stage -->
+    <div class="machine-wrapper">
+      <div class="slot-frame">
+        <div class="reels-window" id="reelsWindow">
+          <svg class="payline-overlay" id="paylineSvg" viewBox="0 0 500 300" preserveAspectRatio="none"></svg>
+          <div class="reel-col" id="col-0"><div class="reel-strip" id="strip-0"></div></div>
+          <div class="reel-col" id="col-1"><div class="reel-strip" id="strip-1"></div></div>
+          <div class="reel-col" id="col-2"><div class="reel-strip" id="strip-2"></div></div>
+          <div class="reel-col" id="col-3"><div class="reel-strip" id="strip-3"></div></div>
+          <div class="reel-col" id="col-4"><div class="reel-strip" id="strip-4"></div></div>
+        </div>
+
+        <div class="floating-win" id="floatingWin">
+          <span style="font-size: 22px;">🏆</span>
+          <span class="floating-win-text" id="floatingWinText">WIN +12,000 💎</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Low Balance Prompt -->
+    <div class="low-balance-bar" id="lowBalanceBar">
+      <span class="low-balance-title">Insufficient Diamonds!</span>
+      <div class="low-balance-actions">
+        <button class="action-btn-sm" id="noticeClaimBtn" style="background:#22c55e;color:white;">🎁 Free 10K</button>
+        <button class="action-btn-sm" id="noticeRechargeBtn" style="background:#3b82f6;color:white;">Recharge</button>
+      </div>
+    </div>
+
+    <!-- Control Deck -->
+    <div class="controls-deck">
+      <div class="deck-top-row">
+        <div class="deck-stepper">
+          <button class="deck-stepper-btn" id="linesMinus">−</button>
+          <div>
+            <div class="deck-stepper-label" id="linesText">9 LINES</div>
+            <div class="deck-sub-label">PAYLINES</div>
+          </div>
+          <button class="deck-stepper-btn" id="linesPlus">+</button>
+        </div>
+        <div class="deck-stepper">
+          <button class="deck-stepper-btn" id="betMinus">−</button>
+          <div>
+            <div class="deck-stepper-label" id="betText">2,000 💎</div>
+            <div class="deck-sub-label">BET / LINE</div>
+          </div>
+          <button class="deck-stepper-btn" id="betPlus">+</button>
+        </div>
+      </div>
+
+      <div class="deck-bottom-row">
+        <button class="auto-btn" id="autoBtn">AUTO</button>
+        <button class="max-btn" id="maxBtn">MAX</button>
+        <button class="spin-btn" id="spinBtn">
+          <span class="spin-btn-title" id="spinTitle">SPIN !</span>
+          <span class="spin-btn-sub" id="spinSub">TOTAL: 18,000 💎</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Big Win / Jackpot Modal -->
+  <div class="modal-backdrop" id="winModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="winModalTitle" style="font-family:'Arial Black';font-size:16px;">🎉 MEGA WINNER! 🎉</h3>
+      </div>
+      <div style="text-align:center;padding:12px 0;">
+        <div id="winModalAmount" style="font-family:'Arial Black';font-size:26px;color:#facc15;">+50,000 💎</div>
+      </div>
+      <button id="winDismissBtn" style="width:100%;height:40px;border-radius:12px;background:#22c55e;color:white;font-weight:900;border:none;cursor:pointer;font-size:14px;">COLLECT & SPIN</button>
+    </div>
+  </div>
+
+  <!-- Rules Modal -->
+  <div class="modal-backdrop" id="rulesModal">
+    <div class="modal-box" style="max-height:80vh;overflow-y:auto;">
+      <div class="modal-header">
+        <h3 style="font-family:'Arial Black';font-size:15px;">PAYTABLE & RULES</h3>
+        <span id="rulesCloseBtn" style="font-size:18px;cursor:pointer;color:#94a3b8;">✕</span>
+      </div>
+      <div id="rulesList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      <button id="rulesGotItBtn" style="width:100%;height:38px;border-radius:10px;background:#3b82f6;color:white;font-weight:900;border:none;cursor:pointer;">GOT IT</button>
+    </div>
+  </div>
+
+  <script>
+    // Audio Synthesizer
+    class CasinoAudio {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) this.ctx = new AC();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume().catch(() => {});
+        }
+      }
+      playSpin() {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(640, this.ctx.currentTime + 0.12);
+          gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.13);
+        } catch (_) {}
+      }
+      playReelStop() {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(140, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(45, this.ctx.currentTime + 0.08);
+          gain.gain.setValueAtTime(0.28, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.08);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.085);
+        } catch (_) {}
+      }
+      playWin() {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const t = this.ctx.currentTime + idx * 0.08;
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.12, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.32);
+          });
+        } catch (_) {}
+      }
+      playLoss() {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          [220, 180, 140].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const t = this.ctx.currentTime + idx * 0.08;
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.05, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.13);
+          });
+        } catch (_) {}
+      }
+      playJackpot() {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const t = this.ctx.currentTime + idx * 0.09;
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.15, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.42);
+          });
+        } catch (_) {}
+      }
+    }
+
+    const audio = new CasinoAudio();
+
+    // Sparkling Particle Fireworks Engine
+    const canvas = document.getElementById('sparkleCanvas');
+    const ctx = canvas.getContext('2d');
+    let particles = [];
+    let isSparkling = false;
+
+    function resizeCanvas() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function triggerSparkles(x, y, count = 35) {
+      const colors = ['#FBBF24', '#F59E0B', '#EF4444', '#38BDF8', '#C084FC', '#FFFFFF'];
+      for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 6 + 2;
+        particles.push({
+          x: x || canvas.width / 2,
+          y: y || canvas.height / 2,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 1.5,
+          color: colors[Math.floor(Math.random() * colors.length)],
+          size: Math.random() * 5 + 3,
+          alpha: 1,
+          decay: Math.random() * 0.02 + 0.015,
+          isStar: Math.random() > 0.4
+        });
+      }
+      if (!isSparkling) {
+        isSparkling = true;
+        requestAnimationFrame(renderSparkles);
+      }
+    }
+
+    function renderSparkles() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.12; // gravity
+        p.alpha -= p.decay;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+
+        ctx.save();
+        ctx.globalAlpha = p.alpha;
+        ctx.fillStyle = p.color;
+
+        if (p.isStar) {
+          // Draw a sparkling 4-point star
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      if (particles.length > 0) {
+        requestAnimationFrame(renderSparkles);
+      } else {
+        isSparkling = false;
+      }
+    }
+
+    const SYMBOLS_INFO = {
+      wild:   { name: 'WILD',   payout: { 3: 50, 4: 200, 5: 1000 } },
+      dice:   { name: 'DICE',   payout: { 3: 40, 4: 150, 5: 600 } },
+      burger: { name: 'BURGER', payout: { 3: 20, 4: 80,  5: 300 } },
+      fries:  { name: 'FRIES',  payout: { 3: 15, 4: 60,  5: 250 } },
+      cake:   { name: 'CAKE',   payout: { 3: 12, 4: 50,  5: 200 } },
+      banana: { name: 'BANANA', payout: { 3: 10, 4: 40,  5: 150 } },
+      lemon:  { name: 'LEMON',  payout: { 3: 8,  4: 30,  5: 100 } },
+      cherry: { name: 'CHERRY', payout: { 3: 5,  4: 20,  5: 80 } },
+      clover: { name: 'CLOVER', payout: { 3: 5,  4: 15,  5: 50 } },
+    };
+    const SYMBOL_KEYS = Object.keys(SYMBOLS_INFO);
+
+    const PAYLINES = [
+      { id: 1, name: 'Center Row', color: '#EF4444', coords: [1, 1, 1, 1, 1] },
+      { id: 2, name: 'Top Row',    color: '#3B82F6', coords: [0, 0, 0, 0, 0] },
+      { id: 3, name: 'Bottom Row', color: '#10B981', coords: [2, 2, 2, 2, 2] },
+      { id: 4, name: 'V-Shape',    color: '#F59E0B', coords: [0, 1, 2, 1, 0] },
+      { id: 5, name: 'Inverted-V', color: '#8B5CF6', coords: [2, 1, 0, 1, 2] },
+      { id: 6, name: 'Zig-Zag Top',color: '#EC4899', coords: [0, 0, 1, 2, 2] },
+      { id: 7, name: 'Zig-Zag Bot',color: '#06B6D4', coords: [2, 2, 1, 0, 0] },
+      { id: 8, name: 'High Crest', color: '#F97316', coords: [1, 0, 0, 0, 1] },
+      { id: 9, name: 'Low Valley', color: '#84CC16', coords: [1, 2, 2, 2, 1] }
+    ];
+
+    const BET_TIERS = [500, 1000, 2000, 5000, 10000, 25000, 50000];
+    let betIndex = 2; // 2,000
+    let lines = 9;
+    let balance = 50000;
+    let jackpot = 276619;
+    let spinState = 'idle';
+    let autoSpin = false;
+    let isTurbo = false;
+    let isMuted = false;
+    let bingoCollected = [false, false, false, false, false];
+    let pendingResult = null;
+    let landedCount = 0;
+
+    let cellHeight = 76;
+    const STRIP_CELL_COUNT = 15; // 0,1,2 = initial; 3-11 = runway; 12,13,14 = target
+    const TARGET_INDEX = 12;
+
+    let currentMatrix = [
+      ['cherry', 'cake', 'banana'],
+      ['lemon', 'burger', 'wild'],
+      ['clover', 'fries', 'cherry'],
+      ['dice', 'wild', 'burger'],
+      ['fries', 'cake', 'lemon']
+    ];
+
+    // DOM Elements
+    const reelsWindow = document.getElementById('reelsWindow');
+    const balanceText = document.getElementById('balanceText');
+    const jackpotText = document.getElementById('jackpotText');
+    const betText = document.getElementById('betText');
+    const linesText = document.getElementById('linesText');
+    const spinBtn = document.getElementById('spinBtn');
+    const spinTitle = document.getElementById('spinTitle');
+    const spinSub = document.getElementById('spinSub');
+    const autoBtn = document.getElementById('autoBtn');
+    const turboBtn = document.getElementById('turboBtn');
+    const soundBtn = document.getElementById('soundBtn');
+    const freeGiftBtn = document.getElementById('freeGiftBtn');
+    const lowBalanceBar = document.getElementById('lowBalanceBar');
+    const floatingWin = document.getElementById('floatingWin');
+    const floatingWinText = document.getElementById('floatingWinText');
+    const winModal = document.getElementById('winModal');
+    const winModalTitle = document.getElementById('winModalTitle');
+    const winModalAmount = document.getElementById('winModalAmount');
+    const paylineSvg = document.getElementById('paylineSvg');
+    const bingoStatus = document.getElementById('bingoStatus');
+
+    function updateReelDimensions() {
+      const h = reelsWindow.clientHeight;
+      if (h > 60) {
+        cellHeight = Math.floor(h / 3);
+        for (let c = 0; c < 5; c++) {
+          const cells = reelStrips[c].cells;
+          for (let i = 0; i < STRIP_CELL_COUNT; i++) {
+            cells[i].cell.style.height = cellHeight + 'px';
+          }
+        }
+      }
+    }
+
+    // Pre-build Reel Strips
+    const reelStrips = [];
+    for (let c = 0; c < 5; c++) {
+      const stripEl = document.getElementById('strip-' + c);
+      stripEl.innerHTML = '';
+      const cells = [];
+      for (let i = 0; i < STRIP_CELL_COUNT; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'symbol-cell';
+        cell.style.height = cellHeight + 'px';
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 100 100');
+        svg.setAttribute('class', 'symbol-icon');
+        const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+        const sym = (i < 3) ? currentMatrix[c][i] : 'cherry';
+        use.setAttribute('href', '#sym-' + sym);
+        svg.appendChild(use);
+        cell.appendChild(svg);
+        stripEl.appendChild(cell);
+        cells.push({ cell, use });
+      }
+      reelStrips.push({ stripEl, cells });
+    }
+
+    window.addEventListener('resize', updateReelDimensions);
+    setTimeout(updateReelDimensions, 50);
+
+    function setCellSymbol(colIdx, cellIdx, symId) {
+      const validSym = SYMBOLS_INFO[symId] ? symId : 'cherry';
+      reelStrips[colIdx].cells[cellIdx].use.setAttribute('href', '#sym-' + validSym);
+    }
+
+    function updateDeckUI() {
+      const betPerLine = BET_TIERS[betIndex];
+      const totalBet = betPerLine * lines;
+      balanceText.textContent = balance.toLocaleString();
+      jackpotText.textContent = jackpot.toLocaleString() + ' 💎';
+      betText.textContent = betPerLine.toLocaleString() + ' 💎';
+      linesText.textContent = lines + ' LINES';
+      spinSub.textContent = 'TOTAL: ' + totalBet.toLocaleString() + ' 💎';
+      freeGiftBtn.style.display = balance < 5000 ? 'flex' : 'none';
+      autoBtn.className = 'auto-btn' + (autoSpin ? ' active' : '');
+      autoBtn.textContent = autoSpin ? 'STOP' : 'AUTO';
+      turboBtn.className = 'turbo-btn' + (isTurbo ? ' active' : '');
+
+      const count = bingoCollected.filter(Boolean).length;
+      bingoStatus.textContent = count + '/5 COLLECTED';
+      for (let i = 0; i < 5; i++) {
+        const t = document.getElementById('tile-' + i);
+        if (t) t.className = 'bingo-tile' + (bingoCollected[i] ? ' active' : '');
+      }
+    }
+
+    function clearHighlights() {
+      paylineSvg.innerHTML = '';
+      floatingWin.style.display = 'none';
+      for (let c = 0; c < 5; c++) {
+        for (let r = 0; r < 3; r++) {
+          reelStrips[c].cells[r].cell.classList.remove('winning-symbol');
+        }
+      }
+    }
+
+    // High Performance Smooth Spin
+    function executeSpin() {
+      // Immediately dismiss any open modal on spin click
+      winModal.style.display = 'none';
+
+      const betPerLine = BET_TIERS[betIndex];
+      const totalBet = betPerLine * lines;
+
+      if (spinState !== 'idle') return;
+      if (balance < totalBet) {
+        autoSpin = false;
+        lowBalanceBar.style.display = 'flex';
+        updateDeckUI();
+        return;
+      }
+
+      lowBalanceBar.style.display = 'none';
+      clearHighlights();
+
+      spinState = 'spinning';
+      landedCount = 0;
+      balance = Math.max(0, balance - totalBet);
+      spinTitle.textContent = 'SPINNING...';
+      spinBtn.disabled = true;
+      updateDeckUI();
+
+      audio.playSpin();
+
+      // Notify Flutter Bridge
+      pendingResult = null;
+      if (window.FlutterApp) {
+        window.FlutterApp.postMessage(JSON.stringify({
+          action: 'spin',
+          lines: lines,
+          betPerLine: betPerLine,
+          totalBet: totalBet
+        }));
+      }
+
+      const totalTravel = TARGET_INDEX * cellHeight;
+
+      // Populate runway (cells 3 to 11) with crisp, sharp symbols
+      for (let c = 0; c < 5; c++) {
+        let prev = currentMatrix[c][2];
+        for (let i = 3; i < TARGET_INDEX; i++) {
+          const candidates = SYMBOL_KEYS.filter(k => k !== prev);
+          const pick = candidates[Math.floor(Math.random() * candidates.length)];
+          setCellSymbol(c, i, pick);
+          prev = pick;
+        }
+
+        // Set tentative landing target (overwritten when server responds)
+        for (let r = 0; r < 3; r++) {
+          const rand = SYMBOL_KEYS[Math.floor(Math.random() * SYMBOL_KEYS.length)];
+          setCellSymbol(c, TARGET_INDEX + r, rand);
+        }
+
+        // Reset strip without transition
+        const strip = reelStrips[c].stripEl;
+        strip.style.transition = 'none';
+        strip.style.transform = 'translate3d(0, 0px, 0)';
+      }
+
+      // Next tick: Launch buttery 60fps compositor transitions
+      requestAnimationFrame(() => {
+        for (let c = 0; c < 5; c++) {
+          const strip = reelStrips[c].stripEl;
+          // Smooth progressive reel stop timing
+          const duration = isTurbo ? (0.35 + c * 0.08) : (0.85 + c * 0.18);
+          // Perfectly tuned slot easing: fast roll + authentic mechanical bounce
+          const ease = isTurbo ? 'cubic-bezier(0.12, 0.85, 0.25, 1)' : 'cubic-bezier(0.16, 0.94, 0.3, 1.06)';
+          strip.style.transition = 'transform ' + duration + 's ' + ease;
+          strip.style.transform = 'translate3d(0, -' + totalTravel + 'px, 0)';
+
+          setTimeout(() => {
+            onReelStopped(c);
+          }, duration * 1000);
+        }
+      });
+    }
+
+    function onReelStopped(colIdx) {
+      audio.playReelStop();
+
+      // Final 3 landing symbols
+      let landing = [];
+      if (pendingResult && pendingResult.matrix && pendingResult.matrix[colIdx]) {
+        landing = pendingResult.matrix[colIdx];
+      } else {
+        landing = [
+          reelStrips[colIdx].cells[TARGET_INDEX].use.getAttribute('href').replace('#sym-', ''),
+          reelStrips[colIdx].cells[TARGET_INDEX + 1].use.getAttribute('href').replace('#sym-', ''),
+          reelStrips[colIdx].cells[TARGET_INDEX + 2].use.getAttribute('href').replace('#sym-', '')
+        ];
+      }
+
+      currentMatrix[colIdx] = landing;
+
+      // Swap target symbols into cells 0, 1, 2 and reset strip to 0px
+      for (let r = 0; r < 3; r++) {
+        setCellSymbol(colIdx, r, landing[r]);
+      }
+      const strip = reelStrips[colIdx].stripEl;
+      strip.style.transition = 'none';
+      strip.style.transform = 'translate3d(0, 0px, 0)';
+
+      landedCount++;
+      if (landedCount >= 5) {
+        onAllReelsLanded();
+      }
+    }
+
+    function onAllReelsLanded() {
+      spinState = 'idle';
+      spinTitle.textContent = 'SPIN !';
+      spinBtn.disabled = false;
+
+      const res = pendingResult;
+      if (res && res.totalWin > 0) {
+        audio.playWin();
+        if (res.newBalance !== undefined) balance = res.newBalance;
+        else balance += res.totalWin;
+
+        floatingWinText.textContent = 'WIN +' + res.totalWin.toLocaleString() + ' 💎';
+        floatingWin.style.display = 'flex';
+
+        // Trigger gorgeous sparkling particles on win!
+        triggerSparkles(canvas.width / 2, canvas.height * 0.45, 50);
+
+        // Highlight winning symbols and draw laser paylines
+        if (res.winningLines && res.winningLines.length > 0) {
+          drawLaserPaylines(res.winningLines);
+        }
+
+        // Advance Bingo Card
+        const unlitIdx = bingoCollected.indexOf(false);
+        if (unlitIdx !== -1) {
+          bingoCollected[unlitIdx] = true;
+          if (bingoCollected.every(Boolean)) {
+            setTimeout(() => {
+              audio.playJackpot();
+              triggerSparkles(canvas.width / 2, canvas.height * 0.35, 100);
+              winModalTitle.textContent = '🎉 BINGO FRENZY JACKPOT! 🎉';
+              winModalAmount.textContent = '+25,000 💎';
+              winModal.style.display = 'flex';
+              balance += 25000;
+              bingoCollected = [false, false, false, false, false];
+              updateDeckUI();
+            }, 500);
+          }
+        }
+
+        // Mega Win Modal
+        const totalBet = BET_TIERS[betIndex] * lines;
+        if (res.totalWin >= totalBet * 5) {
+          winModalTitle.textContent = '⭐ MEGA WINNER! ⭐';
+          winModalAmount.textContent = '+' + res.totalWin.toLocaleString() + ' 💎';
+          winModal.style.display = 'flex';
+        }
+
+        updateDeckUI();
+        if (autoSpin) setTimeout(executeSpin, isTurbo ? 400 : 1200);
+      } else {
+        if (res && res.newBalance !== undefined) balance = res.newBalance;
+        audio.playLoss();
+        updateDeckUI();
+        if (autoSpin) setTimeout(executeSpin, isTurbo ? 350 : 600);
+      }
+    }
+
+    // Hardware-Accelerated SVG Paylines
+    function drawLaserPaylines(winningLines) {
+      paylineSvg.innerHTML = '';
+      const w = reelsWindow.clientWidth;
+      const h = reelsWindow.clientHeight;
+      paylineSvg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+
+      winningLines.forEach(win => {
+        if (!win.positions) return;
+        const coords = [];
+        win.positions.forEach(([colIdx, rowIdx]) => {
+          // Highlight cell
+          reelStrips[colIdx].cells[rowIdx].cell.classList.add('winning-symbol');
+
+          // Centered coordinates for each cell
+          const x = (colIdx * (w / 5)) + (w / 10);
+          const y = (rowIdx * (h / 3)) + (h / 6);
+          coords.push({ x, y });
+
+          // Mini sparkle burst on winning cells
+          triggerSparkles(x + 10, y + reelsWindow.offsetTop, 10);
+        });
+
+        if (coords.length > 0) {
+          let pathD = 'M ' + coords[0].x + ' ' + coords[0].y;
+          for (let i = 1; i < coords.length; i++) {
+            pathD += ' L ' + coords[i].x + ' ' + coords[i].y;
+          }
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', pathD);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', (win.line && win.line.color) || '#FBBF24');
+          path.setAttribute('stroke-width', '4');
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('stroke-linejoin', 'round');
+          path.setAttribute('filter', 'drop-shadow(0 0 6px #FBBF24)');
+          paylineSvg.appendChild(path);
+        }
+      });
+    }
+
+    // Event Handlers
+    spinBtn.onclick = () => {
+      winModal.style.display = 'none';
+      executeSpin();
+    };
+
+    document.getElementById('betMinus').onclick = () => {
+      if (spinState === 'idle' && betIndex > 0) { betIndex--; updateDeckUI(); }
+    };
+    document.getElementById('betPlus').onclick = () => {
+      if (spinState === 'idle' && betIndex < BET_TIERS.length - 1) { betIndex++; updateDeckUI(); }
+    };
+    document.getElementById('linesMinus').onclick = () => {
+      if (spinState === 'idle' && lines > 1) { lines--; updateDeckUI(); }
+    };
+    document.getElementById('linesPlus').onclick = () => {
+      if (spinState === 'idle' && lines < 9) { lines++; updateDeckUI(); }
+    };
+    document.getElementById('maxBtn').onclick = () => {
+      if (spinState === 'idle') { lines = 9; betIndex = BET_TIERS.length - 1; updateDeckUI(); }
+    };
+    autoBtn.onclick = () => {
+      if (spinState === 'idle') { autoSpin = !autoSpin; updateDeckUI(); }
+      else if (autoSpin) { autoSpin = false; updateDeckUI(); }
+    };
+    turboBtn.onclick = () => { isTurbo = !isTurbo; updateDeckUI(); };
+    soundBtn.onclick = () => {
+      isMuted = !isMuted;
+      audio.muted = isMuted;
+      soundBtn.textContent = isMuted ? '🔇' : '🔊';
+    };
+    document.getElementById('exitBtn').onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'close' }));
+    };
+    document.getElementById('rechargeBtn').onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'recharge' }));
+    };
+    freeGiftBtn.onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'claim_free_coins' }));
+    };
+    document.getElementById('noticeClaimBtn').onclick = () => {
+      lowBalanceBar.style.display = 'none';
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'claim_free_coins' }));
+    };
+    document.getElementById('noticeRechargeBtn').onclick = () => {
+      lowBalanceBar.style.display = 'none';
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'recharge' }));
+    };
+    document.getElementById('winDismissBtn').onclick = () => {
+      winModal.style.display = 'none';
+      executeSpin();
+    };
+    winModal.onclick = (e) => {
+      if (e.target === winModal) {
+        winModal.style.display = 'none';
+        executeSpin();
+      }
+    };
+
+    // Rules Dialog
+    document.getElementById('rulesBtn').onclick = () => {
+      const list = document.getElementById('rulesList');
+      list.innerHTML = '';
+      SYMBOL_KEYS.forEach(key => {
+        const s = SYMBOLS_INFO[key];
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:#1e293b;padding:6px 10px;border-radius:8px;';
+        row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><svg viewBox="0 0 100 100" style="width:28px;height:28px;"><use href="#sym-' + key + '"/></svg><span style="font-size:12px;font-weight:bold;color:#fff;">' + s.name + '</span></div><div style="font-size:11px;font-weight:bold;color:#facc15;display:flex;gap:6px;"><span>3x ' + s.payout[3] + 'x</span><span>4x ' + s.payout[4] + 'x</span><span>5x ' + s.payout[5] + 'x</span></div>';
+        list.appendChild(row);
+      });
+      document.getElementById('rulesModal').style.display = 'flex';
+    };
+    document.getElementById('rulesCloseBtn').onclick = () => document.getElementById('rulesModal').style.display = 'none';
+    document.getElementById('rulesGotItBtn').onclick = () => document.getElementById('rulesModal').style.display = 'none';
+
+    // Bridge Listeners for Flutter
+    window.initUserData = (data) => {
+      if (!data) return;
+      if (data.balance !== undefined) balance = Number(data.balance);
+      if (data.jackpot !== undefined) jackpot = Number(data.jackpot);
+      updateDeckUI();
+    };
+    window.updateUserBalance = (newBal) => {
+      if (newBal !== undefined) {
+        balance = Number(newBal);
+        lowBalanceBar.style.display = 'none';
+        updateDeckUI();
+      }
+    };
+    window.onServerSpinResult = (data) => {
+      try {
+        const res = typeof data === 'string' ? JSON.parse(data) : data;
+        pendingResult = res;
+        if (res.jackpot !== undefined) jackpot = res.jackpot;
+
+        // Immediately update landing cells for any spinning reel
+        if (res.matrix) {
+          for (let c = 0; c < 5; c++) {
+            if (res.matrix[c]) {
+              for (let r = 0; r < 3; r++) {
+                setCellSymbol(c, TARGET_INDEX + r, res.matrix[c][r]);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Spin result parse error:', e);
+      }
+    };
+    window.onInsufficientBalance = () => {
+      spinState = 'idle';
+      spinTitle.textContent = 'SPIN !';
+      spinBtn.disabled = false;
+      autoSpin = false;
+      lowBalanceBar.style.display = 'flex';
+      updateDeckUI();
+    };
+
+    // Instant Bootup
+    updateDeckUI();
+    setTimeout(updateReelDimensions, 100);
+
+    // Signal ready to Flutter bridge immediately
+    if (window.FlutterApp) {
+      window.FlutterApp.postMessage(JSON.stringify({ action: 'ready' }));
+    }
+  </script>
+</body>
+</html>

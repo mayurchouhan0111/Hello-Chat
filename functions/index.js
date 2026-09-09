@@ -971,6 +971,21 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         diamondBalance: 0,
         diamondStock: 0,
         beansBalance: 0,
+        totalDiamondsSpent: 0,
+        totalDiamondsSent: 0,
+        dailyDiamondsSent: 0,
+        weeklyDiamondsSent: 0,
+        monthlyDiamondsSent: 0,
+        totalBeansReceived: 0,
+        dailyBeansReceived: 0,
+        weeklyBeansReceived: 0,
+        monthlyBeansReceived: 0,
+        lastDailySentDate: "",
+        lastWeeklySentDate: "",
+        lastMonthlySentDate: "",
+        lastDailyReceivedDate: "",
+        lastWeeklyReceivedDate: "",
+        lastMonthlyReceivedDate: "",
         xp: 0,
         dailyXP: 0,
         weeklyXP: 0,
@@ -1808,6 +1823,28 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
         console.log(`🎁 Process Started: ${senderUid} -> ${targetUid} (IsMoment: ${isMoment})`);
 
+        // 🎁 2.2 Active Gift Event Pre-Fetch
+        let activeGiftEvents = [];
+        try {
+            const now = new Date();
+            const eventsSnap = await db.collection("gift_events")
+                .where("isActive", "==", true)
+                .get();
+            if (!eventsSnap.empty) {
+                activeGiftEvents = eventsSnap.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .filter(ev => {
+                        const start = ev.startDate ? (ev.startDate.toDate ? ev.startDate.toDate() : new Date(ev.startDate)) : null;
+                        const end = ev.endDate ? (ev.endDate.toDate ? ev.endDate.toDate() : new Date(ev.endDate)) : null;
+                        if (start && now < start) return false;
+                        if (end && now > end) return false;
+                        return true;
+                    });
+            }
+        } catch (evErr) {
+            console.warn("[GIFT_EVENT] Error checking active events:", evErr.message);
+        }
+
         const result = await db.runTransaction(async (transaction) => {
             const senderRef = db.collection("users").doc(senderUid);
             const receiverRef = db.collection("users").doc(targetUid);
@@ -1917,14 +1954,37 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 }
             }
 
-            // 💎 4. Deduct & Add XP (500 diamonds = 1 XP)
-            const currentSpent = senderDoc.data().totalDiamondsSpent || (senderDoc.data().xp * 500) || 0;
+            // 📅 Temporal period keys (UTC)
+            const now = new Date();
+            const todayStr = now.toISOString().substring(0, 10);
+            const thisMonthStr = now.toISOString().substring(0, 7);
+            const utc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+            const dayNum = utc.getUTCDay() || 7;
+            utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+            const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+            const weekNo = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
+            const thisWeekStr = `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+
+            // 💎 4. Deduct & Add Diamonds Sent / XP (500 diamonds = 1 XP)
+            const senderInfo = senderDoc.data();
+            const currentSpent = senderInfo.totalDiamondsSpent || (senderInfo.xp * 500) || 0;
             const newSpent = currentSpent + totalCost;
             const senderXP = Math.floor(newSpent / 500) - Math.floor(currentSpent / 500);
+
+            const senderDaily = (senderInfo.lastDailySentDate === todayStr) ? (senderInfo.dailyDiamondsSent || 0) : 0;
+            const senderWeekly = (senderInfo.lastWeeklySentDate === thisWeekStr) ? (senderInfo.weeklyDiamondsSent || 0) : 0;
+            const senderMonthly = (senderInfo.lastMonthlySentDate === thisMonthStr) ? (senderInfo.monthlyDiamondsSent || 0) : 0;
             
             transaction.update(senderRef, {
                 diamondBalance: admin.firestore.FieldValue.increment(-totalCost),
                 totalDiamondsSpent: admin.firestore.FieldValue.increment(totalCost),
+                totalDiamondsSent: admin.firestore.FieldValue.increment(totalCost),
+                dailyDiamondsSent: senderDaily + totalCost,
+                weeklyDiamondsSent: senderWeekly + totalCost,
+                monthlyDiamondsSent: senderMonthly + totalCost,
+                lastDailySentDate: todayStr,
+                lastWeeklySentDate: thisWeekStr,
+                lastMonthlySentDate: thisMonthStr,
                 xp: admin.firestore.FieldValue.increment(senderXP),
                 benchXP: admin.firestore.FieldValue.increment(senderXP),
                 dailyXP: admin.firestore.FieldValue.increment(senderXP),
@@ -1965,9 +2025,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 const currentEarned = receiverData.totalDiamondsReceived || (receiverData.princeXP * 1000) || 0;
                 const newEarned = currentEarned + totalCost;
                 const receiverXP = Math.floor(newEarned / 1000) - Math.floor(currentEarned / 1000);
+
+                const receiverDaily = (receiverData.lastDailyReceivedDate === todayStr) ? (receiverData.dailyBeansReceived || 0) : 0;
+                const receiverWeekly = (receiverData.lastWeeklyReceivedDate === thisWeekStr) ? (receiverData.weeklyBeansReceived || 0) : 0;
+                const receiverMonthly = (receiverData.lastMonthlyReceivedDate === thisMonthStr) ? (receiverData.monthlyBeansReceived || 0) : 0;
                 
                 transaction.update(receiverRef, {
                     beansBalance: admin.firestore.FieldValue.increment(beansEarned),
+                    totalBeansReceived: admin.firestore.FieldValue.increment(beansEarned),
+                    dailyBeansReceived: receiverDaily + beansEarned,
+                    weeklyBeansReceived: receiverWeekly + beansEarned,
+                    monthlyBeansReceived: receiverMonthly + beansEarned,
+                    lastDailyReceivedDate: todayStr,
+                    lastWeeklyReceivedDate: thisWeekStr,
+                    lastMonthlyReceivedDate: thisMonthStr,
                     totalDiamondsReceived: admin.firestore.FieldValue.increment(totalCost),
                     princeXP: admin.firestore.FieldValue.increment(receiverXP),
                     dailyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
@@ -1976,15 +2047,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 });
 
                 // 🏆 Per-User ID Dedicated Top List Subcollection Updates
-                const now = new Date();
-                const todayStr = now.toISOString().substring(0, 10);
-                const thisMonthStr = now.toISOString().substring(0, 7);
-                const utc = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
-                const dayNum = utc.getUTCDay() || 7;
-                utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
-                const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
-                const weekNo = Math.ceil((((utc - yearStart) / 86400000) + 1) / 7);
-                const thisWeekStr = `${utc.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
 
                 const rankingPayload = {
                     amount: admin.firestore.FieldValue.increment(totalCost),
@@ -2115,20 +2177,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             // 🏆 Room Support & Room Weekly Earnings Reset Logic (Strict 1-Week Cycle)
             const nowUtc = new Date();
             const dUtc = new Date(Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate()));
-            const dayNum = dUtc.getUTCDay() || 7;
-            dUtc.setUTCDate(dUtc.getUTCDate() + 4 - dayNum);
-            const yearStart = new Date(Date.UTC(dUtc.getUTCFullYear(), 0, 1));
-            const weekNo = Math.ceil((((dUtc - yearStart) / 86400000) + 1) / 7);
-            const currentWeekId = `${dUtc.getUTCFullYear()}-W${weekNo < 10 ? '0' + weekNo : weekNo}`;
+            const cycleDayNum = dUtc.getUTCDay() || 7;
+            dUtc.setUTCDate(dUtc.getUTCDate() + 4 - cycleDayNum);
+            const cycleYearStart = new Date(Date.UTC(dUtc.getUTCFullYear(), 0, 1));
+            const cycleWeekNo = Math.ceil((((dUtc - cycleYearStart) / 86400000) + 1) / 7);
+            const cycleWeekId = `${dUtc.getUTCFullYear()}-W${cycleWeekNo < 10 ? '0' + cycleWeekNo : cycleWeekNo}`;
 
             const cycleData = cycleDoc.exists ? cycleDoc.data() : {};
-            const isSameWeekCycle = cycleData.weekId === currentWeekId;
+            const isSameWeekCycle = cycleData.weekId === cycleWeekId;
             const prevTotalCoins = isSameWeekCycle ? (cycleData.totalCoins || 0) : 0;
             const newTotalCoins = prevTotalCoins + totalCost;
 
             transaction.set(supportCycleRef, {
                 totalCoins: newTotalCoins,
-                weekId: currentWeekId,
+                weekId: cycleWeekId,
                 lastWeekCoins: isSameWeekCycle ? (cycleData.lastWeekCoins || 0) : (cycleData.totalCoins || 0),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
@@ -2180,6 +2242,44 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 });
             }
 
+            // 🎁 Process Gift Event Points & Participant Leaderboards
+            let earnedEventPoints = 0;
+            let activeEventId = null;
+            if (activeGiftEvents.length > 0) {
+                for (const ev of activeGiftEvents) {
+                    const eventGifts = Array.isArray(ev.gifts) ? ev.gifts : [];
+                    const matchedGift = eventGifts.find(g => g.giftId === giftId);
+                    if (matchedGift) {
+                        const ptsPerUnit = Number(matchedGift.eventPoints) || Number(matchedGift.priceInDiamonds) || (totalCost / qty);
+                        const totalPts = Math.round(ptsPerUnit * qty);
+                        earnedEventPoints += totalPts;
+                        activeEventId = ev.id;
+
+                        const participantRef = db.collection("gift_events").doc(ev.id).collection("participants").doc(senderUid);
+                        transaction.set(participantRef, {
+                            uid: senderUid,
+                            displayName: senderDoc.data()?.displayName || "User",
+                            profilePhotoUrl: senderDoc.data()?.profilePhotoUrl || "",
+                            gender: senderDoc.data()?.gender || "female",
+                            level: senderDoc.data()?.level || 1,
+                            vipTier: senderDoc.data()?.vipTier || "none",
+                            points: admin.firestore.FieldValue.increment(totalPts),
+                            giftCount: admin.firestore.FieldValue.increment(qty),
+                            diamondsSpent: admin.firestore.FieldValue.increment(totalCost),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+
+                        const eventRef = db.collection("gift_events").doc(ev.id);
+                        transaction.set(eventRef, {
+                            totalEventPoints: admin.firestore.FieldValue.increment(totalPts),
+                            totalGiftsSent: admin.firestore.FieldValue.increment(qty),
+                            totalDiamondsSpent: admin.firestore.FieldValue.increment(totalCost),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        }, { merge: true });
+                    }
+                }
+            }
+
             return {
                 success: true,
                 newBalance: currentBalance - totalCost + luckyRewardCoins,
@@ -2190,7 +2290,9 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 hasWon: luckyMultiplier > 0,
                 receiverBeans: beansEarned,
                 isLucky: isLuckyCategory,
-                rocketWinners
+                rocketWinners,
+                eventPointsEarned: earnedEventPoints,
+                eventId: activeEventId
             };
         });
 
@@ -2207,6 +2309,114 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
         if (error instanceof functions.https.HttpsError) throw error;
         throw new functions.https.HttpsError("internal", error.message || "An unexpected error occurred while gifting.");
     }
+});
+
+/**
+ * 🎁 Distribute Gift Event Rewards (Admin Callable)
+ */
+exports.distributeGiftEventRewards = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Admin authentication required.");
+    }
+    const adminCheck = await isUserAdmin(context.auth.uid);
+    if (!adminCheck) {
+        throw new functions.https.HttpsError("permission-denied", "Only administrators can disburse event rewards.");
+    }
+
+    const { eventId } = data;
+    if (!eventId) {
+        throw new functions.https.HttpsError("invalid-argument", "Missing eventId.");
+    }
+
+    const eventDoc = await db.collection("gift_events").doc(eventId).get();
+    if (!eventDoc.exists) {
+        throw new functions.https.HttpsError("not-found", "Event not found.");
+    }
+
+    const eventData = eventDoc.data();
+    const rewards = Array.isArray(eventData.rewards) ? eventData.rewards : [];
+    if (rewards.length === 0) {
+        return { success: true, message: "No rewards configured for this event." };
+    }
+
+    // Fetch top participants ordered by points
+    const participantsSnap = await db.collection("gift_events").doc(eventId)
+        .collection("participants")
+        .orderBy("points", "desc")
+        .limit(100)
+        .get();
+
+    if (participantsSnap.empty) {
+        return { success: true, message: "No participants to reward." };
+    }
+
+    const participants = participantsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const batch = db.batch();
+    const distributedLogs = [];
+
+    participants.forEach((p, idx) => {
+        const rank = idx + 1;
+        const matchedTier = rewards.find(r => rank >= Number(r.rankFrom || 1) && rank <= Number(r.rankTo || 1));
+        if (matchedTier) {
+            const userRef = db.collection("users").doc(p.uid);
+            const userUpdates = {};
+
+            // 1. Diamonds reward
+            if (matchedTier.diamonds && Number(matchedTier.diamonds) > 0) {
+                userUpdates.diamondBalance = admin.firestore.FieldValue.increment(Number(matchedTier.diamonds));
+                const txRef = db.collection("diamond_transactions").doc();
+                batch.set(txRef, {
+                    userId: p.uid,
+                    type: "EVENT_REWARD",
+                    amount: Number(matchedTier.diamonds),
+                    description: `Gift Event Reward: Rank ${rank} in ${eventData.title || 'Event'}`,
+                    eventId: eventId,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            // 2. Profile frame reward
+            if (matchedTier.frameUrl) {
+                const days = Number(matchedTier.frameDays || 30);
+                const expiry = new Date();
+                expiry.setDate(expiry.getDate() + days);
+                const frameItemRef = db.collection("users").doc(p.uid).collection("backpack").doc();
+                batch.set(frameItemRef, {
+                    type: "frame",
+                    frameUrl: matchedTier.frameUrl,
+                    title: matchedTier.badgeTitle || "Event Champion Frame",
+                    expiresAt: admin.firestore.Timestamp.fromDate(expiry),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            // 3. Badge / Medal reward
+            if (matchedTier.badgeTitle) {
+                userUpdates.badges = admin.firestore.FieldValue.arrayUnion(matchedTier.badgeTitle);
+            }
+
+            if (Object.keys(userUpdates).length > 0) {
+                batch.update(userRef, userUpdates);
+            }
+
+            distributedLogs.push({ uid: p.uid, rank, tier: matchedTier.title || `Rank ${rank}` });
+        }
+    });
+
+    const eventRef = db.collection("gift_events").doc(eventId);
+    batch.update(eventRef, {
+        distributed: true,
+        distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+        distributedBy: context.auth.uid
+    });
+
+    await batch.commit();
+
+    return {
+        success: true,
+        rewardedCount: distributedLogs.length,
+        logs: distributedLogs
+    };
 });
 /**
  * 0. Diagnostic Ping (Public - No Auth Required)
@@ -3282,7 +3492,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         console.warn(`[SpinWheel] Late bet processed at ${msIntoRound}ms for round ${roundId}`);
     }
 
-    return db.runTransaction(async (transaction) => {
+    const spinResult = await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
         const settingsDoc = await transaction.get(settingsRef);
         const statsDoc = await transaction.get(statsRef);
@@ -3741,7 +3951,8 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             exactStopAngle: roundResult.exactStopAngle,
             multiplier: roundResult.multiplier,
             roundId: roundId,
-            todayWinners: roundWinners
+            todayWinners: roundWinners,
+            serverTime: now
         };
     });
 
@@ -3851,6 +4062,193 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
 
         console.log(`[LUCKY] User:${uid} Bet:${betAmount} Won:${isWin} Prize:${prize}`);
         return { prize: prize, isWin: isWin };
+    });
+});
+
+/**
+ * 21. Yummy Bingo Slot Game (5-Reel Fruit Reel)
+ * Fully atomic, server-evaluated slot machine with 9 paylines and real-time diamond balances.
+ */
+const YUMMY_SYMBOLS = {
+    wild:   { 3: 50, 4: 200, 5: 1000 },
+    dice:   { 3: 40, 4: 150, 5: 600 },
+    burger: { 3: 20, 4: 80,  5: 300 },
+    fries:  { 3: 15, 4: 60,  5: 250 },
+    cake:   { 3: 12, 4: 50,  5: 200 },
+    banana: { 3: 10, 4: 40,  5: 150 },
+    lemon:  { 3: 8,  4: 30,  5: 100 },
+    cherry: { 3: 5,  4: 20,  5: 80 },
+    clover: { 3: 5,  4: 15,  5: 50 },
+};
+
+const YUMMY_PAYLINES = [
+    { id: 1, name: 'Center Row', color: '#EF4444', coords: [1, 1, 1, 1, 1] },
+    { id: 2, name: 'Top Row',    color: '#3B82F6', coords: [0, 0, 0, 0, 0] },
+    { id: 3, name: 'Bottom Row', color: '#10B981', coords: [2, 2, 2, 2, 2] },
+    { id: 4, name: 'V-Shape',    color: '#F59E0B', coords: [0, 1, 2, 1, 0] },
+    { id: 5, name: 'Inverted-V', color: '#8B5CF6', coords: [2, 1, 0, 1, 2] },
+    { id: 6, name: 'Zig-Zag Top',color: '#EC4899', coords: [0, 0, 1, 2, 2] },
+    { id: 7, name: 'Zig-Zag Bot',color: '#06B6D4', coords: [2, 2, 1, 0, 0] },
+    { id: 8, name: 'High Crest', color: '#F97316', coords: [1, 0, 0, 0, 1] },
+    { id: 9, name: 'Low Valley', color: '#84CC16', coords: [1, 2, 2, 2, 1] },
+];
+
+const YUMMY_WEIGHTED_POOL = [
+    'wild', 'wild', 'wild', 'wild',
+    'dice', 'dice', 'dice', 'dice', 'dice', 'dice',
+    'burger', 'burger', 'burger', 'burger', 'burger', 'burger', 'burger', 'burger', 'burger',
+    'fries', 'fries', 'fries', 'fries', 'fries', 'fries', 'fries', 'fries', 'fries', 'fries', 'fries',
+    'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake', 'cake',
+    'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana', 'banana',
+    'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon', 'lemon',
+    'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry', 'cherry',
+    'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover', 'clover',
+];
+
+exports.playYummyBingo = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const lines = parseInt(data.lines, 10);
+    const betPerLine = parseInt(data.betPerLine, 10);
+    const roomId = data.roomId || "";
+
+    if (isNaN(lines) || lines < 1 || lines > 9) {
+        throw new functions.https.HttpsError("invalid-argument", "Lines must be between 1 and 9.");
+    }
+    if (isNaN(betPerLine) || betPerLine < 500 || betPerLine > 50000) {
+        throw new functions.https.HttpsError("invalid-argument", "Bet per line must be between 500 and 50,000.");
+    }
+
+    const totalBet = lines * betPerLine;
+    const uid = context.auth.uid;
+    const userRef = db.collection("users").doc(uid);
+    const metaRef = db.collection("games_meta").doc("yummy_bingo");
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+        const currentBalance = Number(userDoc.data().diamondBalance || 0);
+        if (currentBalance < totalBet) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds.");
+        }
+
+        const metaDoc = await transaction.get(metaRef);
+        let currentJackpot = metaDoc.exists ? (Number(metaDoc.data().jackpot) || 276614) : 276614;
+
+        // Generate 5x3 reel matrix server-side
+        const matrix = [];
+        for (let c = 0; c < 5; c++) {
+            const col = [];
+            for (let r = 0; r < 3; r++) {
+                const randIndex = crypto.randomInt(0, YUMMY_WEIGHTED_POOL.length);
+                col.push(YUMMY_WEIGHTED_POOL[randIndex]);
+            }
+            matrix.push(col);
+        }
+
+        // Evaluate paylines
+        const activePaylines = YUMMY_PAYLINES.slice(0, lines);
+        const winningLines = [];
+        let totalWin = 0;
+
+        activePaylines.forEach((line) => {
+            const symbolsOnLine = line.coords.map((rowIdx, reelIdx) => matrix[reelIdx][rowIdx]);
+            let first = symbolsOnLine[0];
+            let matchCount = 1;
+            const pos = [[0, line.coords[0]]];
+
+            for (let i = 1; i < symbolsOnLine.length; i++) {
+                const cur = symbolsOnLine[i];
+                if (cur === first || cur === 'wild' || (first === 'wild' && cur !== 'wild')) {
+                    if (first === 'wild' && cur !== 'wild') first = cur;
+                    matchCount++;
+                    pos.push([i, line.coords[i]]);
+                } else {
+                    break;
+                }
+            }
+
+            if (matchCount >= 3) {
+                const mult = (YUMMY_SYMBOLS[first] && YUMMY_SYMBOLS[first][matchCount]) || 0;
+                const payout = mult * betPerLine;
+                if (payout > 0) {
+                    totalWin += payout;
+                    winningLines.push({
+                        line: line,
+                        symbol: first,
+                        count: matchCount,
+                        payout: payout,
+                        positions: pos
+                    });
+                }
+            }
+        });
+
+        // 5 Wilds on Line 1 triggers special Jackpot bonus
+        let wonJackpot = false;
+        if (lines >= 1) {
+            const line1 = matrix.map((col) => col[1]);
+            if (line1.every((s) => s === 'wild')) {
+                wonJackpot = true;
+                totalWin += currentJackpot;
+                currentJackpot = 250000; // Reset jackpot floor
+            }
+        }
+
+        // Jackpot increments by 1% of non-jackpot bets
+        const jackpotIncrement = Math.max(1, Math.floor(totalBet * 0.01));
+        const nextJackpot = wonJackpot ? currentJackpot : currentJackpot + jackpotIncrement;
+
+        // Anticipation check (reels 1 & 2 match on center row and not low-tier symbols)
+        const checkAnticipation = matrix[0][1] === matrix[1][1] && matrix[0][1] !== 'lemon' && matrix[0][1] !== 'cherry';
+
+        // Net balance change
+        const netDelta = totalWin - totalBet;
+        const newBalance = currentBalance + netDelta;
+
+        // Atomically update user balance
+        transaction.update(userRef, {
+            diamondBalance: admin.firestore.FieldValue.increment(netDelta)
+        });
+
+        // Update games meta / jackpot
+        transaction.set(metaRef, {
+            jackpot: nextJackpot,
+            lastPlayedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastWinnerUid: totalWin > 0 ? uid : (metaDoc.exists ? (metaDoc.data().lastWinnerUid || null) : null),
+            lastWinnerAmount: totalWin > 0 ? totalWin : (metaDoc.exists ? (metaDoc.data().lastWinnerAmount || 0) : 0),
+        }, { merge: true });
+
+        // Log game history
+        const logRef = userRef.collection("game_history").doc();
+        transaction.set(logRef, {
+            game: "yummy_bingo",
+            lines: lines,
+            betPerLine: betPerLine,
+            totalBet: totalBet,
+            totalWin: totalWin,
+            netDelta: netDelta,
+            isWin: totalWin > 0,
+            wonJackpot: wonJackpot,
+            roomId: roomId,
+            matrix: matrix,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        console.log(`[YUMMY_BINGO] User:${uid} Bet:${totalBet} Win:${totalWin} Net:${netDelta} Jackpot:${wonJackpot}`);
+
+        return {
+            success: true,
+            matrix: matrix,
+            winningLines: winningLines,
+            totalWin: totalWin,
+            totalBet: totalBet,
+            newBalance: newBalance,
+            checkAnticipation: checkAnticipation,
+            jackpot: nextJackpot,
+            wonJackpot: wonJackpot
+        };
     });
 });
 
@@ -5497,14 +5895,14 @@ async function resetRoomsRocket() {
 exports.scheduledDailyReset = functions.pubsub.schedule('0 0 * * *')
     .timeZone('UTC')
     .onRun(async (context) => {
-        await resetUsersField(["dailyXP", "dailyPrinceXP"]);
+        await resetUsersField(["dailyXP", "dailyPrinceXP", "dailyDiamondsSent", "dailyBeansReceived"]);
         await resetRoomsRocket();
     });
 
 exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')
     .timeZone('UTC')
     .onRun(async (context) => {
-        await resetUsersField(["weeklyXP", "weeklyPrinceXP"]);
+        await resetUsersField(["weeklyXP", "weeklyPrinceXP", "weeklyDiamondsSent", "weeklyBeansReceived"]);
     });
 
 /**
@@ -5547,8 +5945,51 @@ exports.simulateSalaryMilestone = functions.https.onCall(async (data, context) =
 exports.scheduledMonthlyReset = functions.pubsub.schedule('0 0 1 * *')
     .timeZone('UTC')
     .onRun(async (context) => {
-        await resetUsersField(["monthlyXP", "monthlyPrinceXP"]);
+        await resetUsersField(["monthlyXP", "monthlyPrinceXP", "monthlyDiamondsSent", "monthlyBeansReceived"]);
     });
+
+/**
+ * --- INITIALIZE TOP LIST METRICS (MIGRATION / REPAIR) ---
+ * Ensures all existing users have Top List counters so they are indexed in Firestore queries.
+ */
+exports.initializeTopListFields = functions.https.onCall(async (data, context) => {
+    try {
+        const usersSnap = await db.collection("users").get();
+        let batch = db.batch();
+        let count = 0;
+        let updatedCount = 0;
+
+        for (const doc of usersSnap.docs) {
+            const uData = doc.data() || {};
+            const updates = {};
+            if (uData.dailyDiamondsSent === undefined) updates.dailyDiamondsSent = 0;
+            if (uData.weeklyDiamondsSent === undefined) updates.weeklyDiamondsSent = 0;
+            if (uData.monthlyDiamondsSent === undefined) updates.monthlyDiamondsSent = 0;
+            if (uData.totalDiamondsSent === undefined) updates.totalDiamondsSent = uData.totalDiamondsSpent || 0;
+            if (uData.dailyBeansReceived === undefined) updates.dailyBeansReceived = 0;
+            if (uData.weeklyBeansReceived === undefined) updates.weeklyBeansReceived = 0;
+            if (uData.monthlyBeansReceived === undefined) updates.monthlyBeansReceived = 0;
+            if (uData.totalBeansReceived === undefined) updates.totalBeansReceived = uData.beansBalance || 0;
+
+            if (Object.keys(updates).length > 0) {
+                batch.update(doc.ref, updates);
+                count++;
+                updatedCount++;
+                if (count === 500) {
+                    await batch.commit();
+                    batch = db.batch();
+                    count = 0;
+                }
+            }
+        }
+        if (count > 0) await batch.commit();
+        console.log(`[MIGRATION] Initialized Top List metrics for ${updatedCount} users.`);
+        return { success: true, updatedCount, totalUsers: usersSnap.size };
+    } catch (err) {
+        console.error("INITIALIZE_TOP_LIST_ERROR:", err);
+        throw new functions.https.HttpsError("internal", err.message);
+    }
+});
 
 /**
  * --- AUTOMATED SALARY PAYOUT CRON JOB ---
@@ -10503,8 +10944,479 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
     });
 });
 
+/* ==========================================================================
+   TEEN PATTI ROYALE - REAL-TIME MULTIPLAYER ROOM GAME
+   ========================================================================== */
 
+const TP_SUITS = ["hearts", "diamonds", "clubs", "spades"];
+const TP_RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"];
+const TP_RANK_VALUES = {
+    "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9, "10": 10,
+    "J": 11, "Q": 12, "K": 13, "A": 14
+};
+const TP_RANK_NAMES = {
+    2: "Twos", 3: "Threes", 4: "Fours", 5: "Fives", 6: "Sixes", 7: "Sevens",
+    8: "Eights", 9: "Nines", 10: "Tens", 11: "Jacks", 12: "Queens", 13: "Kings", 14: "Aces"
+};
 
+function createShuffledTeenPattiDeck() {
+    const deck = [];
+    for (const suit of TP_SUITS) {
+        for (const rank of TP_RANKS) {
+            deck.push({ id: `${rank}-${suit}`, suit, rank });
+        }
+    }
+    for (let i = deck.length - 1; i > 0; i--) {
+        const j = crypto.randomInt(0, i + 1);
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    return deck;
+}
 
+function evaluateTeenPattiHand(cards) {
+    if (!cards || cards.length !== 3) return { score: 0, label: "NONE", description: "" };
+    const values = cards.map(c => TP_RANK_VALUES[c.rank]).sort((a, b) => b - a);
+    const sameSuit = cards.every(c => c.suit === cards[0].suit);
+    const isA23 = values[0] === 14 && values[1] === 3 && values[2] === 2;
+    const isSeq = isA23 || (values[0] - 1 === values[1] && values[1] - 1 === values[2]);
+    const seqHigh = isA23 ? 3 : values[0];
 
+    const counts = {};
+    values.forEach(v => counts[v] = (counts[v] || 0) + 1);
+    const pairVal = Object.keys(counts).find(k => counts[k] === 2);
+    const trailVal = Object.keys(counts).find(k => counts[k] === 3);
+
+    let score, label, description;
+    if (trailVal) {
+        score = 6000000 + Number(trailVal) * 10000;
+        label = "TRAIL";
+        description = `Three ${TP_RANK_NAMES[Number(trailVal)] || "Cards"}`;
+    } else if (isSeq && sameSuit) {
+        score = 5000000 + seqHigh * 10000;
+        label = "PURE SEQUENCE";
+        description = `Pure Sequence, ${TP_RANK_NAMES[seqHigh] || "High"}`;
+    } else if (isSeq) {
+        score = 4000000 + seqHigh * 10000;
+        label = "SEQUENCE";
+        description = `Sequence, ${TP_RANK_NAMES[seqHigh] || "High"}`;
+    } else if (sameSuit) {
+        score = 3000000 + values[0] * 10000 + values[1] * 100 + values[2];
+        label = "COLOR";
+        description = `Color Flush, ${TP_RANK_NAMES[values[0]] || "High"}`;
+    } else if (pairVal) {
+        const pNum = Number(pairVal);
+        const kicker = values.find(v => v !== pNum) || 0;
+        score = 2000000 + pNum * 10000 + kicker * 100;
+        label = "PAIR";
+        description = `Pair of ${TP_RANK_NAMES[pNum] || "Cards"}`;
+    } else {
+        score = 1000000 + values[0] * 10000 + values[1] * 100 + values[2];
+        label = "HIGH CARD";
+        description = `${TP_RANK_NAMES[values[0]] || "Card"} High`;
+    }
+    return { score, label, description };
+}
+
+exports.joinTeenPattiSeat = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const roomId = (data.roomId || "").trim();
+    const seatIndex = parseInt(data.seatIndex, 10);
+
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "Room ID is required.");
+    if (isNaN(seatIndex) || seatIndex < 0 || seatIndex > 5) {
+        throw new functions.https.HttpsError("invalid-argument", "Seat must be between 0 and 5.");
+    }
+
+    const tableRef = db.collection("rooms").doc(roomId).collection("games").doc("teen_patti");
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const [userDoc, tableDoc] = await Promise.all([
+            transaction.get(userRef),
+            transaction.get(tableRef)
+        ]);
+
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+        const userData = userDoc.data();
+        const diamondBalance = Number(userData.diamondBalance || 0);
+
+        let tableData = tableDoc.exists ? tableDoc.data() : {
+            roomId,
+            phase: "waiting",
+            round: 1,
+            pot: 0,
+            currentBet: 1000,
+            bootAmount: 1000,
+            turn: 0,
+            turnDeadline: null,
+            seats: [null, null, null, null, null, null],
+            winner: null,
+            revealAll: false,
+            revealedHands: {}
+        };
+
+        const seats = Array.isArray(tableData.seats) ? [...tableData.seats] : [null, null, null, null, null, null];
+        while (seats.length < 6) seats.push(null);
+
+        if (diamondBalance < (tableData.bootAmount || 1000)) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds. Need at least 1,000 Diamonds to sit.");
+        }
+
+        if (seats[seatIndex] && seats[seatIndex].uid !== uid) {
+            throw new functions.https.HttpsError("already-exists", "This seat is already occupied.");
+        }
+
+        // Check if user is already seated in another seat
+        for (let i = 0; i < 6; i++) {
+            if (seats[i] && seats[i].uid === uid && i !== seatIndex) {
+                seats[i] = null;
+            }
+        }
+
+        seats[seatIndex] = {
+            seat: seatIndex,
+            uid,
+            name: userData.displayName || "Player",
+            avatar: userData.photoUrl || userData.avatar || `https://api.dicebear.com/9.x/adventurer/svg?seed=${uid}`,
+            balance: diamondBalance,
+            bet: 0,
+            seen: false,
+            folded: false,
+            cardsCount: 0,
+            lastAction: null
+        };
+
+        transaction.set(tableRef, {
+            ...tableData,
+            seats
+        }, { merge: true });
+
+        return { success: true, seatIndex };
+    });
+});
+
+exports.leaveTeenPattiSeat = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const roomId = (data.roomId || "").trim();
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "Room ID is required.");
+
+    const tableRef = db.collection("rooms").doc(roomId).collection("games").doc("teen_patti");
+
+    return db.runTransaction(async (transaction) => {
+        const tableDoc = await transaction.get(tableRef);
+        if (!tableDoc.exists) return { success: true };
+
+        const tableData = tableDoc.data();
+        const seats = [...(tableData.seats || [])];
+        const seatIdx = seats.findIndex(s => s && s.uid === uid);
+        if (seatIdx === -1) return { success: true };
+
+        seats[seatIdx] = null;
+        let update = { seats };
+
+        // If in betting phase and was active player's turn, advance turn
+        if (tableData.phase === "betting" && tableData.turn === seatIdx) {
+            let nextTurn = seatIdx;
+            for (let i = 1; i <= 6; i++) {
+                const check = (seatIdx + i) % 6;
+                if (seats[check] && !seats[check].folded) {
+                    nextTurn = check;
+                    break;
+                }
+            }
+            update.turn = nextTurn;
+            update.turnDeadline = Date.now() + 15000;
+        }
+
+        transaction.update(tableRef, update);
+        return { success: true };
+    });
+});
+
+exports.startTeenPattiRound = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const roomId = (data.roomId || "").trim();
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "Room ID is required.");
+
+    const tableRef = db.collection("rooms").doc(roomId).collection("games").doc("teen_patti");
+
+    return db.runTransaction(async (transaction) => {
+        const tableDoc = await transaction.get(tableRef);
+        if (!tableDoc.exists) throw new functions.https.HttpsError("not-found", "Table not found.");
+
+        const tableData = tableDoc.data();
+        if (tableData.phase === "betting" || tableData.phase === "dealing") {
+            return { success: true, message: "Round already in progress." };
+        }
+
+        const seats = [...(tableData.seats || [])];
+        const seatedPlayers = seats.filter(s => s !== null);
+        if (seatedPlayers.length < 2) {
+            throw new functions.https.HttpsError("failed-precondition", "Need at least 2 players seated to start.");
+        }
+
+        const bootAmount = tableData.bootAmount || 1000;
+        const userRefs = seatedPlayers.map(p => db.collection("users").doc(p.uid));
+        const userDocs = await Promise.all(userRefs.map(ref => transaction.get(ref)));
+
+        // Verify all players have sufficient boot balance
+        for (let i = 0; i < seatedPlayers.length; i++) {
+            const uDoc = userDocs[i];
+            const bal = Number(uDoc.data()?.diamondBalance || 0);
+            if (bal < bootAmount) {
+                throw new functions.https.HttpsError("failed-precondition", `${seatedPlayers[i].name} has insufficient Diamonds for Boot.`);
+            }
+        }
+
+        // Deduct boot amount from each player atomically
+        for (let i = 0; i < seatedPlayers.length; i++) {
+            transaction.update(userRefs[i], {
+                diamondBalance: admin.firestore.FieldValue.increment(-bootAmount)
+            });
+        }
+
+        // Deal 3 cards securely to each seated player
+        const deck = createShuffledTeenPattiDeck();
+        let firstTurnIndex = 0;
+        let foundFirst = false;
+
+        for (let i = 0; i < 6; i++) {
+            if (seats[i]) {
+                if (!foundFirst) {
+                    firstTurnIndex = i;
+                    foundFirst = true;
+                }
+                const cards = [deck.pop(), deck.pop(), deck.pop()];
+                const privateRef = tableRef.collection("private_cards").doc(seats[i].uid);
+                transaction.set(privateRef, { cards });
+
+                seats[i] = {
+                    ...seats[i],
+                    bet: bootAmount,
+                    balance: seats[i].balance - bootAmount,
+                    seen: false,
+                    folded: false,
+                    cardsCount: 3,
+                    lastAction: "BOOT"
+                };
+            }
+        }
+
+        const totalPot = bootAmount * seatedPlayers.length;
+        const roundNumber = (tableData.round || 0) + 1;
+
+        transaction.update(tableRef, {
+            phase: "betting",
+            round: roundNumber,
+            pot: totalPot,
+            currentBet: bootAmount,
+            turn: firstTurnIndex,
+            turnDeadline: Date.now() + 15000,
+            winner: null,
+            revealAll: false,
+            revealedHands: {},
+            seats
+        });
+
+        return { success: true, round: roundNumber, pot: totalPot };
+    });
+});
+
+exports.teenPattiAction = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    const uid = context.auth.uid;
+    const roomId = (data.roomId || "").trim();
+    const action = (data.action || "").trim().toLowerCase(); // see, chaal, raise, fold, show
+    const amount = parseInt(data.amount, 10) || 0;
+
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "Room ID is required.");
+    if (!["see", "chaal", "raise", "fold", "show"].includes(action)) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid action: " + action);
+    }
+
+    const tableRef = db.collection("rooms").doc(roomId).collection("games").doc("teen_patti");
+    const userRef = db.collection("users").doc(uid);
+
+    return db.runTransaction(async (transaction) => {
+        const [tableDoc, userDoc] = await Promise.all([
+            transaction.get(tableRef),
+            transaction.get(userRef)
+        ]);
+
+        if (!tableDoc.exists) throw new functions.https.HttpsError("not-found", "Table not found.");
+        const tableData = tableDoc.data();
+        if (tableData.phase !== "betting") {
+            throw new functions.https.HttpsError("failed-precondition", "Round is not in betting phase.");
+        }
+
+        const seats = [...(tableData.seats || [])];
+        const mySeatIdx = seats.findIndex(s => s && s.uid === uid);
+        if (mySeatIdx === -1) throw new functions.https.HttpsError("permission-denied", "You are not seated at this table.");
+        const mySeat = { ...seats[mySeatIdx] };
+
+        // Handle 'SEE' action (can be called at any time before folding)
+        if (action === "see") {
+            mySeat.seen = true;
+            mySeat.lastAction = "SEEN";
+            seats[mySeatIdx] = mySeat;
+            transaction.update(tableRef, { seats });
+            return { success: true, action: "see" };
+        }
+
+        // For betting moves (chaal, raise, fold, show), must be user's turn
+        if (tableData.turn !== mySeatIdx) {
+            throw new functions.https.HttpsError("failed-precondition", "Not your turn.");
+        }
+
+        if (action === "fold") {
+            mySeat.folded = true;
+            mySeat.lastAction = "FOLD";
+            seats[mySeatIdx] = mySeat;
+
+            const remainingActive = seats.filter(s => s && !s.folded);
+            if (remainingActive.length === 1) {
+                // Only 1 survivor -> Instant Winner!
+                const survivor = remainingActive[0];
+                const pot = Number(tableData.pot || 0);
+
+                const survivorUserRef = db.collection("users").doc(survivor.uid);
+                transaction.update(survivorUserRef, {
+                    diamondBalance: admin.firestore.FieldValue.increment(pot)
+                });
+
+                transaction.update(tableRef, {
+                    phase: "result",
+                    revealAll: true,
+                    winner: {
+                        uid: survivor.uid,
+                        name: survivor.name,
+                        avatar: survivor.avatar,
+                        pot,
+                        handLabel: "SURVIVOR",
+                        handDescription: "All other players folded",
+                        cards: []
+                    },
+                    seats
+                });
+
+                return { success: true, action: "fold", winner: survivor.name };
+            }
+
+            // Advance turn
+            let nextTurn = mySeatIdx;
+            for (let i = 1; i <= 6; i++) {
+                const check = (mySeatIdx + i) % 6;
+                if (seats[check] && !seats[check].folded) {
+                    nextTurn = check;
+                    break;
+                }
+            }
+
+            transaction.update(tableRef, {
+                seats,
+                turn: nextTurn,
+                turnDeadline: Date.now() + 15000
+            });
+            return { success: true, action: "fold" };
+        }
+
+        if (action === "chaal" || action === "raise") {
+            const currentBet = Number(tableData.currentBet || 1000);
+            const betAmount = action === "raise" ? currentBet * 2 : currentBet;
+            const finalCost = mySeat.seen ? betAmount : Math.max(100, Math.floor(betAmount / 2));
+
+            const userBalance = Number(userDoc.data()?.diamondBalance || 0);
+            if (userBalance < finalCost) {
+                throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds for " + action.toUpperCase());
+            }
+
+            // Deduct balance
+            transaction.update(userRef, {
+                diamondBalance: admin.firestore.FieldValue.increment(-finalCost)
+            });
+
+            mySeat.bet = (mySeat.bet || 0) + finalCost;
+            mySeat.balance = userBalance - finalCost;
+            mySeat.lastAction = action.toUpperCase();
+            seats[mySeatIdx] = mySeat;
+
+            const newPot = Number(tableData.pot || 0) + finalCost;
+            const newCurrentBet = action === "raise" ? betAmount : currentBet;
+
+            // Advance turn
+            let nextTurn = mySeatIdx;
+            for (let i = 1; i <= 6; i++) {
+                const check = (mySeatIdx + i) % 6;
+                if (seats[check] && !seats[check].folded) {
+                    nextTurn = check;
+                    break;
+                }
+            }
+
+            transaction.update(tableRef, {
+                pot: newPot,
+                currentBet: newCurrentBet,
+                seats,
+                turn: nextTurn,
+                turnDeadline: Date.now() + 15000
+            });
+
+            return { success: true, action, amount: finalCost, pot: newPot };
+        }
+
+        if (action === "show") {
+            // Showdown resolution
+            const contenders = seats.filter(s => s && !s.folded);
+            const privateCardsDocs = await Promise.all(
+                contenders.map(c => transaction.get(tableRef.collection("private_cards").doc(c.uid)))
+            );
+
+            let bestContender = null;
+            let bestEvaluation = { score: -1 };
+            const revealedHands = {};
+
+            for (let i = 0; i < contenders.length; i++) {
+                const c = contenders[i];
+                const cards = privateCardsDocs[i].exists ? (privateCardsDocs[i].data().cards || []) : [];
+                revealedHands[c.uid] = cards;
+                const evalResult = evaluateTeenPattiHand(cards);
+
+                if (evalResult.score > bestEvaluation.score) {
+                    bestEvaluation = evalResult;
+                    bestContender = { ...c, cards };
+                }
+            }
+
+            const pot = Number(tableData.pot || 0);
+            if (bestContender) {
+                const winnerUserRef = db.collection("users").doc(bestContender.uid);
+                transaction.update(winnerUserRef, {
+                    diamondBalance: admin.firestore.FieldValue.increment(pot)
+                });
+            }
+
+            transaction.update(tableRef, {
+                phase: "result",
+                revealAll: true,
+                revealedHands,
+                winner: {
+                    uid: bestContender?.uid || "",
+                    name: bestContender?.name || "Player",
+                    avatar: bestContender?.avatar || "",
+                    pot,
+                    handLabel: bestEvaluation.label,
+                    handDescription: bestEvaluation.description,
+                    cards: bestContender?.cards || []
+                },
+                seats
+            });
+
+            return { success: true, action: "show", winner: bestContender?.name, pot };
+        }
+
+        return { success: false };
+    });
+});
 

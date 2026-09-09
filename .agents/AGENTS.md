@@ -23,3 +23,4 @@ Rules:
 - No boilerplate nobody asked for.
 - Deletion over addition. Boring over clever. Fewest files possible.
 - Shortest working diff wins, but only once you understand the problem.
+- **Mandatory Daily Work Log**: On every task/change, update [`PROJECT_WORKLOG.md`](../PROJECT_WORKLOG.md) in the project root documenting what the client asked and what was done in simple, plain English (see `.agents/rules/daily-worklog-enforcement.md`).

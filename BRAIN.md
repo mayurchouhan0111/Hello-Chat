@@ -392,4 +392,201 @@ To prevent accidental regressions, here is the registry of core modules and thei
   - Local Full-System: `powershell -ExecutionPolicy Bypass -File run_full_system_verification.ps1`
   - Cloud CI/CD: `.github/workflows/system_verification.yml`
 
+---
+
+## SECTION 10: DYNAMIC GIFT EVENT SYSTEM & ADMIN MANAGEMENT
+
+### 10.1 System Overview & Zero-App-Update Architecture
+The Gift Event System is a fully dynamic, real-time marketing and engagement engine. All events, point rules, participating gifts, countdown durations, and rank rewards are created, modified, toggled, or restarted directly from the Admin Panel (`hellochat_admin`), instantly reflecting across all connected Flutter clients with **zero app updates required**.
+
+### 10.2 Admin Panel Management (`GiftEventManagement.jsx`)
+- **Route**: Mounted at `/events` and `/gift-events` with a dedicated `Gift Events` sidebar entry.
+- **Event Lifecycle Controls**:
+  - **Create / Edit Events**: Event title, description, markdown rules, theme accent color, start/end dates, banner image URL, and background styling.
+  - **Enable / Disable / Stop**: Instant live switch toggling `isActive`; disables event points accrual immediately.
+  - **Restart Event**: One-click reactivation resetting start time to now and extending duration by 7 days.
+  - **Rewards Disbursal**: Admin callable `distributeGiftEventRewards` automatically distributes Diamonds, Profile Frames, and Badges to top winners upon event conclusion.
+- **Event Gifts Configuration**:
+  - Select platform gifts or custom items.
+  - Configure Diamond Price and assigned **Event Points** per gift (custom multiplier or fixed point value).
+- **Ranking & Reward Configuration**:
+  - Ranking rules & duration (`event_duration`, `daily`, `weekly`).
+  - Tier rewards: Rank 1 Champion, Rank 2–3 Silver, Rank 4–10 Elite with customizable Diamonds, Profile Frames (with validity days), Badges, and Custom Animations.
+
+### 10.3 Atomic Event Point Accrual (`functions/index.js`)
+- Integrated directly inside `sendGiftWithCombo` within atomic `db.runTransaction`.
+- When an event gift is sent, the server calculates:
+  $$\text{EventPoints} = \text{eventPointsPerGift} \times \text{quantity}$$
+- Atomically updates:
+  - Participant document: `gift_events/{eventId}/participants/{senderUid}` (`points`, `giftCount`, `diamondsSpent`).
+  - Event aggregates: `gift_events/{eventId}` (`totalEventPoints`, `totalGiftsSent`, `totalDiamondsSpent`).
+- Zero client trust, zero race conditions.
+
+### 10.4 Flutter In-Room & Event Hub Experience
+- **Gift Panel (`gift_panel.dart`)**:
+  - When an active gift event is live, an `"Event"` category tab is dynamically added to the gift panel.
+  - Participating event gifts display glowing `"EVENT ✨"` pill tags with point bonuses.
+  - Quick-access `"EVENT 🏆"` header button directly opens the event hub.
+- **Gift Event Screen (`gift_event_screen.dart` - `/gift-event/:eventId`)**:
+  - Dynamic theme-colored hero header with live ticking countdown timer (`DDd : HHh : MMm : SSs`).
+  - Expandable Rules sheet.
+  - **Top 3 Podium**: Rank 1 Gold pedestal with crown & glowing avatar, Rank 2 Silver, Rank 3 Bronze.
+  - **Top 4–50 Leaderboard**: Live real-time participant rank listing.
+  - **Event Gifts & Rewards Matrix Tabs**: Full showcase of participating gifts and prizes.
+  - **Pinned My Standing Footer**: Sticky bottom bar showing user's current rank, points, and 1-tap jump to send gifts.
+
+---
+
+## SECTION 11: MULTIPLAYER TEEN PATTI ENGINE & CASINO SUITE
+
+### 11.1 Architecture & Zero-Lag 60 FPS Performance
+- **Client Architecture (`teen_patti.html` & `teen_patti_screen.dart`)**:
+  - Standalone, ultra-lightweight HTML5/CSS3 client embedded via Flutter `WebViewWidget`.
+  - Zero heavy external JavaScript bundles or remote CDNs to ensure immediate boot and guaranteed 60 FPS performance on all mobile devices.
+  - Local asset embedding: Game table felt, card back, and dealer textures are read from Flutter's asset bundle and injected as base64 data URIs.
+  - Real-time procedural audio: Utilizes the browser `AudioContext` (Web Audio API) for chip clinks, card swishes, dealer bells, and victory fanfares with 0 network latency.
+
+### 11.2 Server-Authoritative Anti-Cheat & Firestore Security
+- **Cloud Functions (`functions/index.js`)**:
+  - `joinTeenPattiSeat`: Atomic seating validation, minimum boot Diamond verification, and seat locking.
+  - `leaveTeenPattiSeat`: Seat clearance and graceful clockwise turn auto-progression.
+  - `startTeenPattiRound`: Validates at least 2 seated players, performs atomic boot balance deduction (`bootAmount = 1000` Diamonds) via `FieldValue.increment(-bootAmount)`, cryptographically shuffles a 52-card deck using Node `crypto.randomInt`, and deals 3 private cards per player.
+  - `teenPattiAction`: Strict turn-validated betting controller supporting `see`, `chaal`, `raise`, `fold`, and `show`.
+- **Card Security & Firestore Rules (`firestore.rules`)**:
+  - Player private cards are stored exclusively under `rooms/{roomId}/games/teen_patti/private_cards/{userId}`.
+  - Security rules enforce `allow read: if request.auth != null && request.auth.uid == userId;`, preventing cross-player card snooping.
+  - During showdown or fold resolution, Cloud Functions atomically sets `revealAll: true` and writes revealed hands to the table state.
+
+### 11.3 Hand Ranking & Showdown Hierarchy
+Evaluated using standard international Teen Patti rules:
+1. **Trail (Trio / Set)**: Three cards of the same rank ($A-A-A > K-K-K > ... > 2-2-2$).
+2. **Pure Sequence (Straight Flush)**: Three consecutive cards of the same suit ($A-K-Q > K-Q-J > ... > A-2-3$).
+3. **Sequence (Straight)**: Three consecutive cards of mixed suits.
+4. **Color (Flush)**: Three cards of the same suit.
+5. **Pair**: Two cards of the same rank with a kicker ($K-K-Q > K-K-J$).
+6. **High Card**: Highest single card with kickers ($A-K-J > A-K-10$).
+
+---
+
+## SECTION 12: REAL-TIME GLOBAL TOP LIST & RANKING SYSTEM (CONTRIBUTION & CHARM)
+
+### 12.1 System Architecture & Technical Specifications
+The Top List System powers platform-wide real-time competitive rankings across both senders and receivers, fully decoupled and verified server-side.
+
+```
+                    ┌──────────────────────────────────────────────┐
+                    │               GIFT TRANSACTION               │
+                    │   (sendGiftWithCombo in functions/index.js)  │
+                    └──────────────────────┬───────────────────────┘
+                                           │
+                    ┌──────────────────────┴───────────────────────┐
+                    │                                              │
+         [SENDER ATOMIC MUTATION]                       [RECEIVER ATOMIC MUTATION]
+      dailyDiamondsSent += totalCost                 dailyBeansReceived += beansEarned
+     weeklyDiamondsSent += totalCost                weeklyBeansReceived += beansEarned
+    monthlyDiamondsSent += totalCost               monthlyBeansReceived += beansEarned
+      totalDiamondsSent += totalCost                 totalBeansReceived += beansEarned
+                    │                                              │
+                    └──────────────────────┬───────────────────────┘
+                                           │ Real-time Firestore Stream
+                    ┌──────────────────────▼───────────────────────┐
+                    │     FLUTTER CLIENT: LeaderboardScreen       │
+                    │  (lib/features/leaderboards/.../screen.dart) │
+                    ├──────────────────────────────────────────────┤
+                    │  • Contribution Tab: orderBy(DiamondsSent)   │
+                    │  • Charm Tab: orderBy(BeansReceived)         │
+                    │  • Filters: Daily | Weekly | Monthly         │
+                    │  • Royal Podium: #1 Gold, #2 Silver, #3 Bronze│
+                    │  • Dynamic Pinned Sticky Footer for Self     │
+                    └──────────────────────────────────────────────┘
+```
+
+---
+
+### 12.2 Requirements Compliance & Verification Matrix
+
+| # | Requirement | Implementation Details | Status |
+|---|---|---|---|
+| **1** | **Include all users in the app** | Users are queried directly from the root `users` collection using `.orderBy(queryField, descending: true).limit(100)` across all registered users. Zero exclusion of high spenders/receivers. | **DONE** |
+| **2** | **Separate rankings for Daily, Weekly, and Monthly** | Client features a royal winged 3-way toggle (`DAILY`, `WEEKLY`, `MONTHLY`). Dynamically switches the query target: `dailyDiamondsSent`/`dailyBeansReceived`, `weeklyDiamondsSent`/`weeklyBeansReceived`, and `monthlyDiamondsSent`/`monthlyBeansReceived`. | **DONE** |
+| **3** | **Automatically generated from user activity** | Updated strictly server-side within the `db.runTransaction` in `sendGiftWithCombo` (`functions/index.js`). No manual intervention required. | **DONE** |
+| **4** | **Top Sending List (Contribution)** | Tracks `Diamonds Sent` in gifts. Sorted strictly in descending order. User sending the most Diamonds appears on the Top 1 Gold Podium and top of the ranking list. | **DONE** |
+| **5** | **Top Receiving List (Charm)** | Completely independent tab (`Charm`) tracking `Beans Received`. Sorted strictly in descending order. Top streamer receiving the most Beans appears on the Top 1 Gold Podium. | **DONE** |
+| **6** | **Zero Cross-Contamination** | Sending and Receiving metrics are completely isolated fields in Firestore (`DiamondsSent` vs `BeansReceived`). No fallback to shared XP or balances. Senders have zero score in Charm unless they receive gifts; receivers have zero score in Contribution unless they send gifts. | **DONE** |
+| **7** | **Automatic Period Reset** | **Dual-Layer Reset Guarantee**:<br>1. **Real-time Transaction Check**: `sendGiftWithCombo` checks `lastDailySentDate === todayStr`, `lastWeeklySentDate === thisWeekStr`, `lastMonthlySentDate === thisMonthStr`. If period rolled over, user's counter automatically self-resets to 0 before adding new activity.<br>2. **Cloud Pub/Sub Scheduled Resets**: `scheduledDailyReset` (00:00 UTC daily), `scheduledWeeklyReset` (00:00 UTC Mondays), and `scheduledMonthlyReset` (00:00 UTC 1st of month) sweep and reset all user fields in batches. | **DONE** |
+| **8** | **Automatic Real-time Update** | Flutter screen subscribes via `stream: query.snapshots()`. Whenever any gift is sent or beans credited, the Firestore real-time listener immediately fires, updating podium positions, ranks, scores, and the bottom sticky bar without page reload. | **DONE** |
+
+---
+
+### 12.3 Verification & Testing Guide
+
+#### Method 1: In-App Verification via Device / Simulator
+1. Open the Hello Chat app on device or emulator.
+2. On the **Home Screen (Popular tab)**, observe the two category cards highlighted with badges:
+   - **Contribution** (`👑 Top Senders`)
+   - **Charm** (`💖 Top Receivers`)
+3. Tap **Contribution**:
+   - Verify it opens `LeaderboardScreen` directly on the **Contribution** tab.
+   - Tap **Daily**, **Weekly**, and **Monthly** time filter tabs at the top.
+   - Confirm Top 1 is on the Gold Champion Pedestal, Top 2 is Silver, and Top 3 is Bronze.
+   - Confirm rank tiles 04 to 100+ render below with their Diamond score and golden coin icon.
+   - Confirm sticky bottom bar displays your current rank (e.g. `01` or `- -` if outside top 100) with your actual Diamond score.
+4. Tap **Charm**:
+   - Verify it switches to the **Charm** tab.
+   - Confirm that top receivers are displayed with their Bean count.
+   - Confirm that users who only sent gifts do NOT appear here unless they received gifts.
+
+#### Method 2: Automated Unit & Widget Test Execution
+Run the automated test suite verifying UserModel metric isolation and podium widget rendering:
+```bash
+cmd /c "flutter test test/top_list_leaderboard_test.dart"
+```
+Expected output:
+```
+00:01 +6: All tests passed!
+```
+
+#### Method 3: Cloud Functions Reset Verification
+Run Cloud Functions emulator or test script:
+```bash
+cmd /c "cd functions && node -e \"console.log('Testing reset exports: ' + (typeof require('./index.js').scheduledDailyReset))\""
+```
+Confirm `scheduledDailyReset`, `scheduledWeeklyReset`, and `scheduledMonthlyReset` are exported and valid.
+
+---
+
+## 13. 60 FPS Hardware-Accelerated Mobile Game Architecture (Phaser + Flutter WebView Pattern)
+
+### 13.1 Core Principles Learned from `ReactFlutterJSGameTemplate`
+To achieve rock-solid 60 FPS inside mobile WebViews (Chromium on Android / WebKit on iOS), games must decouple state from rendering and eliminate browser DOM layout thrashing:
+
+1. **Hardware-Accelerated Single Canvas for Dynamic Entities**:
+   - Moving objects (cascading chips, particle confetti, win bursts, lucky wheels) are drawn to GPU-backed 2D `<canvas>` contexts.
+   - Eliminates `document.createElement`, DOM appending/removing, and CSS keyframe style recalculations.
+2. **Zero-Allocation Object Pooling**:
+   - Particle engines pre-allocate fixed-size buffers (`particlePool`, `chipPool`, `sparklePool`) at initialization.
+   - Active entities are reused via property assignment; inactive entities are flagged `active = false`.
+   - Prevents Garbage Collection (GC) pauses that trigger stutter and dropped frames during animations.
+3. **Consolidated Delta-Time RAF Game Loops**:
+   - Physics trajectories, easing curves, and decay use delta time (`dt = (now - lastTime) / 1000`) capped at 50ms.
+   - Guarantees uniform motion across varying device refresh rates (60Hz, 90Hz, 120Hz ProMotion).
+4. **CSS Containment & GPU Layer Isolation for Static UI**:
+   - `contain: layout style paint;` or `contain: strict;` applied to viewports, reel stages, and seat plates.
+   - `transform: translateZ(0);`, `will-change: transform;`, and `backface-visibility: hidden;` ensure HUD elements reside on dedicated compositor layers without invalidating parent layers.
+5. **Signature-Based DOM Diffing**:
+   - Game HUDs and player seats compute an immutable state hash string (`uid_bal_bet_turn_cards`).
+   - If signature is unchanged, `.innerHTML` wipes are skipped completely, preventing SVG timer resets and image re-fetching.
+
+### 13.2 Optimization Matrix: Teen Patti & Yummy Bingo
+
+| Feature / Subsystem | Before (Jank / Bottleneck) | Optimized (60 FPS Architecture) | Impact |
+|---|---|---|---|
+| **Teen Patti Flying Chips** | DOM `div` creation + CSS keyframes on every Chaal/Raise | Single `#celebrationCanvas` with pre-allocated 24-chip pool (`CanvasFxEngine.spawnChips`) | Zero DOM nodes; smooth 60 FPS flight trajectory |
+| **Teen Patti Confetti Explosions** | Dynamic array allocation on each showdown win | Pre-allocated 80-particle pool with gravity and rotational physics in RAF loop | Zero GC spikes on winner declaration |
+| **Teen Patti Seat & Hand Updates** | Full `seatEl.innerHTML` and `localCardHand.innerHTML` rewrite on every tick | `lastSeatSignatures` and `lastLocalHandSig` diffing; skips DOM write if state unchanged | Eliminates circular timer SVG flashing and layout reflows |
+| **Teen Patti CSS Compositing** | Default stacking contexts | `contain: layout paint;` + `transform: translateZ(0);` on `.game-viewport`, `.table-felt`, `.seat-wrapper` | Isolated GPU compositor layers |
+| **Yummy Bingo Sparkle Engine** | Dynamic `particles.push()` + `particles.splice()` inside render loop | Pre-allocated 75-particle `sparklePool` with delta-time gravity | Zero array re-allocations during jackpot or line wins |
+| **Yummy Bingo Win Tally Counter** | Unconditional `statusNote.textContent` write every RAF tick | Throttled integer comparison (`current !== lastDisplayed`) | Eliminates redundant text node recalculations |
+| **Yummy Bingo Reel Motion** | Heavy CSS filter blur on complex SVGs | Hardware layer translation (`transform: translate3d(0, 0, 0); will-change: transform; contain: strict; backface-visibility: hidden;`) | Smooth 60 FPS spin deceleration and cabinet slam |
+| **Flutter Android WebView Config** | Default webview parameters | `setMediaPlaybackRequiresUserGesture(false)`, static base64 image caching, state payload deduplication | 0ms disk I/O on re-opens; instant audio playback |
 

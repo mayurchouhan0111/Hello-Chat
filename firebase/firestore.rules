@@ -191,6 +191,15 @@ service cloud.firestore {
         allow read: if true;
         allow write: if false; // Server functions only
       }
+      match /games/{gameId} {
+        allow read: if request.auth != null;
+        allow write: if false; // Server functions only
+
+        match /private_cards/{userId} {
+          allow read: if request.auth != null && request.auth.uid == userId;
+          allow write: if false; // Server functions only
+        }
+      }
     }
 
     // Direct Chats
@@ -451,6 +460,17 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update: if request.auth != null;
       allow delete: if isAdmin();
+    }
+
+    // 🎁 Gift Event System
+    match /gift_events/{eventId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /participants/{participantId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
     }
 
     // Helper functions

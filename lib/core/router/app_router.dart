@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/otp_screen.dart';
@@ -56,13 +54,13 @@ import '../../features/profile/presentation/screens/agency/commission_wallet_scr
 
 import '../../features/rooms/presentation/screens/home_screen.dart';
 import '../../features/moments/presentation/screens/add_moment_screen.dart';
-import '../../features/leaderboards/presentation/screens/celebrity_ranking_screen.dart';
-import '../../features/leaderboards/presentation/screens/contribution_ranking_screen.dart';
 import '../../features/leaderboards/presentation/screens/leaderboard_screen.dart';
 import '../../features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
 import '../../features/profile/presentation/screens/user_contribution_ranking_screen.dart';
 import '../../features/moments/presentation/screens/moment_detail_screen.dart';
 import '../../features/games/presentation/screens/spin_wheel_screen.dart';
+import '../../features/games/presentation/screens/yummy_bingo_screen.dart';
+import '../../features/games/presentation/screens/teen_patti_screen.dart';
 import '../../features/rooms/presentation/screens/create_room_screen.dart';
 import '../../features/rooms/presentation/screens/live_room_screen.dart';
 import '../../features/rooms/presentation/screens/active_pk_battle_screen.dart';
@@ -76,8 +74,10 @@ import '../../features/inbox/presentation/screens/inbox_screen.dart';
 import '../../features/vip/presentation/screens/vip_rewards_screen.dart';
 import '../../features/recharge_event/presentation/screens/recharge_event_detail_screen.dart';
 import '../../features/events/presentation/screens/dynamic_event_screen.dart';
+import '../../features/events/presentation/screens/gift_event_screen.dart';
 
 import '../../features/profile/presentation/screens/custom_gift_request_screen.dart';
+import '../widgets/svg_page_transition.dart';
 
 class AppRoutes {
   // Auth
@@ -144,6 +144,9 @@ class AppRoutes {
   static const vipRewards        = '/vip-rewards';
   static const rechargeEventDetail = '/recharge-event-detail';
   static const dynamicEvent        = '/event';
+  static const giftEvent           = '/gift-event';
+  static const yummyBingo          = '/yummy-bingo';
+  static const teenPatti           = '/teen-patti';
   static const friendList         = '/friend-list';
   static const friendRequests     = '/friend-requests';
   static const friendshipPortal   = '/friendship-portal';
@@ -173,7 +176,7 @@ final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 final routerProvider = Provider<GoRouter>((ref) {
   // Use a listenable to refresh the router on auth state changes
   final authStream = ref.watch(authServiceProvider).user;
-  User? _lastKnownUser;
+  User? lastKnownUser;
 
   return GoRouter(
     navigatorKey: rootNavigatorKey,
@@ -198,19 +201,19 @@ final routerProvider = Provider<GoRouter>((ref) {
         // Guard against transient null — if user was previously authenticated,
         // Firebase Auth may be still restoring the session (e.g. after app resume).
         // Wait briefly and recheck before redirecting to login.
-        if (_lastKnownUser != null && !isAuthRoute) {
+        if (lastKnownUser != null && !isAuthRoute) {
           await Future.delayed(const Duration(seconds: 1));
           final recheckUser = ref.read(authServiceProvider).currentUser;
           if (recheckUser != null) {
-            _lastKnownUser = recheckUser;
+            lastKnownUser = recheckUser;
             return null;
           }
         }
-        _lastKnownUser = null;
+        lastKnownUser = null;
         return isAuthRoute ? null : AppRoutes.login;
       }
 
-      _lastKnownUser = user;
+      lastKnownUser = user;
 
       // 🏠 Authenticated: If on login/splash/profile setup, force Home
       if (isAuthRoute || state.matchedLocation == AppRoutes.profileSetup) {
@@ -249,9 +252,12 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.leaderboard,
-        builder: (context, state) {
+        pageBuilder: (context, state) {
           final index = state.extra is int ? state.extra as int : 0;
-          return LeaderboardScreen(initialIndex: index);
+          return buildSvgTransitionPage(
+            key: state.pageKey,
+            child: LeaderboardScreen(initialIndex: index),
+          );
         },
       ),
       GoRoute(
@@ -349,7 +355,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.vipCenter,
-        builder: (context, state) => const VIPCarouselScreen(),
+        pageBuilder: (context, state) => buildSvgTransitionPage(
+          key: state.pageKey,
+          child: const VIPCarouselScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.prestigeVault,
@@ -357,7 +366,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: AppRoutes.luckySpin,
-        builder: (context, state) => const SpinWheelScreen(),
+        pageBuilder: (context, state) => buildSvgTransitionPage(
+          key: state.pageKey,
+          child: const SpinWheelScreen(),
+        ),
       ),
       GoRoute(
         path: AppRoutes.agencyPortal,
@@ -532,6 +544,22 @@ final routerProvider = Provider<GoRouter>((ref) {
           final eventId = state.pathParameters['eventId'] ?? '';
           return DynamicEventScreen(eventId: eventId);
         },
+      ),
+      GoRoute(
+        path: '/gift-event/:eventId',
+        name: AppRoutes.giftEvent,
+        builder: (context, state) {
+          final eventId = state.pathParameters['eventId'] ?? '';
+          return GiftEventScreen(eventId: eventId);
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.yummyBingo,
+        builder: (context, state) => YummyBingoScreen(roomId: state.extra as String?),
+      ),
+      GoRoute(
+        path: AppRoutes.teenPatti,
+        builder: (context, state) => TeenPattiScreen(roomId: (state.extra as String?) ?? ''),
       ),
       GoRoute(
         path: AppRoutes.friendList,

@@ -1,0 +1,102 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background / Glow Gradients -->
+    <radialGradient id="portalGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFE066" stop-opacity="0.85" />
+      <stop offset="35%" stop-color="#FF9E00" stop-opacity="0.55" />
+      <stop offset="70%" stop-color="#7928CA" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="1" />
+      <stop offset="25%" stop-color="#FFEAA7" stop-opacity="0.9" />
+      <stop offset="60%" stop-color="#FFA500" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#FF5E62" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF9D2" />
+      <stop offset="30%" stop-color="#FFD700" />
+      <stop offset="70%" stop-color="#FF9E00" />
+      <stop offset="100%" stop-color="#B8860B" />
+    </linearGradient>
+
+    <linearGradient id="cyberCyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F5D4" />
+      <stop offset="50%" stop-color="#00BBF9" />
+      <stop offset="100%" stop-color="#7B2CBF" />
+    </linearGradient>
+
+    <linearGradient id="beamGradH" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="0" />
+      <stop offset="45%" stop-color="#FFEAA7" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="1" />
+      <stop offset="55%" stop-color="#FFEAA7" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#FFD700" stop-opacity="0" />
+    </linearGradient>
+
+    <linearGradient id="beamGradV" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="0" />
+      <stop offset="45%" stop-color="#FFEAA7" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#FFFFFF" stop-opacity="1" />
+      <stop offset="55%" stop-color="#FFEAA7" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#FFD700" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+
+  <!-- Ambient Radial Glow -->
+  <circle cx="256" cy="256" r="240" fill="url(#portalGlow)" />
+
+  <!-- Outermost Tech Ring with Marks -->
+  <circle cx="256" cy="256" r="220" stroke="url(#cyberCyan)" stroke-width="2" stroke-dasharray="12 18" opacity="0.6" />
+  <circle cx="256" cy="256" r="200" stroke="url(#goldGradient)" stroke-width="3" stroke-dasharray="32 8 8 8" opacity="0.8" />
+
+  <!-- Hexagonal Energy Shield -->
+  <polygon points="256,76 412,166 412,346 256,436 100,346 100,166" 
+           stroke="url(#goldGradient)" stroke-width="2.5" fill="none" opacity="0.75" />
+  <polygon points="256,92 398,174 398,338 256,420 114,338 114,174" 
+           stroke="url(#cyberCyan)" stroke-width="1" stroke-dasharray="6 10" fill="none" opacity="0.5" />
+
+  <!-- Cardinal Flare Rays -->
+  <polygon points="256,16 261,256 256,496 251,256" fill="url(#beamGradV)" opacity="0.9" />
+  <polygon points="16,256 256,261 496,256 256,251" fill="url(#beamGradH)" opacity="0.9" />
+
+  <!-- Diagonal 45 deg Flare Beams -->
+  <g transform="rotate(45 256 256)">
+    <polygon points="256,56 259,256 256,456 253,256" fill="url(#beamGradV)" opacity="0.7" />
+    <polygon points="56,256 256,259 456,256 256,253" fill="url(#beamGradH)" opacity="0.7" />
+  </g>
+
+  <!-- Middle Concentric Cyber Gears -->
+  <circle cx="256" cy="256" r="160" stroke="#FFFFFF" stroke-width="1.5" stroke-dasharray="4 8" opacity="0.6" />
+  <circle cx="256" cy="256" r="140" stroke="url(#goldGradient)" stroke-width="4" stroke-dasharray="40 12 10 12" />
+  <circle cx="256" cy="256" r="120" stroke="url(#cyberCyan)" stroke-width="2" stroke-dasharray="2 6" opacity="0.8" />
+
+  <!-- Inner Portal Ring -->
+  <circle cx="256" cy="256" r="95" stroke="url(#goldGradient)" stroke-width="3" opacity="0.9" />
+  <circle cx="256" cy="256" r="75" fill="url(#coreGlow)" />
+
+  <!-- Center Diamond Star Emblem -->
+  <!-- 4-point Diamond Star -->
+  <polygon points="256,180 274,244 332,256 274,268 256,332 238,268 180,256 238,244" 
+           fill="url(#goldGradient)" stroke="#FFFFFF" stroke-width="2" />
+
+  <!-- Secondary 4-point Diamond Star at 45 deg -->
+  <g transform="rotate(45 256 256)">
+    <polygon points="256,204 268,248 308,256 268,264 256,308 244,264 204,256 244,248" 
+             fill="#FFFFFF" opacity="0.9" />
+  </g>
+
+  <!-- Center Core White Hot Light -->
+  <circle cx="256" cy="256" r="18" fill="#FFFFFF" />
+  <circle cx="256" cy="256" r="8" fill="#FFF9E6" />
+
+  <!-- Floating Vector Sparkle Nodes -->
+  <circle cx="170" cy="140" r="3.5" fill="#00F5D4" />
+  <circle cx="342" cy="140" r="3.5" fill="#FFD700" />
+  <circle cx="380" cy="280" r="4.5" fill="#00F5D4" />
+  <circle cx="132" cy="280" r="4.5" fill="#FFD700" />
+  <circle cx="210" cy="380" r="3.5" fill="#FFEAA7" />
+  <circle cx="302" cy="380" r="3.5" fill="#00F5D4" />
+</svg>

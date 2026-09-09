@@ -29,6 +29,7 @@ import '../../../../core/providers/chat_provider.dart';
 
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../core/services/notification_service.dart';
+import '../../../../core/services/gift_event_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -217,6 +218,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
 
                 const SliverToBoxAdapter(child: SizedBox(height: 8)),
+                // Live Gift Event Entry Banner (appears when an event is live)
+                SliverToBoxAdapter(
+                  child: _buildLiveGiftEventBanner(),
+                ),
                 // Blinkit-Style Premium Category Cards
                 SliverToBoxAdapter(
                   child: Padding(
@@ -225,21 +230,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       children: [
                         _buildBlinkitCategoryCard(
                           title: "Contribution",
-                          subtitle: "Top Givers",
+                          subtitle: "Top Senders",
                           badgeIcon: "👑",
-                          gradient: const LinearGradient(colors: [Color(0xFFFF5E62), Color(0xFFFF9966)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF3366), Color(0xFFFF6B4A), Color(0xFFFFA000)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          glowColor: const Color(0xFFFF3366),
                           collection: "users",
-                          field: "benchXP",
+                          field: "dailyDiamondsSent",
                           tabIndex: 0,
                         ),
                         const SizedBox(width: 5),
                         _buildBlinkitCategoryCard(
                           title: "Charm",
-                          subtitle: "Popular",
+                          subtitle: "Top Receivers",
                           badgeIcon: "💖",
-                          gradient: const LinearGradient(colors: [Color(0xFF8A2387), Color(0xFFE94057)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF7928CA), Color(0xFFB800E6), Color(0xFFFF0080)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          glowColor: const Color(0xFFB800E6),
                           collection: "users",
-                          field: "princeXP",
+                          field: "dailyBeansReceived",
                           tabIndex: 1,
                         ),
                         const SizedBox(width: 5),
@@ -247,7 +262,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           title: "Room",
                           subtitle: "Hot Voice",
                           badgeIcon: "🎙️",
-                          gradient: const LinearGradient(colors: [Color(0xFF11998E), Color(0xFF38EF7D)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFF00B4D8), Color(0xFF0077B6), Color(0xFF06D6A0)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          glowColor: const Color(0xFF00B4D8),
                           collection: "rooms",
                           field: "currentUsersCount",
                           tabIndex: 2,
@@ -255,12 +275,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         const SizedBox(width: 5),
                         _buildBlinkitCategoryCard(
                           title: "Best",
-                          subtitle: "Stars",
+                          subtitle: "All-Stars",
                           badgeIcon: "🏆",
-                          gradient: const LinearGradient(colors: [Color(0xFFF7971E), Color(0xFFFFD200)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+                          gradient: const LinearGradient(
+                            colors: [Color(0xFFFF8F00), Color(0xFFFFB300), Color(0xFFFFD54F)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          glowColor: const Color(0xFFFFB300),
                           collection: "users",
-                          field: "totalXP",
-                          tabIndex: 3,
+                          field: "totalDiamondsSent",
+                          tabIndex: 0,
                         ),
                       ],
                     ),
@@ -468,11 +493,134 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  Widget _buildLiveGiftEventBanner() {
+    final activeEvent = ref.watch(primaryActiveGiftEventProvider);
+    if (activeEvent == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => context.push('/gift-event/${activeEvent.id}'),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF8A2387), Color(0xFFE94057), Color(0xFFF27121)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFE94057).withValues(alpha: 0.35),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text('🏆', style: TextStyle(fontSize: 22)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD700),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'LIVE EVENT',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            activeEvent.formattedTimeRemaining,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        activeEvent.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Join',
+                        style: TextStyle(
+                          color: Color(0xFFE94057),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                        ),
+                      ),
+                      SizedBox(width: 2),
+                      Icon(Icons.chevron_right_rounded, size: 14, color: Color(0xFFE94057)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
   Widget _buildBlinkitCategoryCard({
     required String title,
     required String subtitle,
     required String badgeIcon,
     required LinearGradient gradient,
+    required Color glowColor,
     required String collection,
     required String field,
     int tabIndex = 0,
@@ -490,42 +638,92 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: GestureDetector(
         onTap: () => context.push(AppRoutes.leaderboard, extra: tabIndex),
         child: Container(
-          height: 62,
+          height: 64,
           decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
             gradient: gradient,
-            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.35),
+              width: 1.0,
+            ),
             boxShadow: [
               BoxShadow(
-                color: gradient.colors.first.withOpacity(0.3),
-                blurRadius: 8,
-                offset: const Offset(0, 3),
+                color: glowColor.withOpacity(0.4),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+              BoxShadow(
+                color: Colors.black.withOpacity(0.2),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(15),
             child: Stack(
               children: [
-                // Glossy Sheen Overlay
+                // Angled Glassmorphism Sheen & Cyber Tech Panel Lines
                 Positioned(
                   right: -15,
-                  top: -15,
+                  top: -20,
+                  child: Transform.rotate(
+                    angle: -0.35,
+                    child: Container(
+                      width: 45,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.white.withOpacity(0.25),
+                            Colors.white.withOpacity(0.04),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Subtle floating low-poly micro facet
+                Positioned(
+                  left: -6,
+                  bottom: -6,
                   child: Container(
-                    width: 50,
-                    height: 50,
+                    width: 26,
+                    height: 26,
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
+                      color: Colors.white.withOpacity(0.08),
                       shape: BoxShape.circle,
                     ),
                   ),
                 ),
+                // Micro bokeh particle
+                Positioned(
+                  right: 12,
+                  bottom: 8,
+                  child: Container(
+                    width: 3,
+                    height: 3,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.8),
+                          blurRadius: 3,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Title & Emoji Badge Header
+                      // Title & Badge Header
                       Row(
                         children: [
                           Expanded(
@@ -537,9 +735,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                 maxLines: 1,
                                 style: const TextStyle(
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 10,
+                                  fontSize: 10.5,
                                   color: Colors.white,
-                                  shadows: [Shadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1))],
+                                  letterSpacing: 0.2,
+                                  shadows: [
+                                    Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
+                                  ],
                                 ),
                               ),
                             ),
@@ -548,7 +749,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           Text(badgeIcon, style: const TextStyle(fontSize: 10)),
                         ],
                       ),
-                      // Overlapping Avatar Stack (Blinkit Style)
+                      // Overlapping Avatar Stack with Metallic Glow Rings
                       avatarsAsync.when(
                         data: (urls) {
                           final List<String> displayUrls = [];
@@ -558,22 +759,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           }
 
                           return SizedBox(
-                            height: 18,
+                            height: 20,
                             child: Row(
                               children: displayUrls.take(3).toList().asMap().entries.map((entry) {
                                 final idx = entry.key;
                                 final url = entry.value;
 
                                 return Transform.translate(
-                                  offset: Offset(-3.0 * idx, 0),
+                                  offset: Offset(-4.0 * idx, 0),
                                   child: Container(
-                                    width: 18,
-                                    height: 18,
+                                    width: 20,
+                                    height: 20,
                                     decoration: BoxDecoration(
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 1.0),
+                                      border: Border.all(color: Colors.white, width: 1.2),
                                       boxShadow: [
-                                        BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 3),
+                                        BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 3),
                                       ],
                                       image: DecorationImage(
                                         image: CachedNetworkImageProvider(url),
@@ -587,20 +788,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           );
                         },
                         loading: () => SizedBox(
-                          height: 18,
+                          height: 20,
                           child: Row(
                             children: fallbackAvatars.asMap().entries.map((entry) {
                               final idx = entry.key;
                               final url = entry.value;
 
                               return Transform.translate(
-                                offset: Offset(-3.0 * idx, 0),
+                                offset: Offset(-4.0 * idx, 0),
                                 child: Container(
-                                  width: 18,
-                                  height: 18,
+                                  width: 20,
+                                  height: 20,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 1.0),
+                                    border: Border.all(color: Colors.white, width: 1.2),
                                     image: DecorationImage(
                                       image: CachedNetworkImageProvider(url),
                                       fit: BoxFit.cover,
@@ -612,20 +813,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           ),
                         ),
                         error: (e, __) => SizedBox(
-                          height: 18,
+                          height: 20,
                           child: Row(
                             children: fallbackAvatars.asMap().entries.map((entry) {
                               final idx = entry.key;
                               final url = entry.value;
 
                               return Transform.translate(
-                                offset: Offset(-3.0 * idx, 0),
+                                offset: Offset(-4.0 * idx, 0),
                                 child: Container(
-                                  width: 18,
-                                  height: 18,
+                                  width: 20,
+                                  height: 20,
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: Colors.white, width: 1.0),
+                                    border: Border.all(color: Colors.white, width: 1.2),
                                     image: DecorationImage(
                                       image: CachedNetworkImageProvider(url),
                                       fit: BoxFit.cover,
@@ -795,9 +996,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       case 'recharge_event':
         context.push(AppRoutes.rechargeEventDetail);
         break;
+      case 'gift_event':
       case 'event':
-        if (banner.actionValue != null && banner.actionValue!.isNotEmpty) {
-          context.push('/event/${banner.actionValue}');
+        final eventId = banner.actionValue;
+        if (eventId != null && eventId.isNotEmpty) {
+          context.push('/gift-event/$eventId');
+        } else {
+          context.push('/gift-event/active');
         }
         break;
       case 'profile':

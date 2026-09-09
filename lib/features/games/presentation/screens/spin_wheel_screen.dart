@@ -10,8 +10,6 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:hello_chat/core/utils/app_persistent_cache.dart';
 import 'package:hello_chat/core/services/wakelock_service.dart';
 import 'package:hello_chat/core/services/game_recovery_service.dart';
 import 'package:hello_chat/core/services/network_connectivity_service.dart';
@@ -86,6 +84,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   void _placeBet(String itemName, List<SpinItem> items) {
     if (_isBetLocked || _isOffline || !_platformHasNetwork) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": isBetLocked=$_isBetLocked, isOffline=$_isOffline, platformHasNetwork=$_platformHasNetwork');
       if (mounted && (_isOffline || !_platformHasNetwork)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -100,6 +99,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     final lowerName = itemName.toLowerCase().trim();
     if (lowerName == 'salad' || lowerName == 'pizza') {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Direct bet on category alias "$itemName" ignored');
       return;
     }
 
@@ -116,6 +116,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     final currentTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     if (currentTotalBet + _selectedChipValue > totalPlayingPower) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (required: ${currentTotalBet + _selectedChipValue}, available: $totalPlayingPower)');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Insufficient Diamonds & Stars"))
       );
@@ -129,6 +130,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       _betClickCounts[exactName] = (_betClickCounts[exactName] ?? 0) + 1;
       _confirmedBets = {};
     });
+
+    final newTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
+    debugPrint('[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
 
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 300), () {
@@ -167,10 +171,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
     final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+    final roundId = (now ~/ serverRoundMs).toString();
 
-    if (secondsIntoCycle >= 30) return;
+    if (secondsIntoCycle >= 30) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 30s for round $roundId');
+      return;
+    }
 
     _isAutoSubmitting = true;
+    debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$_currentBets, roundId=$roundId, secIntoCycle=$secondsIntoCycle');
     try {
       final result = await ref.read(gameServiceProvider).playSpinWheel(
         betAmount: totalBet,
@@ -181,6 +190,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (!mounted) return;
 
       final resultRoundId = result['roundId']?.toString();
+      final serverTime = (result['serverTime'] as num?)?.toInt();
+      if (serverTime != null) {
+        final localNow = DateTime.now().millisecondsSinceEpoch;
+        _serverTimeOffset = serverTime - localNow;
+        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized from API: offset=$_serverTimeOffset ms');
+      }
+      debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId, prize=${result['prize']}, bets=$_currentBets');
       if (resultRoundId != null) {
         _submittedSpinResult = result;
         setState(() {
@@ -189,7 +205,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         GameRecoveryService().clearBetState();
       }
     } catch (e) {
-      debugPrint("⚠️ Auto-submit failed: $e");
+      debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Rolling back local bets!");
       _hasStartedFallbackCall = false;
       if (mounted) {
         // REJECT and ROLLBACK unconfirmed bet locally if server call fails!
@@ -219,11 +235,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
     final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+    final currentRoundId = (now ~/ serverRoundMs).toString();
 
     if (secondsIntoCycle >= 30) return;
 
     try {
-      debugPrint('[SPIN_GAME_LOG] ⚡ Pre-fetching round outcome for spectators at 25s window...');
+      debugPrint('[SPIN_WHEEL_EVENT] ⚡ Pre-fetching spectator outcome for round $currentRoundId at ${secondsIntoCycle}s window...');
       final result = await ref.read(gameServiceProvider).playSpinWheel(
         betAmount: 0,
         bets: {},
@@ -233,15 +250,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (!mounted) return;
 
       final resultRoundId = result['roundId']?.toString();
-      final currentRoundId = (now ~/ serverRoundMs).toString();
+      final serverTime = (result['serverTime'] as num?)?.toInt();
+      if (serverTime != null) {
+        final localNow = DateTime.now().millisecondsSinceEpoch;
+        _serverTimeOffset = serverTime - localNow;
+        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized from spectator API: offset=$_serverTimeOffset ms');
+      }
       if (resultRoundId == currentRoundId) {
         _pendingRoundResult = result;
         _hasPendingResult = true;
         _resultPendingRoundId = resultRoundId;
-        debugPrint('[SPIN_GAME_LOG] ⚡ Pre-fetched outcome successfully stored for round $resultRoundId');
+        debugPrint('[SPIN_WHEEL_EVENT] ⚡ Spectator outcome pre-fetched: roundId=$resultRoundId, item=${result['name']}, multiplier=${result['multiplier']}x, sector=${result['sectorIndex']}');
       }
     } catch (e) {
-      debugPrint("⚠️ Pre-fetch round outcome failed: $e");
+      debugPrint("[SPIN_WHEEL_EVENT] ⚠️ Spectator pre-fetch failed: $e");
       _hasStartedFallbackCall = false;
     }
   }
@@ -284,6 +306,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           final outcome = Map<String, dynamic>.from(rawData);
           final roundId = outcome['roundId']?.toString();
 
+          debugPrint('[SPIN_WHEEL_EVENT] 📡 RTDB stream event received for round $roundId: name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
+
           // Always store the latest outcome for "Last Winner" display
           if (roundId != null) {
             _lastGlobalOutcome = outcome;
@@ -303,7 +327,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             // from a stream callback which can cause re-entrant setState issues.
             final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
             if (secondsIntoCycle >= 30 && secondsIntoCycle < 35 && _hasSpunForRound != currentRoundId && !_isSpinning && !_isProcessingSpin) {
-              debugPrint('[SPIN_GAME_LOG] ⚡ Realtime DB WebSocket stream event received for round $roundId! Storing for timer pickup.');
+              debugPrint('[SPIN_WHEEL_EVENT] ⚡ Realtime DB WebSocket stream triggering spin for round $roundId at ${secondsIntoCycle}s');
               _hasSpunForRound = currentRoundId;
               _isProcessingSpin = true;
               _startSpin(outcome);
@@ -311,7 +335,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           }
         }
       } catch (e) {
-        debugPrint('⚠️ Error parsing RTDB lastGlobalOutcome: $e');
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing RTDB lastGlobalOutcome: $e');
       }
     });
   }
@@ -319,14 +343,19 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   @override
   void initState() {
     super.initState();
+    debugPrint('[SPIN_WHEEL_EVENT] 🎬 Game Screen Initialized (roomId: ${widget.roomId ?? "None"})');
     WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) async => await WakelockService().acquire());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await WakelockService().acquire();
+      debugPrint('[SPIN_WHEEL_EVENT] 🔒 Wakelock acquired for spin wheel game');
+    });
 
     _subscribeToRealtimeRoundState();
 
     _offsetSubscription = FirebaseDatabase.instance.ref('.info/serverTimeOffset').onValue.listen((event) {
       if (mounted) {
         final offset = (event.snapshot.value as num?)?.toInt() ?? 0;
+        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time offset synced: offset = $offset ms');
         setState(() {
           _serverTimeOffset = offset;
         });
@@ -337,20 +366,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _connectivitySub = FirebaseDatabase.instance.ref('.info/connected').onValue.listen((event) {
       if (!mounted) return;
       final rtdbConnected = event.snapshot.value as bool? ?? false;
-      debugPrint('[SPIN_WHEEL] Firebase RTDB .info/connected = $rtdbConnected');
+      debugPrint('[SPIN_WHEEL_EVENT] 📡 Firebase RTDB .info/connected = $rtdbConnected');
       _updateOfflineState(rtdbConnected: rtdbConnected);
     });
 
     // Platform network connectivity (WiFi / Mobile data) via NetworkConnectivityService
     _platformConnectivitySub = NetworkConnectivityService().onConnectivityChanged.listen((hasNetwork) {
       if (!mounted) return;
-      debugPrint('[SPIN_WHEEL] Platform connectivity changed: hasNetwork=$hasNetwork');
+      debugPrint('[SPIN_WHEEL_EVENT] 📶 Platform connectivity changed: hasNetwork=$hasNetwork');
       _updateOfflineState(platformOnline: hasNetwork);
     });
 
     // Initial platform check
     final initialOnline = NetworkConnectivityService().isOnline;
-    debugPrint('[SPIN_WHEEL] Initial platform connectivity: isOnline=$initialOnline');
+    debugPrint('[SPIN_WHEEL_EVENT] 📶 Initial platform connectivity: isOnline=$initialOnline');
     _updateOfflineState(platformOnline: initialOnline);
     NetworkConnectivityService().checkConnection().then((hasNetwork) {
       if (!mounted) return;
@@ -358,6 +387,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     });
 
     _lastCalculatedRound = _calculateCurrentRound();
+    debugPrint('[SPIN_WHEEL_EVENT] 🎯 Initial calculated round: $_lastCalculatedRound (synchronizedMs: $_synchronizedTimeMs)');
     _idleController = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
     _idleController.addListener(() {
       if (_gameState != SpinGameState.betting || _isSpinning || _spinCompleted || !mounted) return;
@@ -430,7 +460,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             _betClickCounts[entry.key] = (entry.value as num).toInt();
           }
         });
-        debugPrint("♻️ Game recovery: Restored bets for round $savedRoundId");
+        debugPrint("[SPIN_WHEEL_EVENT] ♻️ Game recovery: Restored bets for round $savedRoundId: $_currentBets");
         // Re-submit restored bets if still in betting phase
         final secondsIntoCycle = (_synchronizedTimeMs % serverRoundMs) ~/ 1000;
         if (secondsIntoCycle < 30) {
@@ -491,10 +521,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final secondsIntoCycle = (now % serverRoundDurationMs) ~/ 1000;
       final msIntoCycle = now % serverRoundDurationMs;
       final currentRoundVal = _calculateCurrentRound();
-      _currentRoundId = (now ~/ serverRoundDurationMs).toString();
+      final currentRoundIdStr = (now ~/ serverRoundDurationMs).toString();
 
       // Rollover / Invalidations on a new round
-      if (_lastCalculatedRound != null && currentRoundVal != _lastCalculatedRound) {
+      final bool isNewRound = (_lastCalculatedRound != null && currentRoundVal != _lastCalculatedRound) ||
+          (_currentRoundId != null && currentRoundIdStr != _currentRoundId);
+      _currentRoundId = currentRoundIdStr;
+
+      if (isNewRound) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🔄 Round Rollover: Round $_lastCalculatedRound -> $currentRoundVal (roundId: $_currentRoundId). Resetting bets and state.');
+        _dismissBottomSheet();
+        _clearStoredResult();
+
         setState(() {
           _currentBets = {};
           _betClickCounts = {};
@@ -505,21 +543,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _hasStartedFallbackCall = false;
           _hasShownResultForRound = null;
           _isProcessingSpin = false;
-          if (_resultPendingRoundId != _currentRoundId) {
-            _pendingRoundResult = null;
-            _hasPendingResult = false;
-            _resultPendingRoundId = null;
-          }
+          _pendingRoundResult = null;
+          _hasPendingResult = false;
+          _resultPendingRoundId = null;
           _resultLock = false;
           _spinCompleted = false;
           _lastRoundResultForHistory = null;
           _showRoundTransition = false;
         });
 
-        if (_storedWinItem != null) {
-          _showStoredResult();
-        }
-        _clearStoredResult();
         ref.invalidate(luckySpinStatsProvider);
         ref.invalidate(userGameHistoryProvider);
       }
@@ -534,9 +566,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       int newTransitionCountdown = _roundTransitionCountdown;
       SpinGameState newGameState = _gameState;
 
-      // Round transition countdown (last 3 seconds before next round)
-      final transitionStart = serverBettingPhaseSec + serverSpinPhaseSec + 7;
+      // Round transition countdown (last 3 seconds before next round: 37s, 38s, 39s)
+      final transitionStart = serverBettingPhaseSec + serverSpinPhaseSec + 2; // 37s
       if (secondsIntoCycle >= transitionStart && secondsIntoCycle < serverRoundDurationMs ~/ 1000) {
+        _dismissBottomSheet();
         final remaining = (serverRoundDurationMs ~/ 1000) - secondsIntoCycle;
         if (remaining <= 3 && remaining >= 1) {
           if (!newShowTransition) {
@@ -568,6 +601,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newCountdown = 30 - secondsIntoCycle;
         newCountdownLabel = "Select time";
       } else if (secondsIntoCycle >= 20 && secondsIntoCycle < 30) {
+        if (!newBetLocked) {
+          debugPrint('[SPIN_WHEEL_EVENT] 🔒 Phase 1b: BETS CLOSED at 20s (roundId: $_currentRoundId, locking & auto-submitting)');
+        }
         newBetLocked = true;
         newGameState = SpinGameState.betting;
         newCountdown = 30 - secondsIntoCycle;
@@ -606,8 +642,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       // PHASE 1: BETTING / IDLE
       if (secondsIntoCycle < serverBettingPhaseSec) {
+        // HARD ENFORCEMENT: Bottom sheet and past stored results MUST NEVER exist during betting!
+        if (_isBottomSheetOpen || _bottomSheetContext != null || _bottomSheetRoute != null) {
+          _dismissBottomSheet();
+        }
+        if (_storedWinItem != null) {
+          _clearStoredResult();
+        }
+
         if (_gameState != SpinGameState.betting && !_isSpinning) {
-          debugPrint('[SPIN_GAME_LOG] ---> Entering Phase 1: BETTING (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
+          debugPrint('[SPIN_WHEEL_EVENT] 🟢 Entering Phase 1: BETTING OPEN (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle, remaining: ${serverBettingPhaseSec - secondsIntoCycle}s)');
           newGameState = SpinGameState.betting;
           _spinCompleted = false;
           _playPhaseSound(SpinGameState.betting);
@@ -618,7 +662,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // PHASE 2: SPINNING PHASE
       else if (secondsIntoCycle >= serverBettingPhaseSec && secondsIntoCycle < serverBettingPhaseSec + serverSpinPhaseSec) {
         if (_gameState != SpinGameState.spinning && !_isSpinning && _hasSpunForRound != _currentRoundId) {
-          debugPrint('[SPIN_GAME_LOG] ---> Entering Phase 2: SPINNING (roundId: $_currentRoundId, msIntoCycle: $msIntoCycle)');
+          debugPrint('[SPIN_WHEEL_EVENT] 🌀 Entering Phase 2: SPINNING (roundId: $_currentRoundId, msIntoCycle: $msIntoCycle)');
           newGameState = SpinGameState.spinning;
           needsBuild = true;
         }
@@ -666,7 +710,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
               'prize': 0,
               'todayWinners': [],
             };
-            debugPrint('[SPIN_GAME_LOG] ⚡ Instant 0ms spectator outcome computed for round $_currentRoundId (sector: $deterministicIdx)');
+            debugPrint('[SPIN_WHEEL_EVENT] ⚡ Instant 0ms spectator outcome computed for round $_currentRoundId (sector: $deterministicIdx, item: ${fallbackSeg['name']})');
           }
 
           if (availableOutcome != null) {
@@ -679,7 +723,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // PHASE 3: RESULTS CELEBRATION
       else if (secondsIntoCycle >= serverBettingPhaseSec + serverSpinPhaseSec) {
         if (_gameState != SpinGameState.results && !_isSpinning) {
-          debugPrint('[SPIN_GAME_LOG] ---> Entering Phase 3: RESULTS (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
+          debugPrint('[SPIN_WHEEL_EVENT] 🏆 Entering Phase 3: RESULTS CELEBRATION (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
           newGameState = SpinGameState.results;
           needsBuild = true;
         }
@@ -1019,11 +1063,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       targetSpinDuration = (35000 - msIntoCycle).toDouble().clamp(600.0, 5000.0);
     }
     
-    debugPrint('[SPIN_GAME_LOG] ---> Starting Wheel Animation: roundId: $outcomeRoundId, msIntoCycle: $msIntoCycle, duration: ${targetSpinDuration.toInt()}ms, targetSector: $targetIdx');
-
     int distanceToTarget = (targetIdx - startIdx + 8) % 8;
     int fullRotations = (targetSpinDuration ~/ 1200).clamp(1, 4); 
     final int totalTicks = distanceToTarget + (fullRotations * 8);
+
+    debugPrint('[SPIN_WHEEL_EVENT] 🎡 Starting Wheel Animation: roundId: $outcomeRoundId, msIntoCycle: $msIntoCycle, duration: ${targetSpinDuration.toInt()}ms, startSector: $startIdx, targetSector: $targetIdx, totalTicks: $totalTicks');
 
     _tickDurations = [];
     double sumSquares = 0;
@@ -1064,20 +1108,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       
       final elapsedMs = (DateTime.now().difference(startTime).inMicroseconds / 1000.0);
       
-      // CRITICAL FIX: Advance at most ONE tick per frame to prevent
-      // timer catch-up storms on slower devices that cause ANR.
-      // On lagging devices, the while loop would call setState 5-10+ times
-      // per frame, each rebuilding the entire widget tree.
-      if (_currentTickIndex < _tickFireTimes.length && 
-          _tickFireTimes[_currentTickIndex] <= elapsedMs) {
-        
+      int ticksAdvanced = 0;
+      while (_currentTickIndex < _tickFireTimes.length && 
+             _tickFireTimes[_currentTickIndex] <= elapsedMs) {
         _tickCurrentIndex = (_tickCurrentIndex + 1) % 8;
-        
+        _currentTickIndex++;
+        ticksAdvanced++;
+      }
+
+      if (ticksAdvanced > 0 && mounted) {
         setState(() {
           _currentSegment = _tickCurrentIndex;
         });
-        
-        _currentTickIndex++;
       }
       
       if (_currentTickIndex >= _tickFireTimes.length) {
@@ -1181,17 +1223,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         ref.invalidate(userGameHistoryProvider);
         ref.invalidate(luckySpinStatsProvider);
 
-        // Show result ONLY when in the Results phase (msIntoCycle >= 35000)
+        // Show result ONLY when in the Results phase (34.5s - 38.5s)
         final nowMs = _synchronizedTimeMs;
         const serverRoundMs = 40000;
         final msIntoCycle = nowMs % serverRoundMs;
+        final activeRoundId = (nowMs ~/ serverRoundMs).toString();
 
-        debugPrint('[SPIN_GAME_LOG] ---> Wheel Animation Finished: landedOn: ${winningItem.name}, sector: $targetIdx, msIntoCycle: $msIntoCycle');
+        debugPrint('[SPIN_WHEEL_EVENT] 🎯 Wheel Animation Finished: landedOn: ${winningItem.name} (${winningItem.emoji}), sector: $targetIdx, multiplier: ${winningItem.multiplier}x, wager: $effectiveTotalBet, prize: $effectivePrize, profit: ${effectivePrize - effectiveTotalBet}');
 
-        if (_hasShownResultForRound != roundId) {
-          debugPrint('[SPIN_GAME_LOG] ---> Triggering Victory Sheet: roundId: $roundId, msIntoCycle: $msIntoCycle');
+        // Strict Guard: ONLY trigger bottom sheet if still in current round's result window!
+        if (_hasShownResultForRound != roundId && roundId == activeRoundId && msIntoCycle >= 34500 && msIntoCycle < 38500) {
+          debugPrint('[SPIN_WHEEL_EVENT] 📜 Triggering Result Bottom Sheet for round $roundId');
           _hasShownResultForRound = roundId;
           _showStoredResult();
+        } else if (roundId != activeRoundId || msIntoCycle >= 38500) {
+          debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
+          _clearStoredResult();
         }
         return;
       }
@@ -1235,8 +1282,47 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     }
   }
 
+  void _dismissBottomSheet() {
+    if (!_isBottomSheetOpen && _bottomSheetRoute == null) return;
+    _isBottomSheetOpen = false;
+    final route = _bottomSheetRoute;
+    _bottomSheetRoute = null;
+    _bottomSheetContext = null;
+
+    if (route != null && route.isActive) {
+      try {
+        if (route.isCurrent) {
+          route.navigator?.pop();
+          debugPrint('[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.pop()');
+        } else {
+          route.navigator?.removeRoute(route);
+          debugPrint('[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.removeRoute()');
+        }
+      } catch (e) {
+        debugPrint("⚠️ SpinWheel: Error removing bottom sheet route: $e");
+      }
+    }
+  }
+
   void _showStoredResult() {
     if (_storedWinItem != null && mounted) {
+      final now = _synchronizedTimeMs;
+      const serverRoundMs = 40000;
+      final msIntoCycle = now % serverRoundMs;
+      final currentRoundId = (now ~/ serverRoundMs).toString();
+
+      // Strict Guard: ONLY show bottom sheet during Results Celebration phase (34.5s-38.5s) AND for the current round!
+      if (_storedRoundId.isNotEmpty && _storedRoundId != currentRoundId) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed stale result sheet for past round $_storedRoundId (current: $currentRoundId)');
+        _clearStoredResult();
+        return;
+      }
+      if (msIntoCycle < 34500 || msIntoCycle >= 38000) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed result sheet outside results celebration window (msIntoCycle: $msIntoCycle)');
+        _clearStoredResult();
+        return;
+      }
+
       final item = _storedWinItem!;
       final prize = _storedPrize;
       final wager = _storedWager;
@@ -1261,6 +1347,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   }
 
   void _clearStoredResult() {
+    debugPrint('[SPIN_WHEEL_EVENT] 🧹 Cleared stored results for round $_storedRoundId');
     _storedWinItem = null;
     _storedPrize = 0;
     _storedWager = 0;
@@ -1273,20 +1360,24 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings, int wager, List<dynamic> winners, String roundId, {Map<String, int>? bets}) {
     if (!mounted) return;
 
-    // Dismiss any currently open result sheet safely using removeRoute to avoid double-pop crashes
-    if (_isBottomSheetOpen && _bottomSheetRoute != null) {
-      _isBottomSheetOpen = false;
-      final route = _bottomSheetRoute;
-      _bottomSheetRoute = null;
-      _bottomSheetContext = null;
-      try {
-        if (route != null && route.isActive) {
-          Navigator.of(context).removeRoute(route);
-        }
-      } catch (e) {
-        debugPrint("⚠️ SpinWheel: Error removing bottom sheet: $e");
-      }
+    final now = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final msIntoCycle = now % serverRoundMs;
+    final activeRoundId = (now ~/ serverRoundMs).toString();
+
+    // HARD GUARD: NEVER open result bottom sheet outside 34.5s - 38.0s celebration window,
+    // and NEVER for a round that is not the active round!
+    if (roundId != activeRoundId || msIntoCycle < 34500 || msIntoCycle >= 38000) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ BLOCKED showing result bottom sheet outside celebration window (round: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
+      _clearStoredResult();
+      return;
     }
+
+    final outcomeTitle = wager > 0 ? (winnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
+    debugPrint('[SPIN_WHEEL_EVENT] 📜 Opening Result Sheet: roundId: $roundId, outcome: $outcomeTitle, item: ${item.name} (${item.emoji} ${item.multiplier}x), wager: $wager, winnings: $winnings');
+
+    // Proactively dismiss any existing bottom sheet to avoid stacking
+    _dismissBottomSheet();
 
     _isBottomSheetOpen = true;
     _bottomSheetOpenTime = DateTime.now();
@@ -1301,16 +1392,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         builder: (sheetContext) {
           _bottomSheetContext = sheetContext;
           _bottomSheetRoute = ModalRoute.of(sheetContext);
-          return _ResultBottomSheet(
+          return SpinWheelResultBottomSheet(
             item: item,
             winnings: winnings,
             wager: wager,
             winners: winners,
             roundId: roundId,
             bets: bets,
+            serverTimeOffset: _serverTimeOffset,
           );
         },
       ).then((_) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🚪 Result Bottom Sheet Dismissed. Refreshing wallet, history, and stats.');
         _isBottomSheetOpen = false;
         _bottomSheetContext = null;
         _bottomSheetRoute = null;
@@ -1394,7 +1487,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   void _showRulesSheet(Map<String, dynamic> settings) {
     showModalBottomSheet(
-      context: context, backgroundColor: const Color(0xFF0F172A), shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      context: context,
+      backgroundColor: const Color(0xFF1E293B),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -1419,6 +1514,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   @override
   void dispose() {
+    debugPrint('[SPIN_WHEEL_EVENT] 🛑 Game Screen Disposing: Cleaning up controllers, timers, and listeners.');
+    _dismissBottomSheet();
     WidgetsBinding.instance.removeObserver(this);
     WakelockService().release();
     _offsetSubscription?.cancel();
@@ -1446,9 +1543,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _isOffline = !_platformHasNetwork;
 
     if (_isOffline != wasOffline) {
-      debugPrint('[SPIN_WHEEL] Offline state changed: $_isOffline '
-          '(platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
+      debugPrint('[SPIN_WHEEL_EVENT] 🌐 Network state changed: isOffline=$_isOffline (platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
       if (_isOffline) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Device offline: Aborting unconfirmed local bets');
         _debounceTimer?.cancel();
         // Immediately abort any unconfirmed local bets so fake bets are not left on screen
         if (_submittedSpinResult == null && _currentBets.isNotEmpty) {
@@ -1469,9 +1566,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final statsAsync = ref.watch(luckySpinStatsProvider);
     final historyAsync = ref.watch(userGameHistoryProvider);
 
-    return MediaQuery(
-      data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
-      child: Scaffold(
+    final bool canPopScreen = _bottomSheetRoute == null || !_bottomSheetRoute!.isActive;
+
+    return PopScope(
+      canPop: canPopScreen,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_bottomSheetRoute != null && _bottomSheetRoute!.isActive) {
+          debugPrint('[SPIN_WHEEL_EVENT] 🛡️ Pop intercepted: Dismissing bottom sheet only, preventing screen exit');
+          _dismissBottomSheet();
+          return;
+        }
+      },
+      child: MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+        child: Scaffold(
         backgroundColor: const Color(0xFFFDE047),
         extendBodyBehindAppBar: true,
         body: settingsAsync.when(
@@ -1836,8 +1945,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           error: (e, _) => Center(child: Text("Error: $e")),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildHeader(Map<String, dynamic> settings, int currentRound, double scale, Map<String, dynamic>? stats) {
     String? lastWinnerLabel;
@@ -1960,7 +2070,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     bool isSelected = _selectedChipValue == value;
 
     return GestureDetector(
-      onTap: _isOffline ? null : () => setState(() => _selectedChipValue = value),
+      onTap: _isOffline ? null : () {
+        debugPrint('[SPIN_WHEEL_EVENT] 🪙 Chip selected: ${_selectedChipValue} -> $value');
+        setState(() => _selectedChipValue = value);
+      },
       child: Container(
         width: 62 * scale,
         height: 62 * scale,
@@ -3003,37 +3116,82 @@ class GlowPointerPainter extends CustomPainter {
   }
 }
 
-class _ResultBottomSheet extends ConsumerStatefulWidget {
+class SpinWheelResultBottomSheet extends ConsumerStatefulWidget {
   final SpinItem item;
   final int winnings;
   final int wager;
   final List<dynamic> winners;
   final String? roundId;
   final Map<String, int>? bets;
+  final int? serverTimeOffset;
 
-  const _ResultBottomSheet({
+  const SpinWheelResultBottomSheet({
+    super.key,
     required this.item,
     required this.winnings,
     required this.wager,
     required this.winners,
     this.roundId,
     this.bets,
+    this.serverTimeOffset,
   });
 
   @override
-  ConsumerState<_ResultBottomSheet> createState() => _ResultBottomSheetState();
+  ConsumerState<SpinWheelResultBottomSheet> createState() => _SpinWheelResultBottomSheetState();
 }
 
-class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with TickerProviderStateMixin {
+class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBottomSheet> with TickerProviderStateMixin {
   late AnimationController _mainController;
   late Animation<double> _slideAnimation;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   Timer? _autoCloseTimer;
+  Timer? _safetyTimer;
+  bool _isDismissingOrDismissed = false;
+
+  void _safeDismiss() {
+    if (_isDismissingOrDismissed) return;
+    _isDismissingOrDismissed = true;
+    _autoCloseTimer?.cancel();
+    _safetyTimer?.cancel();
+
+    if (!mounted) return;
+    try {
+      final route = ModalRoute.of(context);
+      if (route != null && route.isActive && route.isCurrent) {
+        route.navigator?.pop();
+        debugPrint('[SPIN_WHEEL_EVENT] 🚪 Result bottom sheet safely dismissed itself');
+      } else {
+        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Result bottom sheet dismiss skipped (route is not current/active)');
+      }
+    } catch (e) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error dismissing result bottom sheet: $e');
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    final outcomeTitle = widget.wager > 0 ? (widget.winnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
+    debugPrint('[SPIN_WHEEL_EVENT] 🌟 Result Bottom Sheet Initialized: title="$outcomeTitle", item="${widget.item.name}" (${widget.item.emoji} ${widget.item.multiplier}x), wager=${widget.wager}, winnings=${widget.winnings}');
+
+    if (widget.serverTimeOffset != null) {
+      final syncMs = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+      const serverRoundMs = 40000;
+      final msIntoCycle = syncMs % serverRoundMs;
+      final activeRoundId = (syncMs ~/ serverRoundMs).toString();
+
+      // Guard: If sheet opens outside the 34s - 38s results window, dismiss immediately!
+      if ((widget.roundId != null && widget.roundId != activeRoundId) || msIntoCycle < 34000 || msIntoCycle >= 38000) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isDismissingOrDismissed) {
+            _safeDismiss();
+          }
+        });
+        return;
+      }
+    }
+
     _mainController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 750),
@@ -3053,27 +3211,51 @@ class _ResultBottomSheetState extends ConsumerState<_ResultBottomSheet> with Tic
 
     _mainController.forward();
 
-    // Automatically close the bottom sheet at the exact end of Results phase (40,000ms, minimum 3.5 seconds)
-    final nowMs = DateTime.now().millisecondsSinceEpoch;
-    const serverRoundMs = 40000;
-    final msIntoCycle = nowMs % serverRoundMs;
-    final remainingMsInPhase = (40000 - msIntoCycle).clamp(3500, 5000);
+    // Automatically close before 38.0s of cycle (maximum 2.5s display)
+    int remainingMsInPhase = 2500;
+    if (widget.serverTimeOffset != null) {
+      final syncMs = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+      final msIntoCycle = syncMs % 40000;
+      if (msIntoCycle < 38000) {
+        remainingMsInPhase = (38000 - msIntoCycle).clamp(800, 2500);
+      } else {
+        remainingMsInPhase = 600;
+      }
+    }
+    debugPrint('[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-close scheduled in ${remainingMsInPhase}ms');
 
     _autoCloseTimer = Timer(Duration(milliseconds: remainingMsInPhase), () {
-      if (mounted) {
-        try {
-          final currentRoute = ModalRoute.of(context);
-          if (currentRoute != null && currentRoute.isCurrent) {
-            Navigator.of(context).pop();
-          }
-        } catch (_) {}
+      if (mounted && !_isDismissingOrDismissed) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-closing on timer expiration');
+        _safeDismiss();
       }
     });
+
+    // Proactive safety watcher: checks every 100ms to guarantee sheet NEVER lingers into betting phase
+    if (widget.serverTimeOffset != null) {
+      _safetyTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (!mounted || _isDismissingOrDismissed) {
+          _safetyTimer?.cancel();
+          return;
+        }
+        final curSync = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+        final curMs = curSync % 40000;
+        final curRound = (curSync ~/ 40000).toString();
+        if (curMs < 34000 || curMs >= 38200 || (widget.roundId != null && widget.roundId != curRound)) {
+          _safetyTimer?.cancel();
+          debugPrint('[SPIN_WHEEL_EVENT] 🚨 Safety watcher closed result sheet before betting phase');
+          _safeDismiss();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    debugPrint('[SPIN_WHEEL_EVENT] 🚪 Result Bottom Sheet Disposed');
+    _isDismissingOrDismissed = true;
     _autoCloseTimer?.cancel();
+    _safetyTimer?.cancel();
     _mainController.dispose();
     super.dispose();
   }

@@ -6,13 +6,16 @@ final topRankedAvatarsProvider = StreamProvider.family<List<String>, ({String co
   return FirebaseFirestore.instance
       .collection(arg.collection)
       .orderBy(arg.field, descending: true)
-      .limit(3)
+      .limit(6)
       .snapshots()
-      .map((snap) => snap.docs.map((doc) {
-        final data = doc.data();
-        if (arg.collection == 'rooms') {
-          return data['coverUrl'] as String? ?? "";
-        }
-        return data['profilePhotoUrl'] as String? ?? "";
-      }).where((url) => url.isNotEmpty).toList());
+      .map((snap) {
+        final urls = snap.docs.map((doc) {
+          final data = doc.data();
+          if (arg.collection == 'rooms') {
+            return data['coverUrl'] as String? ?? "";
+          }
+          return data['profilePhotoUrl'] as String? ?? "";
+        }).where((url) => url.isNotEmpty).take(3).toList();
+        return urls;
+      });
 });

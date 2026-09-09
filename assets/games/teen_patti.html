@@ -1,0 +1,2145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Teen Patti Royale</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      touch-action: manipulation;
+    }
+
+    :root {
+      --gold: #f59e0b;
+      --gold-light: #fef08a;
+      --gold-dark: #b45309;
+      --felt: #1e1145;
+      --felt-gradient: radial-gradient(circle at 50% 45%, #2c1664 0%, #170d38 72%, #0a041c 100%);
+      --cyan: #38bdf8;
+      --win: #22c55e;
+      --fold: #ef4444;
+      --card-red: #ef4444;
+      --card-black: #0f172a;
+      --gradient-gold: linear-gradient(180deg, #fef08a 0%, #f59e0b 55%, #b45309 100%);
+      --glow-gold: 0 0 16px rgba(245, 158, 11, 0.5);
+      --glow-cyan: 0 0 16px rgba(56, 189, 248, 0.7);
+      --font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', Roboto, 'Segoe UI', sans-serif;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090514;
+      font-family: var(--font-family);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+    }
+
+    .game-viewport-outer {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #090514;
+      overflow: hidden;
+    }
+
+    .game-viewport {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 440px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background-color: #120924;
+      background-image: url('{{BG_IMAGE_DATA}}'), radial-gradient(circle at 50% 25%, #27144d 0%, #0d0620 100%);
+      background-size: cover;
+      background-position: center;
+      box-shadow: 0 0 50px rgba(0, 0, 0, 0.9);
+      transform: translateZ(0);
+      will-change: transform;
+      contain: layout style paint;
+    }
+
+    .vignette {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 40%, rgba(13, 6, 32, 0.25) 0%, rgba(9, 5, 20, 0.88) 100%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* TOP BAR */
+    .top-bar {
+      position: relative;
+      z-index: 30;
+      padding: calc(env(safe-area-inset-top, 8px) + 6px) 14px 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transform: translateZ(0);
+    }
+
+    .top-bar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .user-profile-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(26, 16, 53, 0.95);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      border-radius: 999px;
+      padding: 3px 12px 3px 3px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    }
+
+    .avatar-ring {
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      border: 2px solid var(--gold);
+      background: #1e1145;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--glow-gold);
+    }
+
+    .avatar-ring img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .user-info-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .user-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .user-id {
+      font-size: 10px;
+      color: #94a3b8;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 1px solid rgba(245, 158, 11, 0.6);
+      background: var(--gradient-gold);
+      color: #451a03;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      box-shadow: var(--glow-gold);
+      transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+      transform: translateZ(0);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.9) translateZ(0);
+    }
+
+    .icon-btn svg {
+      width: 16px;
+      height: 16px;
+      fill: currentColor;
+    }
+
+    .hud-sub-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .hud-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      background: rgba(26, 16, 53, 0.85);
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      color: #f8fafc;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .diamond-icon {
+      color: #38bdf8;
+      font-size: 12px;
+    }
+
+    /* TABLE CONTAINER */
+    .table-container {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 0 10px;
+    }
+
+    .dealer-figure {
+      position: absolute;
+      top: -22px;
+      left: 50%;
+      transform: translateX(-50%) translateZ(0);
+      width: 130px;
+      height: 130px;
+      object-fit: contain;
+      pointer-events: none;
+      z-index: 15;
+    }
+
+    .table-frame {
+      position: relative;
+      width: 100%;
+      height: min(54vh, 440px);
+      margin-top: 50px;
+      border-radius: 38px 38px 32px 32px;
+      padding: 6px;
+      background: linear-gradient(180deg, #fcd34d 0%, #b45309 45%, #78350f 100%);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 28px rgba(245, 158, 11, 0.4);
+      transform: translateZ(0);
+    }
+
+    .table-felt {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 34px 34px 28px 28px;
+      background: var(--felt-gradient);
+      overflow: hidden;
+      border: 1.5px solid rgba(245, 158, 11, 0.45);
+      box-shadow: inset 0 10px 32px rgba(0, 0, 0, 0.8), inset 0 -14px 40px rgba(0, 0, 0, 0.7);
+      transform: translateZ(0);
+      will-change: transform;
+      contain: layout paint;
+    }
+
+    .table-pattern {
+      position: absolute;
+      inset: 0;
+      background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 14px);
+      mask-image: radial-gradient(circle at 50% 50%, black 45%, transparent 85%);
+      -webkit-mask-image: radial-gradient(circle at 50% 50%, black 45%, transparent 85%);
+      pointer-events: none;
+    }
+
+    .game-banner {
+      position: absolute;
+      z-index: 25;
+      left: 50%;
+      top: 8px;
+      transform: translateX(-50%) translateZ(0);
+      font-weight: 900;
+      font-size: 17px;
+      letter-spacing: 1px;
+      padding: 3px 22px;
+      border-radius: 8px;
+      color: #fffbeb;
+      background: linear-gradient(180deg, #991b1b 0%, #450a0a 100%);
+      border: 2px solid var(--gold);
+      text-shadow: 0 2px 0 #450a0a, 0 0 10px rgba(245, 158, 11, 0.8);
+      box-shadow: var(--glow-gold), 0 6px 16px rgba(0, 0, 0, 0.7);
+    }
+
+    /* CENTER POT */
+    .pot-display {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%) translateZ(0);
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 6px 20px;
+      border-radius: 16px;
+      background: rgba(26, 16, 53, 0.95);
+      border: 1.5px solid rgba(245, 158, 11, 0.6);
+      box-shadow: 0 0 24px rgba(0, 0, 0, 0.8), inset 0 0 12px rgba(245, 158, 11, 0.25);
+      transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      contain: layout style;
+    }
+
+    .pot-display.pot-bounce {
+      animation: pot-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes pot-pop {
+      0% { transform: translate(-50%, -50%) scale(1); }
+      50% { transform: translate(-50%, -50%) scale(1.14); }
+      100% { transform: translate(-50%, -50%) scale(1); }
+    }
+
+    .pot-label {
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: 1.5px;
+      color: #fcd34d;
+      text-transform: uppercase;
+    }
+
+    .pot-amount {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 19px;
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 0 12px rgba(245, 158, 11, 0.95);
+    }
+
+    /* SEATS AROUND THE TABLE */
+    .seat-wrapper {
+      position: absolute;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      transform: translate(-50%, -50%) translateZ(0);
+      cursor: pointer;
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      contain: layout style;
+    }
+
+    .seat-empty-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(26, 16, 53, 0.7);
+      border: 1.5px dashed rgba(245, 158, 11, 0.7);
+      color: #fcd34d;
+      font-size: 11px;
+      font-weight: 800;
+      cursor: pointer;
+      transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), background 0.12s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+      transform: translateZ(0);
+    }
+
+    .seat-empty-btn:active {
+      transform: scale(1.12) translateZ(0);
+      background: rgba(245, 158, 11, 0.3);
+      border-style: solid;
+    }
+
+    .seat-plate {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 112px;
+      padding: 3px 8px 3px 3px;
+      border-radius: 999px;
+      background: rgba(26, 16, 53, 0.92);
+      border: 1.5px solid rgba(245, 158, 11, 0.4);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.7);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+      transform: translateZ(0);
+    }
+
+    .seat-plate.active {
+      border-color: var(--cyan);
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.95);
+      animation: active-glow 1.2s ease-in-out infinite alternate;
+    }
+
+    .seat-plate.winner {
+      border-color: var(--win);
+      box-shadow: 0 0 24px rgba(34, 197, 94, 0.95);
+      animation: win-pulse 0.9s ease-in-out infinite alternate;
+    }
+
+    @keyframes active-glow {
+      from { box-shadow: 0 0 8px rgba(56, 189, 248, 0.5); }
+      to { box-shadow: 0 0 22px rgba(56, 189, 248, 1); }
+    }
+
+    @keyframes win-pulse {
+      from { transform: scale(1) translateZ(0); box-shadow: 0 0 12px rgba(34, 197, 94, 0.6); }
+      to { transform: scale(1.06) translateZ(0); box-shadow: 0 0 26px rgba(34, 197, 94, 1); }
+    }
+
+    .seat-avatar {
+      position: relative;
+      width: 36px;
+      height: 36px;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 2px solid var(--gold);
+      background: #120924;
+      flex-shrink: 0;
+    }
+
+    .seat-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* SVG TURN COUNTDOWN RING */
+    .turn-timer-svg {
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      width: 44px;
+      height: 44px;
+      pointer-events: none;
+      transform: rotate(-90deg);
+      display: none;
+    }
+
+    .seat-plate.active .turn-timer-svg {
+      display: block;
+    }
+
+    .turn-timer-svg circle {
+      fill: none;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+    }
+
+    .turn-timer-bg {
+      stroke: rgba(255, 255, 255, 0.15);
+    }
+
+    .turn-timer-progress {
+      stroke: var(--cyan);
+      stroke-dasharray: 113.1; /* 2 * PI * 18 */
+      stroke-dashoffset: 0;
+      transition: stroke 0.3s ease;
+    }
+
+    .turn-timer-progress.urgent {
+      stroke: #ef4444;
+      animation: urgent-flash 0.5s ease infinite alternate;
+    }
+
+    @keyframes urgent-flash {
+      from { opacity: 0.7; }
+      to { opacity: 1; }
+    }
+
+    .seat-details {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .seat-player-name {
+      font-size: 11px;
+      font-weight: 700;
+      max-width: 62px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #fff;
+    }
+
+    .seat-player-bal {
+      font-size: 9px;
+      font-weight: 700;
+      color: #fcd34d;
+    }
+
+    .seat-tag {
+      margin-top: 2px;
+      padding: 1px 7px;
+      border-radius: 999px;
+      font-size: 8px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      background: rgba(30, 27, 75, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+    }
+
+    .seat-tag.fold { background: rgba(185, 28, 28, 0.95); color: #fecaca; }
+    .seat-tag.seen { background: rgba(30, 64, 175, 0.95); color: #bfdbfe; }
+    .seat-tag.chaal { background: rgba(180, 83, 9, 0.95); color: #fef08a; }
+    .seat-tag.winner { background: rgba(21, 128, 61, 0.95); color: #bbf7d0; }
+
+    .seat-bet {
+      font-size: 9px;
+      font-weight: 800;
+      color: #fef08a;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+      margin-top: 1px;
+    }
+
+    /* 3D PERSPECTIVE CARD SYSTEM */
+    .card-perspective-container {
+      perspective: 900px;
+      -webkit-perspective: 900px;
+    }
+
+    .card-3d-box {
+      position: relative;
+      transform-style: preserve-3d;
+      -webkit-transform-style: preserve-3d;
+      transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+      will-change: transform;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    .card-3d-box.flipped {
+      transform: rotateY(180deg);
+    }
+
+    .card-face-front, .card-face-back {
+      position: absolute;
+      inset: 0;
+      border-radius: 6px;
+      overflow: hidden;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+      box-shadow: 0 5px 14px rgba(0, 0, 0, 0.75);
+    }
+
+    .card-face-back {
+      z-index: 2;
+      transform: rotateY(0deg);
+      background: radial-gradient(circle at 50% 50%, #991b1b 0%, #450a0a 100%);
+      border: 1.5px solid #f59e0b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .card-face-back::before {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      border: 1px solid rgba(254, 240, 138, 0.45);
+      border-radius: 4px;
+      background-image: repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.18) 0 2px, transparent 2px 6px),
+                        repeating-linear-gradient(-45deg, rgba(245, 158, 11, 0.18) 0 2px, transparent 2px 6px);
+    }
+
+    .card-face-back::after {
+      content: '♠';
+      position: relative;
+      font-size: 1.25em;
+      color: #fef08a;
+      text-shadow: 0 0 6px rgba(245, 158, 11, 0.9);
+    }
+
+    .card-face-front {
+      transform: rotateY(180deg);
+      background: radial-gradient(circle at 50% 0%, #ffffff 0%, #f1f5f9 100%);
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 3px;
+    }
+
+    .card-face-front.red { color: var(--card-red); }
+    .card-face-front.black { color: var(--card-black); }
+
+    .card-rank { font-weight: 900; line-height: 1; }
+    .card-suit { font-size: 1.1em; line-height: 1; }
+    .card-center-suit { align-self: center; font-size: 2.2em; line-height: 1; }
+    .card-bot-rank { transform: rotate(180deg); display: flex; flex-direction: column; align-items: center; }
+
+    /* CARD SIZES */
+    .card-size-sm {
+      width: 26px;
+      height: 38px;
+      font-size: 8px;
+    }
+
+    .card-size-lg {
+      width: 64px;
+      height: 92px;
+      font-size: 15px;
+      border-radius: 8px;
+    }
+
+    .card-hand {
+      position: relative;
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      transform: translateZ(0);
+    }
+
+    .animate-deal-in {
+      animation: deal-arc 0.42s cubic-bezier(0.18, 0.89, 0.32, 1.28) backwards;
+    }
+
+    @keyframes deal-arc {
+      0% {
+        opacity: 0;
+        transform: translate(0, -90px) scale(0.3) rotate(-25deg);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(0, 0) scale(1) rotate(0deg);
+      }
+    }
+
+    /* LOCAL PLAYER SECTION */
+    .local-player-section {
+      position: relative;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: -12px;
+      padding-bottom: 4px;
+      transform: translateZ(0);
+    }
+
+    .table-status-message {
+      margin-top: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fef08a;
+      text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+      text-align: center;
+    }
+
+    /* CHIPS & 60 FPS FLYING BURST */
+    .chip {
+      position: relative;
+      border-radius: 999px;
+      border: 2px dashed rgba(255, 255, 255, 0.6);
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6), inset 0 -3px 6px rgba(0, 0, 0, 0.4);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      font-weight: 900;
+      color: #fff;
+      transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.12s ease;
+      transform: translateZ(0);
+    }
+
+    .chip:active { transform: scale(0.92) translateZ(0); }
+    .chip.selected {
+      transform: translateY(-4px) scale(1.1) translateZ(0);
+      box-shadow: 0 0 0 2px var(--gold), 0 0 16px rgba(245, 158, 11, 0.95);
+    }
+
+    .chip-pink { background: radial-gradient(circle at 35% 30%, #ec4899 0%, #9d174d 100%); }
+    .chip-red { background: radial-gradient(circle at 35% 30%, #ef4444 0%, #991b1b 100%); }
+    .chip-purple { background: radial-gradient(circle at 35% 30%, #a855f7 0%, #6b21a8 100%); }
+    .chip-teal { background: radial-gradient(circle at 35% 30%, #14b8a6 0%, #0f766e 100%); }
+    .chip-blue { background: radial-gradient(circle at 35% 30%, #3b82f6 0%, #1d4ed8 100%); }
+
+    .flying-chip {
+      position: absolute;
+      z-index: 50;
+      pointer-events: none;
+      will-change: transform, opacity;
+    }
+
+    .action-loading-pill {
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 14px;
+      border-radius: 999px;
+      background: rgba(26, 16, 53, 0.95);
+      border: 1.5px solid var(--gold);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), var(--glow-gold);
+      font-size: 11px;
+      font-weight: 800;
+      color: #fef08a;
+      letter-spacing: 0.5px;
+      animation: pulse-hud 1.2s ease-in-out infinite alternate;
+      z-index: 35;
+      margin-bottom: 2px;
+      transform: translateZ(0);
+    }
+
+    .gold-mini-spinner {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      border: 2px solid rgba(245, 158, 11, 0.3);
+      border-top-color: #fef08a;
+      animation: spin-cw 0.6s linear infinite;
+    }
+
+    @keyframes spin-cw {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse-hud {
+      from { transform: scale(0.98) translateZ(0); }
+      to { transform: scale(1.02) translateZ(0); }
+    }
+
+    /* BOTTOM CONTROLS */
+    .controls-container {
+      position: relative;
+      z-index: 30;
+      padding: 4px 12px calc(env(safe-area-inset-bottom, 8px) + 8px);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transform: translateZ(0);
+    }
+
+    .chips-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .balance-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(26, 16, 53, 0.92);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      font-size: 13px;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.5);
+    }
+
+    .chips-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .action-buttons-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .btn-action {
+      flex: 1;
+      height: 44px;
+      border-radius: 12px;
+      border: none;
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+      transition: transform 0.08s cubic-bezier(0.2, 0, 0, 1), filter 0.08s ease;
+      transform: translateZ(0);
+    }
+
+    .btn-action:active:not(:disabled) { transform: scale(0.94) translateZ(0); }
+    .btn-action:disabled { opacity: 0.45; cursor: not-allowed; filter: grayscale(0.5); }
+    .btn-action em { font-style: normal; font-size: 9px; opacity: 0.9; margin-top: -2px; }
+
+    .btn-fold {
+      background: linear-gradient(180deg, #ef4444 0%, #991b1b 100%);
+      border: 1px solid #f87171;
+    }
+
+    .btn-see {
+      background: linear-gradient(180deg, #38bdf8 0%, #0284c7 100%);
+      border: 1px solid #7dd3fc;
+    }
+
+    .btn-chaal {
+      background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+      border: 1px solid #4ade80;
+    }
+
+    .btn-raise {
+      background: linear-gradient(180deg, #f59e0b 0%, #b45309 100%);
+      border: 1px solid #fde047;
+      color: #451a03;
+    }
+
+    .btn-show {
+      background: linear-gradient(180deg, #a855f7 0%, #7e22ce 100%);
+      border: 1px solid #d8b4fe;
+    }
+
+    .btn-gold {
+      flex: 1;
+      height: 44px;
+      border-radius: 12px;
+      border: 1px solid rgba(254, 240, 138, 0.8);
+      background: var(--gradient-gold);
+      color: #451a03;
+      font-size: 14px;
+      font-weight: 900;
+      letter-spacing: 1px;
+      cursor: pointer;
+      box-shadow: var(--glow-gold), 0 4px 14px rgba(0, 0, 0, 0.7);
+      transition: transform 0.1s cubic-bezier(0.2, 0, 0, 1);
+      transform: translateZ(0);
+    }
+
+    .btn-gold:active { transform: scale(0.95) translateZ(0); }
+
+    /* PARTICLES CANVAS */
+    #celebrationCanvas {
+      position: absolute;
+      inset: 0;
+      z-index: 80;
+      pointer-events: none;
+    }
+
+    /* WINNER OVERLAY */
+    .winner-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 100;
+      background: rgba(9, 5, 20, 0.94);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fade-in 0.25s ease;
+    }
+
+    @keyframes fade-in {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .winner-card {
+      position: relative;
+      width: 100%;
+      max-width: 320px;
+      border-radius: 24px;
+      background: linear-gradient(180deg, #27144d 0%, #120924 100%);
+      border: 2px solid var(--gold);
+      box-shadow: 0 0 40px rgba(245, 158, 11, 0.55), 0 12px 35px rgba(0, 0, 0, 0.85);
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      transform: translateZ(0);
+    }
+
+    .winner-title {
+      font-size: 24px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #fef08a;
+      text-shadow: 0 0 14px rgba(245, 158, 11, 0.9);
+      margin-bottom: 12px;
+    }
+
+    .winner-avatar {
+      width: 64px;
+      height: 64px;
+      border-radius: 999px;
+      border: 3px solid var(--gold);
+      overflow: hidden;
+      margin-bottom: 8px;
+      box-shadow: var(--glow-gold);
+    }
+
+    .winner-avatar img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .winner-name {
+      font-size: 16px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .winner-hand-label {
+      font-size: 13px;
+      font-weight: 800;
+      color: #4ade80;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 2px;
+    }
+
+    .winner-hand-desc {
+      font-size: 11px;
+      color: #cbd5e1;
+      margin-bottom: 10px;
+    }
+
+    .winner-pot-reward {
+      font-size: 22px;
+      font-weight: 900;
+      color: #fef08a;
+      text-shadow: 0 0 12px rgba(245, 158, 11, 0.85);
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="game-viewport-outer">
+    <div class="game-viewport">
+      <div class="vignette"></div>
+      <canvas id="celebrationCanvas"></canvas>
+
+      <!-- TOP BAR -->
+      <header class="top-bar">
+        <div class="top-bar-row">
+          <div class="user-profile-pill">
+            <div class="avatar-ring">
+              <img id="userAvatarImg" src="https://api.dicebear.com/9.x/adventurer/svg?seed=Raja" alt="User" />
+            </div>
+            <div class="user-info-text">
+              <span id="userNameTxt" class="user-name">Player</span>
+              <span id="userIdTxt" class="user-id">ID: 000000</span>
+            </div>
+          </div>
+          <div class="top-actions">
+            <button id="soundToggleBtn" class="icon-btn" title="Toggle Sound">
+              <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+            </button>
+            <button id="helpBtn" class="icon-btn" title="Game Rules">
+              <svg viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"/></svg>
+            </button>
+            <button id="closeBtn" class="icon-btn" title="Exit Table">
+              <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="hud-sub-bar">
+          <div class="hud-pill">
+            <span class="diamond-icon">💎</span>
+            <span id="userDiamondsBal">0</span>
+          </div>
+          <div class="hud-pill" style="font-size: 10px; margin-left: auto; color: #fef08a;">
+            MULTIPLAYER ♠️
+          </div>
+        </div>
+      </header>
+
+      <!-- GAME TABLE -->
+      <main class="table-container">
+        <!-- DEALER FIGURE -->
+        <img src="{{DEALER_IMAGE_DATA}}" alt="Dealer" class="dealer-figure" />
+
+        <div class="table-frame">
+          <div class="table-felt">
+            <div class="table-pattern"></div>
+            <div class="game-banner">Teen Patti</div>
+
+            <!-- POT DISPLAY -->
+            <div id="potDisplay" class="pot-display">
+              <span id="roundLabel" class="pot-label">Round 1</span>
+              <div class="pot-amount">
+                <span class="diamond-icon">💎</span>
+                <span id="potAmountTxt">0</span>
+              </div>
+            </div>
+
+            <!-- 6 SEATS -->
+            <div id="seat0" class="seat-wrapper" style="left: 50%; top: 90%;"></div>
+            <div id="seat1" class="seat-wrapper" style="left: 18%; top: 72%;"></div>
+            <div id="seat2" class="seat-wrapper" style="left: 17%; top: 40%;"></div>
+            <div id="seat3" class="seat-wrapper" style="left: 50%; top: 31%;"></div>
+            <div id="seat4" class="seat-wrapper" style="left: 83%; top: 40%;"></div>
+            <div id="seat5" class="seat-wrapper" style="left: 82%; top: 72%;"></div>
+
+            <!-- FLYING CHIP CONTAINER -->
+            <div id="flyingChipContainer"></div>
+          </div>
+        </div>
+
+        <!-- LOCAL HOLE CARDS & STATUS -->
+        <div class="local-player-section">
+          <div id="localCardHand" class="card-hand"></div>
+          <p id="tableStatusMessage" class="table-status-message">Waiting for players to join...</p>
+        </div>
+      </main>
+
+      <!-- BETTING CONTROLS -->
+      <footer class="controls-container">
+        <div class="chips-bar">
+          <div class="balance-pill">
+            <span class="diamond-icon">💎</span>
+            <span id="myChipsBal">0</span>
+          </div>
+          <div class="chips-row">
+            <div class="chip chip-pink" data-value="100" style="width: 36px; height: 36px; font-size: 11px;">100</div>
+            <div class="chip chip-red" data-value="500" style="width: 36px; height: 36px; font-size: 11px;">500</div>
+            <div class="chip chip-purple selected" data-value="1000" style="width: 38px; height: 38px; font-size: 12px;">1K</div>
+            <div class="chip chip-teal" data-value="10000" style="width: 36px; height: 36px; font-size: 10px;">10K</div>
+            <div class="chip chip-blue" data-value="50000" style="width: 36px; height: 36px; font-size: 10px;">50K</div>
+          </div>
+        </div>
+
+        <!-- IN-FLIGHT ACTION TRANSACTION LOADER -->
+        <div id="actionLoadingIndicator" class="action-loading-pill" style="display: none;">
+          <span class="gold-mini-spinner"></span>
+          <span id="actionLoadingText">Verifying transaction...</span>
+        </div>
+
+        <div id="actionBar" class="action-buttons-row">
+          <!-- Dynamically rendered based on turn & seat state -->
+        </div>
+      </footer>
+
+      <!-- WINNER OVERLAY -->
+      <div id="winnerOverlay" class="winner-overlay" style="display: none;">
+        <div class="winner-card">
+          <div class="winner-title">WINNER!</div>
+          <div class="winner-avatar">
+            <img id="winnerAvatarImg" src="" alt="Winner" />
+          </div>
+          <div id="winnerNameTxt" class="winner-name">Player</div>
+          <div id="winnerHandLabelTxt" class="winner-hand-label">TRAIL</div>
+          <div id="winnerHandDescTxt" class="winner-hand-desc">Three Aces</div>
+          <div id="winnerHandCards" class="card-hand"></div>
+          <div id="winnerPotTxt" class="winner-pot-reward">+0 💎</div>
+          <button id="nextRoundBtn" class="btn-gold" style="width: 100%;">NEXT ROUND</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ==========================================================
+       1. SYNTHESIZED LOW-LATENCY CASINO AUDIO ENGINE
+    ========================================================== */
+    const AudioEngine = {
+      enabled: true,
+      ctx: null,
+
+      init() {
+        try {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext && !this.ctx) {
+            this.ctx = new AudioContext();
+          }
+          if (this.ctx && this.ctx.state === 'suspended') {
+            this.ctx.resume();
+          }
+        } catch (e) {}
+      },
+
+      playChip() {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc1 = this.ctx.createOscillator();
+          const osc2 = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const t = this.ctx.currentTime;
+          osc1.type = 'sine';
+          osc2.type = 'triangle';
+          osc1.frequency.setValueAtTime(1400, t);
+          osc1.frequency.exponentialRampToValueAtTime(320, t + 0.07);
+          osc2.frequency.setValueAtTime(800, t);
+          osc2.frequency.exponentialRampToValueAtTime(200, t + 0.05);
+          gain.gain.setValueAtTime(0.28, t);
+          gain.gain.exponentialRampToValueAtTime(0.005, t + 0.07);
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc1.start(t);
+          osc2.start(t);
+          osc1.stop(t + 0.07);
+          osc2.stop(t + 0.07);
+        } catch (e) {}
+      },
+
+      playCard() {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const t = this.ctx.currentTime;
+          const node = this.ctx.createBufferSource();
+          const buffer = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * 0.05), this.ctx.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < buffer.length; i++) data[i] = (Math.random() * 2 - 1) * 0.25;
+          node.buffer = buffer;
+          const filter = this.ctx.createBiquadFilter();
+          filter.type = 'bandpass';
+          filter.frequency.setValueAtTime(2200, t);
+          filter.Q.setValueAtTime(2.5, t);
+          const gain = this.ctx.createGain();
+          gain.gain.setValueAtTime(0.25, t);
+          gain.gain.exponentialRampToValueAtTime(0.005, t + 0.05);
+          node.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+          node.start(t);
+        } catch (e) {}
+      },
+
+      playFlip() {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const t = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(600, t);
+          osc.frequency.exponentialRampToValueAtTime(1600, t + 0.09);
+          gain.gain.setValueAtTime(0.2, t);
+          gain.gain.exponentialRampToValueAtTime(0.005, t + 0.09);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.09);
+        } catch (e) {}
+      },
+
+      playWin() {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+          const t = this.ctx.currentTime;
+          notes.forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const noteStart = t + idx * 0.09;
+            osc.frequency.setValueAtTime(freq, noteStart);
+            gain.gain.setValueAtTime(0.25, noteStart);
+            gain.gain.exponentialRampToValueAtTime(0.005, noteStart + 0.4);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(noteStart);
+            osc.stop(noteStart + 0.4);
+          });
+        } catch (e) {}
+      },
+
+      playTurnTick() {
+        if (!this.enabled) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const t = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(950, t);
+          gain.gain.setValueAtTime(0.18, t);
+          gain.gain.exponentialRampToValueAtTime(0.005, t + 0.06);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(t);
+          osc.stop(t + 0.06);
+        } catch (e) {}
+      }
+    };
+
+    // Unlock Web Audio immediately on first user touch anywhere
+    window.addEventListener('pointerdown', () => AudioEngine.init(), { once: true });
+
+    /* ==========================================================
+       2. HARDWARE-ACCELERATED CANVAS FX ENGINE (60 FPS OBJECT POOLS)
+       Adapting Phaser/ReactFlutterJSGameTemplate Canvas Architecture
+    ========================================================== */
+    const CanvasFxEngine = {
+      canvas: document.getElementById('celebrationCanvas'),
+      ctx: null,
+      dpr: 1,
+      animId: null,
+      lastTime: 0,
+
+      // Pre-allocated object pools (zero Garbage Collection during gameplay)
+      particlePool: [],
+      maxParticles: 80,
+      chipPool: [],
+      maxChips: 24,
+
+      init() {
+        if (!this.canvas) {
+          this.canvas = document.getElementById('celebrationCanvas');
+        }
+        if (!this.canvas) return;
+        this.ctx = this.canvas.getContext('2d', { alpha: true });
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+
+        // Pre-allocate confetti particle pool
+        this.particlePool = [];
+        for (let i = 0; i < this.maxParticles; i++) {
+          this.particlePool.push({
+            active: false,
+            x: 0, y: 0,
+            vx: 0, vy: 0,
+            size: 0,
+            color: '#f59e0b',
+            alpha: 1,
+            decay: 0.02,
+            shape: 'circle',
+            rot: 0,
+            rotSpeed: 0
+          });
+        }
+
+        // Pre-allocate flying chip pool
+        this.chipPool = [];
+        for (let i = 0; i < this.maxChips; i++) {
+          this.chipPool.push({
+            active: false,
+            startX: 0, startY: 0,
+            targetX: 0, targetY: 0,
+            currentX: 0, currentY: 0,
+            progress: 0,
+            duration: 0.44,
+            colorBg: '#0d9488',
+            colorBorder: '#2dd4bf',
+            label: '1K',
+            rot: 0,
+            rotSpeed: 0,
+            scale: 1,
+            isLastInBurst: false
+          });
+        }
+      },
+
+      resize() {
+        if (!this.canvas) return;
+        const rect = this.canvas.getBoundingClientRect();
+        this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const w = rect.width || this.canvas.offsetWidth || 440;
+        const h = rect.height || this.canvas.offsetHeight || 700;
+        this.canvas.width = Math.round(w * this.dpr);
+        this.canvas.height = Math.round(h * this.dpr);
+        if (this.ctx) {
+          this.ctx.resetTransform?.();
+          this.ctx.scale(this.dpr, this.dpr);
+        }
+      },
+
+      startLoop() {
+        if (this.animId) return;
+        this.lastTime = performance.now();
+        const frame = (now) => {
+          const dt = Math.min(0.05, (now - this.lastTime) / 1000);
+          this.lastTime = now;
+
+          const hasActive = this.updateAndRender(dt);
+          if (hasActive) {
+            this.animId = requestAnimationFrame(frame);
+          } else {
+            this.clear();
+            this.animId = null;
+          }
+        };
+        this.animId = requestAnimationFrame(frame);
+      },
+
+      clear() {
+        if (!this.ctx) return;
+        const w = this.canvas.width / this.dpr;
+        const h = this.canvas.height / this.dpr;
+        this.ctx.clearRect(0, 0, w, h);
+      },
+
+      explode() {
+        if (!this.ctx) this.init();
+        const w = this.canvas.width / this.dpr;
+        const h = this.canvas.height / this.dpr;
+        const colors = ['#f59e0b', '#fef08a', '#38bdf8', '#22c55e', '#ec4899', '#ffffff'];
+
+        let spawned = 0;
+        for (let i = 0; i < this.particlePool.length && spawned < 50; i++) {
+          const p = this.particlePool[i];
+          if (!p.active) {
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 140 + Math.random() * 320;
+            p.active = true;
+            p.x = w / 2;
+            p.y = h / 2;
+            p.vx = Math.cos(angle) * speed;
+            p.vy = Math.sin(angle) * speed - 90;
+            p.size = 5 + Math.random() * 5;
+            p.color = colors[Math.floor(Math.random() * colors.length)];
+            p.alpha = 1;
+            p.decay = 0.5 + Math.random() * 0.4;
+            p.shape = Math.random() > 0.4 ? 'circle' : 'rect';
+            p.rot = Math.random() * Math.PI;
+            p.rotSpeed = (Math.random() - 0.5) * 8;
+            spawned++;
+          }
+        }
+        this.startLoop();
+      },
+
+      spawnChips(startX, startY, targetX, targetY, chipValue = '1K') {
+        if (!this.ctx) this.init();
+        const chipPalette = [
+          { bg: '#0d9488', border: '#2dd4bf' }, // teal
+          { bg: '#7e22ce', border: '#c084fc' }, // purple
+          { bg: '#be123c', border: '#fb7185' }  // red
+        ];
+
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < this.chipPool.length; j++) {
+            const chip = this.chipPool[j];
+            if (!chip.active) {
+              const pal = chipPalette[i % chipPalette.length];
+              const scatterX = (Math.random() - 0.5) * 26;
+              const scatterY = (Math.random() - 0.5) * 18;
+
+              chip.active = true;
+              chip.startX = startX;
+              chip.startY = startY;
+              chip.targetX = targetX + scatterX;
+              chip.targetY = targetY + scatterY;
+              chip.currentX = startX;
+              chip.currentY = startY;
+              chip.progress = - (i * 0.065); // Staggered cascading flight
+              chip.duration = 0.42;
+              chip.colorBg = pal.bg;
+              chip.colorBorder = pal.border;
+              chip.label = chipValue;
+              chip.rot = 0;
+              chip.rotSpeed = (Math.PI * 2) * (1.5 + Math.random());
+              chip.scale = 1;
+              chip.isLastInBurst = (i === 2);
+              break;
+            }
+          }
+        }
+        this.startLoop();
+      },
+
+      updateAndRender(dt) {
+        this.clear();
+        let anyActive = false;
+
+        // Render Confetti Particles
+        for (let i = 0; i < this.particlePool.length; i++) {
+          const p = this.particlePool[i];
+          if (p.active) {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy += 450 * dt; // gravity
+            p.vx *= (1 - 0.5 * dt);
+            p.alpha -= p.decay * dt;
+            p.rot += p.rotSpeed * dt;
+
+            if (p.alpha <= 0) {
+              p.active = false;
+            } else {
+              anyActive = true;
+              this.ctx.save();
+              this.ctx.globalAlpha = Math.max(0, p.alpha);
+              this.ctx.fillStyle = p.color;
+              this.ctx.translate(p.x, p.y);
+              this.ctx.rotate(p.rot);
+              if (p.shape === 'circle') {
+                this.ctx.beginPath();
+                this.ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+                this.ctx.fill();
+              } else {
+                this.ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 1.4);
+              }
+              this.ctx.restore();
+            }
+          }
+        }
+
+        // Render Hardware-Accelerated 3D Flying Chips
+        for (let i = 0; i < this.chipPool.length; i++) {
+          const c = this.chipPool[i];
+          if (c.active) {
+            c.progress += dt / c.duration;
+            if (c.progress < 0) {
+              anyActive = true;
+              continue;
+            }
+
+            if (c.progress >= 1) {
+              c.active = false;
+              if (c.isLastInBurst) {
+                const pot = document.getElementById('potDisplay');
+                if (pot) {
+                  pot.classList.remove('pot-bounce');
+                  requestAnimationFrame(() => pot.classList.add('pot-bounce'));
+                }
+              }
+            } else {
+              anyActive = true;
+              const t = Math.min(1, c.progress);
+              // Cubic bezier ease-out
+              const ease = 1 - Math.pow(1 - t, 2.8);
+              const arcY = Math.sin(t * Math.PI) * -36;
+
+              c.currentX = c.startX + (c.targetX - c.startX) * ease;
+              c.currentY = c.startY + (c.targetY - c.startY) * ease + arcY;
+              c.rot = c.rotSpeed * t;
+              c.scale = 1.0 - 0.25 * t;
+
+              const radius = 13 * c.scale;
+              this.ctx.save();
+              this.ctx.translate(c.currentX, c.currentY);
+              this.ctx.rotate(c.rot);
+
+              // Chip Outer Disc
+              this.ctx.beginPath();
+              this.ctx.arc(0, 0, radius, 0, Math.PI * 2);
+              this.ctx.fillStyle = c.colorBg;
+              this.ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+              this.ctx.shadowBlur = 6;
+              this.ctx.fill();
+
+              // Chip Dashed Edge Pattern
+              this.ctx.shadowColor = 'transparent';
+              this.ctx.lineWidth = 2 * c.scale;
+              this.ctx.strokeStyle = '#ffffff';
+              this.ctx.setLineDash([3 * c.scale, 2.5 * c.scale]);
+              this.ctx.stroke();
+
+              // Chip Inner Disc
+              this.ctx.beginPath();
+              this.ctx.arc(0, 0, radius * 0.65, 0, Math.PI * 2);
+              this.ctx.fillStyle = c.colorBorder;
+              this.ctx.fill();
+
+              // Chip Value Label
+              this.ctx.fillStyle = '#ffffff';
+              this.ctx.font = `900 ${Math.round(8 * c.scale)}px sans-serif`;
+              this.ctx.textAlign = 'center';
+              this.ctx.textBaseline = 'middle';
+              this.ctx.fillText(c.label || '💎', 0, 0.5);
+
+              this.ctx.restore();
+            }
+          }
+        }
+
+        return anyActive;
+      }
+    };
+
+    const ParticleEngine = {
+      init() { CanvasFxEngine.init(); },
+      explode() { CanvasFxEngine.explode(); }
+    };
+
+    /* ==========================================================
+       3. STATE AND CONFIGURATION
+    ========================================================== */
+    const SEAT_POSITIONS = [
+      { x: 50, y: 90 },
+      { x: 18, y: 72 },
+      { x: 17, y: 40 },
+      { x: 50, y: 31 },
+      { x: 83, y: 40 },
+      { x: 82, y: 72 }
+    ];
+
+    const SUIT_SYMBOLS = { hearts: '♥', diamonds: '♦', clubs: '♣', spades: '♠' };
+    const SUIT_IS_RED = { hearts: true, diamonds: true, clubs: false, spades: false };
+
+    let currentUser = {
+      uid: '',
+      displayName: 'Player',
+      avatarUrl: 'https://api.dicebear.com/9.x/adventurer/svg?seed=Raja',
+      diamondBalance: 0
+    };
+
+    let tableState = {
+      roomId: '',
+      phase: 'waiting',
+      round: 1,
+      pot: 0,
+      currentBet: 1000,
+      bootAmount: 1000,
+      turn: 0,
+      turnDeadline: null,
+      seats: [null, null, null, null, null, null],
+      winner: null,
+      revealAll: false,
+      revealedHands: {}
+    };
+
+    let localCards = [];
+    let localSeen = false;
+    let selectedChipValue = 1000;
+    let displayedPot = 0;
+    let turnRafId = null;
+    let lastSecondAlert = 15;
+    let isActionPending = false;
+    let pendingActionText = '';
+    let actionTimeoutTimer = null;
+
+    function setActionPending(text) {
+      isActionPending = true;
+      pendingActionText = text;
+      const indicator = document.getElementById('actionLoadingIndicator');
+      const indicatorText = document.getElementById('actionLoadingText');
+      if (indicator && indicatorText) {
+        indicatorText.textContent = text;
+        indicator.style.display = 'inline-flex';
+      }
+      renderLocalPlayerArea();
+      if (actionTimeoutTimer) clearTimeout(actionTimeoutTimer);
+      actionTimeoutTimer = setTimeout(() => {
+        clearActionPending();
+      }, 4500);
+    }
+
+    function clearActionPending() {
+      isActionPending = false;
+      pendingActionText = '';
+      if (actionTimeoutTimer) clearTimeout(actionTimeoutTimer);
+      actionTimeoutTimer = null;
+      const indicator = document.getElementById('actionLoadingIndicator');
+      if (indicator) {
+        indicator.style.display = 'none';
+      }
+      renderLocalPlayerArea();
+    }
+    window.clearActionPending = clearActionPending;
+
+    /* DOM REFS */
+    const userAvatarImg = document.getElementById('userAvatarImg');
+    const userNameTxt = document.getElementById('userNameTxt');
+    const userIdTxt = document.getElementById('userIdTxt');
+    const userDiamondsBal = document.getElementById('userDiamondsBal');
+    const myChipsBal = document.getElementById('myChipsBal');
+    const potDisplay = document.getElementById('potDisplay');
+    const potAmountTxt = document.getElementById('potAmountTxt');
+    const roundLabel = document.getElementById('roundLabel');
+    const localCardHand = document.getElementById('localCardHand');
+    const tableStatusMessage = document.getElementById('tableStatusMessage');
+    const actionBar = document.getElementById('actionBar');
+    const winnerOverlay = document.getElementById('winnerOverlay');
+    const winnerAvatarImg = document.getElementById('winnerAvatarImg');
+    const winnerNameTxt = document.getElementById('winnerNameTxt');
+    const winnerHandLabelTxt = document.getElementById('winnerHandLabelTxt');
+    const winnerHandDescTxt = document.getElementById('winnerHandDescTxt');
+    const winnerHandCards = document.getElementById('winnerHandCards');
+    const winnerPotTxt = document.getElementById('winnerPotTxt');
+    const flyingChipContainer = document.getElementById('flyingChipContainer');
+
+    /* ==========================================================
+       4. HIGH-PERFORMANCE 3D CARD RENDERING
+    ========================================================== */
+    function render3DCardHTML(card, isFaceUp = false, size = 'card-size-sm', animDeal = false, animDelay = 0) {
+      const isRed = card ? (SUIT_IS_RED[card.suit] ?? false) : false;
+      const symbol = card ? (SUIT_SYMBOLS[card.suit] || '♠') : '♠';
+      const rank = card ? card.rank : '';
+
+      return `
+        <div class="card-perspective-container ${animDeal ? 'animate-deal-in' : ''}" style="${animDeal ? 'animation-delay: ' + animDelay + 'ms;' : ''}">
+          <div class="card-3d-box ${size} ${isFaceUp ? 'flipped' : ''}">
+            <div class="card-face-back"></div>
+            <div class="card-face-front ${isRed ? 'red' : 'black'}">
+              <div class="card-rank">${rank}<span class="card-suit">${symbol}</span></div>
+              <div class="card-center-suit">${symbol}</div>
+              <div class="card-bot-rank">${rank}<span class="card-suit">${symbol}</span></div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function formatNumber(n) {
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(0) + 'K';
+      return (n || 0).toLocaleString();
+    }
+
+    /* ==========================================================
+       5. 60 FPS JANK-FREE MULTI-CHIP FLY BURST (CANVAS HARDWARE ACCELERATED)
+    ========================================================== */
+    function triggerChipFlyBurst(seatIdx) {
+      AudioEngine.playChip();
+      postBridge('haptic', { type: 'light' });
+
+      const seatEl = document.getElementById(`seat${seatIdx}`);
+      const potEl = document.getElementById('potDisplay');
+      const canvas = CanvasFxEngine.canvas || document.getElementById('celebrationCanvas');
+
+      let startX, startY, targetX, targetY;
+      if (canvas && seatEl && potEl) {
+        const cRect = canvas.getBoundingClientRect();
+        const sRect = seatEl.getBoundingClientRect();
+        const pRect = potEl.getBoundingClientRect();
+        startX = (sRect.left - cRect.left) + sRect.width / 2;
+        startY = (sRect.top - cRect.top) + sRect.height / 2;
+        targetX = (pRect.left - cRect.left) + pRect.width / 2;
+        targetY = (pRect.top - cRect.top) + pRect.height / 2;
+      } else {
+        const pos = SEAT_POSITIONS[seatIdx] || { x: 50, y: 90 };
+        const w = (canvas && canvas.offsetWidth) || 360;
+        const h = (canvas && canvas.offsetHeight) || 640;
+        startX = (pos.x / 100) * w;
+        startY = (pos.y / 100) * h;
+        targetX = w / 2;
+        targetY = h * 0.46;
+      }
+
+      let chipLabel = '1K';
+      if (selectedChipValue >= 1000000) chipLabel = `${(selectedChipValue / 1000000).toFixed(0)}M`;
+      else if (selectedChipValue >= 1000) chipLabel = `${(selectedChipValue / 1000).toFixed(0)}K`;
+      else chipLabel = `${selectedChipValue}`;
+
+      CanvasFxEngine.spawnChips(startX, startY, targetX, targetY, chipLabel);
+    }
+
+    /* ==========================================================
+       6. INTERPOLATED LIQUID POT ANIMATION
+    ========================================================== */
+    function animatePot(targetAmount) {
+      if (displayedPot === targetAmount) return;
+      const start = displayedPot;
+      const diff = targetAmount - start;
+      const startTime = performance.now();
+      const duration = 380;
+
+      function step(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        // Quad out ease
+        const ease = 1 - Math.pow(1 - progress, 2);
+        displayedPot = Math.round(start + diff * ease);
+        potAmountTxt.textContent = displayedPot.toLocaleString();
+        if (progress < 1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    /* ==========================================================
+       7. INCREMENTAL SEAT RENDERING (SIGNATURE CACHED, NO DOM THRASHING)
+    ========================================================== */
+    const lastSeatSignatures = ['', '', '', '', '', ''];
+
+    function renderSeats() {
+      const mySeatIndex = tableState.seats.findIndex(s => s && s.uid === currentUser.uid);
+
+      for (let i = 0; i < 6; i++) {
+        const seatEl = document.getElementById(`seat${i}`);
+        if (!seatEl) continue;
+        const seatData = tableState.seats[i];
+
+        const isActiveTurn = tableState.phase === 'betting' && tableState.turn === i && !seatData?.folded;
+        const isWinner = !!(tableState.winner && seatData && tableState.winner.uid === seatData.uid);
+        const isLocal = !!(seatData && seatData.uid === currentUser.uid);
+        const revealed = !!(tableState.revealAll && tableState.revealedHands && seatData && tableState.revealedHands[seatData.uid]);
+
+        const sig = seatData
+          ? `${seatData.uid}_${seatData.balance}_${seatData.bet}_${seatData.folded}_${seatData.seen}_${seatData.lastAction}_${seatData.cardsCount}_${isActiveTurn}_${isWinner}_${revealed}_${isLocal}`
+          : `empty_${mySeatIndex === -1}`;
+
+        if (lastSeatSignatures[i] === sig) {
+          continue;
+        }
+        lastSeatSignatures[i] = sig;
+
+        if (!seatData) {
+          if (mySeatIndex === -1) {
+            seatEl.innerHTML = `
+              <button class="seat-empty-btn" onclick="onSitSeat(${i})">
+                <span style="font-size: 14px; font-weight: 900;">+</span>
+                <span>SIT</span>
+              </button>
+            `;
+          } else {
+            seatEl.innerHTML = `
+              <div class="seat-empty-btn" style="opacity: 0.35; border-style: dotted; cursor: default;">
+                <span>EMPTY</span>
+              </div>
+            `;
+          }
+        } else {
+          let tagClass = '';
+          if (seatData.folded) tagClass = 'fold';
+          else if (isWinner) tagClass = 'winner';
+          else if (seatData.lastAction === 'CHAAL') tagClass = 'chaal';
+          else if (seatData.seen) tagClass = 'seen';
+
+          let cardsMiniHTML = '';
+          if (!isLocal && seatData.cardsCount > 0 && !seatData.folded) {
+            const revCards = tableState.revealAll && tableState.revealedHands && tableState.revealedHands[seatData.uid];
+            cardsMiniHTML = `
+              <div class="card-hand" style="margin-bottom: 2px;">
+                ${(revCards || [1, 2, 3]).map(c => render3DCardHTML(typeof c === 'object' ? c : null, !!revCards, 'card-size-sm')).join('')}
+              </div>
+            `;
+          }
+
+          seatEl.innerHTML = `
+            ${cardsMiniHTML}
+            <div class="seat-plate ${isActiveTurn ? 'active' : ''} ${isWinner ? 'winner' : ''}">
+              <svg class="turn-timer-svg" viewBox="0 0 44 44">
+                <circle class="turn-timer-bg" cx="22" cy="22" r="18" />
+                <circle id="turnTimerRing${i}" class="turn-timer-progress" cx="22" cy="22" r="18" />
+              </svg>
+              <div class="seat-avatar">
+                <img src="${seatData.avatar || 'https://api.dicebear.com/9.x/adventurer/svg?seed=' + seatData.name}" alt="${seatData.name}" />
+              </div>
+              <div class="seat-details">
+                <span class="seat-player-name">${isLocal ? 'You' : seatData.name}</span>
+                <span class="seat-player-bal">💎 ${formatNumber(seatData.balance)}</span>
+              </div>
+            </div>
+            ${seatData.lastAction ? `<span class="seat-tag ${tagClass}">${seatData.lastAction}</span>` : ''}
+            ${seatData.bet > 0 ? `<span class="seat-bet">Bet: ${formatNumber(seatData.bet)}</span>` : ''}
+          `;
+        }
+      }
+    }
+
+    /* ==========================================================
+       8. RENDER LOCAL PLAYER HAND & ACTION BUTTONS
+    ========================================================== */
+    let lastLocalHandSig = '';
+    let lastControlsSig = '';
+
+    function renderLocalPlayerArea() {
+      const mySeat = tableState.seats.find(s => s && s.uid === currentUser.uid);
+
+      if (!mySeat) {
+        if (lastLocalHandSig !== 'empty') {
+          localCardHand.innerHTML = '';
+          lastLocalHandSig = 'empty';
+        }
+        tableStatusMessage.textContent = 'Tap any "+ SIT" button to join the action!';
+        if (isActionPending) {
+          actionBar.innerHTML = `
+            <button class="btn-gold" style="opacity: 0.92; cursor: wait; display: flex; align-items: center; justify-content: center; gap: 8px;" disabled>
+              <span class="gold-mini-spinner"></span>
+              <span>${pendingActionText || 'JOINING TABLE...'}</span>
+            </button>
+          `;
+        } else {
+          actionBar.innerHTML = `<button class="btn-gold" onclick="onAutoSit()">SIT AT TABLE</button>`;
+        }
+        lastControlsSig = 'unseated';
+        return;
+      }
+
+      if (tableState.phase === 'waiting') {
+        if (lastLocalHandSig !== 'waiting') {
+          localCardHand.innerHTML = '';
+          lastLocalHandSig = 'waiting';
+        }
+        const seatedCount = tableState.seats.filter(Boolean).length;
+        if (isActionPending) {
+          actionBar.innerHTML = `
+            <button class="btn-gold" style="opacity: 0.92; cursor: wait; display: flex; align-items: center; justify-content: center; gap: 8px;" disabled>
+              <span class="gold-mini-spinner"></span>
+              <span>${pendingActionText || 'PROCESSING...'}</span>
+            </button>
+          `;
+          return;
+        }
+        if (seatedCount >= 2) {
+          tableStatusMessage.textContent = '2+ players seated! Ready to deal.';
+          actionBar.innerHTML = `<button class="btn-gold" onclick="onStartRound()">DEAL CARDS</button>`;
+        } else {
+          tableStatusMessage.textContent = 'Waiting for at least 2 players to sit...';
+          actionBar.innerHTML = `<button class="btn-action btn-fold" onclick="onLeaveTable()">LEAVE TABLE</button>`;
+        }
+        lastControlsSig = 'waiting';
+        return;
+      }
+
+      const isFaceUp = localSeen || tableState.revealAll || (mySeat && mySeat.seen);
+      const handSig = `${tableState.phase}_${isFaceUp}_${localCards.map(c => (c ? `${c.suit}${c.rank}` : 'x')).join(',')}`;
+      if (handSig !== lastLocalHandSig) {
+        lastLocalHandSig = handSig;
+        if (tableState.phase === 'dealing') {
+          tableStatusMessage.textContent = 'Dealing cards...';
+          localCardHand.innerHTML = localCards.length ? localCards.map((c, idx) => `
+            <div style="margin-left: ${idx === 0 ? 0 : -14}px; z-index: ${idx}; transform: rotate(${(idx - 1) * 6}deg);">
+              ${render3DCardHTML(null, false, 'card-size-lg', true, idx * 80)}
+            </div>
+          `).join('') : '';
+        } else {
+          localCardHand.innerHTML = localCards.map((c, idx) => `
+            <div style="margin-left: ${idx === 0 ? 0 : -14}px; z-index: ${idx}; transform: rotate(${(idx - 1) * 7}deg);">
+              ${render3DCardHTML(c, isFaceUp, 'card-size-lg')}
+            </div>
+          `).join('');
+        }
+      }
+
+      renderControlsSeated(mySeat);
+    }
+
+    function renderControlsSeated(mySeat) {
+      if (mySeat.folded) {
+        tableStatusMessage.textContent = 'You folded. Waiting for round to complete...';
+        if (lastControlsSig !== 'folded') {
+          actionBar.innerHTML = `<button class="btn-action btn-fold" disabled>FOLDED</button>`;
+          lastControlsSig = 'folded';
+        }
+        return;
+      }
+
+      if (isActionPending) {
+        const pendSig = `pending_${pendingActionText}`;
+        if (lastControlsSig !== pendSig) {
+          actionBar.innerHTML = `
+            <button class="btn-gold" style="opacity: 0.92; cursor: wait; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;" disabled>
+              <span class="gold-mini-spinner"></span>
+              <span>${pendingActionText || 'VERIFYING TRANSACTION...'}</span>
+            </button>
+          `;
+          lastControlsSig = pendSig;
+        }
+        return;
+      }
+
+      const isMyTurn = tableState.phase === 'betting' && tableState.turn === mySeat.seat;
+      const activePlayers = tableState.seats.filter(s => s && !s.folded);
+      const canShow = isMyTurn && activePlayers.length === 2;
+
+      let currentStake = tableState.currentBet || tableState.bootAmount;
+      if (!localSeen && !mySeat.seen) {
+        currentStake = Math.max(100, Math.floor(currentStake / 2));
+      }
+
+      const turnText = isMyTurn
+        ? 'YOUR TURN! Chaal, Raise, or Fold'
+        : `${tableState.seats[tableState.turn]?.name || 'Player'}'s turn...`;
+      if (tableStatusMessage.textContent !== turnText) {
+        tableStatusMessage.textContent = turnText;
+      }
+
+      const ctrlSig = `${isMyTurn}_${localSeen}_${mySeat.seen}_${currentStake}_${canShow}`;
+      if (lastControlsSig === ctrlSig) return;
+      lastControlsSig = ctrlSig;
+
+      actionBar.innerHTML = `
+        <button class="btn-action btn-fold" ${!isMyTurn ? 'disabled' : ''} onclick="onFold()">
+          FOLD
+        </button>
+        <button class="btn-action btn-see" ${localSeen || mySeat.seen ? 'disabled' : ''} onclick="onSee()">
+          ${localSeen || mySeat.seen ? 'SEEN' : 'SEE'}
+        </button>
+        <button class="btn-action btn-chaal" ${!isMyTurn ? 'disabled' : ''} onclick="onChaal(${currentStake})">
+          CHAAL
+          <em>💎 ${currentStake.toLocaleString()}</em>
+        </button>
+        ${canShow ? `
+          <button class="btn-action btn-show" onclick="onShow()">
+            SHOW
+          </button>
+        ` : `
+          <button class="btn-action btn-raise" ${!isMyTurn ? 'disabled' : ''} onclick="onRaise(${currentStake * 2})">
+            RAISE
+            <em>💎 ${(currentStake * 2).toLocaleString()}</em>
+          </button>
+        `}
+      `;
+    }
+
+    /* ==========================================================
+       9. 60 FPS SMOOTH SVG TURN RING TIMER
+    ========================================================== */
+    function syncTurnTimer() {
+      if (turnRafId) cancelAnimationFrame(turnRafId);
+      lastSecondAlert = 15;
+
+      if (tableState.phase !== 'betting' || !tableState.turnDeadline) {
+        return;
+      }
+
+      const activeSeatIdx = tableState.turn;
+      const ring = document.getElementById(`turnTimerRing${activeSeatIdx}`);
+      const circumference = 113.1; // 2 * PI * 18
+      const totalDuration = 15000; // 15 seconds
+
+      function updateRing() {
+        const remainingMs = Math.max(0, tableState.turnDeadline - Date.now());
+        const progress = Math.max(0, Math.min(1, remainingMs / totalDuration));
+        const offset = circumference * (1 - progress);
+
+        if (ring) {
+          ring.style.strokeDashoffset = offset;
+          if (remainingMs <= 4500) {
+            ring.classList.add('urgent');
+          } else {
+            ring.classList.remove('urgent');
+          }
+        }
+
+        const secondsLeft = Math.ceil(remainingMs / 1000);
+        if (secondsLeft <= 4 && secondsLeft !== lastSecondAlert && secondsLeft > 0) {
+          lastSecondAlert = secondsLeft;
+          const isMyTurn = tableState.seats[activeSeatIdx]?.uid === currentUser.uid;
+          if (isMyTurn) {
+            AudioEngine.playTurnTick();
+            postBridge('haptic', { type: 'light' });
+          }
+        }
+
+        if (remainingMs > 0) {
+          turnRafId = requestAnimationFrame(updateRing);
+        }
+      }
+
+      turnRafId = requestAnimationFrame(updateRing);
+    }
+
+    /* ==========================================================
+       10. FLUTTER BRIDGE DISPATCHERS
+    ========================================================== */
+    function postBridge(action, payload = {}) {
+      if (window.FlutterApp && window.FlutterApp.postMessage) {
+        window.FlutterApp.postMessage(JSON.stringify({ action, ...payload }));
+      } else {
+        console.log('[Bridge Event]', action, payload);
+      }
+    }
+
+    function onSitSeat(seatIdx) {
+      if (isActionPending) return;
+      setActionPending('JOINING SEAT...');
+      postBridge('haptic', { type: 'medium' });
+      AudioEngine.playChip();
+      postBridge('sit', { seat: seatIdx });
+    }
+
+    function onAutoSit() {
+      if (isActionPending) return;
+      const emptyIdx = tableState.seats.findIndex(s => s === null);
+      if (emptyIdx !== -1) onSitSeat(emptyIdx);
+    }
+
+    function onLeaveTable() {
+      if (isActionPending) return;
+      setActionPending('LEAVING...');
+      postBridge('haptic', { type: 'light' });
+      postBridge('leave');
+    }
+
+    function onStartRound() {
+      if (isActionPending) return;
+      setActionPending('SHUFFLING & DEALING ♠️...');
+      postBridge('haptic', { type: 'heavy' });
+      AudioEngine.playCard();
+      postBridge('start_round');
+    }
+
+    function onSee() {
+      if (isActionPending) return;
+      setActionPending('REVEALING CARDS...');
+      postBridge('haptic', { type: 'medium' });
+      AudioEngine.playFlip();
+      localSeen = true;
+      postBridge('see');
+      renderLocalPlayerArea();
+    }
+
+    function onChaal(amt) {
+      if (isActionPending) return;
+      setActionPending('PLACING CHAAL 💎...');
+      const mySeat = tableState.seats.find(s => s && s.uid === currentUser.uid);
+      if (mySeat) triggerChipFlyBurst(mySeat.seat);
+      postBridge('chaal', { amount: amt });
+    }
+
+    function onRaise(amt) {
+      if (isActionPending) return;
+      setActionPending('RAISING STAKE 💎...');
+      const mySeat = tableState.seats.find(s => s && s.uid === currentUser.uid);
+      if (mySeat) triggerChipFlyBurst(mySeat.seat);
+      postBridge('raise', { amount: amt });
+    }
+
+    function onFold() {
+      if (isActionPending) return;
+      setActionPending('FOLDING...');
+      postBridge('haptic', { type: 'light' });
+      postBridge('fold');
+    }
+
+    function onShow() {
+      if (isActionPending) return;
+      setActionPending('SHOWDOWN EVALUATION 🃏...');
+      postBridge('haptic', { type: 'heavy' });
+      AudioEngine.playCard();
+      postBridge('show');
+    }
+
+    /* ==========================================================
+       11. INCOMING FLUTTER STATE LISTENERS
+    ========================================================== */
+    window.initUserData = function(data) {
+      if (!data) return;
+      currentUser.uid = data.uid || currentUser.uid;
+      currentUser.displayName = data.displayName || currentUser.displayName;
+      currentUser.avatarUrl = data.avatarUrl || currentUser.avatarUrl;
+      currentUser.diamondBalance = Number(data.diamondBalance || 0);
+
+      userNameTxt.textContent = currentUser.displayName;
+      userAvatarImg.src = currentUser.avatarUrl;
+      userIdTxt.textContent = 'ID: ' + (currentUser.uid.slice(0, 6).toUpperCase() || 'PLAYER');
+      userDiamondsBal.textContent = currentUser.diamondBalance.toLocaleString();
+      myChipsBal.textContent = currentUser.diamondBalance.toLocaleString();
+      renderSeats();
+      renderLocalPlayerArea();
+    };
+
+    window.updateUserBalance = function(newBal) {
+      currentUser.diamondBalance = Number(newBal || 0);
+      userDiamondsBal.textContent = currentUser.diamondBalance.toLocaleString();
+      myChipsBal.textContent = currentUser.diamondBalance.toLocaleString();
+      clearActionPending();
+    };
+
+    window.updateMyCards = function(cards) {
+      if (Array.isArray(cards)) {
+        localCards = cards;
+        AudioEngine.playCard();
+        renderLocalPlayerArea();
+      }
+    };
+
+    window.updateTableState = function(state) {
+      if (!state) return;
+      clearActionPending();
+      tableState = { ...tableState, ...state };
+
+      roundLabel.textContent = `Round ${tableState.round || 1}`;
+      animatePot(Number(tableState.pot || 0));
+
+      renderSeats();
+      renderLocalPlayerArea();
+      syncTurnTimer();
+
+      // Showdown / Winner Celebration
+      if (tableState.phase === 'result' && tableState.winner) {
+        AudioEngine.playWin();
+        ParticleEngine.explode();
+        postBridge('haptic', { type: 'heavy' });
+
+        winnerAvatarImg.src = tableState.winner.avatar || '';
+        winnerNameTxt.textContent = tableState.winner.name || 'Winner';
+        winnerHandLabelTxt.textContent = tableState.winner.handLabel || 'WINNER';
+        winnerHandDescTxt.textContent = tableState.winner.handDescription || '';
+        winnerPotTxt.textContent = `+${Number(tableState.winner.pot || tableState.pot).toLocaleString()} 💎`;
+
+        if (tableState.winner.cards && tableState.winner.cards.length) {
+          winnerHandCards.innerHTML = tableState.winner.cards.map((c, i) => `
+            <div style="margin-left: ${i === 0 ? 0 : -8}px;">
+              ${render3DCardHTML(c, true, 'card-size-lg')}
+            </div>
+          `).join('');
+        } else {
+          winnerHandCards.innerHTML = '';
+        }
+        winnerOverlay.style.display = 'flex';
+      } else {
+        winnerOverlay.style.display = 'none';
+      }
+    };
+
+    window.onActionError = function(msg) {
+      clearActionPending();
+      tableStatusMessage.textContent = msg || 'Action failed';
+      postBridge('haptic', { type: 'vibrate' });
+    };
+
+    /* ==========================================================
+       12. INTERACTION CONTROLS
+    ========================================================== */
+    document.querySelectorAll('.chip').forEach(el => {
+      el.onclick = () => {
+        document.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+        el.classList.add('selected');
+        selectedChipValue = parseInt(el.getAttribute('data-value'), 10);
+        AudioEngine.playChip();
+        postBridge('haptic', { type: 'selection' });
+      };
+    });
+
+    document.getElementById('nextRoundBtn').onclick = () => {
+      winnerOverlay.style.display = 'none';
+      onStartRound();
+    };
+
+    document.getElementById('closeBtn').onclick = () => {
+      postBridge('haptic', { type: 'light' });
+      postBridge('close');
+    };
+
+    document.getElementById('helpBtn').onclick = () => {
+      postBridge('haptic', { type: 'light' });
+      alert("♠️ Teen Patti Hand Rankings (High to Low):\n1. Trail (Three of a Kind: AAA highest)\n2. Pure Sequence (Straight Flush: AKQ)\n3. Sequence (Straight: AKQ)\n4. Color (Flush: Any 3 of same suit)\n5. Pair (Two of a kind: AA highest)\n6. High Card (Highest single card)");
+    };
+
+    document.getElementById('soundToggleBtn').onclick = () => {
+      AudioEngine.enabled = !AudioEngine.enabled;
+      document.getElementById('soundToggleBtn').style.opacity = AudioEngine.enabled ? '1' : '0.4';
+      postBridge('haptic', { type: 'selection' });
+    };
+
+    // Ready signal
+    ParticleEngine.init();
+    postBridge('ready');
+  </script>
+</body>
+</html>

@@ -1,0 +1,2341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>YUMMY BIGO - Slot Machine</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, 'Plus Jakarta Sans', Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* Screen Frame matching phone mockup & adapting seamlessly to device */
+    .app-screen {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      max-width: 420px;
+      padding: calc(env(safe-area-inset-top, 6px) + 2px) 10px calc(env(safe-area-inset-bottom, 8px) + 6px);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      overflow: hidden;
+      background-color: #38bdf8;
+      background-image: url('{{BG_IMAGE_DATA}}'), radial-gradient(circle at 50% 30%, #60a5fa 0%, #38bdf8 45%, #2563eb 100%);
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      transform: translateZ(0);
+      will-change: transform;
+      contain: layout style paint;
+    }
+
+    /* Ambient Depth Vignette */
+    .app-screen::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.25) 0%, rgba(15, 23, 42, 0.05) 30%, rgba(15, 23, 42, 0.15) 70%, rgba(15, 23, 42, 0.45) 100%);
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    @media (min-width: 440px) {
+      .app-screen {
+        max-height: 890px;
+        border-radius: 36px;
+        box-shadow: 0 16px 40px rgba(0,0,0,0.6), inset 0 0 0 4px rgba(255,255,255,0.25);
+      }
+    }
+
+    /* Ambient Fluffy Clouds Background */
+    .cloud-bg {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+      overflow: hidden;
+      opacity: 0.35;
+    }
+    .cloud {
+      position: absolute;
+      background: radial-gradient(ellipse at center, rgba(255,255,255,0.7) 0%, rgba(255,255,255,0.3) 65%, transparent 100%);
+      border-radius: 100px;
+    }
+    .cloud-1 { width: 140px; height: 50px; top: 7%; left: -20px; }
+    .cloud-2 { width: 170px; height: 60px; top: 18%; right: -30px; }
+    .cloud-3 { width: 190px; height: 65px; bottom: 24%; left: -10px; }
+
+    #sparkleCanvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 40;
+    }
+
+    /* 1. TOP NAV BAR */
+    .top-nav-bar {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 2px 2px 4px;
+    }
+    .top-left-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .circle-tool-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 1.5px solid #bae6fd;
+      color: #0369a1;
+      font-weight: 900;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15), inset 0 1px 1px #ffffff;
+      transition: transform 0.1s ease;
+    }
+    .circle-tool-btn:active {
+      transform: scale(0.92);
+    }
+
+    /* Spin The Wheel Trigger Button */
+    .wheel-trigger-btn {
+      height: 32px;
+      padding: 0 9px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #ec4899 0%, #be123c 100%);
+      border: 1.5px solid #fecdd3;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 10.5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      box-shadow: 0 3px 8px rgba(190, 18, 60, 0.4), inset 0 1px 1px #ffffff;
+      animation: wheelPulse 2.5s infinite ease-in-out;
+      transition: transform 0.1s ease;
+    }
+    .wheel-trigger-btn:active {
+      transform: scale(0.92);
+    }
+    @keyframes wheelPulse {
+      0%, 100% { transform: scale(1); box-shadow: 0 3px 8px rgba(190, 18, 60, 0.4); }
+      50% { transform: scale(1.05); box-shadow: 0 0 12px rgba(244, 63, 94, 0.85); }
+    }
+    .wheel-icon-rot {
+      font-size: 14px;
+      display: inline-block;
+      animation: spinIcon 10s linear infinite;
+    }
+    @keyframes spinIcon {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Top Diamond Balance Pill */
+    .balance-pill {
+      background: #1e3a8a;
+      border: 2px solid #93c5fd;
+      border-radius: 20px;
+      padding: 3px 6px 3px 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 3px 8px rgba(30, 58, 138, 0.5);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    .balance-pill:active {
+      transform: scale(0.96);
+    }
+    .balance-pill .diamond-icon {
+      width: 16px;
+      height: 16px;
+    }
+    .balance-amount {
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 13px;
+      letter-spacing: 0.4px;
+    }
+    .balance-plus-btn {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #f59e0b;
+      border: 1.5px solid #fde68a;
+      color: #78350f;
+      font-weight: 900;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
+    }
+
+    /* 2. GRAND 3D GAME LOGO */
+    .game-logo-container {
+      position: relative;
+      z-index: 12;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0 auto -2px;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+    }
+    .logo-crown {
+      font-size: 20px;
+      line-height: 1;
+      filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.85));
+      animation: crownFloat 2.5s infinite ease-in-out;
+      margin-bottom: -4px;
+      z-index: 2;
+    }
+    @keyframes crownFloat {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-3px) scale(1.08); }
+    }
+    .logo-brand-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+    }
+    .logo-yummy {
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 25px;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: 1.2px;
+      background: linear-gradient(180deg, #ffffff 0%, #fef08a 25%, #facc15 60%, #ca8a04 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 3px 0 #713f12) drop-shadow(0 4px 6px rgba(0,0,0,0.45));
+    }
+    .logo-bigo {
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 25px;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: 1.2px;
+      background: linear-gradient(180deg, #fdf2f8 0%, #f472b6 35%, #db2777 75%, #831843 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 3px 0 #500724) drop-shadow(0 4px 6px rgba(0,0,0,0.45));
+    }
+    .logo-badge {
+      font-size: 8px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #fef08a;
+      background: linear-gradient(90deg, #1e3a8a, #0f172a, #1e3a8a);
+      border: 1px solid #facc15;
+      padding: 1px 9px;
+      border-radius: 10px;
+      margin-top: 1px;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    }
+
+    /* 3. JACKPOT MARQUEE WITH CHASING BULBS */
+    .jackpot-container {
+      position: relative;
+      z-index: 12;
+      width: 96%;
+      margin: 4px auto -6px;
+    }
+    .jackpot-banner {
+      width: 100%;
+      background: linear-gradient(180deg, #fef08a 0%, #facc15 35%, #eab308 70%, #ca8a04 100%);
+      border: 2.5px solid #ffffff;
+      border-radius: 14px;
+      padding: 5px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      box-shadow: 0 4px 14px rgba(161, 98, 7, 0.4), inset 0 2px 2px #fff;
+      animation: jackpotGlow 3s infinite ease-in-out;
+    }
+    @keyframes jackpotGlow {
+      0%, 100% { box-shadow: 0 4px 14px rgba(161, 98, 7, 0.4), inset 0 2px 2px #fff; }
+      50% { box-shadow: 0 4px 22px rgba(250, 204, 21, 0.75), inset 0 2px 2px #fff; }
+    }
+    .jackpot-bulb-strip {
+      display: flex;
+      gap: 3px;
+    }
+    .bulb {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: #ffffff;
+      box-shadow: 0 0 3px #ffffff;
+      animation: bulbBlink 0.9s infinite alternate;
+    }
+    .jackpot-bulb-strip span:nth-child(even) {
+      animation-delay: 0.45s;
+      background: #facc15;
+      box-shadow: 0 0 4px #facc15;
+    }
+    @keyframes bulbBlink {
+      from { opacity: 0.35; }
+      to { opacity: 1; }
+    }
+    .jackpot-title {
+      font-style: italic;
+      font-weight: 900;
+      font-size: 15px;
+      letter-spacing: 0.8px;
+      color: #0369a1;
+      text-shadow: 0 1px 0 rgba(255,255,255,0.8);
+    }
+    .jackpot-val {
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-weight: 900;
+      font-size: 21px;
+      color: #075985;
+      text-shadow: 0 1px 1px #ffffff;
+      letter-spacing: 0.5px;
+    }
+
+    /* 4. CASINO CABINET STAGE */
+    .cabinet-wrapper {
+      position: relative;
+      z-index: 8;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 2px 0;
+    }
+
+    /* VIP Status Banner */
+    .vip-header {
+      width: 100%;
+      background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+      border: 2.5px solid #60a5fa;
+      border-bottom: none;
+      border-radius: 18px 18px 0 0;
+      padding: 8px 12px 5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #ffffff;
+    }
+    .vip-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .vip-badge-wrapper {
+      position: relative;
+    }
+    .vip-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #fbbf24, #d97706);
+      border: 2px solid #fef08a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 900;
+      color: #451a03;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+    .vip-num-tag {
+      position: absolute;
+      bottom: -2px;
+      right: -3px;
+      background: #facc15;
+      border: 1px solid #ffffff;
+      color: #000;
+      font-size: 8px;
+      font-weight: 900;
+      border-radius: 50%;
+      width: 13px;
+      height: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .vip-info {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+    .vip-title-txt {
+      font-size: 9.5px;
+      color: #bfdbfe;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .vip-diamond-val {
+      font-size: 12px;
+      font-weight: 900;
+      color: #facc15;
+    }
+    .vip-milestone {
+      font-size: 8.5px;
+      color: #bfdbfe;
+    }
+    .vip-milestone span {
+      color: #fde047;
+      font-weight: 800;
+    }
+    .vip-trophy {
+      background: #1e40af;
+      border: 1.5px solid #3b82f6;
+      border-radius: 8px;
+      padding: 4px 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    .vip-trophy:active {
+      transform: scale(0.92);
+    }
+
+    /* Reels Frame Container */
+    .reels-cabinet {
+      position: relative;
+      width: 100%;
+      background: linear-gradient(180deg, #1d4ed8 0%, #1e40af 100%);
+      border: 2.5px solid #60a5fa;
+      border-top: none;
+      border-radius: 0 0 16px 16px;
+      padding: 6px;
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+      transition: transform 0.1s ease;
+    }
+
+    /* Mechanical Slam Tremor Animation on Last Reel Stop */
+    @keyframes cabinetSlam {
+      0% { transform: translateY(0); }
+      30% { transform: translateY(3.5px); }
+      60% { transform: translateY(-1.8px); }
+      85% { transform: translateY(0.8px); }
+      100% { transform: translateY(0); }
+    }
+    .cabinet-slam {
+      animation: cabinetSlam 0.22s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    .reels-stage {
+      position: relative;
+      width: 100%;
+      height: 234px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      background: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.35);
+    }
+    .reels-stage::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 15;
+      box-shadow: inset 0 14px 14px -6px rgba(0,0,0,0.35), inset 0 -14px 14px -6px rgba(0,0,0,0.35);
+    }
+
+    .reel-column {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-right: 1px solid #e2e8f0;
+      overflow: hidden;
+      contain: strict;
+      background: rgba(255, 255, 255, 0.98);
+    }
+    .reel-column:last-child {
+      border-right: none;
+    }
+
+    .reel-strip-wrapper {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      will-change: transform;
+      transform: translate3d(0, 0, 0);
+      contain: paint;
+      backface-visibility: hidden;
+      -webkit-backface-visibility: hidden;
+    }
+
+    /* High-Speed Spin Motion Sheen */
+    .reel-strip-wrapper.spinning-blur {
+      opacity: 0.94;
+    }
+
+    .symbol-cell {
+      width: 100%;
+      height: 78px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      padding: 2px;
+      contain: layout style;
+    }
+    .symbol-inner-icon {
+      width: 58px;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: transform 0.15s ease;
+    }
+    .symbol-inner-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Tag badging like WILD / BONUS in reference */
+    .symbol-tag {
+      position: absolute;
+      top: 2px;
+      font-size: 7.5px;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      padding: 1px 4px;
+      border-radius: 4px;
+      color: #fff;
+      text-transform: uppercase;
+      z-index: 2;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .tag-wild { background: #9333ea; }
+    .tag-dice { background: #ef4444; }
+
+    /* Winning Symbol Celebration Dance */
+    @keyframes winSymbolDance {
+      0% { transform: scale(1.05); }
+      30% { transform: scale(1.22) rotate(-3deg); }
+      60% { transform: scale(1.18) rotate(3deg); }
+      100% { transform: scale(1.12) rotate(0deg); }
+    }
+    .symbol-cell.winning-cell .symbol-inner-icon {
+      animation: winSymbolDance 0.85s infinite ease-in-out;
+    }
+    .symbol-cell.winning-cell::after {
+      content: '';
+      position: absolute;
+      inset: 3px;
+      border: 2.5px solid #facc15;
+      background: rgba(254, 240, 138, 0.3);
+      border-radius: 8px;
+      pointer-events: none;
+      animation: pulseWin 0.45s infinite alternate;
+    }
+    @keyframes pulseWin {
+      from { opacity: 0.45; }
+      to { opacity: 1; }
+    }
+
+    .payline-svg-layer {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 25;
+    }
+
+    /* 3D MECHANICAL CASINO LEVER (Attached right) */
+    .machine-lever-wrap {
+      position: absolute;
+      right: -10px;
+      top: 46px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      cursor: pointer;
+      z-index: 35;
+    }
+    .lever-ball {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #ff8a8a 0%, #ef4444 45%, #991b1b 100%);
+      border: 2px solid #ffffff;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 2px 4px rgba(255,255,255,0.7);
+      transition: transform 0.25s ease-in-out;
+      z-index: 3;
+    }
+    .lever-rod {
+      width: 5px;
+      height: 85px;
+      background: linear-gradient(90deg, #cbd5e1, #ffffff, #94a3b8);
+      border: 0.5px solid #64748b;
+      transition: all 0.25s ease-in-out;
+      transform-origin: bottom center;
+      margin-top: -2px;
+      z-index: 2;
+    }
+    .lever-base {
+      width: 14px;
+      height: 28px;
+      background: #1e293b;
+      border: 1.5px solid #60a5fa;
+      border-radius: 0 6px 6px 0;
+      margin-top: -4px;
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lever-base::after {
+      content: '';
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .machine-lever-wrap.pulled .lever-ball {
+      transform: translateY(60px) scale(0.95);
+    }
+    .machine-lever-wrap.pulled .lever-rod {
+      height: 25px;
+    }
+
+    /* 5. BOTTOM CONTROLS DOCK */
+    .dock-container {
+      position: relative;
+      z-index: 20;
+      width: 100%;
+      background: linear-gradient(180deg, #1e3a8a 0%, #0f172a 100%);
+      border: 2.5px solid #3b82f6;
+      border-radius: 24px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+    }
+
+    .status-summary-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #090e1a;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .status-left-text { color: #e2e8f0; }
+    .status-right-math { color: #fde047; }
+
+    /* Dual Steppers */
+    .steppers-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .stepper-box {
+      background: #0b1120;
+      border: 1.5px solid #1e293b;
+      border-radius: 14px;
+      padding: 4px 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .stepper-meta {
+      display: flex;
+      flex-direction: column;
+    }
+    .stepper-tag {
+      font-size: 9px;
+      font-weight: 800;
+      color: #94a3b8;
+      text-transform: uppercase;
+    }
+    .stepper-number {
+      font-size: 13px;
+      font-weight: 900;
+      color: #facc15;
+      font-family: 'Arial Black', Impact, sans-serif;
+    }
+    .stepper-btn-group {
+      display: flex;
+      gap: 4px;
+    }
+    .stepper-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #ffffff;
+      font-weight: 900;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.1s ease, transform 0.1s ease;
+    }
+    .stepper-btn:active {
+      background: #334155;
+      transform: scale(0.95);
+    }
+
+    /* Action Buttons Row */
+    .actions-row {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+      height: 56px;
+    }
+    .btn-max-bet {
+      width: 52px;
+      border-radius: 14px;
+      background: linear-gradient(180deg, #d97706 0%, #78350f 100%);
+      border: 1.5px solid #fde047;
+      color: #ffffff;
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 10.5px;
+      font-weight: 900;
+      line-height: 1.1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+      transition: transform 0.1s ease;
+    }
+    .btn-max-bet:active {
+      transform: scale(0.95);
+    }
+    .btn-auto-spin {
+      width: 52px;
+      border-radius: 14px;
+      background: #1e293b;
+      border: 1.5px solid #475569;
+      color: #94a3b8;
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1.1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.1s ease;
+    }
+    .btn-auto-spin.active {
+      background: linear-gradient(180deg, #ea580c 0%, #9a3412 100%);
+      border-color: #fde047;
+      color: #ffffff;
+      box-shadow: 0 0 10px rgba(234, 88, 12, 0.8);
+    }
+    .btn-auto-spin:active {
+      transform: scale(0.95);
+    }
+
+    .btn-primary-spin {
+      flex: 1;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #f43f5e 0%, #e11d48 50%, #9f1239 100%);
+      border: 2px solid #fda4af;
+      color: #ffffff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 0 #881337, 0 8px 16px rgba(225, 29, 72, 0.4);
+      transition: transform 0.1s ease;
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-primary-spin:active {
+      transform: translateY(3px);
+      box-shadow: 0 1px 0 #881337;
+    }
+    .btn-primary-spin:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .spin-label-main {
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 20px;
+      font-weight: 900;
+      font-style: italic;
+      letter-spacing: 1px;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      line-height: 1;
+    }
+    .spin-label-total {
+      font-size: 9.5px;
+      font-weight: 900;
+      color: #fed7aa;
+      letter-spacing: 0.6px;
+      margin-top: 2px;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      z-index: 50;
+      background: rgba(8, 12, 24, 0.92);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 320px;
+      background: #0f172a;
+      border: 2px solid #facc15;
+      border-radius: 20px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      color: #ffffff;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.8);
+    }
+    .modal-card h3 {
+      font-size: 15px;
+      font-weight: 900;
+      color: #facc15;
+    }
+
+    /* SPIN THE WHEEL MODAL */
+    .wheel-modal-card {
+      width: 100%;
+      max-width: 340px;
+      background: linear-gradient(180deg, #1e1b4b 0%, #0f172a 100%);
+      border: 2.5px solid #facc15;
+      border-radius: 24px;
+      padding: 16px 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      color: #ffffff;
+      box-shadow: 0 0 30px rgba(250, 204, 21, 0.4), 0 20px 40px rgba(0,0,0,0.9);
+      position: relative;
+    }
+    .wheel-header {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .wheel-title-badge {
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 15px;
+      font-weight: 900;
+      color: #facc15;
+      letter-spacing: 0.8px;
+      text-shadow: 0 0 10px rgba(250, 204, 21, 0.7);
+    }
+    .wheel-close-btn {
+      background: none;
+      border: none;
+      color: #94a3b8;
+      font-size: 20px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .wheel-subtitle {
+      font-size: 10.5px;
+      color: #cbd5e1;
+      text-align: center;
+    }
+    .wheel-stage {
+      position: relative;
+      width: 280px;
+      height: 280px;
+      margin: 6px auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #wheelCanvas {
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.6), inset 0 0 10px rgba(250, 204, 21, 0.5);
+    }
+    .wheel-pointer {
+      position: absolute;
+      top: -6px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 24px;
+      color: #facc15;
+      z-index: 20;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.8));
+      transition: transform 0.08s ease;
+    }
+    .wheel-pointer.ticking {
+      transform: translateX(-50%) rotate(-18deg);
+    }
+    .wheel-center-btn {
+      position: absolute;
+      width: 62px;
+      height: 62px;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 30%, #fef08a 0%, #f59e0b 50%, #b45309 100%);
+      border: 3px solid #ffffff;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5), inset 0 2px 4px rgba(255,255,255,0.8);
+      color: #451a03;
+      font-family: 'Arial Black', Impact, sans-serif;
+      font-size: 13px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 10;
+      transition: transform 0.1s ease;
+    }
+    .wheel-center-btn:active {
+      transform: scale(0.92);
+    }
+    .wheel-center-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .wheel-status {
+      font-size: 12px;
+      font-weight: 900;
+      color: #fde047;
+      text-align: center;
+      min-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="sparkleCanvas"></canvas>
+
+  <!-- GORGEOUS 3D VECTOR ICONS -->
+  <svg style="position: absolute; width: 0; height: 0; overflow: hidden;" aria-hidden="true">
+    <defs>
+      <!-- 1. WILD DIAMOND -->
+      <g id="sym-wild">
+        <defs>
+          <linearGradient id="w-top" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#f5d0fe"/>
+            <stop offset="100%" stop-color="#d8b4fe"/>
+          </linearGradient>
+          <linearGradient id="w-center" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#c084fc"/>
+            <stop offset="100%" stop-color="#9333ea"/>
+          </linearGradient>
+          <linearGradient id="w-left" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#a855f7"/>
+            <stop offset="100%" stop-color="#6b21a8"/>
+          </linearGradient>
+          <linearGradient id="w-right" x1="1" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#9333ea"/>
+            <stop offset="100%" stop-color="#581c87"/>
+          </linearGradient>
+          <linearGradient id="w-gold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fef08a"/>
+            <stop offset="50%" stop-color="#facc15"/>
+            <stop offset="100%" stop-color="#ca8a04"/>
+          </linearGradient>
+          <radialGradient id="w-glow" cx="50%" cy="40%" r="50%">
+            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.8"/>
+            <stop offset="100%" stop-color="#c084fc" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <polygon points="50,4 96,34 76,94 24,94 4,34" fill="none" stroke="#facc15" stroke-width="3" opacity="0.6"/>
+        <polygon points="50,6 94,36 74,92 26,92 6,36" fill="url(#w-center)"/>
+        <polygon points="26,36 50,10 74,36 50,56" fill="url(#w-top)"/>
+        <polygon points="6,36 26,36 50,56 26,92" fill="url(#w-left)"/>
+        <polygon points="94,36 74,36 50,56 74,92" fill="url(#w-right)"/>
+        <polygon points="26,92 50,56 74,92 50,92" fill="#7e22ce"/>
+        <ellipse cx="50" cy="30" rx="14" ry="7" fill="url(#w-glow)"/>
+        <path d="M78 20 Q78 28 86 28 Q78 28 78 36 Q78 28 70 28 Q78 28 78 20 Z" fill="#ffffff"/>
+        <rect x="16" y="58" width="68" height="22" rx="6" fill="url(#w-gold)" stroke="#ffffff" stroke-width="1.5" filter="drop-shadow(0 2px 3px rgba(0,0,0,0.5))"/>
+        <text x="50" y="74" text-anchor="middle" font-family="'Arial Black', Impact, sans-serif" font-weight="900" font-size="14" fill="#581c87" letter-spacing="1">WILD</text>
+      </g>
+
+      <!-- 2. BONUS DICE -->
+      <g id="sym-dice">
+        <defs>
+          <linearGradient id="dice-top" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#f1f5f9"/>
+          </linearGradient>
+          <linearGradient id="dice-left" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#e2e8f0"/>
+            <stop offset="100%" stop-color="#cbd5e1"/>
+          </linearGradient>
+          <linearGradient id="dice-right" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#cbd5e1"/>
+            <stop offset="100%" stop-color="#94a3b8"/>
+          </linearGradient>
+          <radialGradient id="pip-red" cx="35%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#ff6b6b"/>
+            <stop offset="60%" stop-color="#dc2626"/>
+            <stop offset="100%" stop-color="#7f1d1d"/>
+          </radialGradient>
+          <radialGradient id="pip-dark" cx="35%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#64748b"/>
+            <stop offset="70%" stop-color="#1e293b"/>
+            <stop offset="100%" stop-color="#090d16"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="50" cy="88" rx="34" ry="8" fill="rgba(0,0,0,0.25)"/>
+        <polygon points="50,8 86,26 50,44 14,26" fill="url(#dice-top)" stroke="#cbd5e1" stroke-width="1.5" stroke-linejoin="round"/>
+        <polygon points="14,26 50,44 50,82 14,64" fill="url(#dice-left)" stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round"/>
+        <polygon points="50,44 86,26 86,64 50,82" fill="url(#dice-right)" stroke="#64748b" stroke-width="1.5" stroke-linejoin="round"/>
+        <ellipse cx="50" cy="26" rx="7" ry="4.5" fill="url(#pip-red)"/>
+        <ellipse cx="26" cy="42" rx="4" ry="6" fill="url(#pip-dark)"/>
+        <ellipse cx="38" cy="66" rx="4" ry="6" fill="url(#pip-dark)"/>
+        <ellipse cx="62" cy="46" rx="4" ry="6" fill="url(#pip-red)"/>
+        <ellipse cx="74" cy="40" rx="4" ry="6" fill="url(#pip-dark)"/>
+        <ellipse cx="62" cy="70" rx="4" ry="6" fill="url(#pip-dark)"/>
+        <ellipse cx="74" cy="64" rx="4" ry="6" fill="url(#pip-red)"/>
+      </g>
+
+      <!-- 3. BURGER -->
+      <g id="sym-burger">
+        <defs>
+          <linearGradient id="bg-bun" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fde047"/>
+            <stop offset="35%" stop-color="#f59e0b"/>
+            <stop offset="100%" stop-color="#b45309"/>
+          </linearGradient>
+          <linearGradient id="bg-patty" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#78350f"/>
+            <stop offset="50%" stop-color="#451a03"/>
+            <stop offset="100%" stop-color="#270e02"/>
+          </linearGradient>
+          <linearGradient id="bg-cheese" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fef08a"/>
+            <stop offset="60%" stop-color="#facc15"/>
+            <stop offset="100%" stop-color="#eab308"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="50" cy="88" rx="36" ry="6" fill="rgba(0,0,0,0.2)"/>
+        <path d="M18 68 C18 72, 20 84, 50 84 C80 84, 82 72, 82 68 Z" fill="url(#bg-bun)" stroke="#92400e" stroke-width="1.5"/>
+        <rect x="12" y="58" width="76" height="13" rx="6.5" fill="url(#bg-patty)" stroke="#1c0a02" stroke-width="1.5"/>
+        <polygon points="14,60 86,60 82,69 66,74 54,67 42,75 28,68 18,72" fill="url(#bg-cheese)" stroke="#ca8a04" stroke-width="1"/>
+        <path d="M12 56 Q18 50 24 55 Q30 50 36 55 Q42 50 48 55 Q54 50 60 55 Q66 50 72 55 Q78 50 84 55 Q88 51 90 56 L88 60 Q50 62 12 60 Z" fill="#22c55e" stroke="#15803d" stroke-width="1"/>
+        <rect x="18" y="47" width="64" height="8" rx="4" fill="#ef4444" stroke="#b91c1c" stroke-width="1"/>
+        <path d="M14 48 C14 18, 86 18, 86 48 Z" fill="url(#bg-bun)" stroke="#92400e" stroke-width="1.5"/>
+        <ellipse cx="44" cy="27" rx="24" ry="8" fill="#ffffff" opacity="0.35"/>
+        <ellipse cx="32" cy="28" rx="2.5" ry="1.2" transform="rotate(-20 32 28)" fill="#fef9c3"/>
+        <ellipse cx="48" cy="23" rx="2.5" ry="1.2" transform="rotate(10 48 23)" fill="#fef9c3"/>
+        <ellipse cx="64" cy="29" rx="2.5" ry="1.2" transform="rotate(30 64 29)" fill="#fef9c3"/>
+        <ellipse cx="40" cy="36" rx="2.5" ry="1.2" transform="rotate(-10 40 36)" fill="#fef9c3"/>
+        <ellipse cx="58" cy="35" rx="2.5" ry="1.2" transform="rotate(15 58 35)" fill="#fef9c3"/>
+      </g>
+
+      <!-- 4. FRIES -->
+      <g id="sym-fries">
+        <defs>
+          <linearGradient id="fry-box" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#ef4444"/>
+            <stop offset="35%" stop-color="#f87171"/>
+            <stop offset="70%" stop-color="#dc2626"/>
+            <stop offset="100%" stop-color="#991b1b"/>
+          </linearGradient>
+          <linearGradient id="fry-gold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fef08a"/>
+            <stop offset="40%" stop-color="#facc15"/>
+            <stop offset="100%" stop-color="#d97706"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="50" cy="90" rx="30" ry="6" fill="rgba(0,0,0,0.25)"/>
+        <rect x="24" y="14" width="8" height="42" rx="2" transform="rotate(-12 24 14)" fill="#d97706"/>
+        <rect x="66" y="15" width="8" height="42" rx="2" transform="rotate(14 66 15)" fill="#d97706"/>
+        <rect x="30" y="10" width="8" height="46" rx="2" transform="rotate(-6 30 10)" fill="url(#fry-gold)" stroke="#b45309" stroke-width="0.8"/>
+        <rect x="42" y="6" width="8.5" height="50" rx="2" fill="url(#fry-gold)" stroke="#b45309" stroke-width="0.8"/>
+        <rect x="54" y="8" width="8" height="48" rx="2" transform="rotate(6 54 8)" fill="url(#fry-gold)" stroke="#b45309" stroke-width="0.8"/>
+        <rect x="36" y="16" width="7.5" height="40" rx="2" transform="rotate(-2 36 16)" fill="url(#fry-gold)"/>
+        <rect x="48" y="15" width="7.5" height="40" rx="2" transform="rotate(3 48 15)" fill="url(#fry-gold)"/>
+        <path d="M20,44 L80,44 L72,86 L28,86 Z" fill="url(#fry-box)" stroke="#7f1d1d" stroke-width="1.5"/>
+        <path d="M20,44 Q50,56 80,44" fill="none" stroke="#fca5a5" stroke-width="2"/>
+        <circle cx="50" cy="65" r="12" fill="#facc15" stroke="#ffffff" stroke-width="1.5"/>
+        <polygon points="50,56 53,62 60,63 55,67 56,74 50,70 44,74 45,67 40,63 47,62" fill="#ef4444"/>
+      </g>
+
+      <!-- 5. CAKE -->
+      <g id="sym-cake">
+        <defs>
+          <linearGradient id="sponge-cake" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fef3c7"/>
+            <stop offset="100%" stop-color="#fde68a"/>
+          </linearGradient>
+          <linearGradient id="cream-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#fce7f3"/>
+          </linearGradient>
+          <linearGradient id="strawberry-glaze" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#fb7185"/>
+            <stop offset="50%" stop-color="#f43f5e"/>
+            <stop offset="100%" stop-color="#be123c"/>
+          </linearGradient>
+          <radialGradient id="cherry-ball" cx="35%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#fda4af"/>
+            <stop offset="40%" stop-color="#e11d48"/>
+            <stop offset="100%" stop-color="#881337"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="50" cy="88" rx="36" ry="6" fill="rgba(0,0,0,0.2)"/>
+        <polygon points="12,74 88,74 82,84 18,84" fill="#f59e0b"/>
+        <polygon points="12,64 88,64 88,74 12,74" fill="url(#sponge-cake)" stroke="#d97706" stroke-width="0.7"/>
+        <polygon points="14,56 86,56 86,64 14,64" fill="url(#cream-fill)"/>
+        <rect x="26" y="58" width="6" height="4" rx="2" fill="#e11d48"/>
+        <rect x="46" y="58" width="6" height="4" rx="2" fill="#e11d48"/>
+        <rect x="66" y="58" width="6" height="4" rx="2" fill="#e11d48"/>
+        <polygon points="16,46 84,46 86,56 14,56" fill="url(#sponge-cake)" stroke="#d97706" stroke-width="0.7"/>
+        <polygon points="16,46 50,22 84,46" fill="url(#strawberry-glaze)"/>
+        <circle cx="50" cy="25" r="9" fill="#ffffff" filter="drop-shadow(0 2px 2px rgba(0,0,0,0.15))"/>
+        <circle cx="46" cy="27" r="6" fill="#fdf2f8"/>
+        <circle cx="54" cy="27" r="6" fill="#fdf2f8"/>
+        <circle cx="50" cy="19" r="7.5" fill="url(#cherry-ball)"/>
+        <circle cx="48" cy="16" r="2.2" fill="#ffffff" opacity="0.8"/>
+        <path d="M50 12 Q56 4 64 6" stroke="#15803d" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+      </g>
+
+      <!-- 6. LEMON -->
+      <g id="sym-lemon">
+        <defs>
+          <radialGradient id="lemon-body" cx="38%" cy="32%" r="68%">
+            <stop offset="0%" stop-color="#fef08a"/>
+            <stop offset="50%" stop-color="#facc15"/>
+            <stop offset="100%" stop-color="#ca8a04"/>
+          </radialGradient>
+          <linearGradient id="leaf-grad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#4ade80"/>
+            <stop offset="60%" stop-color="#16a34a"/>
+            <stop offset="100%" stop-color="#14532d"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="50" cy="86" rx="32" ry="6" fill="rgba(0,0,0,0.2)"/>
+        <path d="M54 22 C64 12, 82 18, 80 32 C68 36, 56 30, 54 22 Z" fill="url(#leaf-grad)" stroke="#14532d" stroke-width="1"/>
+        <path d="M56 23 Q68 25 78 28" stroke="#86efac" stroke-width="1" fill="none"/>
+        <rect x="49" y="16" width="4" height="10" rx="2" fill="#78350f"/>
+        <path d="M22 68 C8 50, 18 30, 36 22 C56 12, 80 24, 84 44 C88 64, 76 80, 58 84 C40 88, 28 80, 22 68 Z" fill="url(#lemon-body)" stroke="#a16207" stroke-width="1.5"/>
+        <path d="M34 28 C48 20, 68 26, 74 38" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" opacity="0.6"/>
+      </g>
+
+      <!-- 7. BANANA -->
+      <g id="sym-banana">
+        <defs>
+          <linearGradient id="banana-front" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#fef08a"/>
+            <stop offset="40%" stop-color="#facc15"/>
+            <stop offset="90%" stop-color="#eab308"/>
+            <stop offset="100%" stop-color="#a16207"/>
+          </linearGradient>
+          <linearGradient id="banana-back" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#fde047"/>
+            <stop offset="60%" stop-color="#eab308"/>
+            <stop offset="100%" stop-color="#854d0e"/>
+          </linearGradient>
+        </defs>
+        <ellipse cx="50" cy="88" rx="34" ry="6" fill="rgba(0,0,0,0.2)"/>
+        <path d="M22 72 C16 42, 42 22, 72 20 C60 36, 52 62, 32 78 Z" fill="url(#banana-back)" stroke="#854d0e" stroke-width="1.2"/>
+        <path d="M22 72 L16 78 L22 82 L28 76 Z" fill="#65a30d" stroke="#365314" stroke-width="1"/>
+        <path d="M32 80 C26 50, 52 30, 82 26 C68 44, 58 70, 38 86 Z" fill="url(#banana-front)" stroke="#a16207" stroke-width="1.5"/>
+        <path d="M42 74 C38 56, 54 40, 74 34" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.6"/>
+        <circle cx="82" cy="27" r="2.5" fill="#78350f"/>
+      </g>
+
+      <!-- 8. CHERRY -->
+      <g id="sym-cherry">
+        <defs>
+          <radialGradient id="cherry-l" cx="35%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#f87171"/>
+            <stop offset="35%" stop-color="#dc2626"/>
+            <stop offset="85%" stop-color="#991b1b"/>
+            <stop offset="100%" stop-color="#450a0a"/>
+          </radialGradient>
+          <radialGradient id="cherry-r" cx="35%" cy="30%" r="65%">
+            <stop offset="0%" stop-color="#f87171"/>
+            <stop offset="35%" stop-color="#b91c1c"/>
+            <stop offset="85%" stop-color="#7f1d1d"/>
+            <stop offset="100%" stop-color="#450a0a"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="36" cy="82" rx="14" ry="4" fill="rgba(0,0,0,0.2)"/>
+        <ellipse cx="66" cy="82" rx="14" ry="4" fill="rgba(0,0,0,0.2)"/>
+        <path d="M37 56 C 42 30, 58 20, 68 14" stroke="#15803d" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <path d="M67 56 C 65 36, 62 24, 68 14" stroke="#15803d" stroke-width="3.5" stroke-linecap="round" fill="none"/>
+        <path d="M68 14 C 78 8, 88 16, 82 24 C 74 24, 68 18, 68 14 Z" fill="#22c55e" stroke="#15803d" stroke-width="1"/>
+        <path d="M69 15 Q76 18 80 20" stroke="#86efac" stroke-width="1" fill="none"/>
+        <circle cx="36" cy="62" r="18" fill="url(#cherry-l)" stroke="#7f1d1d" stroke-width="1"/>
+        <ellipse cx="30" cy="54" rx="4.5" ry="3" fill="#ffffff" opacity="0.85"/>
+        <circle cx="37" cy="53" r="1.5" fill="#ffffff" opacity="0.7"/>
+        <circle cx="66" cy="62" r="18" fill="url(#cherry-r)" stroke="#7f1d1d" stroke-width="1"/>
+        <ellipse cx="60" cy="54" rx="4.5" ry="3" fill="#ffffff" opacity="0.85"/>
+        <circle cx="67" cy="53" r="1.5" fill="#ffffff" opacity="0.7"/>
+      </g>
+
+      <!-- 9. CLOVER -->
+      <g id="sym-clover">
+        <defs>
+          <radialGradient id="clover-leaf" cx="35%" cy="35%" r="65%">
+            <stop offset="0%" stop-color="#4ade80"/>
+            <stop offset="45%" stop-color="#16a34a"/>
+            <stop offset="85%" stop-color="#15803d"/>
+            <stop offset="100%" stop-color="#052e16"/>
+          </radialGradient>
+        </defs>
+        <path d="M50 50 Q 55 78 40 92" stroke="#15803d" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+        <path d="M50 50 Q 54 77 41 91" stroke="#4ade80" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+        <path d="M50 48 C36 34, 34 16, 50 18 C66 16, 64 34, 50 48 Z" fill="url(#clover-leaf)" stroke="#052e16" stroke-width="1"/>
+        <path d="M48 50 C34 36, 16 34, 18 50 C16 66, 34 64, 48 50 Z" fill="url(#clover-leaf)" stroke="#052e16" stroke-width="1"/>
+        <path d="M52 50 C66 36, 84 34, 82 50 C84 66, 66 64, 52 50 Z" fill="url(#clover-leaf)" stroke="#052e16" stroke-width="1"/>
+        <path d="M50 52 C36 66, 34 84, 50 82 C66 84, 64 66, 50 52 Z" fill="url(#clover-leaf)" stroke="#052e16" stroke-width="1"/>
+        <circle cx="50" cy="50" r="3.5" fill="#ffffff" opacity="0.8"/>
+      </g>
+    </defs>
+  </svg>
+
+  <div class="app-screen">
+    <div class="cloud-bg">
+      <div class="cloud cloud-1"></div>
+      <div class="cloud cloud-2"></div>
+      <div class="cloud cloud-3"></div>
+    </div>
+
+    <!-- 1. TOP NAV BAR & TOOLS -->
+    <div class="top-nav-bar">
+      <div class="top-left-actions">
+        <button class="circle-tool-btn" id="closeBtn" title="Back">✕</button>
+        <button class="circle-tool-btn" id="infoBtn" title="Paytable">?</button>
+        <button class="circle-tool-btn" id="soundBtn" title="Toggle Sound">🔊</button>
+        <button class="wheel-trigger-btn" id="wheelBtn" title="Spin The Wheel">
+          <span class="wheel-icon-rot">🎡</span>
+          <span>WHEEL</span>
+        </button>
+      </div>
+
+      <div class="balance-pill" id="rechargeBtn" title="Recharge Diamonds">
+        <svg class="diamond-icon" viewBox="0 0 24 24" fill="#38bdf8">
+          <polygon points="12,2 22,9 12,22 2,9"/>
+          <polygon points="12,2 17,9 12,22 7,9" fill="#7dd3fc"/>
+        </svg>
+        <span class="balance-amount" id="balanceText">172,483</span>
+        <div class="balance-plus-btn">+</div>
+      </div>
+    </div>
+
+    <!-- 2. GRAND 3D GAME MARQUEE LOGO -->
+    <div class="game-logo-container">
+      <div class="logo-crown">👑</div>
+      <div class="logo-brand-row">
+        <span class="logo-yummy">YUMMY</span>
+        <span class="logo-bigo">BIGO</span>
+      </div>
+      <div class="logo-badge">★ CASINO SLOTS ★</div>
+    </div>
+
+    <!-- 3. JACKPOT MARQUEE WITH BULBS -->
+    <div class="jackpot-container">
+      <div class="jackpot-banner">
+        <div class="jackpot-bulb-strip">
+          <span class="bulb"></span><span class="bulb"></span><span class="bulb"></span>
+        </div>
+        <span style="font-size:16px;">💎</span>
+        <span class="jackpot-title">JACKPOT</span>
+        <span class="jackpot-val" id="jackpotText">276,614</span>
+        <span style="font-size:16px;">💎</span>
+        <div class="jackpot-bulb-strip">
+          <span class="bulb"></span><span class="bulb"></span><span class="bulb"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. CASINO CABINET STAGE -->
+    <div class="cabinet-wrapper">
+      <!-- VIP ribbon -->
+      <div class="vip-header">
+        <div class="vip-left">
+          <div class="vip-badge-wrapper">
+            <div class="vip-circle" id="vipTierBadge">VIP</div>
+            <div class="vip-num-tag" id="vipLevelTag">2</div>
+          </div>
+          <div class="vip-info">
+            <span class="vip-title-txt" id="vipTitleTxt">Master VIP Player</span>
+            <span class="vip-diamond-val" id="vipDiamondsVal">💎 172,483</span>
+            <span class="vip-milestone">Next milestone: <span id="vipMilestoneVal">8,000</span></span>
+          </div>
+        </div>
+        <div class="vip-trophy" id="vipTrophyBtn" title="Leaderboard">🏆</div>
+      </div>
+
+      <!-- Reels cabinet -->
+      <div class="reels-cabinet" id="reelsCabinet">
+        <div class="reels-stage" id="reelsWindow">
+          <svg class="payline-svg-layer" id="paylineSvg"></svg>
+          <div class="reel-column"><div class="reel-strip-wrapper" id="strip-0"></div></div>
+          <div class="reel-column"><div class="reel-strip-wrapper" id="strip-1"></div></div>
+          <div class="reel-column"><div class="reel-strip-wrapper" id="strip-2"></div></div>
+          <div class="reel-column"><div class="reel-strip-wrapper" id="strip-3"></div></div>
+          <div class="reel-column"><div class="reel-strip-wrapper" id="strip-4"></div></div>
+        </div>
+
+        <!-- Interactive Mechanical Lever -->
+        <div class="machine-lever-wrap" id="mechLever" title="Pull Lever to Spin">
+          <div class="lever-ball" id="leverBall"></div>
+          <div class="lever-rod" id="leverRod"></div>
+          <div class="lever-base"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. CONTROLS DOCK -->
+    <div class="dock-container">
+      <div class="status-summary-bar">
+        <span class="status-left-text" id="statusNote">Match 3 or more symbols to win!</span>
+        <span class="status-right-math" id="statusMath">2 Lines × 2,000</span>
+      </div>
+
+      <!-- Steppers Row -->
+      <div class="steppers-row">
+        <!-- Bet / Line -->
+        <div class="stepper-box">
+          <div class="stepper-meta">
+            <span class="stepper-tag">BET/LINE</span>
+            <span class="stepper-number" id="betText">2,000</span>
+          </div>
+          <div class="stepper-btn-group">
+            <button class="stepper-btn" id="betMinus">−</button>
+            <button class="stepper-btn" id="betPlus">+</button>
+          </div>
+        </div>
+
+        <!-- Lines -->
+        <div class="stepper-box">
+          <div class="stepper-meta">
+            <span class="stepper-tag">LINES (1-9)</span>
+            <span class="stepper-number" id="linesText">2</span>
+          </div>
+          <div class="stepper-btn-group">
+            <button class="stepper-btn" id="linesMinus">−</button>
+            <button class="stepper-btn" id="linesPlus">+</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Action Buttons -->
+      <div class="actions-row">
+        <button class="btn-max-bet" id="maxBtn">
+          <span>MAX</span>
+          <span>BET</span>
+        </button>
+
+        <button class="btn-auto-spin" id="autoBtn">
+          <span>AUTO</span>
+          <span id="autoStateText">OFF</span>
+        </button>
+
+        <button class="btn-primary-spin" id="spinBtn">
+          <span class="spin-label-main" id="spinTitle">SPIN !</span>
+          <span class="spin-label-total" id="spinTotalLabel">TOTAL: 💎 4,000</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FULL-SCREEN SPIN THE WHEEL BONUS MODAL -->
+  <div class="modal-backdrop" id="wheelModal">
+    <div class="wheel-modal-card">
+      <div class="wheel-header">
+        <div class="wheel-title-badge">🎡 LUCKY FORTUNE WHEEL 🎡</div>
+        <button class="wheel-close-btn" id="wheelCloseBtn">✕</button>
+      </div>
+      <div class="wheel-subtitle">Spin the wheel to win massive diamond rewards!</div>
+
+      <div class="wheel-stage">
+        <div class="wheel-pointer" id="wheelPointer">▼</div>
+        <canvas id="wheelCanvas" width="280" height="280"></canvas>
+        <button class="wheel-center-btn" id="wheelSpinBtn">SPIN</button>
+      </div>
+
+      <div class="wheel-status" id="wheelStatus">Tap SPIN to play!</div>
+    </div>
+  </div>
+
+  <!-- Big Win Modal -->
+  <div class="modal-backdrop" id="winModal">
+    <div class="modal-card" style="text-align:center;">
+      <h3 id="winModalTitle" style="font-size:20px;">⭐ BIG WINNER! ⭐</h3>
+      <div style="font-size:44px; margin: 4px 0;">🎉</div>
+      <div id="winModalAmount" style="font-family:'Arial Black',Impact;font-size:28px;color:#facc15;">+50,000 💎</div>
+      <button id="winDismissBtn" style="background:linear-gradient(180deg,#f43f5e,#be123c);border:none;border-radius:12px;padding:12px;color:white;font-weight:900;font-size:14px;cursor:pointer;margin-top:8px;">CONTINUE</button>
+    </div>
+  </div>
+
+  <!-- Paytable & Rules Modal -->
+  <div class="modal-backdrop" id="rulesModal">
+    <div class="modal-card" style="max-height:80vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3>PAYTABLE & RULES</h3>
+        <button id="rulesCloseBtn" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">✕</button>
+      </div>
+      <p style="font-size:11px;color:#cbd5e1;line-height:1.4;">Match 3 or more symbols along active paylines from left to right. WILD DIAMOND substitutes for all regular symbols! 3 BONUS DICE triggers the Lucky Fortune Wheel!</p>
+      <div id="rulesList" style="display:flex;flex-direction:column;gap:6px;"></div>
+      <button id="rulesGotItBtn" style="background:#2563eb;border:none;border-radius:10px;padding:10px;color:white;font-weight:900;font-size:12px;cursor:pointer;">GOT IT</button>
+    </div>
+  </div>
+
+  <script>
+    // Web Audio Synthesizer (Zero external dependencies)
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+      }
+      playSpin() {
+        if (this.muted) return;
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(780, this.ctx.currentTime + 0.14);
+          gain.gain.setValueAtTime(0.09, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.14);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.15);
+        } catch (_) {}
+      }
+      playTick() {
+        if (this.muted) return;
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(640, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(320, this.ctx.currentTime + 0.04);
+          gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.04);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.045);
+        } catch (_) {}
+      }
+      playCoinTick() {
+        if (this.muted) return;
+        try {
+          this.init();
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(820 + Math.random() * 220, this.ctx.currentTime);
+          gain.gain.setValueAtTime(0.05, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.045);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.05);
+        } catch (_) {}
+      }
+      playReelStop(reelIdx = 0) {
+        if (this.muted) return;
+        try {
+          this.init();
+          const baseFreq = 150 + (reelIdx * 35);
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(baseFreq, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(36, this.ctx.currentTime + 0.09);
+          gain.gain.setValueAtTime(0.26, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.09);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.095);
+        } catch (_) {}
+      }
+      playWin() {
+        if (this.muted) return;
+        try {
+          this.init();
+          [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const t = this.ctx.currentTime + idx * 0.07;
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.14, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.29);
+          });
+        } catch (_) {}
+      }
+      playLoss() {
+        if (this.muted) return;
+        try {
+          this.init();
+          [220, 180, 140].forEach((freq, idx) => {
+            const osc = this.ctx.createOscillator();
+            const gain = this.ctx.createGain();
+            const t = this.ctx.currentTime + idx * 0.07;
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(freq, t);
+            gain.gain.setValueAtTime(0.05, t);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+            osc.connect(gain);
+            gain.connect(this.ctx.destination);
+            osc.start(t);
+            osc.stop(t + 0.11);
+          });
+        } catch (_) {}
+      }
+    }
+    const audio = new SoundEngine();
+    document.addEventListener('pointerdown', () => audio.init(), { once: true });
+
+    // 60 FPS Hardware-Accelerated Zero-Allocation Sparkle Particle Pool
+    const canvas = document.getElementById('sparkleCanvas');
+    const ctx = canvas.getContext('2d');
+    const SPARKLE_POOL_SIZE = 75;
+    const sparklePool = [];
+    for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+      sparklePool.push({
+        active: false,
+        x: 0, y: 0,
+        vx: 0, vy: 0,
+        color: '#FBBF24',
+        size: 3,
+        alpha: 1,
+        decay: 0.025
+      });
+    }
+    let isSparkling = false;
+    let sparkleLastTime = 0;
+
+    function resizeCanvas() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      if (ctx.resetTransform) ctx.resetTransform();
+      ctx.scale(dpr, dpr);
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    function triggerSparkles(x, y, count = 24) {
+      const colors = ['#FBBF24', '#F59E0B', '#EF4444', '#38BDF8', '#C084FC'];
+      const spawnX = (x !== undefined) ? x : window.innerWidth / 2;
+      const spawnY = (y !== undefined) ? y : window.innerHeight / 2;
+
+      let spawned = 0;
+      for (let i = 0; i < SPARKLE_POOL_SIZE && spawned < count; i++) {
+        const p = sparklePool[i];
+        if (!p.active) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 220 + 90; // px/sec
+          p.active = true;
+          p.x = spawnX;
+          p.y = spawnY;
+          p.vx = Math.cos(angle) * speed;
+          p.vy = Math.sin(angle) * speed - 80;
+          p.color = colors[Math.floor(Math.random() * colors.length)];
+          p.size = Math.random() * 3.5 + 2;
+          p.alpha = 1;
+          p.decay = Math.random() * 1.2 + 0.9; // alpha/sec
+          spawned++;
+        }
+      }
+
+      if (!isSparkling) {
+        isSparkling = true;
+        sparkleLastTime = performance.now();
+        requestAnimationFrame(renderSparkles);
+      }
+    }
+
+    function renderSparkles(now) {
+      const dt = Math.min(0.05, (now - sparkleLastTime) / 1000);
+      sparkleLastTime = now;
+
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      let anyActive = false;
+
+      for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+        const p = sparklePool[i];
+        if (p.active) {
+          p.x += p.vx * dt;
+          p.y += p.vy * dt;
+          p.vy += 340 * dt; // gravity
+          p.alpha -= p.decay * dt;
+
+          if (p.alpha <= 0) {
+            p.active = false;
+          } else {
+            anyActive = true;
+            ctx.globalAlpha = Math.max(0, p.alpha);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      ctx.globalAlpha = 1;
+      if (anyActive) {
+        requestAnimationFrame(renderSparkles);
+      } else {
+        isSparkling = false;
+      }
+    }
+
+    // Payout and Symbol Config
+    const SYMBOLS_INFO = {
+      wild:   { name: 'WILD DIAMOND', payout: { 3: 50, 4: 200, 5: 1000 }, tag: 'WILD' },
+      dice:   { name: 'BONUS DICE',   payout: { 3: 40, 4: 150, 5: 600 },  tag: 'BONUS' },
+      burger: { name: 'BURGER',       payout: { 3: 20, 4: 80,  5: 300 } },
+      fries:  { name: 'FRIES',        payout: { 3: 15, 4: 60,  5: 250 } },
+      cake:   { name: 'CAKE',         payout: { 3: 12, 4: 50,  5: 200 } },
+      lemon:  { name: 'LEMON',        payout: { 3: 8,  4: 30,  5: 100 } },
+      banana: { name: 'BANANA',       payout: { 3: 10, 4: 40,  5: 150 } },
+      cherry: { name: 'CHERRY',       payout: { 3: 5,  4: 20,  5: 80 } },
+      clover: { name: 'CLOVER',       payout: { 3: 5,  4: 15,  5: 50 } }
+    };
+    const SYMBOL_KEYS = Object.keys(SYMBOLS_INFO);
+
+    const PAYLINES = [
+      { id: 1, name: 'Center Row', color: '#EF4444', coords: [1, 1, 1, 1, 1] },
+      { id: 2, name: 'Top Row',    color: '#3B82F6', coords: [0, 0, 0, 0, 0] },
+      { id: 3, name: 'Bottom Row', color: '#10B981', coords: [2, 2, 2, 2, 2] },
+      { id: 4, name: 'V-Shape',    color: '#F59E0B', coords: [0, 1, 2, 1, 0] },
+      { id: 5, name: 'Inverted-V', color: '#8B5CF6', coords: [2, 1, 0, 1, 2] },
+      { id: 6, name: 'Zig-Zag Top',color: '#EC4899', coords: [0, 0, 1, 2, 2] },
+      { id: 7, name: 'Zig-Zag Bot',color: '#06B6D4', coords: [2, 2, 1, 0, 0] },
+      { id: 8, name: 'High Crest', color: '#F97316', coords: [1, 0, 0, 0, 1] },
+      { id: 9, name: 'Low Valley', color: '#84CC16', coords: [1, 2, 2, 2, 1] }
+    ];
+
+    const BET_TIERS = [500, 1000, 2000, 5000, 10000, 25000, 50000];
+    let betIndex = 2; // Default 2,000
+    let lines = 2;    // Default 2 lines
+    let balance = 172483;
+    let jackpot = 276614;
+    let spinState = 'idle';
+    let autoSpin = false;
+    let pendingResult = null;
+    let landedCount = 0;
+
+    const CELL_HEIGHT = 78;
+    const TARGET_INDEX = 12;
+    const STRIP_CELL_COUNT = 15;
+
+    let currentMatrix = [
+      ['cherry', 'clover', 'banana'],
+      ['cake',   'lemon',  'cherry'],
+      ['clover', 'clover', 'cherry'],
+      ['burger', 'burger', 'dice'],
+      ['wild',   'clover', 'wild']
+    ];
+
+    // DOM References
+    const reelsWindow = document.getElementById('reelsWindow');
+    const reelsCabinet = document.getElementById('reelsCabinet');
+    const balanceText = document.getElementById('balanceText');
+    const jackpotText = document.getElementById('jackpotText');
+    const betText = document.getElementById('betText');
+    const linesText = document.getElementById('linesText');
+    const spinBtn = document.getElementById('spinBtn');
+    const spinTitle = document.getElementById('spinTitle');
+    const spinTotalLabel = document.getElementById('spinTotalLabel');
+    const statusNote = document.getElementById('statusNote');
+    const statusMath = document.getElementById('statusMath');
+    const autoBtn = document.getElementById('autoBtn');
+    const autoStateText = document.getElementById('autoStateText');
+    const paylineSvg = document.getElementById('paylineSvg');
+    const winModal = document.getElementById('winModal');
+    const winModalTitle = document.getElementById('winModalTitle');
+    const winModalAmount = document.getElementById('winModalAmount');
+    const mechLever = document.getElementById('mechLever');
+
+    // Build Reels DOM
+    const reelStrips = [];
+    for (let c = 0; c < 5; c++) {
+      const stripEl = document.getElementById('strip-' + c);
+      stripEl.innerHTML = '';
+      const cells = [];
+      for (let i = 0; i < STRIP_CELL_COUNT; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'symbol-cell';
+
+        const tag = document.createElement('div');
+        tag.className = 'symbol-tag';
+        tag.style.display = 'none';
+
+        const inner = document.createElement('div');
+        inner.className = 'symbol-inner-icon';
+
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 100 100');
+        const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+
+        const sym = (i < 3) ? currentMatrix[c][i] : 'cherry';
+        use.setAttribute('href', '#sym-' + sym);
+        if (SYMBOLS_INFO[sym] && SYMBOLS_INFO[sym].tag) {
+          tag.textContent = SYMBOLS_INFO[sym].tag;
+          tag.className = 'symbol-tag tag-' + sym;
+          tag.style.display = 'block';
+        }
+
+        svg.appendChild(use);
+        inner.appendChild(svg);
+        cell.appendChild(tag);
+        cell.appendChild(inner);
+        stripEl.appendChild(cell);
+
+        cells.push({ cell, use, tag, inner });
+      }
+      reelStrips.push({ stripEl, cells });
+    }
+
+    function setCellSymbol(colIdx, cellIdx, symId) {
+      const validSym = SYMBOLS_INFO[symId] ? symId : 'cherry';
+      const cellObj = reelStrips[colIdx].cells[cellIdx];
+      cellObj.use.setAttribute('href', '#sym-' + validSym);
+      if (SYMBOLS_INFO[validSym].tag) {
+        cellObj.tag.textContent = SYMBOLS_INFO[validSym].tag;
+        cellObj.tag.className = 'symbol-tag tag-' + validSym;
+        cellObj.tag.style.display = 'block';
+      } else {
+        cellObj.tag.style.display = 'none';
+      }
+    }
+
+    function updateDeckUI() {
+      const betPerLine = BET_TIERS[betIndex];
+      const totalBet = betPerLine * lines;
+      balanceText.textContent = balance.toLocaleString();
+      jackpotText.textContent = jackpot.toLocaleString();
+      betText.textContent = betPerLine.toLocaleString();
+      linesText.textContent = lines;
+      spinTotalLabel.textContent = `TOTAL: 💎 ${totalBet.toLocaleString()}`;
+      statusMath.textContent = `${lines} Lines × ${betPerLine.toLocaleString()}`;
+      autoBtn.className = 'btn-auto-spin' + (autoSpin ? ' active' : '');
+      autoStateText.textContent = autoSpin ? 'ON' : 'OFF';
+      const vipDiamEl = document.getElementById('vipDiamondsVal');
+      if (vipDiamEl) vipDiamEl.textContent = '💎 ' + balance.toLocaleString();
+    }
+
+    function clearHighlights() {
+      paylineSvg.innerHTML = '';
+      for (let c = 0; c < 5; c++) {
+        for (let r = 0; r < 3; r++) {
+          reelStrips[c].cells[r].cell.classList.remove('winning-cell');
+        }
+      }
+    }
+
+    // ── HIGH-PERFORMANCE PHYSICAL SPIN LIFECYCLE ───────────────────────
+    function executeSpin() {
+      winModal.style.display = 'none';
+      const betPerLine = BET_TIERS[betIndex];
+      const totalBet = betPerLine * lines;
+
+      if (spinState !== 'idle') return;
+      if (balance < totalBet) {
+        autoSpin = false;
+        statusNote.textContent = 'Insufficient Diamonds! Lower bet or recharge.';
+        updateDeckUI();
+        if (window.FlutterApp) {
+          window.FlutterApp.postMessage(JSON.stringify({ action: 'recharge' }));
+        }
+        return;
+      }
+
+      clearHighlights();
+      spinState = 'spinning';
+      pendingResult = null;
+      landedCount = 0;
+      balance = Math.max(0, balance - totalBet);
+      spinTitle.textContent = 'SPINNING';
+      spinBtn.disabled = true;
+      statusNote.textContent = 'Reels spinning...';
+      updateDeckUI();
+
+      audio.playSpin();
+
+      // Dispatch Flutter bridge event
+      if (window.FlutterApp) {
+        window.FlutterApp.postMessage(JSON.stringify({
+          action: 'spin',
+          lines: lines,
+          betPerLine: betPerLine,
+          totalBet: totalBet
+        }));
+      }
+
+      // Populate random symbols into the high-speed blur strip
+      for (let c = 0; c < 5; c++) {
+        for (let r = 0; r < 3; r++) {
+          const rand = SYMBOL_KEYS[Math.floor(Math.random() * SYMBOL_KEYS.length)];
+          setCellSymbol(c, TARGET_INDEX + r, rand);
+        }
+      }
+
+      // PHASE 1: Physical Windup Anticipation (Pull UP slightly)
+      for (let c = 0; c < 5; c++) {
+        const strip = reelStrips[c].stripEl;
+        strip.classList.remove('spinning-blur');
+        strip.style.transition = 'transform 0.12s cubic-bezier(0.2, 0, 0.4, 1)';
+        strip.style.transform = 'translate3d(0, 16px, 0)';
+      }
+
+      // PHASE 2: High-Speed Spin with Motion Blur & Elastic Landing
+      setTimeout(() => {
+        const totalTravel = TARGET_INDEX * CELL_HEIGHT;
+        const overshoot = 14; // 14px overshoot for authentic recoil
+
+        for (let c = 0; c < 5; c++) {
+          const strip = reelStrips[c].stripEl;
+          const col = c;
+          const spinDuration = 0.85 + (c * 0.22); // Staggered sequence: 0.85s, 1.07s, 1.29s, 1.51s, 1.73s
+
+          strip.classList.add('spinning-blur');
+          strip.style.transition = `transform ${spinDuration}s cubic-bezier(0.25, 0.08, 0.1, 1.0)`;
+          strip.style.transform = `translate3d(0, -${totalTravel + overshoot}px, 0)`;
+
+          strip.addEventListener('transitionend', function handler(e) {
+            if (e.propertyName !== 'transform') return;
+            strip.removeEventListener('transitionend', handler);
+
+            // PHASE 3: Elastic Snap & Mechanical Lock
+            strip.classList.remove('spinning-blur');
+            audio.playReelStop(col);
+
+            strip.style.transition = 'transform 0.16s cubic-bezier(0.18, 0.89, 0.32, 1.35)';
+            strip.style.transform = `translate3d(0, -${totalTravel}px, 0)`;
+
+            strip.addEventListener('transitionend', function settleHandler(ev) {
+              if (ev.propertyName !== 'transform') return;
+              strip.removeEventListener('transitionend', settleHandler);
+              onReelStopped(col);
+            });
+          });
+        }
+      }, 120);
+    }
+
+    function onReelStopped(colIdx) {
+      let landing = [];
+      if (pendingResult && pendingResult.matrix && pendingResult.matrix[colIdx]) {
+        landing = pendingResult.matrix[colIdx];
+      } else {
+        landing = [
+          reelStrips[colIdx].cells[TARGET_INDEX].use.getAttribute('href').replace('#sym-', ''),
+          reelStrips[colIdx].cells[TARGET_INDEX + 1].use.getAttribute('href').replace('#sym-', ''),
+          reelStrips[colIdx].cells[TARGET_INDEX + 2].use.getAttribute('href').replace('#sym-', '')
+        ];
+      }
+
+      // Seamless swap: copy landing symbols to top visible rows
+      currentMatrix[colIdx] = landing;
+      for (let r = 0; r < 3; r++) {
+        setCellSymbol(colIdx, r, landing[r]);
+      }
+
+      // Invisible silent reset to 0px (symbols identical, 0 layout jump)
+      const strip = reelStrips[colIdx].stripEl;
+      strip.style.transition = 'none';
+      strip.style.transform = 'translate3d(0, 0px, 0)';
+
+      landedCount++;
+      if (landedCount >= 5) {
+        // Slam tremor on final reel stop
+        reelsCabinet.classList.add('cabinet-slam');
+        setTimeout(() => reelsCabinet.classList.remove('cabinet-slam'), 250);
+        onAllReelsLanded();
+      }
+    }
+
+    function onAllReelsLanded() {
+      spinState = 'idle';
+      spinTitle.textContent = 'SPIN !';
+      spinBtn.disabled = false;
+
+      const res = pendingResult;
+      if (res && res.totalWin > 0) {
+        audio.playWin();
+        if (res.newBalance !== undefined) balance = res.newBalance;
+        else balance += res.totalWin;
+
+        // Rolling Win Tally Animation
+        animateWinTally(res.totalWin, () => {
+          updateDeckUI();
+        });
+
+        triggerSparkles(canvas.width / 2, canvas.height * 0.4, 28);
+
+        if (res.winningLines && res.winningLines.length > 0) {
+          drawLaserPaylines(res.winningLines);
+        }
+
+        const totalBet = BET_TIERS[betIndex] * lines;
+        if (res.totalWin >= totalBet * 4) {
+          setTimeout(() => {
+            winModalTitle.textContent = '⭐ BIG WINNER! ⭐';
+            winModalAmount.textContent = `+${res.totalWin.toLocaleString()} 💎`;
+            winModal.style.display = 'flex';
+          }, 800);
+        }
+
+        // Check for 3 Bonus Dice to trigger the Lucky Wheel
+        let bonusCount = 0;
+        for (let c = 0; c < 5; c++) {
+          for (let r = 0; r < 3; r++) {
+            if (currentMatrix[c][r] === 'dice') bonusCount++;
+          }
+        }
+        if (bonusCount >= 3) {
+          setTimeout(() => openLuckyWheel(true), 1200);
+        } else if (autoSpin) {
+          setTimeout(executeSpin, 1600);
+        }
+      } else {
+        if (res && res.newBalance !== undefined) balance = res.newBalance;
+        audio.playLoss();
+        statusNote.textContent = 'Match 3 or more symbols to win!';
+        updateDeckUI();
+        if (autoSpin) setTimeout(executeSpin, 850);
+      }
+    }
+
+    // Smooth Rolling Win Tally Counter with Throttled DOM updates
+    function animateWinTally(targetWin, onComplete) {
+      const startTime = performance.now();
+      const duration = Math.min(1200, Math.max(500, targetWin / 50));
+      let lastTick = 0;
+      let lastDisplayed = -1;
+
+      function frame(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
+        const ease = 1 - Math.pow(1 - progress, 3);
+        const current = Math.round(targetWin * ease);
+
+        if (current !== lastDisplayed) {
+          lastDisplayed = current;
+          statusNote.textContent = `WIN +${current.toLocaleString()} 💎`;
+        }
+
+        if (now - lastTick > 70 && progress < 1) {
+          audio.playCoinTick();
+          lastTick = now;
+        }
+
+        if (progress < 1) {
+          requestAnimationFrame(frame);
+        } else {
+          statusNote.textContent = `WIN +${targetWin.toLocaleString()} 💎`;
+          if (onComplete) onComplete();
+        }
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function drawLaserPaylines(winningLines) {
+      paylineSvg.innerHTML = '';
+      const w = reelsWindow.clientWidth;
+      const h = reelsWindow.clientHeight;
+      paylineSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      winningLines.forEach(win => {
+        if (!win.positions) return;
+        const coords = [];
+        win.positions.forEach(([colIdx, rowIdx]) => {
+          reelStrips[colIdx].cells[rowIdx].cell.classList.add('winning-cell');
+          const x = (colIdx * (w / 5)) + (w / 10);
+          const y = (rowIdx * (h / 3)) + (h / 6);
+          coords.push({ x, y });
+        });
+
+        if (coords.length > 0) {
+          let pathD = `M ${coords[0].x} ${coords[0].y}`;
+          for (let i = 1; i < coords.length; i++) {
+            pathD += ` L ${coords[i].x} ${coords[i].y}`;
+          }
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', pathD);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', (win.line && win.line.color) || '#facc15');
+          path.setAttribute('stroke-width', '4');
+          path.setAttribute('stroke-linecap', 'round');
+          paylineSvg.appendChild(path);
+        }
+      });
+    }
+
+    // ── PROFESSIONAL SPIN THE WHEEL BONUS ENGINE ─────────────────────
+    const WHEEL_SLICES = [
+      { label: '10,000 💎',  val: 10000,  bg: '#2563eb' },
+      { label: '50,000 💎',  val: 50000,  bg: '#ec4899' },
+      { label: '25,000 💎',  val: 25000,  bg: '#10b981' },
+      { label: '100,000 💎', val: 100000, bg: '#f59e0b' },
+      { label: '5,000 💎',   val: 5000,   bg: '#8b5cf6' },
+      { label: '250,000 💎', val: 250000, bg: '#ef4444' },
+      { label: '15,000 💎',  val: 15000,  bg: '#06b6d4' },
+      { label: 'JACKPOT 👑', val: 500000, bg: '#ca8a04' },
+    ];
+
+    const wheelCanvas = document.getElementById('wheelCanvas');
+    const wCtx = wheelCanvas.getContext('2d');
+    const wheelModal = document.getElementById('wheelModal');
+    const wheelPointer = document.getElementById('wheelPointer');
+    const wheelSpinBtn = document.getElementById('wheelSpinBtn');
+    const wheelStatus = document.getElementById('wheelStatus');
+    let wheelAngle = 0;
+    let isWheelSpinning = false;
+    let lastTickSlice = -1;
+
+    function drawWheel() {
+      const cx = 140;
+      const cy = 140;
+      const r = 135;
+      const numSlices = WHEEL_SLICES.length;
+      const arc = (Math.PI * 2) / numSlices;
+
+      wCtx.clearRect(0, 0, 280, 280);
+
+      wCtx.save();
+      wCtx.translate(cx, cy);
+      wCtx.rotate(wheelAngle);
+
+      wCtx.beginPath();
+      wCtx.arc(0, 0, r, 0, Math.PI * 2);
+      wCtx.fillStyle = '#ca8a04';
+      wCtx.fill();
+      wCtx.lineWidth = 4;
+      wCtx.strokeStyle = '#fef08a';
+      wCtx.stroke();
+
+      for (let i = 0; i < numSlices; i++) {
+        const start = i * arc;
+        const end = start + arc;
+        wCtx.beginPath();
+        wCtx.moveTo(0, 0);
+        wCtx.arc(0, 0, r - 6, start, end);
+        wCtx.closePath();
+        wCtx.fillStyle = WHEEL_SLICES[i].bg;
+        wCtx.fill();
+        wCtx.lineWidth = 1.5;
+        wCtx.strokeStyle = '#fef08a';
+        wCtx.stroke();
+
+        wCtx.save();
+        wCtx.rotate(start + arc / 2);
+        wCtx.textAlign = 'right';
+        wCtx.fillStyle = '#ffffff';
+        wCtx.font = 'bold 11px Arial Black, Impact, sans-serif';
+        wCtx.shadowColor = 'rgba(0,0,0,0.8)';
+        wCtx.shadowBlur = 4;
+        wCtx.fillText(WHEEL_SLICES[i].label, r - 16, 4);
+        wCtx.restore();
+      }
+
+      for (let b = 0; b < 16; b++) {
+        const bAngle = (b * (Math.PI * 2)) / 16;
+        const bx = Math.cos(bAngle) * (r - 3);
+        const by = Math.sin(bAngle) * (r - 3);
+        wCtx.beginPath();
+        wCtx.arc(bx, by, 3, 0, Math.PI * 2);
+        wCtx.fillStyle = (b % 2 === 0) ? '#fef08a' : '#ffffff';
+        wCtx.fill();
+      }
+
+      wCtx.restore();
+    }
+    drawWheel();
+
+    function openLuckyWheel(isBonus = false) {
+      if (isWheelSpinning) return;
+      wheelModal.style.display = 'flex';
+      wheelStatus.textContent = isBonus ? '🎉 3 BONUS DICE! FREE WHEEL SPIN!' : 'Tap SPIN to play!';
+      wheelSpinBtn.disabled = false;
+      drawWheel();
+    }
+
+    function spinLuckyWheel() {
+      if (isWheelSpinning) return;
+      isWheelSpinning = true;
+      wheelSpinBtn.disabled = true;
+      wheelStatus.textContent = 'Wheel spinning... Good luck!';
+
+      const targetIdx = Math.floor(Math.random() * WHEEL_SLICES.length);
+      const sliceArc = (Math.PI * 2) / WHEEL_SLICES.length;
+      const targetSliceCenter = (targetIdx * sliceArc) + (sliceArc / 2);
+      const rotations = 6;
+      const targetAngle = (Math.PI * 2 * rotations) + ((Math.PI * 1.5) - targetSliceCenter);
+
+      const startAngle = wheelAngle % (Math.PI * 2);
+      const totalDelta = targetAngle - startAngle;
+      const duration = 4800;
+      const startTime = performance.now();
+
+      function animateWheel(now) {
+        const elapsed = now - startTime;
+        const p = Math.min(1, elapsed / duration);
+        const ease = 1 - Math.pow(1 - p, 3);
+        wheelAngle = startAngle + totalDelta * ease;
+
+        const curSlice = Math.floor(((wheelAngle + (Math.PI / 2)) % (Math.PI * 2)) / sliceArc);
+        if (curSlice !== lastTickSlice) {
+          lastTickSlice = curSlice;
+          audio.playTick();
+          wheelPointer.classList.add('ticking');
+          setTimeout(() => wheelPointer.classList.remove('ticking'), 60);
+        }
+
+        drawWheel();
+
+        if (p < 1) {
+          requestAnimationFrame(animateWheel);
+        } else {
+          onWheelFinished(targetIdx);
+        }
+      }
+      requestAnimationFrame(animateWheel);
+    }
+
+    function onWheelFinished(winningIdx) {
+      isWheelSpinning = false;
+      const prize = WHEEL_SLICES[winningIdx];
+      audio.playWin();
+      balance += prize.val;
+      updateDeckUI();
+
+      wheelStatus.textContent = `🎉 CONGRATS! You won ${prize.label}!`;
+      triggerSparkles(canvas.width / 2, canvas.height * 0.45, 28);
+
+      setTimeout(() => {
+        wheelModal.style.display = 'none';
+        winModalTitle.textContent = '🎡 WHEEL BONUS WIN! 🎡';
+        winModalAmount.textContent = `+${prize.val.toLocaleString()} 💎`;
+        winModal.style.display = 'flex';
+      }, 1600);
+    }
+
+    // Interactive Controls
+    spinBtn.onclick = () => executeSpin();
+
+    mechLever.onclick = () => {
+      if (spinState !== 'idle') return;
+      mechLever.classList.add('pulled');
+      executeSpin();
+      setTimeout(() => mechLever.classList.remove('pulled'), 350);
+    };
+
+    document.getElementById('wheelBtn').onclick = () => openLuckyWheel(false);
+    document.getElementById('wheelSpinBtn').onclick = () => spinLuckyWheel();
+    document.getElementById('wheelCloseBtn').onclick = () => {
+      if (!isWheelSpinning) wheelModal.style.display = 'none';
+    };
+
+    document.getElementById('betMinus').onclick = () => {
+      if (spinState === 'idle' && betIndex > 0) { betIndex--; updateDeckUI(); }
+    };
+    document.getElementById('betPlus').onclick = () => {
+      if (spinState === 'idle' && betIndex < BET_TIERS.length - 1) { betIndex++; updateDeckUI(); }
+    };
+    document.getElementById('linesMinus').onclick = () => {
+      if (spinState === 'idle' && lines > 1) { lines--; updateDeckUI(); }
+    };
+    document.getElementById('linesPlus').onclick = () => {
+      if (spinState === 'idle' && lines < 9) { lines++; updateDeckUI(); }
+    };
+    document.getElementById('maxBtn').onclick = () => {
+      if (spinState === 'idle') {
+        lines = 9;
+        betIndex = BET_TIERS.length - 1;
+        updateDeckUI();
+      }
+    };
+    autoBtn.onclick = () => {
+      if (spinState === 'idle') {
+        autoSpin = !autoSpin;
+        updateDeckUI();
+        if (autoSpin) executeSpin();
+      } else if (autoSpin) {
+        autoSpin = false;
+        updateDeckUI();
+      }
+    };
+
+    document.getElementById('soundBtn').onclick = () => {
+      audio.muted = !audio.muted;
+      document.getElementById('soundBtn').textContent = audio.muted ? '🔇' : '🔊';
+    };
+
+    document.getElementById('infoBtn').onclick = () => showRules();
+
+    document.getElementById('closeBtn').onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'close' }));
+    };
+
+    document.getElementById('rechargeBtn').onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'recharge' }));
+      else { balance += 25000; updateDeckUI(); }
+    };
+
+    document.getElementById('vipTrophyBtn').onclick = () => {
+      if (window.FlutterApp) window.FlutterApp.postMessage(JSON.stringify({ action: 'tab_navigate', tab: 'leaderboard' }));
+    };
+
+    document.getElementById('winDismissBtn').onclick = () => {
+      winModal.style.display = 'none';
+    };
+
+    function showRules() {
+      const list = document.getElementById('rulesList');
+      list.innerHTML = '';
+      SYMBOL_KEYS.forEach(key => {
+        const s = SYMBOLS_INFO[key];
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:#1e293b;padding:6px 10px;border-radius:8px;';
+        row.innerHTML = `<div style="display:flex;align-items:center;gap:8px;">
+          <svg viewBox="0 0 100 100" style="width:26px;height:26px;"><use href="#sym-${key}"/></svg>
+          <span style="font-size:11px;font-weight:bold;color:#fff;">${s.name}</span>
+        </div>
+        <div style="font-size:10px;font-weight:bold;color:#facc15;display:flex;gap:6px;">
+          <span>3x ${s.payout[3]}x</span><span>4x ${s.payout[4]}x</span><span>5x ${s.payout[5]}x</span>
+        </div>`;
+        list.appendChild(row);
+      });
+      document.getElementById('rulesModal').style.display = 'flex';
+    }
+    document.getElementById('rulesCloseBtn').onclick = () => document.getElementById('rulesModal').style.display = 'none';
+    document.getElementById('rulesGotItBtn').onclick = () => document.getElementById('rulesModal').style.display = 'none';
+
+    // Flutter App Bridge Hooks
+    window.initUserData = (data) => {
+      if (!data) return;
+      if (data.balance !== undefined) balance = Number(data.balance);
+      if (data.jackpot !== undefined) jackpot = Number(data.jackpot);
+      if (data.vipData) {
+        if (data.vipData.tier) {
+          const tierEl = document.getElementById('vipTierBadge');
+          if (tierEl) tierEl.textContent = data.vipData.tier;
+        }
+        if (data.vipData.level) {
+          const lvlEl = document.getElementById('vipLevelTag');
+          if (lvlEl) lvlEl.textContent = data.vipData.level;
+        }
+        if (data.vipData.title) {
+          const titleEl = document.getElementById('vipTitleTxt');
+          if (titleEl) titleEl.textContent = data.vipData.title;
+        }
+        if (data.vipData.nextMilestone) {
+          const mEl = document.getElementById('vipMilestoneVal');
+          if (mEl) mEl.textContent = Number(data.vipData.nextMilestone).toLocaleString();
+        }
+      }
+      updateDeckUI();
+    };
+
+    window.updateUserBalance = (newBal) => {
+      if (newBal !== undefined) {
+        balance = Number(newBal);
+        updateDeckUI();
+      }
+    };
+
+    window.onServerSpinResult = (data) => {
+      try {
+        const res = typeof data === 'string' ? JSON.parse(data) : data;
+        pendingResult = res;
+        if (res.jackpot !== undefined) jackpot = res.jackpot;
+        if (res.matrix) {
+          for (let c = 0; c < 5; c++) {
+            if (res.matrix[c]) {
+              for (let r = 0; r < 3; r++) {
+                setCellSymbol(c, TARGET_INDEX + r, res.matrix[c][r]);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+
+    window.onInsufficientBalance = () => {
+      spinState = 'idle';
+      spinTitle.textContent = 'SPIN !';
+      spinBtn.disabled = false;
+      autoSpin = false;
+      statusNote.textContent = 'Insufficient Diamonds!';
+      updateDeckUI();
+    };
+
+    updateDeckUI();
+    if (window.FlutterApp) {
+      window.FlutterApp.postMessage(JSON.stringify({ action: 'ready' }));
+    }
+  </script>
+</body>
+</html>

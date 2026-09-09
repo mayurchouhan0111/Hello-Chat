@@ -8,7 +8,10 @@ import 'package:hello_chat/services/gift_service.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
+import 'package:hello_chat/core/models/gift_event_model.dart';
+import 'package:hello_chat/core/services/gift_event_service.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/core/widgets/app_toast.dart';
 
@@ -53,6 +56,7 @@ class _GiftPanelState extends State<GiftPanel> {
         final diamondBalance = ref.watch(currentUserProfileProvider.select((u) => u.value?.diamondBalance ?? 0));
         final giftsAsync = ref.watch(giftsStreamProvider);
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
+        final activeEvent = ref.watch(primaryActiveGiftEventProvider);
 
         return Container(
           height: MediaQuery.of(context).size.height * 0.72,
@@ -85,7 +89,7 @@ class _GiftPanelState extends State<GiftPanel> {
                   ),
                 ),
               ),
-              _buildHeader(context, ref),
+              _buildHeader(context, ref, activeEvent),
               const Gap(8),
               participantsAsync.when(
                 data: (pts) => _buildRecipientSelector(pts),
@@ -93,7 +97,7 @@ class _GiftPanelState extends State<GiftPanel> {
                 error: (_, __) => const SizedBox(height: 52),
               ),
               const Divider(color: Colors.white12, height: 14),
-              _buildCategoryTabs(),
+              _buildCategoryTabs(activeEvent),
               const SizedBox(height: 8),
               Expanded(
                 child: giftsAsync.when(
@@ -106,6 +110,9 @@ class _GiftPanelState extends State<GiftPanel> {
                       if (_selectedCategory == 'All') return true;
                       final cat = g.category.toLowerCase().trim();
                       final sel = _selectedCategory.toLowerCase().trim();
+                      if (sel == 'event' && activeEvent != null) {
+                        return activeEvent.gifts.any((eg) => eg.giftId == g.giftId);
+                      }
                       if (sel == 'gift') return cat == 'gift' || cat == 'normal' || cat == 'standard';
                       if (sel == 'lucky fruit') return cat.contains('fruit');
                       return cat.contains(sel);
@@ -127,6 +134,7 @@ class _GiftPanelState extends State<GiftPanel> {
                         return _GiftTile(
                           gift: gift, 
                           isSelected: _selectedGift?.giftId == gift.giftId,
+                          activeEvent: activeEvent,
                           onSelect: () {
                              HapticFeedback.selectionClick();
                              setState(() => _selectedGift = gift);
@@ -149,8 +157,17 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildCategoryTabs() {
-    final categories = ['Gift', 'Lucky', 'Lucky fruit', 'Relationship', 'VIP', 'Custom', 'All'];
+  Widget _buildCategoryTabs(GiftEventModel? activeEvent) {
+    final categories = [
+      if (activeEvent != null && activeEvent.gifts.isNotEmpty) 'Event',
+      'Gift', 
+      'Lucky', 
+      'Lucky fruit', 
+      'Relationship', 
+      'VIP', 
+      'Custom', 
+      'All'
+    ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
@@ -366,7 +383,7 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, WidgetRef ref) {
+  Widget _buildHeader(BuildContext context, WidgetRef ref, GiftEventModel? activeEvent) {
     return Row(
       children: [
         const Text(
@@ -374,6 +391,42 @@ class _GiftPanelState extends State<GiftPanel> {
           style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.3),
         ),
         const Spacer(),
+        if (activeEvent != null) ...[
+          GestureDetector(
+            onTap: () {
+              Navigator.pop(context);
+              context.push('/gift-event/${activeEvent.id}');
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFFD700), Color(0xFFFF9100)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFFD700).withOpacity(0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+                border: Border.all(color: Colors.white, width: 1),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text("🏆", style: TextStyle(fontSize: 13)),
+                  Gap(4),
+                  Text("EVENT", style: TextStyle(color: Colors.black, fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: 0.3)),
+                ],
+              ),
+            ),
+          ),
+          const Gap(6),
+        ],
         GestureDetector(
           onTap: () => _showLuckyBagDialog(context, ref),
           child: Container(
@@ -862,7 +915,7 @@ class _GiftPanelState extends State<GiftPanel> {
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
     
     if (_selectedGift!.category.toLowerCase() == 'vip') {
-      final isVipActive = currentUser != null && currentUser.vipTier != null && currentUser.vipTier != 'none' && currentUser.vipExpiry != null && currentUser.vipExpiry!.isAfter(DateTime.now());
+      final isVipActive = currentUser != null && currentUser.vipTier != 'none' && currentUser.vipExpiry != null && currentUser.vipExpiry!.isAfter(DateTime.now());
       if (!isVipActive) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("👑 Only active VIP members can send VIP gifts!")));
         return;
@@ -969,30 +1022,46 @@ class _GiftTile extends StatelessWidget {
   final GiftModel gift;
   final bool isSelected;
   final VoidCallback onSelect;
+  final GiftEventModel? activeEvent;
 
   const _GiftTile({
     required this.gift, 
     this.isSelected = false,
     required this.onSelect,
+    this.activeEvent,
   });
 
   @override
   Widget build(BuildContext context) {
     final isLucky = gift.category.toLowerCase().contains('lucky');
+    final isEventGift = activeEvent != null && activeEvent!.gifts.any((eg) => eg.giftId == gift.giftId);
+    final eventGiftItem = isEventGift 
+        ? activeEvent!.gifts.firstWhere((eg) => eg.giftId == gift.giftId) 
+        : null;
 
     return GestureDetector(
       onTap: onSelect,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF00E5FF).withOpacity(0.12) : const Color(0xFF1B1B26),
+          color: isSelected 
+              ? const Color(0xFF00E5FF).withOpacity(0.12) 
+              : isEventGift 
+              ? const Color(0xFFFFD700).withOpacity(0.06)
+              : const Color(0xFF1B1B26),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? const Color(0xFF00E5FF) : Colors.white.withOpacity(0.06),
+            color: isSelected 
+                ? const Color(0xFF00E5FF) 
+                : isEventGift 
+                ? const Color(0xFFFFD700).withOpacity(0.4) 
+                : Colors.white.withOpacity(0.06),
             width: isSelected ? 2.0 : 1.0,
           ),
           boxShadow: isSelected
               ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10)]
+              : isEventGift
+              ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.15), blurRadius: 6)]
               : [],
         ),
         padding: const EdgeInsets.all(5),
@@ -1015,7 +1084,23 @@ class _GiftTile extends StatelessWidget {
                       )
                     : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 28))),
                 ),
-                if (isLucky)
+                if (isEventGift)
+                  Positioned(
+                    top: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)]),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [BoxShadow(color: Colors.amber.withOpacity(0.5), blurRadius: 4)],
+                      ),
+                      child: Text(
+                        "+${eventGiftItem?.eventPoints ?? gift.priceInDiamonds} PTS",
+                        style: const TextStyle(color: Colors.black, fontSize: 6.5, fontWeight: FontWeight.w900, letterSpacing: 0.3),
+                      ),
+                    ),
+                  )
+                else if (isLucky)
                   Positioned(
                     top: -8,
                     child: Container(

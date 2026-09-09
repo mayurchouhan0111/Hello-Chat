@@ -124,6 +124,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/leaderboards/
     - assets/images/rocket_reward/
     - assets/images/super/
     - assets/images/cp/
@@ -156,3 +157,4 @@ flutter:
     - assets/SVIP Kit/svip 4/
     - assets/SVIP Kit/svip 5/
     - assets/SVIP Kit/SVIP 6/
+    - assets/games/
