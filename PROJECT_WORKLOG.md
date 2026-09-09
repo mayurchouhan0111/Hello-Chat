@@ -20,8 +20,8 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What Client Asked / Problem**:
   "Place them in the space white (chips inside the 4 white booth slots). Create a solid red background behind this part (bottom dashboard) and use the same font in the whole screen."
 - **What We Did**:
-  1. **Seated Chips Inside the 4 White Booth Slots**:
-     - Adjusted the chip selector row position to `top: 69.5%`, placing all 4 chips (`100`, `1k`, `10k`, `100k`) dead-center inside the 4 white booth slot frames on the blue carnival desk.
+  1. **Seated Chips on Dashboard Ledge & Booth Backrests**:
+     - Adjusted the chip selector row to `top: 73.0%`, seating the 4 chips (`100`, `1k`, `10k`, `100k`) so their bottom edge rests cleanly and flush directly on top of the solid red bottom dashboard ledge, with the blue carnival booth window backrests visible emerging directly behind the top of each chip—matching the exact structure from the reference screenshot.
   2. **Solid Red Background Behind Bottom Dashboard**:
      - Implemented a clean, solid vibrant red container (`#e52828`) with a subtle top border (`#b91c1c`) for the bottom dashboard.
      - Completely eliminated any background artwork cutouts or ghost outlines peeking out behind the pills and refresh button.
