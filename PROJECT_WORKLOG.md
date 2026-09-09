@@ -25,8 +25,9 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
   2. **Solid Red Background Behind Bottom Dashboard**:
      - Implemented a clean, solid vibrant red container (`#e52828`) with a subtle top border (`#b91c1c`) for the bottom dashboard.
      - Completely eliminated any background artwork cutouts or ghost outlines peeking out behind the pills and refresh button.
-  3. **Unified Typography Across Entire Screen**:
-     - Standardized all UI text, numbers, buttons, pills, cards, and modal sheets to use a single unified modern font family (`Fredoka`, `Nunito`, sans-serif).
+  3. **Unified Flutter Theme Typography & Exact Text Strings**:
+     - Converted the entire game to use the Flutter app's official theme font: **Plus Jakarta Sans** (`AppTextStyles.fontFamily`), rendering all labels, countdown timers, chip values, and modal sheets cleanly and consistently.
+     - Matched all in-game text strings 1:1 with `spin_wheel_screen.dart` ("Today's X Round", "Rules >", "win X times", "Select time" / "BETS CLOSED" / "Spinning" / "Winning", "Salad >", "Pizza >", "100", "1k", "10k", "100k", "Current Amount", "My Play History", "Result", "Daily Top Players", "Prev Winner", "Catatan saya >").
   4. **Preserved Complete Feature Set & Modal Sheets**:
      - Catatan saya (Game Records) sheet with WIN/LOSE stamps.
      - Daily Top Players Leaderboard sheet.
