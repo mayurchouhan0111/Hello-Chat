@@ -244,8 +244,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _debounceTimer?.cancel();
     final now = _synchronizedTimeMs;
     final secIntoCycle = (now % 40000) ~/ 1000;
-    // Faster debounce near the end of betting phase (50ms) to ensure in-flight dispatch before cutoff
-    final debounceDuration = secIntoCycle >= 23 ? const Duration(milliseconds: 50) : const Duration(milliseconds: 200);
+    // Dynamic debounce: 350ms during active betting to naturally group rapid chip taps into a single wager,
+    // and 100ms when approaching the 27s cutoff to ensure prompt dispatch.
+    final debounceDuration = secIntoCycle >= 24 ? const Duration(milliseconds: 100) : const Duration(milliseconds: 350);
     _debounceTimer = Timer(debounceDuration, () {
       if (!mounted || _currentBets.isEmpty) return;
       _autoSubmitBets();
@@ -298,8 +299,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
     final submissionRoundId = (now ~/ serverRoundMs).toString();
 
-    if (secondsIntoCycle >= 30) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 30s for round $submissionRoundId');
+    // Taps are already disabled on the UI at second 27. Any bets here were placed
+    // legitimately before second 27 and are simply finishing network dispatch. Allow up to second 35.
+    if (secondsIntoCycle >= 35) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 35s for round $submissionRoundId');
       return;
     }
 
@@ -310,15 +313,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _isAutoSubmitting = true;
     _hasPendingAdditionalBets = false;
     debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$snapshotBets, roundId=$submissionRoundId, secIntoCycle=$secondsIntoCycle');
-    final remainingMs = 28000 - (now % serverRoundMs);
-    final timeoutMs = remainingMs > 5000 ? remainingMs.clamp(5000, 22000) : 5000;
+    // Generous 15s timeout to prevent premature client cancellation on slow mobile connections
+    const callTimeout = Duration(seconds: 15);
     try {
       final result = await ref.read(gameServiceProvider).playSpinWheel(
         betAmount: totalBet,
         bets: snapshotBets,
         roundId: submissionRoundId,
         roomId: widget.roomId,
-      ).timeout(Duration(milliseconds: timeoutMs));
+      ).timeout(callTimeout);
 
       if (!mounted) return;
 
@@ -386,8 +389,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (mounted && (_hasPendingAdditionalBets || _hasUnconfirmedBets())) {
         _hasPendingAdditionalBets = false;
         final currentSec = (_synchronizedTimeMs % 40000) ~/ 1000;
-        if (_gameState == SpinGameState.betting && currentSec < 30) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now...');
+        if (currentSec < 35) {
+          debugPrint('[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now at ${currentSec}s...');
           _autoSubmitBets();
         }
       }
@@ -884,6 +887,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newGameState = SpinGameState.spinning;
         newCountdown = 0;
         newCountdownLabel = "Spinning";
+        if (!_isAutoSubmitting && _hasUnconfirmedBets()) {
+          _autoSubmitBets();
+        }
       } else if (secondsIntoCycle >= 35 && secondsIntoCycle < 37) {
         newBetLocked = true;
         newGameState = SpinGameState.results;
@@ -4437,7 +4443,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
             // 3. Main Body Column
             Padding(
               padding: const EdgeInsets.only(top: 60, left: 20, right: 20, bottom: 32),
-              child: Column(
+              child: SingleChildScrollView(
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _buildOutcomeHeader(),
@@ -4612,10 +4619,16 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
 
                       // Include current user if they placed bets in this round
                       if (widget.wager > 0) {
-                        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                        final hasMe = roundWinners.any((w) => (w['uid'] ?? w['userId'] ?? '').toString() == currentUid);
-                        if (!hasMe) {
-                          final profile = ref.watch(currentUserProfileProvider).value;
+                        String currentUid = '';
+                        try {
+                          currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        } catch (_) {}
+                        final hasMe = currentUid.isNotEmpty && roundWinners.any((w) => (w['uid'] ?? w['userId'] ?? '').toString() == currentUid);
+                        if (!hasMe && currentUid.isNotEmpty) {
+                          dynamic profile;
+                          try {
+                            profile = ref.watch(currentUserProfileProvider).valueOrNull;
+                          } catch (_) {}
                           roundWinners.add({
                             'uid': currentUid,
                             'name': profile?.displayName.isNotEmpty == true 
@@ -4658,7 +4671,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                 ],
               ),
             ),
-          ],
+          ),
+        ],
         ),
       ),
     );

@@ -5,9 +5,7 @@ const { defineString, defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 
-admin.initializeApp({
-    databaseURL: "https://hellochat-e8965-default-rtdb.asia-southeast1.firebasedatabase.app"
-});
+admin.initializeApp();
 
 
 const region = "us-central1";
@@ -3501,7 +3499,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         const clientRoundNum = Number(clientRoundId);
         const serverRoundNum = Number(currentRoundId);
         const roundDiff = Math.abs(clientRoundNum - serverRoundNum);
-        if (roundDiff > 1 || msIntoRound >= 29800) {
+        if (roundDiff > 1 || msIntoRound >= 36000) {
             throw new functions.https.HttpsError(
                 "failed-precondition",
                 `Round ${clientRoundId} is expired. Current active round is ${currentRoundId}.`
@@ -3509,12 +3507,12 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
     }
 
-    // Phase Gate: Bets close when wheel starts spinning at 29.8s
-    // (Client UI disables betting taps at 27.0s / 3s countdown; the remaining 2.8s is the network transit buffer)
-    if (msIntoRound >= 29800 && totalBet > 0) {
+    // Phase Gate: Bets for the active round close at 36.0s (providing a generous 9s transit buffer
+    // for all bets locked at 27.0s on the client UI). Outcome is revealed at 35-37s.
+    if (msIntoRound >= 36000 && totalBet > 0) {
         throw new functions.https.HttpsError(
             "failed-precondition",
-            `Betting phase closed for round ${currentRoundId}. Bets are locked while the wheel is spinning.`
+            `Betting phase closed for round ${currentRoundId}. Bets are locked during celebration and rollover.`
         );
     }
 
@@ -3849,6 +3847,8 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 createdAt: now,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+
+            console.log(`[SpinWheel] Committed game_history for uid: ${uid}, round: ${currentRoundId}, S/N: ${currentBetCount}, totalBet: ${totalBet}, prize: ${calculatedPrize}`);
         }
 
         return {
@@ -3867,46 +3867,6 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             serverTime: now
         };
     });
-
-    // 3. Ultra-Low Latency RTDB Broadcast
-    if (spinResult && spinResult.roundId) {
-        const rtdbPayload = {
-            roundId: String(spinResult.roundId),
-            label: spinResult.label,
-            type: spinResult.type,
-            name: spinResult.name,
-            emoji: spinResult.emoji,
-            category: spinResult.category,
-            sectorIndex: Number(spinResult.sectorIndex),
-            exactStopAngle: Number(spinResult.exactStopAngle),
-            multiplier: Number(spinResult.multiplier),
-            todayWinners: spinResult.todayWinners || [],
-            timestamp: Date.now()
-        };
-
-        admin.database().ref("lucky_spin_stats/lastGlobalOutcome").set(rtdbPayload).catch(err => {
-            console.error("[SpinWheel] RTDB broadcast failed:", err);
-        });
-
-        const rtdbRecentEntry = {
-            roundId: String(spinResult.roundId),
-            name: spinResult.name,
-            emoji: spinResult.emoji,
-            label: spinResult.label || `${spinResult.multiplier}x`,
-            multiplier: Number(spinResult.multiplier) || 5,
-            category: spinResult.category || "standard",
-            sectorIndex: Number(spinResult.sectorIndex) || 0,
-            timestamp: Date.now()
-        };
-        admin.database().ref("lucky_spin_stats/recentResults").transaction(currentData => {
-            let list = Array.isArray(currentData) ? currentData : [];
-            list = list.filter(item => item && String(item.roundId) !== String(spinResult.roundId));
-            list.unshift(rtdbRecentEntry);
-            return list.slice(0, 30);
-        }).catch(err => {
-            console.error("[SpinWheel] RTDB recentResults transaction failed:", err);
-        });
-    }
 
     return spinResult;
 });

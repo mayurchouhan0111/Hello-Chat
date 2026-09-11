@@ -332,10 +332,10 @@ void main() {
       expect(find.text('0'), findsNWidgets(1)); // carrot 0
     });
 
-    testWidgets('Case 5: Daily Top Player Profile UI - Renders Daily Top Player card with avatar, name, and winnings', (tester) async {
+    testWidgets('Case 5: Round Winner Podium UI - Renders single round winner correctly', (tester) async {
       final winItem = SpinItem(name: 'Steak', multiplier: 45, emoji: '🥩', category: 'standard');
-      final mockLeaderboard = [
-        {'name': 'Alex Pro', 'totalWinnings': 45000, 'avatar': ''},
+      final mockWinners = [
+        {'name': 'Alex Pro', 'totalBet': 1000, 'winnings': 45000, 'avatar': ''},
       ];
 
       await tester.pumpWidget(
@@ -343,15 +343,13 @@ void main() {
           home: Scaffold(
             body: ProviderScope(
               overrides: [
-                luckySpinLeaderboardProvider.overrideWith((ref) => Stream.value(mockLeaderboard)),
-                luckySpinStatsProvider.overrideWith((ref) => Stream.value({})),
-                luckySpinCurrentRoundWinnersProvider.overrideWith((ref, roundId) => Stream.value([])),
+                luckySpinCurrentRoundWinnersProvider.overrideWith((ref, roundId) => Stream.value(mockWinners)),
               ],
               child: SpinWheelResultBottomSheet(
                 item: winItem,
                 winnings: 45000,
                 wager: 1000,
-                winners: const [],
+                winners: mockWinners,
                 roundId: '1005',
                 bets: const {'Steak': 1000},
               ),
@@ -362,16 +360,14 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Verify Daily Top Player header divider title
-      expect(find.text("DAILY TOP PLAYER"), findsOneWidget);
+      // Verify Round Winner header title
+      expect(find.text("ROUND WINNER"), findsOneWidget);
 
-      // Verify Daily Top Player badge and name
-      expect(find.text('TOP #1'), findsOneWidget);
+      // Verify Winner Name
       expect(find.text('Alex Pro'), findsOneWidget);
-      expect(find.text("Today's Highest Earner"), findsOneWidget);
 
-      // Verify Formatted Winnings (45.0K)
-      expect(find.text('45.0K'), findsOneWidget);
+      // Verify Rank 1 badge
+      expect(find.text('#1'), findsOneWidget);
     });
   });
 
