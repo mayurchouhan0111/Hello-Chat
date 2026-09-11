@@ -152,21 +152,28 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
       .collection('users')
       .doc(user.uid)
       .collection('game_history')
+      .orderBy('timestamp', descending: true)
       .limit(100)
       .snapshots()
       .map((snap) {
-        final rawDocs = snap.docs.map((d) => d.data()).toList();
+        final rawDocs = snap.docs.map((d) {
+          final data = Map<String, dynamic>.from(d.data());
+          data['docId'] = d.id;
+          return data;
+        }).toList();
 
-        // Robust in-memory sorting by timestamp descending, fallback to roundId or serialNumber
+        // Robust in-memory sorting by roundId descending (newest rounds first), then timestamp
         rawDocs.sort((a, b) {
-          final tA = a['timestamp'];
-          final tB = b['timestamp'];
-          if (tA is Timestamp && tB is Timestamp) {
-            return tB.compareTo(tA);
-          }
           final rA = int.tryParse(a['roundId']?.toString() ?? '') ?? 0;
           final rB = int.tryParse(b['roundId']?.toString() ?? '') ?? 0;
           if (rA != rB) return rB.compareTo(rA);
+
+          final tA = a['timestamp'];
+          final tB = b['timestamp'];
+          if (tA is Timestamp && tB is Timestamp) {
+            final cmp = tB.compareTo(tA);
+            if (cmp != 0) return cmp;
+          }
           final sA = int.tryParse(a['serialNumber']?.toString() ?? '') ?? 0;
           final sB = int.tryParse(b['serialNumber']?.toString() ?? '') ?? 0;
           return sB.compareTo(sA);

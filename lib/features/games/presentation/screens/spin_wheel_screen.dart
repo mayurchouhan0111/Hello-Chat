@@ -10,6 +10,8 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/services/wakelock_service.dart';
 import 'package:hello_chat/core/services/game_recovery_service.dart';
 import 'package:hello_chat/core/services/network_connectivity_service.dart';
@@ -338,6 +340,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _confirmedBets = Map.from(snapshotBets);
         });
         GameRecoveryService().clearBetState();
+        ref.invalidate(userGameHistoryProvider);
       }
     } catch (e) {
       debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Handled gracefully.");
@@ -3086,6 +3089,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     return _formatNumber(numVal);
   }
 
+  String _formatCommas(dynamic val) {
+    if (val == null) return "0";
+    final n = num.tryParse(val.toString())?.toInt() ?? 0;
+    final isNegative = n < 0;
+    final str = n.abs().toString();
+    final reg = RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))');
+    final formatted = str.replaceAllMapped(reg, (Match m) => '${m[1]},');
+    return isNegative ? "-$formatted" : formatted;
+  }
+
   String _formatTimestamp(dynamic timestamp) {
     if (timestamp == null) return "";
     DateTime dt;
@@ -3120,6 +3133,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   }
 
   void _showGameHistorySheet() {
+    ref.invalidate(userGameHistoryProvider);
     int activeTab = 0;
     showModalBottomSheet(
       context: context,
@@ -3212,247 +3226,568 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                     Flexible(
                       child: activeTab == 0
                           ? Consumer(
-                    builder: (context, ref, child) {
-                      final historyAsync = ref.watch(userGameHistoryProvider);
-                      return historyAsync.when(
-                        data: (history) {
-                          if (history.isEmpty) {
-                            return const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 40),
-                              child: Text("No game history found", style: TextStyle(color: Colors.white70, fontSize: 14)),
-                            );
-                          }
-                          return ListView.builder(
-                            shrinkWrap: true,
-                            itemCount: history.length,
-                            itemBuilder: (context, index) {
-                              final h = history[index];
-                              final betsMap = Map<String, dynamic>.from(h['bets'] ?? {});
-                              final isWin = (h['prize'] ?? 0) > 0;
-                              final stampColor = isWin ? const Color(0xFFF43F5E) : Colors.white30;
-                              final stampText = isWin ? "WIN" : "LOSE";
-
-                              final serialNo = h['serialNumber'] ?? (history.length - index);
-
-                              return Container(
-                                margin: const EdgeInsets.only(bottom: 16),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
+                              builder: (context, ref, child) {
+                                final historyAsync = ref.watch(userGameHistoryProvider);
+                                return historyAsync.when(
+                                  data: (history) {
+                                    if (history.isEmpty) {
+                                      return _buildHistoryEmptyState();
+                                    }
+                                    return ListView.builder(
+                                      shrinkWrap: true,
+                                      itemCount: history.length + 1,
+                                      itemBuilder: (context, index) {
+                                        if (index == 0) {
+                                          return _buildHistorySummaryHeader(history);
+                                        }
+                                        final recordIndex = index - 1;
+                                        final h = history[recordIndex];
+                                        return _buildMyBetCard(context, h, recordIndex, history.length);
+                                      },
+                                    );
+                                  },
+                                  loading: () => const Center(
+                                    child: Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 40),
+                                      child: CircularProgressIndicator(color: Colors.amber),
+                                    ),
                                   ),
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: [
-                                    BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6, offset: const Offset(0, 3)),
-                                  ],
-                                ),
-                                child: Stack(
-                                  children: [
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                "S/N: #$serialNo · Round: ${_getRelativeRoundNumber(h['roundId'])}",
-                                                style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(_formatTimestamp(h['timestamp']), style: const TextStyle(color: Colors.white70, fontSize: 11)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 14),
-                                        
-                                        const Text("Selected food:", style: TextStyle(color: Colors.white70, fontSize: 13)),
-                                        const SizedBox(height: 6),
-                                        Wrap(
-                                          spacing: 8, runSpacing: 6,
-                                          children: betsMap.entries.map((entry) {
-                                            final emoji = _getFoodEmoji(entry.key);
-                                            return Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                              decoration: BoxDecoration(
-                                                color: Colors.black.withOpacity(0.35),
-                                                borderRadius: BorderRadius.circular(8),
-                                              ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(emoji, style: const TextStyle(fontSize: 14)),
-                                                  const SizedBox(width: 4),
-                                                  Text(
-                                                    "${entry.value}",
-                                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                                  ),
-                                                ],
-                                              ),
-                                            );
-                                          }).toList(),
-                                        ),
-                                        const SizedBox(height: 14),
-
-                                        Row(
-                                          children: [
-                                            const Text("Winning food: ", style: TextStyle(color: Colors.white70, fontSize: 13)),
-                                            Text(h['emoji'] ?? _getFoodEmoji(h['label'] ?? h['resultType'] ?? ''), style: const TextStyle(fontSize: 15)),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              (h['label'] != null && !h['label'].toString().contains('x'))
-                                                  ? h['label'].toString().toUpperCase()
-                                                  : _getFoodNameFromEmoji(h['emoji'] ?? _getFoodEmoji(h['label'] ?? h['resultType'] ?? '')),
-                                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 10),
-
-                                        Row(
-                                          children: [
-                                            const Text("Win coins: ", style: TextStyle(color: Colors.white70, fontSize: 13)),
-                                            const PremiumDiamond(size: 13),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                "${h['prize'] ?? 0}",
-                                                style: const TextStyle(color: Colors.amber, fontSize: 13, fontWeight: FontWeight.bold),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        
-                                        if (h['balanceBefore'] != null && h['balanceAfter'] != null) ...[
-                                          const SizedBox(height: 10),
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 85),
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    "Coin Balance: ${_formatBalance(h['balanceBefore'])} -> ${_formatBalance(h['balanceAfter'])}",
-                                                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 4),
-                                                const PremiumDiamond(size: 12),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-
-                                        if (h['orderId'] != null) ...[
-                                          const SizedBox(height: 10),
-                                          Padding(
-                                            padding: const EdgeInsets.only(right: 85),
-                                            child: Row(
-                                              children: [
-                                                Expanded(
-                                                  child: Text(
-                                                    "Order Id: ${h['orderId']}",
-                                                    style: const TextStyle(color: Colors.white54, fontSize: 11),
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 6),
-                                                GestureDetector(
-                                                  onTap: () {
-                                                    Clipboard.setData(ClipboardData(text: h['orderId'].toString()));
-                                                    ScaffoldMessenger.of(context).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text("Order ID copied to clipboard"),
-                                                        duration: Duration(seconds: 2),
-                                                      ),
-                                                    );
-                                                  },
-                                                  child: const Icon(
-                                                    Icons.copy,
-                                                    color: Colors.white54,
-                                                    size: 13,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ],
-                                      ],
+                                  error: (err, _) => Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 40),
+                                      child: Text("Error loading records: $err", style: const TextStyle(color: Colors.white70)),
                                     ),
-                                    
-                                    Positioned(
-                                      bottom: 0, right: 0,
-                                      child: Transform.rotate(
-                                        angle: -0.15,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            border: Border.all(color: stampColor, width: 2),
-                                            borderRadius: BorderRadius.circular(6),
-                                          ),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                "★ ★ ★",
-                                                style: TextStyle(color: stampColor, fontSize: 6, letterSpacing: 1),
-                                              ),
-                                              Text(
-                                                stampText,
-                                                style: TextStyle(
-                                                  color: stampColor,
-                                                  fontSize: 13,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 1.5,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          );
-                        },
-                        loading: () => const Center(child: CircularProgressIndicator(color: Colors.amber)),
-                        error: (err, _) => Center(child: Text("Error loading records: $err", style: const TextStyle(color: Colors.white70))),
-                      );
-                    },
-                  )
-                : _buildAllRoundsList(),
+                                  ),
+                                );
+                              },
+                            )
+                          : _buildAllRoundsList(),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                 ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
-          
-          // Absolute Positioned Close Button at the top right
-          Positioned(
-            top: 16, right: 16,
-            child: GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
               ),
+              
+              // Absolute Positioned Close Button at the top right
+              Positioned(
+                top: 16, right: 16,
+                child: GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.close, color: Colors.white, size: 20),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildHistorySummaryHeader(List<Map<String, dynamic>> history) {
+    final totalRounds = history.length;
+    final totalWins = history.where((h) => ((h['prize'] as num?)?.toInt() ?? 0) > 0).length;
+    final totalWonCoins = history.fold(0, (sum, h) => sum + ((h['prize'] as num?)?.toInt() ?? 0));
+    final winRate = totalRounds > 0 ? ((totalWins / totalRounds) * 100).toStringAsFixed(0) : "0";
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF1E1B4B), Color(0xFF2E1065)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.35)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildStatItem("Total Games", "$totalRounds", Icons.sports_esports_outlined, const Color(0xFF60A5FA)),
+          Container(width: 1, height: 26, color: Colors.white12),
+          _buildStatItem("Total Won", "+${_formatNumber(totalWonCoins)}", Icons.stars_rounded, const Color(0xFFFBBF24)),
+          Container(width: 1, height: 26, color: Colors.white12),
+          _buildStatItem("Win Rate", "$winRate%", Icons.trending_up_rounded, const Color(0xFF34D399)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 4),
+            Text(value, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w900)),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
+      ],
+    );
+  }
+
+  Widget _buildHistoryEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.06),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.history_rounded, size: 40, color: Colors.amber),
             ),
+            const SizedBox(height: 14),
+            const Text(
+              "No Bet Records Yet",
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              "Place bets on food items during the round to see your live betting history and win records here!",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMyBetCard(BuildContext context, Map<String, dynamic> h, int index, int totalCount) {
+    final betsMap = Map<String, dynamic>.from(h['bets'] ?? {});
+    final prize = (h['prize'] as num?)?.toInt() ?? 0;
+    final totalWager = (h['totalBet'] as num?)?.toInt() ?? betsMap.values.fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
+    final isWin = prize > 0;
+    final serialNo = h['serialNumber'] ?? (totalCount - index);
+    final relativeRound = _getRelativeRoundNumber(h['roundId']);
+    final isCurrentRound = h['roundId']?.toString() == _currentRoundId && _gameState != SpinGameState.results;
+
+    final winningEmoji = h['emoji']?.toString() ?? _getFoodEmoji(h['label']?.toString() ?? h['resultType']?.toString() ?? '');
+    final rawLabel = h['label']?.toString() ?? '';
+    final foodName = (rawLabel.isNotEmpty && !rawLabel.contains('x'))
+        ? rawLabel.toUpperCase()
+        : _getFoodNameFromEmoji(winningEmoji);
+    final mult = h['multiplier'] ?? (rawLabel.contains('x') ? rawLabel : '5x');
+
+    final stampColor = isWin ? const Color(0xFF10B981) : const Color(0xFFF43F5E);
+    final stampText = isWin ? "WIN" : "LOSE";
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: isWin
+              ? [const Color(0xFF23163A), const Color(0xFF151026)]
+              : [const Color(0xFF1E2138), const Color(0xFF131525)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isWin
+              ? const Color(0xFFF59E0B).withOpacity(0.55)
+              : Colors.white.withOpacity(0.12),
+          width: isWin ? 1.4 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isWin
+                ? const Color(0xFFF59E0B).withOpacity(0.12)
+                : Colors.black.withOpacity(0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
-      );
-    },
-  ),
-);
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Stack(
+          children: [
+            // Watermark Stamp in Background (Bottom Right)
+            if (!isCurrentRound)
+              Positioned(
+                bottom: 8,
+                right: 12,
+                child: Opacity(
+                  opacity: 0.18,
+                  child: Transform.rotate(
+                    angle: -0.18,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: stampColor, width: 3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text("★ ★ ★", style: TextStyle(color: stampColor, fontSize: 8, letterSpacing: 2)),
+                          Text(
+                            stampText,
+                            style: TextStyle(
+                              color: stampColor,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 1. Header: S/N & Round & Date + WIN/LOSE Badge
+                  Row(
+                    children: [
+                      // S/N Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF8B5CF6).withOpacity(0.25),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.5)),
+                        ),
+                        child: Text(
+                          "S/N: #$serialNo",
+                          style: const TextStyle(color: Color(0xFFDDD6FE), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Round Badge
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF59E0B).withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
+                        ),
+                        child: Text(
+                          "Round #$relativeRound",
+                          style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      const Spacer(),
+
+                      // Timestamp
+                      Text(
+                        _formatTimestamp(h['timestamp']),
+                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      ),
+                      const SizedBox(width: 8),
+
+                      // Win/Lose Pill
+                      if (isCurrentRound)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.amber),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text("⏳ IN PLAY", style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w900)),
+                            ],
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            gradient: isWin
+                                ? const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)])
+                                : const LinearGradient(colors: [Color(0xFF475569), Color(0xFF334155)]),
+                            borderRadius: BorderRadius.circular(8),
+                            boxShadow: [
+                              if (isWin)
+                                BoxShadow(color: const Color(0xFF10B981).withOpacity(0.4), blurRadius: 6),
+                            ],
+                          ),
+                          child: Text(
+                            isWin ? "WIN" : "LOSE",
+                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 2. Selected Food Bets Header + Total Wager Pill
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Selected Food & Stakes:",
+                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text("Total Bet: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            const PremiumDiamond(size: 11),
+                            const SizedBox(width: 3),
+                            Text(
+                              _formatCommas(totalWager),
+                              style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Selected Food Chips Wrap
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: betsMap.entries.map((entry) {
+                      final itemEmoji = _getFoodEmoji(entry.key);
+                      final itemName = entry.key.toString().toUpperCase();
+                      final isMatch = isWin && (entry.key.toString().toLowerCase().trim() == foodName.toLowerCase().trim() ||
+                          entry.key.toString().toLowerCase().trim() == (h['resultType'] ?? '').toString().toLowerCase().trim());
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: isMatch
+                              ? const Color(0xFFF59E0B).withOpacity(0.25)
+                              : Colors.black.withOpacity(0.35),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isMatch
+                                ? const Color(0xFFFBBF24)
+                                : Colors.white12,
+                            width: isMatch ? 1.2 : 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(itemEmoji, style: const TextStyle(fontSize: 13)),
+                            const SizedBox(width: 4),
+                            Text(
+                              "$itemName ",
+                              style: TextStyle(
+                                color: isMatch ? const Color(0xFFFDE68A) : Colors.white70,
+                                fontSize: 11,
+                                fontWeight: isMatch ? FontWeight.bold : FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              _formatCommas(entry.value),
+                              style: TextStyle(
+                                color: isMatch ? Colors.white : const Color(0xFFDDD6FE),
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (isMatch) ...[
+                              const SizedBox(width: 4),
+                              const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
+                            ],
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+
+                  const SizedBox(height: 12),
+                  Container(height: 1, color: Colors.white.withOpacity(0.08)),
+                  const SizedBox(height: 12),
+
+                  // 3. Winning Food & Payout Row
+                  Row(
+                    children: [
+                      // Winning Food Column
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("Winning Food", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Container(
+                                  width: 28, height: 28,
+                                  decoration: BoxDecoration(
+                                    color: Colors.black26,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(winningEmoji.isNotEmpty ? winningEmoji : '🎰', style: const TextStyle(fontSize: 14)),
+                                ),
+                                const SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    foodName.isNotEmpty ? foodName : 'PENDING',
+                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF59E0B).withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.6), width: 0.8),
+                                  ),
+                                  child: Text(
+                                    "${mult}x",
+                                    style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 10, fontWeight: FontWeight.w900),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Win Coins Column
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text("Win Coins", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          const SizedBox(height: 4),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const PremiumDiamond(size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                isWin ? "+${_formatCommas(prize)}" : "0",
+                                style: TextStyle(
+                                  color: isWin ? const Color(0xFFFBBF24) : Colors.white60,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  // 4. Coin Balance Row
+                  if (h['balanceBefore'] != null && h['balanceAfter'] != null) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.account_balance_wallet_outlined, size: 12, color: Colors.white54),
+                          const SizedBox(width: 6),
+                          const Text("Balance: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          Expanded(
+                            child: Text(
+                              "${_formatCommas(h['balanceBefore'])} → ${_formatCommas(h['balanceAfter'])}",
+                              style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const PremiumDiamond(size: 11),
+                        ],
+                      ),
+                    ),
+                  ],
+
+                  // 5. Order ID Row with Copy
+                  if (h['orderId'] != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text("Order ID: ", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                        Expanded(
+                          child: Text(
+                            "${h['orderId']}",
+                            style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace'),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        GestureDetector(
+                          onTap: () {
+                            Clipboard.setData(ClipboardData(text: h['orderId'].toString()));
+                            HapticFeedback.lightImpact();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text("Order ID copied to clipboard"),
+                                duration: Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.copy_rounded, color: Colors.white70, size: 11),
+                                SizedBox(width: 3),
+                                Text("COPY", style: TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildAllRoundsList() {
@@ -4260,90 +4595,55 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                     builder: (context, ref, child) {
                       final roundId = widget.roundId ?? '';
                       final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).valueOrNull ?? [];
-                      final roundWinners = liveWinners.isNotEmpty 
-                          ? liveWinners 
-                          : widget.winners.whereType<Map<String, dynamic>>().toList();
+                      final roundWinners = List<Map<String, dynamic>>.from(
+                        liveWinners.isNotEmpty 
+                            ? liveWinners 
+                            : widget.winners.whereType<Map<String, dynamic>>().toList()
+                      );
 
-                      final stats = ref.watch(luckySpinStatsProvider).valueOrNull;
-                      final todayWinners = (stats?['todayWinners'] as List<dynamic>?)
-                              ?.whereType<Map<String, dynamic>>()
-                              .toList() ?? [];
-                      final leaderboard = ref.watch(luckySpinLeaderboardProvider).valueOrNull ?? [];
+                      // Include current user if they placed bets in this round
+                      if (widget.wager > 0) {
+                        final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+                        final hasMe = roundWinners.any((w) => (w['uid'] ?? w['userId'] ?? '').toString() == currentUid);
+                        if (!hasMe) {
+                          final profile = ref.watch(currentUserProfileProvider).value;
+                          roundWinners.add({
+                            'uid': currentUid,
+                            'name': profile?.displayName.isNotEmpty == true 
+                                ? profile!.displayName 
+                                : (profile?.username.isNotEmpty == true ? profile!.username : 'You'),
+                            'avatar': profile?.profilePhotoUrl ?? '',
+                            'totalBet': widget.wager,
+                            'winnings': widget.winnings,
+                          });
+                        }
+                      }
 
-                      // Assemble Top 3 candidates without duplicates
-                      final candidateList = <Map<String, dynamic>>[];
-                      final seenUids = <String>{};
-
-                      // 1. First add round participants
+                      // Deduplicate strictly by uid or name so no user is ever duplicated
+                      final seen = <String>{};
+                      final uniqueList = <Map<String, dynamic>>[];
                       for (final w in roundWinners) {
-                        final uid = (w['uid'] ?? w['userId'] ?? '').toString();
-                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
-                          seenUids.add(uid);
-                          candidateList.add(w);
-                        } else if (uid.isEmpty) {
-                          candidateList.add(w);
-                        }
+                        final uid = (w['uid'] ?? w['userId'] ?? '').toString().trim();
+                        final name = (w['name'] ?? w['username'] ?? '').toString().trim().toLowerCase();
+                        final key = uid.isNotEmpty ? uid : name;
+                        if (key.isNotEmpty && seen.contains(key)) continue;
+                        if (key.isNotEmpty) seen.add(key);
+                        uniqueList.add(w);
                       }
 
-                      // 2. Then add today's winners
-                      for (final w in todayWinners) {
-                        if (candidateList.length >= 3) break;
-                        final uid = (w['uid'] ?? w['userId'] ?? '').toString();
-                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
-                          seenUids.add(uid);
-                          candidateList.add(w);
-                        } else if (uid.isEmpty) {
-                          candidateList.add(w);
-                        }
-                      }
+                      // Sort by totalBet descending, then winnings descending
+                      uniqueList.sort((a, b) {
+                        final aBet = (a['totalBet'] as num?)?.toInt() ?? 0;
+                        final bBet = (b['totalBet'] as num?)?.toInt() ?? 0;
+                        if (bBet != aBet) return bBet.compareTo(aBet);
+                        final aWin = (a['winnings'] as num?)?.toInt() ?? (a['prize'] as num?)?.toInt() ?? 0;
+                        final bWin = (b['winnings'] as num?)?.toInt() ?? (b['prize'] as num?)?.toInt() ?? 0;
+                        return bWin.compareTo(aWin);
+                      });
 
-                      // 3. Then add daily_players leaderboard
-                      for (final p in leaderboard) {
-                        if (candidateList.length >= 3) break;
-                        final uid = (p['uid'] ?? p['userId'] ?? '').toString();
-                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
-                          seenUids.add(uid);
-                          candidateList.add(p);
-                        } else if (uid.isEmpty) {
-                          candidateList.add(p);
-                        }
-                      }
+                      if (uniqueList.isEmpty) return const SizedBox.shrink();
 
-                      // 4. If topWinnerName or lastWinnerName exists in stats
-                      if (candidateList.length < 3 && stats != null) {
-                        if (stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
-                          candidateList.add({
-                            'name': stats['topWinnerName'],
-                            'avatar': stats['topWinnerAvatar'] ?? '',
-                            'winnings': stats['topWinnerAmount'] ?? 0,
-                            'totalBet': stats['topWinnerAmount'] ?? 0,
-                          });
-                        }
-                      }
-                      if (candidateList.length < 3 && stats != null) {
-                        if (stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
-                          candidateList.add({
-                            'name': stats['lastWinnerName'],
-                            'avatar': stats['lastWinnerAvatar'] ?? '',
-                            'winnings': stats['lastWinnerAmount'] ?? 0,
-                            'totalBet': stats['lastWinnerAmount'] ?? 0,
-                          });
-                        }
-                      }
-
-                      // 5. Fill remaining slots with default champions so all 3 slots always render!
-                      final defaultChampions = [
-                        {'name': 'Top Winner', 'avatar': '', 'winnings': 50000, 'totalBet': 10000},
-                        {'name': 'Lucky Spinner', 'avatar': '', 'winnings': 25000, 'totalBet': 5000},
-                        {'name': 'Star Player', 'avatar': '', 'winnings': 10000, 'totalBet': 2000},
-                      ];
-                      for (final d in defaultChampions) {
-                        if (candidateList.length >= 3) break;
-                        candidateList.add(d);
-                      }
-
-                      final top3 = candidateList.take(3).toList();
-                      return _buildTop3WinnersPodium(top3);
+                      return _buildTop3WinnersPodium(uniqueList.take(3).toList());
                     },
                   ),
                 ],
@@ -4355,18 +4655,27 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     );
   }
 
-
-
   Widget _buildTop3WinnersPodium(List<Map<String, dynamic>> winners) {
-    final top3 = List<Map<String, dynamic>>.from(winners);
-    while (top3.length < 3) {
-      top3.add({
-        'name': 'Lucky Winner',
-        'avatar': '',
-        'winnings': 0,
-        'totalBet': 0,
-      });
+    // Deduplicate strictly by uid and by name
+    final seen = <String>{};
+    final uniqueWinners = <Map<String, dynamic>>[];
+    for (final w in winners) {
+      final uid = (w['uid'] ?? w['userId'] ?? '').toString().trim();
+      final name = (w['name'] ?? w['username'] ?? '').toString().trim().toLowerCase();
+      final key = uid.isNotEmpty ? uid : name;
+      if (key.isNotEmpty && seen.contains(key)) continue;
+      if (key.isNotEmpty) seen.add(key);
+      uniqueWinners.add(w);
     }
+
+    if (uniqueWinners.isEmpty) return const SizedBox.shrink();
+
+    final count = uniqueWinners.length;
+    final headerTitle = count == 1 
+        ? "ROUND WINNER" 
+        : count == 2 
+            ? "TOP 2 WINNERS" 
+            : "TOP 3 WINNERS";
 
     return Column(
       children: [
@@ -4379,7 +4688,7 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                "TOP 3 WINNERS",
+                headerTitle,
                 style: TextStyle(
                   color: const Color(0xFFFFD700).withOpacity(0.95),
                   fontSize: 11,
@@ -4394,15 +4703,33 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
           ],
         ),
         const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            _buildTopWinnerSlot(top3[1], 1), // Rank 2 (Silver, Left)
-            _buildTopWinnerSlot(top3[0], 0), // Rank 1 (Gold, Center, Tallest)
-            _buildTopWinnerSlot(top3[2], 2), // Rank 3 (Bronze, Right)
-          ],
-        ),
+        if (count == 1)
+          // 1 user only: show single centered user
+          Center(
+            child: _buildTopWinnerSlot(uniqueWinners[0], 0),
+          )
+        else if (count == 2)
+          // 2 users only: show exactly 2 users
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildTopWinnerSlot(uniqueWinners[1], 1), // Rank 2 (Silver)
+              const SizedBox(width: 40),
+              _buildTopWinnerSlot(uniqueWinners[0], 0), // Rank 1 (Gold)
+            ],
+          )
+        else
+          // 3 or more users: show Top 3
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _buildTopWinnerSlot(uniqueWinners[1], 1), // Rank 2 (Silver, Left)
+              _buildTopWinnerSlot(uniqueWinners[0], 0), // Rank 1 (Gold, Center, Tallest)
+              _buildTopWinnerSlot(uniqueWinners[2], 2), // Rank 3 (Bronze, Right)
+            ],
+          ),
       ],
     );
   }

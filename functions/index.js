@@ -3840,6 +3840,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 balanceBefore: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().balanceBefore : (balance + deltaBet),
                 balanceAfter: balance + deltaPrize,
                 orderId: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().orderId : `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
+                createdAt: now,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
         }

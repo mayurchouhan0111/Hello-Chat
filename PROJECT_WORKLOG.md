@@ -16,6 +16,44 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-09-11 (Update 4)
+- **What Client Asked / Problem**:
+  1. "in the bottom sheet the same user showing in the 1, 2, 3, so remove that, only show that one which is there, like one user so show the 1 user only, if 2 then show the 2 okay understand my point"
+  2. "The bets we are placing while playing the game are not showing up in the betting history. this is done or not show them also properly like professionally exactly show all the details there also"
+  3. "also run the apk and create the build so that i can share it to the client okay"
+- **What We Did**:
+  1. **Fixed Winner Podium Deduplication & Single/Dual Winner Display**:
+     - Updated `SpinWheelResultBottomSheet` in `lib/features/games/presentation/screens/spin_wheel_screen.dart`: removed duplicate filler placeholders.
+     - Redesigned `_buildTop3WinnersPodium` to dynamically render only the actual distinct winners:
+       - If 1 winner exists: displays solely Rank 1 prominently in the center.
+       - If 2 winners exist: displays Rank 2 (left) and Rank 1 (center).
+       - If 3+ winners exist: displays Rank 2 (left), Rank 1 (center), and Rank 3 (right).
+  2. **Resolved Missing Betting History & Built Professional Casino Bet Details UI**:
+     - Identified root cause in `lib/core/providers/game_provider.dart`: Firestore's `.collection('game_history').limit(100)` without `orderBy` returned documents in Document ID ascending order. Once a user exceeded 100 historical bets, newer bets (e.g., Round 242+) were completely omitted.
+     - Added `.orderBy('timestamp', descending: true)` and robust client-side fallback sorting by `roundId` descending and timestamp, ensuring the newest bets are always loaded first.
+     - Added automatic cache invalidation (`ref.invalidate(userGameHistoryProvider)`) immediately upon bet submission and sheet open.
+     - Redesigned the "My Bets" tab in `spin_wheel_screen.dart` to a professional casino record layout:
+       - **Summary Stats Bar**: Displays Total Games played, Total Won (💎), and Win Rate (%).
+       - **Detailed Bet Cards**:
+         - S/N and Round pills with badge styling.
+         - Exact Date and Time formatting.
+         - WIN (Emerald) or LOSE (Slate) or IN-PLAY (Amber) status badge.
+         - **Selected Food Bets Breakdown**: Displays every bet placed with food emoji, name, formatted diamond amount, and a green checkmark on the winning item.
+         - **Total Wager**: Total diamonds staked in the round.
+         - **Winning Food**: Circular icon, name, and payout multiplier tag (`[ 5x ]` / `[ 45x ]`).
+         - **Win Coins**: Large bold gold text for winnings.
+         - **Coin Balance Transition**: Before → After balance with comma separation.
+         - **Order ID**: With tap-to-copy button.
+         - **Embossed Watermark Stamp**: Rotated semi-transparent `★ WIN ★` or `★ LOSE ★` watermark for authentic casino aesthetic.
+  3. **Release APK Build & Run**:
+     - Built production release APK via `flutter build apk --release`.
+     - Installed and verified running on connected Android device via ADB.
+- **Files Touched**:
+  - `lib/core/providers/game_provider.dart`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Completed & Release APK Built
+
 ### Date: 2026-09-11 (Update 3)
 - **What Client Asked / Problem**:
   1. "The bets we are placing while playing the game are not showing up in the betting history."
