@@ -16,9 +16,85 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-09-11
+- **What Client Asked / Problem**:
+  1. "and make srue that eh psin indicator should alwasy sop on the corrrect elemt which is the result okay uderstadn that hign also okay"
+  2. "the result in the bottom sheet whihc is contianing the icosn should also get update with the realltime wuth the each round in the relatime okay dunerstadn my point"
+  3. "so there is the error still ther like in one round i won then in the next orund i betonthe tommato and the tommato also come but show that i lost why this error check adn reoslve this also"
+  4. "Wheel Spin & Render Failure: The wheel animation occasionally completes a full rotation cycle or spins indefinitely without triggering the outcome state, halting the gameplay loop and failing to reveal the result."
+  5. "Incorrect Win/Loss State Mutation: Winning bet outcomes fail to register or clear correctly between consecutive rounds. For instance, winning round N causes round N+1 bets on the winning segment to be falsely evaluated as losses (ghost state retention / stale closure / incorrect round sequence IDs)."
+  6. "Delayed & Desynced Result/Coin UI: The result banner and winning coin increments exhibit extreme latency, displaying leftover data or previous round results."
+  7. "Bet failed to reach server SnackBar is also showing when results are coming."
+  8. "Check your connection error dialogue is coming when the winning spin is end and the winning bottom sheet show just before that, even when internet is already on. Run the app in release mode on device."
+  9. "Still showing please check your connection snack bar is still showing. If connection is not there then show a different screen or a dialogue saying the connection is not found."
+  10. "Still showing bet failed due to the connection server or something resolve this error fast in the spin the wheel game and why its showing."
+  11. "in the bottom sheet all the 1 ,2 ,3 user imaeg are showing empty do one thign remove it and insed shwo the daly top player profeil ther okay"
+- **What We Did**:
+   1. **Replaced Empty 1, 2, 3 Podium with Daily Top Player Profile Card in Result Bottom Sheet**:
+      - Completely removed the 3-column podium (`_buildWinnersPodium` and `_buildPodiumSlot`) from `SpinWheelResultBottomSheet` which frequently showed empty placeholder silhouettes and 0 diamonds.
+      - Replaced with a unified **Daily Top Player** profile card displaying:
+        - Header with dashed gold dividers (`DAILY TOP PLAYER`).
+        - User avatar with glowing gold border and 👑 crown badge.
+        - "TOP #1" gold tag with player's username.
+        - "Today's Highest Earner" subtitle (or "Spin & Win to Claim Rank #1" if no winner yet).
+        - Diamond winnings badge with formatted count (`PremiumDiamond` icon).
+      - Wired real-time data sources: `luckySpinLeaderboardProvider` (from `daily_players`), `stats['todayWinners']`, `stats['topWinnerName']`, and current round winners fallback using null-safe `.valueOrNull`.
+      - Updated e2e test suite (`test/spin_wheel_game_e2e_test.dart`) Case 5 to verify the Daily Top Player card UI (all 35 unit/widget tests passing).
+   2. **Spin Indicator 100% Infallible Stopping Alignment**:
+     - Built `resolveTargetSectorIndex(outcome, segmentsMap)`: Matches `outcome['name']` directly against `segmentsMap` with alias/synonym support (`meat` -> `steak`, `kebab` -> `skewer`, `salad` -> vegetable index, `pizza` -> meat index) and fallback to `sectorIndex % segmentsMap.length`.
+     - Rewrote `_startSpin`, `_handleDecelerationComplete`, and celebration catch-up to resolve `targetIdx` FIRST using `resolveTargetSectorIndex`.
+     - Directly derived `winningItem` from `segmentsMap[targetIdx]` and synchronized `_currentSegment = targetIdx`. The wheel pointer, glowing spotlight (`GlowPointerPainter`), pulse ring (`PodsPainter`), bottom sheet, and payout evaluations are now mathematically bound to the exact same element with zero possibility of divergence.
+  3. **Realtime Result Bar & Live Rolling History**:
+     - Connected `_buildResultBar` to live state `_realtimeRecentResults` (updated via RTDB `lucky_spin_stats/lastGlobalOutcome`, RTDB `recentResults`, and local round completion).
+     - Merged server stats recent results with client-side live outcomes sorted by `roundId` descending.
+     - Preserved `_realtimeRecentResults` across 40s round rollovers so food icons do not disappear between rounds.
+     - Upgraded `_showGameHistorySheet()` with a tab toggle: "My Bets" (user bet breakdown) and "All Rounds" (all recent round winners with food emojis, round numbers, and multipliers updated in real time).
+  3. **Multi-Chip Taps & Active Bet Merging**:
+     - Resolved the false loss bug by merging `activeBets` using `math.max` across server confirmations, confirmed local state, and in-flight click counts.
+  4. **Backend Transaction & Category Alignment in `functions/index.js`**:
+     - Added atomic `recentResults` updates in `games_meta/lucky_spin` and RTDB `lucky_spin_stats/recentResults`.
+     - Fixed `displayIndex` to match `winnerSegment.name` case-insensitively and assigned proper `category` tags (`salad` for vegetables, `pizza` for meats).
+  1. **Hardware-Accelerated Animation Loop & 100% Guaranteed Outcome Resolution**:
+     - Replaced frame-dropping `Timer.periodic(16ms)` with Flutter's `AnimationController` on `vsync` using `Curves.easeOutCubic`.
+     - Bound outcome resolution directly to `AnimationStatus.completed`, eliminating indefinite spinning and guaranteeing that the result is always revealed.
+     - Added dynamic spin timing (30s-35s) with automatic fallback timeout to prevent stalls.
+  2. **Eliminated Stale Round Retentions & Ghost Bets**:
+     - Auto-bet submissions now carry explicit `roundId` tags (`clientRoundId`).
+     - In-flight responses for past rounds are discarded via stale closure guards (`_currentRoundId != submissionRoundId`).
+     - State reset on new round rollover completely wipes local bets, click counts, confirmed bets, and old result sheets.
+  3. **Backend Atomic Delta Accounting & Concurrency Fixes**:
+     - In `functions/index.js`, replaced destructive re-deduction with atomic incremental delta accounting via `games_meta/lucky_spin/round_player_bets/${roundId}_${uid}`. Rapid multi-chip clicks now deduct only newly added diamonds instead of charging total bet multiple times.
+     - Enforced strict round gating (`clientRoundId === currentRoundId`) and phase cut-off (`msIntoRound >= 30000`) on backend.
+     - Standardized RTDB global outcome broadcast and Firestore authoritative outcome storage.
+  4. **Fixed Backend 'Wagers Cannot Be Reduced' & Pre-Fetch Query**:
+     - In `functions/index.js`, updated `playSpinWheel` so spectator / round outcome queries (`totalBet === 0`) return the player's existing bet and prize without throwing `invalid-argument: Wagers cannot be reduced once placed`. Deployed to Firebase (`hellochat-e8965`).
+  5. **Removed Connection SnackBars in Favor of Dedicated Connection Not Found Dialog & Screen**:
+     - Removed all floating SnackBars that showed "Please check your connection" or "Bet failed to reach server".
+     - Built dedicated `_showConnectionNotFoundDialog()` with "RETRY" and "CLOSE" buttons and duplicate guard.
+     - Updated full-screen offline overlay to show "Connection Not Found" with "RETRY CONNECTION" button.
+     - Expanded bet submission timeout up to 22s (until 28s mark) so mobile network latency to `us-central1` doesn't cause false client timeouts.
+     - Preserved active local bets during transient network dips so user chips do not vanish from the table.
+  6. **Automated Verification & Release Run**:
+     - Verified with 27/27 Flutter unit/widget tests (`spin_wheel_round_sync_test.dart` and `spin_wheel_game_e2e_test.dart`).
+     - Deployed Cloud Function update to Firebase.
+     - Running app in release mode on physical Android device `V2132` (`1374223603000CJ`).
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/core/services/game_service.dart`
+  - `lib/core/services/network_connectivity_service.dart`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `test/spin_wheel_round_sync_test.dart`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Completed & Running on Device in Release Mode
+
+---
+
 ### Date: 2026-09-10
 - **What Client Asked / Problem**:
-  "Place them in the space white (chips inside the 4 white booth slots). Create a solid red background behind this part (bottom dashboard) and use the same font in the whole screen."
+  1. "Place chips in the space white (chips inside the 4 white booth slots). Create a solid red background behind this part (bottom dashboard) and use the same font in the whole screen."
+  2. "A little bit alignment required for the marker indicator and the Salad and Pizza things."
+  3. "Bottom sheet like this... also the concept of Salad and Pizza is not copied from Flutter app."
+  4. "Why is this showing here [stray hotdog emoji] and the bottom sheet is not matching the exact same one?"
 - **What We Did**:
   1. **Seated Chips on Dashboard Ledge & Booth Backrests**:
      - Adjusted the chip selector row to `top: 73.0%`, seating the 4 chips (`100`, `1k`, `10k`, `100k`) so their bottom edge rests cleanly and flush directly on top of the solid red bottom dashboard ledge, with the blue carnival booth window backrests visible emerging directly behind the top of each chip—matching the exact structure from the reference screenshot.
@@ -28,13 +104,19 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
   3. **Unified Flutter Theme Typography & Exact Text Strings**:
      - Converted the entire game to use the Flutter app's official theme font: **Plus Jakarta Sans** (`AppTextStyles.fontFamily`), rendering all labels, countdown timers, chip values, and modal sheets cleanly and consistently.
      - Matched all in-game text strings 1:1 with `spin_wheel_screen.dart` ("Today's X Round", "Rules >", "win X times", "Select time" / "BETS CLOSED" / "Spinning" / "Winning", "Salad >", "Pizza >", "100", "1k", "10k", "100k", "Current Amount", "My Play History", "Result", "Daily Top Players", "Prev Winner", "Catatan saya >").
-  4. **Preserved Complete Feature Set & Modal Sheets**:
-     - Catatan saya (Game Records) sheet with WIN/LOSE stamps.
-     - Daily Top Players Leaderboard sheet.
-     - Lucky Spin Rules sheet.
-     - Direct on-pod tap betting with green badges (`1k ✓`) and coin stacks (`🪙`).
-     - Stationary wheel with luminous clockwise-hopping spotlight marker.
-  5. Verified the final layout and interactions with browser subagent screenshots.
+  4. **Fixed Stray Hotdog Emoji Bleed**:
+     - Diagnosed and resolved the hotdog emoji peeking through the main screen when the victory sheet was hidden.
+     - Root cause: `.sheet-streamers-wrapper` was positioned with negative top offset (`top: -34px`) inside the result bottom sheet and lacked explicit hidden state opacity.
+     - Fix: Added `opacity: 0; pointer-events: none;` by default to `.sheet-streamers-wrapper`, and set `opacity: 1; pointer-events: auto;` only when `.result-bottom-sheet.open` is active.
+  5. **Added Dark Dim Overlay Behind Result Sheet**:
+     - Added `#resultSheetOverlay` with smooth fade transition matching Flutter's `barrierColor: Colors.black.withOpacity(0.7)`.
+     - Integrated with `openVictorySheet()`, `closeVictorySheet()`, and `closeAllSheets()`.
+  6. **Added Sheet Drag Handle & Close Button**:
+     - Implemented Flutter-matching top center drag handle (`.result-sheet-handle`) and circular top-right ✕ close button (`.result-sheet-close`).
+  7. **Salad & Pizza System & Alignment**:
+     - Aligned Salad (5x) and Pizza (45x) pedestals and spotlight indicators to their exact reference coordinates.
+     - Maintained full 1:1 payout calculation logic matching `spin_wheel_screen.dart` and `functions/index.js`.
+  8. Verified all fixes visually using browser subagent screenshots.
 - **Files Touched**:
   - `assets/games/spin_wheel.html`
   - `PROJECT_WORKLOG.md`

@@ -3466,135 +3466,87 @@ function getRandomInt(max) {
 }
 
 exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-    
-    // Supports both old single 'betAmount' and new 'bets' Map
-    const bets = data.bets || (data.betAmount ? { [data.label || "any"]: data.betAmount } : {});
-    const totalBet = Object.values(bets).reduce((acc, b) => acc + (Number(b) || 0), 0);
-
-    if (totalBet !== 0 && totalBet < 10) {
-        throw new functions.https.HttpsError("invalid-argument", "Min total bet 10 Diamonds.");
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     }
 
     const uid = context.auth.uid;
-    const userRef = db.collection("users").doc(uid);
-    const settingsRef = db.collection("game_settings").doc("lucky_spin");
-    const statsRef = db.collection("games_meta").doc("lucky_spin");
+    const clientRoundId = data.roundId ? String(data.roundId).trim() : null;
+    const bets = data.bets || (data.betAmount ? { [data.label || "any"]: Number(data.betAmount) || 0 } : {});
+    const totalBet = Object.values(bets).reduce((acc, b) => acc + Math.max(0, Number(b) || 0), 0);
+
+    if (totalBet !== 0 && totalBet < 10) {
+        throw new functions.https.HttpsError("invalid-argument", "Minimum total bet is 10 Diamonds.");
+    }
 
     const now = Date.now();
     const ROUND_DURATION_MS = 40000;
-    const roundId = Math.floor(now / ROUND_DURATION_MS).toString();
+    const currentRoundId = Math.floor(now / ROUND_DURATION_MS).toString();
     const msIntoRound = now % ROUND_DURATION_MS;
 
-    // Allow late bets to gracefully process for the current round instead of throwing errors
-    // to prevent desync UI crashes.
-    if (msIntoRound >= 38000 && totalBet > 0) {
-        console.warn(`[SpinWheel] Late bet processed at ${msIntoRound}ms for round ${roundId}`);
+    // Strict Round Validation: Prevent betting on expired or future rounds
+    if (clientRoundId && clientRoundId !== currentRoundId) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `Round ${clientRoundId} is expired. Current active round is ${currentRoundId}.`
+        );
     }
+
+    // Phase Gate: Bets strictly close at 30.0s (30,000ms)
+    if (msIntoRound >= 30000 && totalBet > 0) {
+        throw new functions.https.HttpsError(
+            "failed-precondition",
+            `Betting phase closed for round ${currentRoundId}. Please wait for next round.`
+        );
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const settingsRef = db.collection("game_settings").doc("lucky_spin");
+    const statsRef = db.collection("games_meta").doc("lucky_spin");
+    const roundBetRef = statsRef.collection("round_player_bets").doc(`${currentRoundId}_${uid}`);
+    const privateStatsRef = db.collection("games_meta_private").doc(`spin_${currentRoundId}`);
 
     const spinResult = await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) {
+            throw new functions.https.HttpsError("not-found", "User profile not found.");
+        }
+
         const settingsDoc = await transaction.get(settingsRef);
         const statsDoc = await transaction.get(statsRef);
-        
-        const playerRef = statsRef.collection("daily_players").doc(uid);
-        const playerDoc = await transaction.get(playerRef);
+        const privateDoc = await transaction.get(privateStatsRef);
+        const existingBetDoc = await transaction.get(roundBetRef);
 
-        const currentRoundBetRef = statsRef.collection("current_round_bets").doc(uid);
-        const currentRoundBetDoc = await transaction.get(currentRoundBetRef);
-
-        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
-        
         const defaultFoodSegments = [
-            { id: "1", name: "Tomato", multiplier: 5, weight: 250, emoji: "🍅", category: "standard" },
-            { id: "2", name: "Hotdog", multiplier: 10, weight: 100, emoji: "🌭", category: "standard" },
-            { id: "3", name: "Skewer", multiplier: 15, weight: 50, emoji: "🍢", category: "standard" },
-            { id: "4", name: "Chicken", multiplier: 25, weight: 30, emoji: "🍗", category: "standard" },
-            { id: "5", name: "Steak", multiplier: 45, weight: 20, emoji: "🥩", category: "standard" },
-            { id: "6", name: "Carrot", multiplier: 5, weight: 250, emoji: "🥕", category: "standard" },
-            { id: "7", name: "Corn", multiplier: 5, weight: 250, emoji: "🌽", category: "standard" },
-            { id: "8", name: "Cabbage", multiplier: 5, weight: 150, emoji: "🥬", category: "standard" }
+            { id: "1", name: "Tomato", multiplier: 5, weight: 250, emoji: "🍅", category: "salad" },
+            { id: "2", name: "Hotdog", multiplier: 10, weight: 100, emoji: "🌭", category: "pizza" },
+            { id: "3", name: "Skewer", multiplier: 15, weight: 50, emoji: "🍢", category: "pizza" },
+            { id: "4", name: "Chicken", multiplier: 25, weight: 30, emoji: "🍗", category: "pizza" },
+            { id: "5", name: "Steak", multiplier: 45, weight: 20, emoji: "🥩", category: "pizza" },
+            { id: "6", name: "Carrot", multiplier: 5, weight: 250, emoji: "🥕", category: "salad" },
+            { id: "7", name: "Corn", multiplier: 5, weight: 250, emoji: "🌽", category: "salad" },
+            { id: "8", name: "Cabbage", multiplier: 5, weight: 150, emoji: "🥬", category: "salad" }
         ];
+
         const settings = settingsDoc.exists ? settingsDoc.data() : { segments: [] };
         const segments = (settings.segments && settings.segments.length >= 8) ? settings.segments : defaultFoodSegments;
         const currentStats = statsDoc.exists ? statsDoc.data() : {};
 
-        let activeRoundId = currentStats.activeRoundId;
-        let activeRoundOutcome = null;
-        if (activeRoundId) {
-            const privateStatsRef = db.collection("games_meta_private").doc(`spin_${activeRoundId}`);
-            const privateDoc = await transaction.get(privateStatsRef);
-            if (privateDoc.exists) {
-                activeRoundOutcome = privateDoc.data().outcome;
-            }
-        }
-
-        let balance = Number(userDoc.data().diamondBalance || 0);
-        let beansBalance = Number(userDoc.data().beansBalance || 0);
-
-        // --- AUTOMATIC EXCHANGE LOGIC ---
-        if (balance < totalBet) {
-            const needed = totalBet - balance;
-            const starsRequired = Math.ceil((needed * 7) / 2);
-            if (beansBalance >= starsRequired) {
-                beansBalance -= starsRequired;
-                balance = totalBet;
-                transaction.update(userRef, { beansBalance, diamondBalance: balance });
-            } else {
-                throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds & Stars.");
-            }
-        }
-
-        // --- GLOBAL OUTCOME DETERMINATION ---
-        let lastGlobalRound = currentStats.lastGlobalRound || "";
-        let lastGlobalOutcome = currentStats.lastGlobalOutcome || null;
-        let recentResults = currentStats.recentResults || [];
-
-        // First, check if a previous active round is now ready to be revealed
-        const activeRoundStartMs = activeRoundId ? (Number(activeRoundId) * ROUND_DURATION_MS) : 0;
-        const activeRoundRevealMs = activeRoundStartMs + 30000;
-
-        if (activeRoundId && activeRoundOutcome && (roundId !== activeRoundId || now >= activeRoundRevealMs)) {
-            if (lastGlobalRound !== activeRoundId) {
-                lastGlobalRound = activeRoundId;
-                lastGlobalOutcome = activeRoundOutcome;
-                recentResults.unshift({
-                    roundId: activeRoundId,
-                    emoji: activeRoundOutcome.emoji,
-                    label: activeRoundOutcome.label,
-                    type: activeRoundOutcome.type,
-                    name: activeRoundOutcome.name,
-                    multiplier: activeRoundOutcome.multiplier,
-                    timestamp: activeRoundStartMs + ROUND_DURATION_MS
-                });
-                if (recentResults.length > 20) {
-                    recentResults = recentResults.slice(0, 20);
-                }
-            }
-        }
-
+        // 1. Resolve or Generate Deterministic Round Outcome
         let roundResult = null;
-        if (activeRoundId === roundId && activeRoundOutcome) {
-            roundResult = activeRoundOutcome;
-        } else if (lastGlobalRound === roundId && lastGlobalOutcome) {
-            roundResult = lastGlobalOutcome;
-        }
-
-        if (!roundResult) {
-            const todayStr = new Date().toISOString().split('T')[0];
+        if (privateDoc.exists) {
+            roundResult = privateDoc.data().outcome;
+        } else {
+            const todayStr = new Date().toISOString().split("T")[0];
             let saladHits = currentStats.todaySaladHits || 0;
             let pizzaHits = currentStats.todayPizzaHits || 0;
-
-            // Daily Reset
             if (currentStats.lastResetDate !== todayStr) {
                 saladHits = 0;
                 pizzaHits = 0;
             }
-            
-            // Random chance for special rounds (e.g., 2% for Salad, 1% for Pizza)
-            const roll = getRandomInt(100);
+
+            const roll = crypto.randomInt(0, 100);
             let resultType = "standard";
-            
             if (roll < 1 && pizzaHits < 1) {
                 resultType = "pizza";
                 pizzaHits++;
@@ -3606,9 +3558,8 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             let winnerSegment = null;
             if (resultType === "standard") {
                 const totalWeight = segments.reduce((acc, s) => acc + (Number(s.weight) || 0), 0);
-                let random = getRandomInt(totalWeight || 100);
-                winnerSegment = segments[0] || { multiplier: 0, emoji: "❌", name: "Empty" };
-
+                let random = crypto.randomInt(0, Math.max(1, totalWeight));
+                winnerSegment = segments[0];
                 for (const s of segments) {
                     const w = Number(s.weight) || 0;
                     if (random < w) {
@@ -3618,367 +3569,289 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                     random -= w;
                 }
             } else {
-                // For Salad/Pizza, we just pick one segment from that category as the "visual anchor"
-                const categorySegments = segments.filter(s => s.category === resultType);
-                if (categorySegments.length > 0) {
-                    winnerSegment = categorySegments[getRandomInt(categorySegments.length)];
-                } else {
-                    // Fallback to virtual segment if not defined in segments
-                    winnerSegment = {
-                        name: resultType,
-                        emoji: resultType === "pizza" ? "🍕" : "🥗",
-                        multiplier: resultType === "pizza" ? 45 : 5,
-                        category: resultType
-                    };
-                }
+                const categorySegments = segments.filter(s => (s.category || "").toLowerCase() === resultType.toLowerCase());
+                winnerSegment = categorySegments.length > 0
+                    ? categorySegments[crypto.randomInt(0, categorySegments.length)]
+                    : (resultType === "pizza" ? segments.find(s => s.name.toLowerCase() === "steak") : segments.find(s => s.name.toLowerCase() === "tomato")) || segments[0];
             }
 
-            // Find the index of winnerSegment in the segments array
-            const winnerIndex = segments.findIndex(s => s.name === winnerSegment.name && s.multiplier === winnerSegment.multiplier);
+            const winnerIndex = segments.findIndex(s => s.name.toLowerCase().trim() === (winnerSegment.name || "").toLowerCase().trim());
             const displayIndex = winnerIndex >= 0 ? winnerIndex : 0;
-            
-            // Calculate exact stop angle (in degrees) - each segment is 45 degrees (360/8)
-            // Segment 0 is at top (0 degrees), going clockwise
-            // To bring segment to top: angle = 360 - (index * 45) + random micro-offset for realism
-            const stepAngle = 360 / (segments.length || 8);
-            const exactStopAngle = (360 - (displayIndex * stepAngle)) + (Math.random() * 10 - 5); // ±5 degrees randomness
-            
-            // === FULLY BACKEND-CONTROLLED SPIN PHYSICS ===
-            const totalRotations = 7 + Math.floor(Math.random() * 3); // 7-9 rotations
-            const baseDuration = 4500; // EXACTLY 4.5s to fit perfectly within the 40s cycle
-            
-            // Spin config: Complete physics control from backend
-            const spinConfig = {
-                totalRotations: totalRotations,
-                durationMs: baseDuration,
-                
-                // Phase timings (percentages)
-                accelerationDuration: Math.floor(baseDuration * 0.20), // 20%
-                constantSpeedDuration: Math.floor(baseDuration * 0.35), // 35%
-                decelerationDuration: Math.floor(baseDuration * 0.30), // 30%
-                finalSettleDuration: Math.floor(baseDuration * 0.15), // 15%
-                
-                // Curves
-                easeInCurve: "easeInSine",
-                easeOutCurve: "easeOutExpo",
-                
-                // Final tick behavior
-                microStopTicks: 2 + Math.floor(Math.random() * 2), // 2-3 ticks
-                tickSlowdownFactor: 0.80 + Math.random() * 0.08, // 0.80-0.88
-            };
-            
+            const stepAngle = 360 / segments.length;
+            const exactStopAngle = Math.round(((360 - (displayIndex * stepAngle)) + (Math.random() * 6 - 3)) * 10) / 10;
+
             roundResult = {
+                roundId: currentRoundId,
                 type: resultType,
                 multiplier: Number(winnerSegment.multiplier) || 0,
                 emoji: winnerSegment.emoji || "🎰",
                 label: resultType === "standard" ? `${winnerSegment.multiplier}x` : resultType.toUpperCase(),
                 name: winnerSegment.name,
-                category: winnerSegment.category,
-                sectorIndex: winnerIndex >= 0 ? winnerIndex : 0,
-                exactStopAngle: Math.round(exactStopAngle * 10) / 10, // Round to 1 decimal
-                spinConfig: spinConfig // Full backend physics control
+                category: winnerSegment.category || "standard",
+                sectorIndex: displayIndex,
+                exactStopAngle: exactStopAngle,
+                createdAt: now
             };
 
-            // Calculate current round mathematically
-            const startOfRoundEpochMs = Math.floor(now / ROUND_DURATION_MS) * ROUND_DURATION_MS;
+            // Commit outcome to server-private collection
+            transaction.set(privateStatsRef, {
+                roundId: currentRoundId,
+                outcome: roundResult,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Update global stats
+            const startOfRoundEpochMs = Number(currentRoundId) * ROUND_DURATION_MS;
             const startOfDayUTC = new Date(startOfRoundEpochMs);
             startOfDayUTC.setUTCHours(0, 0, 0, 0);
             const currentRoundToday = Math.floor((startOfRoundEpochMs - startOfDayUTC.getTime()) / ROUND_DURATION_MS) + 1;
 
-            activeRoundId = roundId;
-            activeRoundOutcome = roundResult;
-
-            const activeRoundRevealMs = startOfRoundEpochMs + 30000;
-            if (now >= activeRoundRevealMs && lastGlobalRound !== roundId) {
-                lastGlobalRound = roundId;
-                lastGlobalOutcome = roundResult;
-                recentResults.unshift({
-                    roundId: roundId,
-                    emoji: roundResult.emoji,
-                    label: roundResult.label,
-                    type: roundResult.type,
-                    name: roundResult.name,
-                    multiplier: roundResult.multiplier,
-                    timestamp: startOfRoundEpochMs + ROUND_DURATION_MS
-                });
-                if (recentResults.length > 20) {
-                    recentResults = recentResults.slice(0, 20);
-                }
-            }
-
-            // 🛡️ Store private outcome securely (Admin/Server read only)
-            const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
-            transaction.set(privateStatsRef, {
-                roundId,
-                outcome: activeRoundOutcome,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-
-            // Update Global Stats
-            const statsUpdate = {
-                activeRoundId: activeRoundId,
-                lastGlobalRound: lastGlobalRound,
-                lastGlobalOutcome: lastGlobalOutcome,
+            transaction.set(statsRef, {
+                activeRoundId: currentRoundId,
                 currentRound: currentRoundToday,
                 todaySaladHits: saladHits,
                 todayPizzaHits: pizzaHits,
-                lastResetDate: todayStr,
-                recentResults: recentResults
-            };
-            
-            transaction.update(statsRef, statsUpdate);
+                lastResetDate: todayStr
+            }, { merge: true });
         }
 
-        // --- WIN CALCULATION ---
-        let totalPrize = 0;
-        
-        // Normalize bets keys to lowercase and trimmed for case-insensitive robust matching
-        const normalizedBets = {};
-        if (bets) {
-            for (const key of Object.keys(bets)) {
-                if (key) {
-                    normalizedBets[key.toLowerCase().trim()] = Number(bets[key]) || 0;
+        // Maintain live recentResults array on statsRef (last 30 rounds)
+        const roundSummaryItem = {
+            roundId: String(currentRoundId),
+            name: roundResult.name,
+            emoji: roundResult.emoji,
+            label: roundResult.label || `${roundResult.multiplier}x`,
+            multiplier: Number(roundResult.multiplier) || 5,
+            category: roundResult.category || "standard",
+            sectorIndex: Number(roundResult.sectorIndex) || 0,
+            timestamp: now
+        };
+        let currentRecent = Array.isArray(currentStats.recentResults) ? currentStats.recentResults : [];
+        if (!currentRecent.some(r => r && String(r.roundId) === String(currentRoundId))) {
+            currentRecent = [roundSummaryItem, ...currentRecent].slice(0, 30);
+            transaction.set(statsRef, { recentResults: currentRecent }, { merge: true });
+        }
+
+        // 2. Incremental Bet & Payout Computation (Zero Double-Deduction)
+        const previousData = existingBetDoc.exists ? existingBetDoc.data() : { totalBet: 0, prize: 0, bets: {} };
+        const previousTotalBet = Number(previousData.totalBet) || 0;
+        const previousPrize = Number(previousData.prize) || 0;
+
+        // Spectator or outcome pre-fetch query (zero bet)
+        if (totalBet === 0) {
+            return {
+                ...roundResult,
+                totalBet: previousTotalBet,
+                prize: previousPrize,
+                bets: previousData.bets || {},
+                balance: Number(userDoc.data().diamondBalance || 0),
+                todayWinners: (currentStats.todayWinners || []).slice(0, 10),
+                serverTime: now
+            };
+        }
+
+        const deltaBet = totalBet - previousTotalBet;
+        if (deltaBet < 0) {
+            throw new functions.https.HttpsError("invalid-argument", "Wagers cannot be reduced once placed.");
+        }
+
+        let balance = Number(userDoc.data().diamondBalance || 0);
+        let beansBalance = Number(userDoc.data().beansBalance || 0);
+
+        if (deltaBet > 0) {
+            if (balance < deltaBet) {
+                const needed = deltaBet - balance;
+                const starsRequired = Math.ceil((needed * 7) / 2);
+                if (beansBalance >= starsRequired) {
+                    beansBalance -= starsRequired;
+                    balance = deltaBet;
+                    transaction.update(userRef, { beansBalance: beansBalance });
+                } else {
+                    throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds & Stars.");
                 }
             }
+            balance -= deltaBet;
+        }
+
+        // Evaluate winnings for the entire bet bucket
+        let calculatedPrize = 0;
+        const normalizedBets = {};
+        for (const [k, v] of Object.entries(bets)) {
+            if (k && Number(v) > 0) normalizedBets[k.toLowerCase().trim()] = Number(v);
         }
 
         const winnerName = (roundResult.name || "").toLowerCase().trim();
-        const winnerLabel = (roundResult.label || "").toLowerCase().trim();
         const winnerCategory = (roundResult.category || roundResult.type || "").toLowerCase().trim();
-
-        // Keep track of which bet keys we have already paid out to avoid double counting
         const paidKeys = new Set();
-
         const saladItems = ["tomato", "cabbage", "corn", "carrot", "salad"];
         const pizzaItems = ["pizza", "steak"];
 
-        const isWinningSaladItem = saladItems.includes(winnerName) || winnerCategory === "salad";
-        const isWinningPizzaItem = pizzaItems.includes(winnerName) || winnerCategory === "pizza";
-
-        // 1. Category Payouts
-        // Pay Salad category bet if ANY salad item wins
-        if (isWinningSaladItem) {
-            const betOnSalad = normalizedBets["salad"] || 0;
-            if (betOnSalad > 0 && !paidKeys.has("salad")) {
-                totalPrize += Math.floor(betOnSalad * 5);
+        // Category Payouts
+        if (saladItems.includes(winnerName) || winnerCategory === "salad") {
+            const betSalad = normalizedBets["salad"] || 0;
+            if (betSalad > 0 && !paidKeys.has("salad")) {
+                calculatedPrize += Math.floor(betSalad * 5);
                 paidKeys.add("salad");
             }
         }
-
-        // Pay Pizza category bet if ANY pizza item wins
-        if (isWinningPizzaItem) {
-            const betOnPizza = normalizedBets["pizza"] || 0;
-            if (betOnPizza > 0 && !paidKeys.has("pizza")) {
-                totalPrize += Math.floor(betOnPizza * 45);
+        if (pizzaItems.includes(winnerName) || winnerCategory === "pizza") {
+            const betPizza = normalizedBets["pizza"] || 0;
+            if (betPizza > 0 && !paidKeys.has("pizza")) {
+                calculatedPrize += Math.floor(betPizza * 45);
                 paidKeys.add("pizza");
             }
         }
 
-        // 2. Special Celebration Round Payouts (pays all items in the category)
+        // Special Celebration Round Payouts
         if (roundResult.type === "salad") {
             for (const item of ["tomato", "cabbage", "corn", "carrot"]) {
-                if (!paidKeys.has(item)) {
-                    const betOnItem = normalizedBets[item] || 0;
-                    if (betOnItem > 0) {
-                        totalPrize += Math.floor(betOnItem * 5);
-                        paidKeys.add(item);
-                    }
+                if (!paidKeys.has(item) && normalizedBets[item]) {
+                    calculatedPrize += Math.floor(normalizedBets[item] * 5);
+                    paidKeys.add(item);
                 }
             }
         } else if (roundResult.type === "pizza") {
             for (const item of ["pizza", "steak"]) {
-                if (!paidKeys.has(item)) {
-                    const betOnItem = normalizedBets[item] || 0;
-                    if (betOnItem > 0) {
-                        totalPrize += Math.floor(betOnItem * 45);
-                        paidKeys.add(item);
-                    }
+                if (!paidKeys.has(item) && normalizedBets[item]) {
+                    calculatedPrize += Math.floor(normalizedBets[item] * 45);
+                    paidKeys.add(item);
                 }
             }
         }
 
-        // 3. Pay exact segment bet (if not already paid as category or special round item)
-        if (!paidKeys.has(winnerName)) {
-            const betOnWinner = normalizedBets[winnerName] || normalizedBets[winnerLabel] || 0;
-            totalPrize += Math.floor(betOnWinner * (Number(roundResult.multiplier) || 0));
+        // Exact segment payouts
+        let betOnWinner = normalizedBets[winnerName] || 0;
+        if (!betOnWinner) {
+            if (winnerName === "kebab") betOnWinner = normalizedBets["skewer"] || 0;
+            if (winnerName === "skewer") betOnWinner = normalizedBets["kebab"] || 0;
+            if (winnerName === "steak") betOnWinner = normalizedBets["meat"] || 0;
+        }
+        if (!paidKeys.has(winnerName) && betOnWinner > 0) {
+            calculatedPrize += Math.floor(betOnWinner * (Number(roundResult.multiplier) || 0));
             paidKeys.add(winnerName);
         }
 
-        // 4. Fallback for other category items if a special round of another type occurred
-        if (roundResult.type !== "standard" && roundResult.type !== "salad" && roundResult.type !== "pizza") {
-            const specialCategory = roundResult.type.toLowerCase().trim();
-            for (const s of segments) {
-                const sCategory = (s.category || "").toLowerCase().trim();
-                if (sCategory === specialCategory) {
-                    const sName = (s.name || "").toLowerCase().trim();
-                    if (!paidKeys.has(sName)) {
-                        const sLabel = `${s.multiplier}x`.toLowerCase().trim();
-                        const betOnItem = normalizedBets[sName] || normalizedBets[sLabel] || 0;
-                        totalPrize += Math.floor(betOnItem * (Number(s.multiplier) || 0));
-                        paidKeys.add(sName);
-                    }
-                }
-            }
-        }
-        
-        const netChange = totalPrize - totalBet;
+        const deltaPrize = calculatedPrize - previousPrize;
 
         const userUpdates = {
-            diamondBalance: balance + netChange
+            diamondBalance: balance + deltaPrize
         };
-
-        // Award Jackpot King badge for Pizza wins
-        if (roundResult.type === 'pizza') {
-            userUpdates.badges = admin.firestore.FieldValue.arrayUnion('jackpot_winner');
+        if (roundResult.type === "pizza" && calculatedPrize > 0) {
+            userUpdates.badges = admin.firestore.FieldValue.arrayUnion("jackpot_winner");
         }
-
         transaction.update(userRef, userUpdates);
 
-        // --- DAILY PLAYERS LEADERBOARD TRACKING ---
-        if (totalBet > 0 || totalPrize > 0) {
-            const userName = userDoc.data().displayName || userDoc.data().username || "User";
-            const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
-
-            if (playerDoc.exists) {
-                transaction.update(playerRef, {
-                    totalBets: admin.firestore.FieldValue.increment(totalBet),
-                    totalWinnings: admin.firestore.FieldValue.increment(totalPrize),
-                    lastPlayed: now,
-                    name: userName,
-                    avatar: userAvatar
-                });
-            } else {
-                transaction.set(playerRef, {
-                    uid: uid,
-                    name: userName,
-                    avatar: userAvatar,
-                    totalBets: totalBet,
-                    totalWinnings: totalPrize,
-                    lastPlayed: now
-                });
-            }
-        }
-
-        // --- CURRENT ROUND BETS/WINNINGS LEADERBOARD TRACKING ---
-        if (totalBet > 0 || totalPrize > 0) {
-            const userName = userDoc.data().displayName || userDoc.data().username || "User";
-            const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
-
-            if (currentRoundBetDoc.exists && currentRoundBetDoc.data().roundId === roundId) {
-                transaction.update(currentRoundBetRef, {
-                    amount: admin.firestore.FieldValue.increment(totalBet),
-                    winnings: admin.firestore.FieldValue.increment(totalPrize),
-                    lastPlayed: now,
-                    name: userName,
-                    avatar: userAvatar
-                });
-            } else {
-                transaction.set(currentRoundBetRef, {
-                    uid: uid,
-                    name: userName,
-                    avatar: userAvatar,
-                    amount: totalBet,
-                    winnings: totalPrize,
-                    roundId: roundId,
-                    lastPlayed: now
-                });
-            }
-        }
-
-        let todayWinners = null;
-        if (totalPrize > 0) {
-            todayWinners = currentStats.todayWinners || [];
-            const userName = userDoc.data().displayName || userDoc.data().username || "User";
-            const userAvatar = userDoc.data().photoURL || "";
-
-            todayWinners.push({
-                uid, name: userName, avatar: userAvatar, amount: totalPrize, 
-                multiplier: roundResult.multiplier, type: roundResult.type, timestamp: now
-            });
-
-            const uniqueWinners = {};
-            todayWinners.forEach(w => {
-                if (!uniqueWinners[w.uid] || w.amount > uniqueWinners[w.uid].amount) {
-                    uniqueWinners[w.uid] = w;
-                }
-            });
-
-            todayWinners = Object.values(uniqueWinners).sort((a, b) => b.amount - a.amount).slice(0, 10);
-            
-            transaction.update(statsRef, {
-                todayWinners,
-                lastWinnerName: userName,
-                lastWinnerAmount: totalPrize,
-                lastWinnerLabel: roundResult.label
-            });
-        }
-
-        // Log History (Only if the user actually placed a bet)
+        // Update Round Bet Ledger
         if (totalBet > 0) {
+            transaction.set(roundBetRef, {
+                uid: uid,
+                roundId: currentRoundId,
+                bets: bets,
+                totalBet: totalBet,
+                prize: calculatedPrize,
+                updatedAt: now
+            });
+        }
+
+        // Leaderboard updates
+        const userName = userDoc.data().displayName || userDoc.data().username || "User";
+        const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
+        let todayWinners = currentStats.todayWinners || [];
+
+        if (calculatedPrize > 0) {
+            todayWinners = todayWinners.filter(w => w.uid !== uid);
+            todayWinners.push({
+                uid: uid,
+                name: userName,
+                avatar: userAvatar,
+                amount: calculatedPrize,
+                multiplier: roundResult.multiplier,
+                type: roundResult.type,
+                timestamp: now
+            });
+            todayWinners.sort((a, b) => b.amount - a.amount);
+            todayWinners = todayWinners.slice(0, 10);
+            transaction.update(statsRef, { todayWinners: todayWinners });
+        }
+
+        // Audit Log History Entry
+        if (deltaBet > 0) {
             const currentBetCount = Number(userDoc.data().totalGameCount || 0) + 1;
             transaction.update(userRef, { totalGameCount: currentBetCount });
-
-            const orderId = `NLOT_${roundId}_${uid.substring(0, 5)}_${now}_${Math.floor(1000 + Math.random() * 9000)}`;
             const logRef = userRef.collection("game_history").doc();
             transaction.set(logRef, {
                 game: "spin_wheel",
                 serialNumber: currentBetCount,
-                roundId: roundId,
+                roundId: currentRoundId,
                 bets: bets,
                 totalBet: totalBet,
-                prize: totalPrize,
+                prize: calculatedPrize,
                 resultType: roundResult.type,
                 label: roundResult.label,
                 multiplier: roundResult.multiplier,
                 emoji: roundResult.emoji,
-                balanceBefore: Math.max(0, balance - totalBet),
-                balanceAfter: Math.max(0, balance + netChange),
-                orderId: orderId,
+                balanceBefore: balance + deltaBet,
+                balanceAfter: balance + deltaPrize,
+                orderId: `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
             });
         }
 
-        let roundWinners = todayWinners || currentStats.todayWinners || [];
-
-        return { 
-            prize: totalPrize, 
-            label: roundResult.label, 
-            type: roundResult.type, 
+        return {
+            roundId: currentRoundId,
+            prize: calculatedPrize,
+            totalBet: totalBet,
+            label: roundResult.label,
+            type: roundResult.type,
             name: roundResult.name,
             emoji: roundResult.emoji,
             category: roundResult.category,
             sectorIndex: roundResult.sectorIndex,
             exactStopAngle: roundResult.exactStopAngle,
             multiplier: roundResult.multiplier,
-            roundId: roundId,
-            todayWinners: roundWinners,
+            todayWinners: todayWinners,
             serverTime: now
         };
     });
 
-    // ⚡ INSTANT SOCKET BROADCAST OVER REALTIME DATABASE (RTDB)
-    // Publish outcome to RTDB WebSocket stream so all room clients receive the result in <50ms
+    // 3. Ultra-Low Latency RTDB Broadcast
     if (spinResult && spinResult.roundId) {
         const rtdbPayload = {
             roundId: String(spinResult.roundId),
-            label: spinResult.label || "0x",
-            type: spinResult.type || "standard",
-            name: spinResult.name || "",
-            emoji: spinResult.emoji || "🎰",
-            category: spinResult.category || "standard",
-            sectorIndex: Number(spinResult.sectorIndex) || 0,
-            exactStopAngle: Number(spinResult.exactStopAngle) || 0,
-            multiplier: Number(spinResult.multiplier) || 0,
+            label: spinResult.label,
+            type: spinResult.type,
+            name: spinResult.name,
+            emoji: spinResult.emoji,
+            category: spinResult.category,
+            sectorIndex: Number(spinResult.sectorIndex),
+            exactStopAngle: Number(spinResult.exactStopAngle),
+            multiplier: Number(spinResult.multiplier),
             todayWinners: spinResult.todayWinners || [],
             timestamp: Date.now()
         };
 
-        try {
-            await admin.database().ref("lucky_spin_stats/lastGlobalOutcome").set(rtdbPayload);
-            console.log(`[SpinWheel] ⚡ Broadcasted outcome to RTDB WebSocket socket for round ${spinResult.roundId}`);
-        } catch (rtdbErr) {
-            console.error("[SpinWheel] Failed to publish outcome to RTDB socket:", rtdbErr);
-        }
+        admin.database().ref("lucky_spin_stats/lastGlobalOutcome").set(rtdbPayload).catch(err => {
+            console.error("[SpinWheel] RTDB broadcast failed:", err);
+        });
+
+        const rtdbRecentEntry = {
+            roundId: String(spinResult.roundId),
+            name: spinResult.name,
+            emoji: spinResult.emoji,
+            label: spinResult.label || `${spinResult.multiplier}x`,
+            multiplier: Number(spinResult.multiplier) || 5,
+            category: spinResult.category || "standard",
+            sectorIndex: Number(spinResult.sectorIndex) || 0,
+            timestamp: Date.now()
+        };
+        admin.database().ref("lucky_spin_stats/recentResults").transaction(currentData => {
+            let list = Array.isArray(currentData) ? currentData : [];
+            list = list.filter(item => item && String(item.roundId) !== String(spinResult.roundId));
+            list.unshift(rtdbRecentEntry);
+            return list.slice(0, 30);
+        }).catch(err => {
+            console.error("[SpinWheel] RTDB recentResults transaction failed:", err);
+        });
     }
 
     return spinResult;

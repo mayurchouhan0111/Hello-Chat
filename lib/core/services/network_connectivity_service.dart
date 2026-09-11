@@ -11,6 +11,7 @@ class NetworkConnectivityService {
   final Connectivity _connectivity = Connectivity();
   final StreamController<bool> _connectivityController = StreamController<bool>.broadcast();
   StreamSubscription<List<ConnectivityResult>>? _subscription;
+  Timer? _debounceOfflineTimer;
 
   bool _isOnline = true;
 
@@ -44,10 +45,23 @@ class NetworkConnectivityService {
     final bool hasConnection = results.isNotEmpty &&
         results.any((r) => r != ConnectivityResult.none);
 
-    if (_isOnline != hasConnection) {
-      _isOnline = hasConnection;
-      debugPrint('[NetworkConnectivityService] Connectivity changed: isOnline=$_isOnline (results=$results)');
-      _connectivityController.add(_isOnline);
+    if (hasConnection) {
+      _debounceOfflineTimer?.cancel();
+      _debounceOfflineTimer = null;
+      if (!_isOnline) {
+        _isOnline = true;
+        debugPrint('[NetworkConnectivityService] Connectivity restored: isOnline=true (results=$results)');
+        _connectivityController.add(true);
+      }
+    } else {
+      // Debounce offline events to prevent transient false-positive spikes during socket operations
+      if (_isOnline && _debounceOfflineTimer == null) {
+        _debounceOfflineTimer = Timer(const Duration(milliseconds: 2000), () {
+          _isOnline = false;
+          debugPrint('[NetworkConnectivityService] Connectivity confirmed offline after debounce (results=$results)');
+          _connectivityController.add(false);
+        });
+      }
     }
   }
 
@@ -55,7 +69,17 @@ class NetworkConnectivityService {
   Future<bool> checkConnection() async {
     try {
       final results = await _connectivity.checkConnectivity();
-      _updateStatus(results);
+      final bool hasConnection = results.isNotEmpty &&
+          results.any((r) => r != ConnectivityResult.none);
+      if (hasConnection) {
+        _debounceOfflineTimer?.cancel();
+        _debounceOfflineTimer = null;
+        _isOnline = true;
+        _connectivityController.add(true);
+      } else {
+        _isOnline = false;
+        _connectivityController.add(false);
+      }
       return _isOnline;
     } catch (e) {
       debugPrint('[NetworkConnectivityService] Check connection error: $e');
@@ -66,6 +90,7 @@ class NetworkConnectivityService {
   }
 
   void dispose() {
+    _debounceOfflineTimer?.cancel();
     _subscription?.cancel();
     _connectivityController.close();
   }

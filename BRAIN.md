@@ -590,3 +590,43 @@ To achieve rock-solid 60 FPS inside mobile WebViews (Chromium on Android / WebKi
 | **Yummy Bingo Reel Motion** | Heavy CSS filter blur on complex SVGs | Hardware layer translation (`transform: translate3d(0, 0, 0); will-change: transform; contain: strict; backface-visibility: hidden;`) | Smooth 60 FPS spin deceleration and cabinet slam |
 | **Flutter Android WebView Config** | Default webview parameters | `setMediaPlaybackRequiresUserGesture(false)`, static base64 image caching, state payload deduplication | 0ms disk I/O on re-opens; instant audio playback |
 
+---
+
+## 14. Lucky Spin Wheel (Ferris Wheel) HTML5 Architecture & Parity Specification
+
+### 14.1 Architecture Rationale
+To eliminate mobile device rendering stutter, memory pressure from heavy Flutter widget trees (3,900+ lines in `spin_wheel_screen.dart`), and complex animation controller allocations, the Spin Wheel game is migrated to a dedicated, high-performance HTML5/CSS3/Vanilla JS engine (`assets/games/spin_wheel.html`) embedded via `webview_flutter`.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│             Flutter Host (spin_wheel_screen.dart)           │
+│  - WebViewController (Hardware accelerated, transparent bg) │
+│  - PopScope & System UI edge-to-edge styling                │
+│  - Riverpod State (walletBalanceProvider, GameService)     │
+│  - JavascriptChannel('FlutterApp')                          │
+└──────────────┬───────────────────────────────▲──────────────┘
+               │ JSON State Messages           │ JSON Action Requests
+               │ (Balance, RoundSync, User)    │ (PlaceBet, Audio, Pop)
+┌──────────────▼───────────────────────────────┴──────────────┐
+│           HTML5 Game Engine (assets/games/spin_wheel.html)  │
+│  - Plus Jakarta Sans unified typography                     │
+│  - Ferris wheel with 8 food pods + glowing spotlight        │
+│  - Salad (5x) & Pizza (45x) pedestals + payout breakdown     │
+│  - Solid red (#e52828) bottom dashboard + seated chips      │
+│  - 40s Synchronized Cycle (30s betting, 4.5s spin, results)  │
+│  - Result Sheet, Catatan saya, Daily Top Players, Rules     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 Parity & Contract Checklist
+
+| Category | Component / Spec | Flutter Original Behavior | HTML5 Engine Requirement |
+|---|---|---|---|
+| **Round Cycle** | 40s Global Cycle | `roundId = floor(now / 40000)`. 0-30s betting ("Select time", 30→0s). ≤10s: "BETS CLOSED". 30-34.5s spinning. 34.5-38s results sheet. 38-40s transition. | Exactly synced to epoch modulo 40s + backend `serverTimeOffset`. |
+| **Betting** | 4 Chips & Items | Chips: `100`, `1k`, `10k`, `100k`. 8 pods: Hotdog (10x), Skewer (15x), Chicken (25x), Steak (45x), Carrot (5x), Corn (5x), Cabbage (5x), Tomato (5x). | Identical denominations, badges, and active chip states. |
+| **Salad & Pizza** | Category Logic | Salad (5x): Tomato, Cabbage, Corn, Carrot. Pizza (45x): Hotdog, Skewer, Chicken, Steak. Tapping adds category bets; payouts calculate item-by-item breakdown. | Payout logic matches `calculateSpinWheelPrize` and `functions/index.js` 1:1. |
+| **Bottom Sheets** | Result Sheet | Dark `#0b0b13` sheet, fork+knife streamers, winning emoji badge, outcome pill, user panda avatar, wager/prize, live podium winners, auto-dismiss < 38s. | Identical markup, dark dim backdrop, drag handle, close button, and auto-dismiss. |
+| **Modals** | Catatan saya & Leaderboard | "Catatan saya >" shows game history with serial numbers, order IDs, WIN/LOSE stamps. "Daily Top Players" shows top 10 daily winners. | Full modal sheets matching styling and interactive tabs. |
+| **Design** | Dashboard & Typography | Solid red `#e52828` dashboard, chips seated flush on top ledge, booth backrests visible. Font: Plus Jakarta Sans throughout. | Pixel-perfect visual replica. |
+
+

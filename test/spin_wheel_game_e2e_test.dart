@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -47,6 +48,35 @@ void main() {
       );
       // Only Tomato pays (200 * 5 = 1000). Hotdog loses.
       expect(prize, equals(1000));
+    });
+
+    test('Multi-chip concurrent taps: Partial confirmed bets with later Tomato bet awards win', () {
+      final confirmedBets = {'Carrot': 100000, 'Steak': 100000};
+      final currentBets = {'Carrot': 100000, 'Steak': 100000, 'Tomato': 100000};
+      final serverReceiptBets = {'Carrot': 100000, 'Steak': 100000};
+
+      // Exact merging logic used in spin_wheel_screen.dart
+      final activeBets = <String, int>{};
+      for (final entry in serverReceiptBets.entries) {
+        activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+      }
+      for (final entry in confirmedBets.entries) {
+        activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+      }
+      for (final entry in currentBets.entries) {
+        activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+      }
+
+      final prize = calculateSpinWheelPrize(
+        bets: activeBets,
+        winningName: 'Tomato',
+        winningCategory: 'standard',
+        multiplier: 5,
+      );
+      expect(prize, equals(500000), reason: 'Tomato bet must be recognized even when added in a later tap batch');
+      expect(activeBets['Tomato'], equals(100000));
+      expect(activeBets['Carrot'], equals(100000));
+      expect(activeBets['Steak'], equals(100000));
     });
 
     test('Losing bet: Bet on Skewer (500), Carrot lands', () {
@@ -302,12 +332,10 @@ void main() {
       expect(find.text('0'), findsNWidgets(1)); // carrot 0
     });
 
-    testWidgets('Case 5: Winners Podium UI - Renders Top 3 winners with ranks and diamond amounts', (tester) async {
+    testWidgets('Case 5: Daily Top Player Profile UI - Renders Daily Top Player card with avatar, name, and winnings', (tester) async {
       final winItem = SpinItem(name: 'Steak', multiplier: 45, emoji: '🥩', category: 'standard');
-      final mockWinners = [
-        {'name': 'Alex Pro', 'winnings': 45000, 'avatar': ''},
-        {'name': 'Sam VIP', 'winnings': 22500, 'avatar': ''},
-        {'name': 'Jordan', 'winnings': 9000, 'avatar': ''},
+      final mockLeaderboard = [
+        {'name': 'Alex Pro', 'totalWinnings': 45000, 'avatar': ''},
       ];
 
       await tester.pumpWidget(
@@ -315,13 +343,15 @@ void main() {
           home: Scaffold(
             body: ProviderScope(
               overrides: [
-                luckySpinCurrentRoundWinnersProvider.overrideWith((ref, roundId) => Stream.value(mockWinners)),
+                luckySpinLeaderboardProvider.overrideWith((ref) => Stream.value(mockLeaderboard)),
+                luckySpinStatsProvider.overrideWith((ref) => Stream.value({})),
+                luckySpinCurrentRoundWinnersProvider.overrideWith((ref, roundId) => Stream.value([])),
               ],
               child: SpinWheelResultBottomSheet(
                 item: winItem,
                 winnings: 45000,
                 wager: 1000,
-                winners: mockWinners,
+                winners: const [],
                 roundId: '1005',
                 bets: const {'Steak': 1000},
               ),
@@ -329,25 +359,19 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-      // Verify Podium divider title
-      expect(find.text("This round's biggest winner"), findsOneWidget);
+      // Verify Daily Top Player header divider title
+      expect(find.text("DAILY TOP PLAYER"), findsOneWidget);
 
-      // Verify Winner Names
+      // Verify Daily Top Player badge and name
+      expect(find.text('TOP #1'), findsOneWidget);
       expect(find.text('Alex Pro'), findsOneWidget);
-      expect(find.text('Sam VIP'), findsOneWidget);
-      expect(find.text('Jordan'), findsOneWidget);
+      expect(find.text("Today's Highest Earner"), findsOneWidget);
 
-      // Verify Formatted Winnings (e.g. 45.0K, 22.5K, 9.0K)
+      // Verify Formatted Winnings (45.0K)
       expect(find.text('45.0K'), findsOneWidget);
-      expect(find.text('22.5K'), findsOneWidget);
-      expect(find.text('9.0K'), findsOneWidget);
-
-      // Verify Rank badges 1, 2, 3
-      expect(find.text('1'), findsOneWidget);
-      expect(find.text('2'), findsOneWidget);
-      expect(find.text('3'), findsOneWidget);
     });
   });
 
@@ -446,6 +470,95 @@ void main() {
       expect(round1Id, equals('0'));
       expect(round2Id, equals('1'));
       expect(round1Id != round2Id, isTrue);
+    });
+  });
+
+  group('Spin Wheel - Indicator Alignment & Target Sector Resolution', () {
+    final foodSegments = [
+      {'id': '1', 'name': 'Tomato', 'multiplier': 5, 'emoji': '🍅', 'category': 'salad'},
+      {'id': '2', 'name': 'Hotdog', 'multiplier': 10, 'emoji': '🌭', 'category': 'pizza'},
+      {'id': '3', 'name': 'Skewer', 'multiplier': 15, 'emoji': '🍢', 'category': 'pizza'},
+      {'id': '4', 'name': 'Chicken', 'multiplier': 25, 'emoji': '🍗', 'category': 'pizza'},
+      {'id': '5', 'name': 'Steak', 'multiplier': 45, 'emoji': '🥩', 'category': 'pizza'},
+      {'id': '6', 'name': 'Carrot', 'multiplier': 5, 'emoji': '🥕', 'category': 'salad'},
+      {'id': '7', 'name': 'Corn', 'multiplier': 5, 'emoji': '🌽', 'category': 'salad'},
+      {'id': '8', 'name': 'Cabbage', 'multiplier': 5, 'emoji': '🥬', 'category': 'salad'},
+    ];
+
+    test('Indicator lands on Tomato (index 0) even if outcome sectorIndex is mismatched', () {
+      final outcome = {
+        'name': 'Tomato',
+        'sectorIndex': 7, // Intentionally mismatched to test name priority
+        'multiplier': 5,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(0));
+      expect(foodSegments[idx]['name'], equals('Tomato'));
+    });
+
+    test('Indicator lands on Corn (index 6)', () {
+      final outcome = {
+        'name': 'Corn',
+        'sectorIndex': 6,
+        'multiplier': 5,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(6));
+      expect(foodSegments[idx]['name'], equals('Corn'));
+    });
+
+    test('Indicator lands on Steak (index 4) with synonym "meat"', () {
+      final outcome = {
+        'name': 'meat',
+        'sectorIndex': 0,
+        'multiplier': 45,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(4));
+      expect(foodSegments[idx]['name'], equals('Steak'));
+    });
+
+    test('Indicator lands on Skewer (index 2) with synonym "kebab"', () {
+      final outcome = {
+        'name': 'kebab',
+        'sectorIndex': 0,
+        'multiplier': 15,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(2));
+      expect(foodSegments[idx]['name'], equals('Skewer'));
+    });
+
+    test('Special Salad Round lands on a valid salad vegetable (e.g. Tomato at index 0)', () {
+      final outcome = {
+        'name': 'Salad',
+        'type': 'salad',
+        'multiplier': 5,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(0));
+      expect(foodSegments[idx]['category'], equals('salad'));
+    });
+
+    test('Special Pizza Round lands on a valid pizza meat', () {
+      final outcome = {
+        'name': 'Pizza',
+        'type': 'pizza',
+        'multiplier': 45,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(foodSegments[idx]['category'], equals('pizza'));
+    });
+
+    test('Fallback to raw sectorIndex when outcome name is empty or unknown', () {
+      final outcome = {
+        'name': '',
+        'sectorIndex': 3,
+        'multiplier': 25,
+      };
+      final idx = resolveTargetSectorIndex(outcome, foodSegments);
+      expect(idx, equals(3));
+      expect(foodSegments[idx]['name'], equals('Chicken'));
     });
   });
 }

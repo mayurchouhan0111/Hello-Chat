@@ -71,7 +71,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   String _countdownLabel = "Select time";
 
   late AnimationController _idleController;
+  late AnimationController _spinController;
+  Animation<double>? _spinAnimation;
+  Timer? _spinFallbackTimer;
+  int _optimisticWinnings = 0;
   SpinGameState _gameState = SpinGameState.betting;
+  Map<String, dynamic>? _currentSpinOutcome;
 
   // Track cached sound paths to avoid socket exceptions
   String? _localBetSoundPath;
@@ -82,17 +87,118 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   void _playBetSoundAndHaptic() {}
   void _playCountdownTick() {}
 
+  bool _isShowingConnectionDialog = false;
+
+  void _showConnectionNotFoundDialog({String? title, String? message}) {
+    if (!mounted || _isShowingConnectionDialog) return;
+    _isShowingConnectionDialog = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF1E1B2E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.amber.withOpacity(0.3), width: 1.5),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.wifi_off_rounded,
+                  color: Colors.redAccent,
+                  size: 40,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title ?? "Connection Not Found",
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message ?? "Unable to reach server. Please check your internet connection and try again.",
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                      },
+                      child: const Text("CLOSE"),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFACC15),
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        elevation: 0,
+                      ),
+                      onPressed: () async {
+                        Navigator.of(ctx).pop();
+                        final online = await NetworkConnectivityService().checkConnection();
+                        if (mounted) {
+                          _updateOfflineState(platformOnline: online);
+                        }
+                      },
+                      child: const Text(
+                        "RETRY",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) {
+      _isShowingConnectionDialog = false;
+    });
+  }
+
   void _placeBet(String itemName, List<SpinItem> items) {
     if (_isBetLocked || _isOffline || !_platformHasNetwork) {
       debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": isBetLocked=$_isBetLocked, isOffline=$_isOffline, platformHasNetwork=$_platformHasNetwork');
       if (mounted && (_isOffline || !_platformHasNetwork)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Cannot place bet while offline. Please check your connection."),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showConnectionNotFoundDialog();
       }
       return;
     }
@@ -162,32 +268,60 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     });
   }
 
-  Future<void> _autoSubmitBets() async {
-    if (_currentBets.isEmpty || _isOffline || !_platformHasNetwork || _isAutoSubmitting) return;
+  bool _hasPendingAdditionalBets = false;
 
-    final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-    if (totalBet <= 0) return;
+  bool _hasUnconfirmedBets() {
+    for (final entry in _currentBets.entries) {
+      if ((_confirmedBets[entry.key] ?? 0) < entry.value) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _autoSubmitBets() async {
+    if (_currentBets.isEmpty || _isOffline || !_platformHasNetwork) return;
+
+    if (_isAutoSubmitting) {
+      _hasPendingAdditionalBets = true;
+      debugPrint('[SPIN_WHEEL_EVENT] ⏳ Auto-submit already in flight; queued pending bets for next batch');
+      return;
+    }
 
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
     final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
-    final roundId = (now ~/ serverRoundMs).toString();
+    final submissionRoundId = (now ~/ serverRoundMs).toString();
 
     if (secondsIntoCycle >= 30) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 30s for round $roundId');
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 30s for round $submissionRoundId');
       return;
     }
 
+    final snapshotBets = Map<String, int>.from(_currentBets);
+    final totalBet = snapshotBets.values.fold(0, (sum, val) => sum + val);
+    if (totalBet <= 0) return;
+
     _isAutoSubmitting = true;
-    debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$_currentBets, roundId=$roundId, secIntoCycle=$secondsIntoCycle');
+    _hasPendingAdditionalBets = false;
+    debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$snapshotBets, roundId=$submissionRoundId, secIntoCycle=$secondsIntoCycle');
+    final remainingMs = 28000 - (now % serverRoundMs);
+    final timeoutMs = remainingMs > 5000 ? remainingMs.clamp(5000, 22000) : 5000;
     try {
       final result = await ref.read(gameServiceProvider).playSpinWheel(
         betAmount: totalBet,
-        bets: _currentBets,
+        bets: snapshotBets,
+        roundId: submissionRoundId,
         roomId: widget.roomId,
-      );
+      ).timeout(Duration(milliseconds: timeoutMs));
 
       if (!mounted) return;
+
+      // STALE CLOSURE GUARD: If round changed while request was in flight, discard response
+      if (_currentRoundId != submissionRoundId) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Stale bet response ignored for round $submissionRoundId (current: $_currentRoundId)');
+        return;
+      }
 
       final resultRoundId = result['roundId']?.toString();
       final serverTime = (result['serverTime'] as num?)?.toInt();
@@ -196,19 +330,35 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _serverTimeOffset = serverTime - localNow;
         debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized from API: offset=$_serverTimeOffset ms');
       }
-      debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId, prize=${result['prize']}, bets=$_currentBets');
-      if (resultRoundId != null) {
+
+      if (resultRoundId == submissionRoundId) {
+        debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId, prize=${result['prize']}, bets=$snapshotBets');
         _submittedSpinResult = result;
         setState(() {
-          _confirmedBets = Map.from(_currentBets);
+          _confirmedBets = Map.from(snapshotBets);
         });
         GameRecoveryService().clearBetState();
       }
     } catch (e) {
-      debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Rolling back local bets!");
+      debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Handled gracefully.");
       _hasStartedFallbackCall = false;
-      if (mounted) {
-        // REJECT and ROLLBACK unconfirmed bet locally if server call fails!
+
+      if (!mounted) return;
+
+      // If user already has confirmed bets or an authoritative result, never wipe or show error!
+      if (_submittedSpinResult != null || _confirmedBets.isNotEmpty) {
+        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Suppressed error: User already has confirmed bets or result in place.');
+        return;
+      }
+
+      // STRICT PHASE GUARD: Never show late bet failure during spinning or results phase!
+      if (_gameState != SpinGameState.betting || _currentRoundId != submissionRoundId) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Suppressed late bet error during ${_gameState.name} phase.');
+        return;
+      }
+
+      final errorStr = e.toString();
+      if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
         setState(() {
           _currentBets = {};
           _betClickCounts = {};
@@ -216,16 +366,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _submittedSpinResult = null;
         });
         GameRecoveryService().clearBetState();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Bet failed to reach server. Please check your connection."),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+      } else if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+        _showConnectionNotFoundDialog();
       }
     } finally {
       _isAutoSubmitting = false;
+      // If user placed additional bets while this network call was in flight, immediately dispatch the next batch!
+      if (mounted && (_hasPendingAdditionalBets || _hasUnconfirmedBets())) {
+        _hasPendingAdditionalBets = false;
+        final currentSec = (_synchronizedTimeMs % 40000) ~/ 1000;
+        if (_gameState == SpinGameState.betting && currentSec < 30) {
+          debugPrint('[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now...');
+          _autoSubmitBets();
+        }
+      }
     }
   }
 
@@ -264,7 +418,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       }
     } catch (e) {
       debugPrint("[SPIN_WHEEL_EVENT] ⚠️ Spectator pre-fetch failed: $e");
-      _hasStartedFallbackCall = false;
+      _hasStartedFallbackCall = true;
     }
   }
 
@@ -286,11 +440,35 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   int _serverTimeOffset = 0;
   StreamSubscription? _offsetSubscription;
   StreamSubscription? _rtdbRoundSubscription;
+  StreamSubscription? _rtdbRecentResultsSubscription;
+  final List<Map<String, dynamic>> _realtimeRecentResults = [];
   String? _hasSpunForRound;
   bool _hasStartedFallbackCall = false;
 
   int get _synchronizedTimeMs {
     return DateTime.now().millisecondsSinceEpoch + _serverTimeOffset;
+  }
+
+  void _recordRoundOutcomeForRecentResults(Map<String, dynamic> outcome) {
+    final rId = outcome['roundId']?.toString();
+    if (rId == null || rId.isEmpty) return;
+    final exists = _realtimeRecentResults.any((r) => r['roundId']?.toString() == rId);
+    if (!exists && mounted) {
+      setState(() {
+        _realtimeRecentResults.insert(0, {
+          'roundId': rId,
+          'name': outcome['name'] ?? '',
+          'emoji': outcome['emoji'] ?? '',
+          'label': outcome['label'] ?? '${outcome['multiplier']}x',
+          'multiplier': (outcome['multiplier'] as num?)?.toInt() ?? 5,
+          'category': outcome['category'] ?? 'standard',
+          'timestamp': outcome['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
+        });
+        if (_realtimeRecentResults.length > 30) {
+          _realtimeRecentResults.removeRange(30, _realtimeRecentResults.length);
+        }
+      });
+    }
   }
 
   void _subscribeToRealtimeRoundState() {
@@ -308,9 +486,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
           debugPrint('[SPIN_WHEEL_EVENT] 📡 RTDB stream event received for round $roundId: name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
 
-          // Always store the latest outcome for "Last Winner" display
+          // Always store the latest outcome for "Last Winner" display and realtime result bar
           if (roundId != null) {
             _lastGlobalOutcome = outcome;
+            _recordRoundOutcomeForRecentResults(outcome);
           }
 
           final now = _synchronizedTimeMs;
@@ -336,6 +515,39 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         }
       } catch (e) {
         debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing RTDB lastGlobalOutcome: $e');
+      }
+    });
+
+    _rtdbRecentResultsSubscription = FirebaseDatabase.instance
+        .ref('lucky_spin_stats/recentResults')
+        .onValue
+        .listen((event) {
+      if (!mounted || event.snapshot.value == null) return;
+      try {
+        final val = event.snapshot.value;
+        if (val is List && mounted) {
+          setState(() {
+            for (final item in val) {
+              if (item is Map) {
+                final map = Map<String, dynamic>.from(item);
+                final rId = map['roundId']?.toString();
+                if (rId != null && !_realtimeRecentResults.any((r) => r['roundId']?.toString() == rId)) {
+                  _realtimeRecentResults.add(map);
+                }
+              }
+            }
+            _realtimeRecentResults.sort((a, b) {
+              final aId = int.tryParse(a['roundId']?.toString() ?? '0') ?? 0;
+              final bId = int.tryParse(b['roundId']?.toString() ?? '0') ?? 0;
+              return bId.compareTo(aId);
+            });
+            if (_realtimeRecentResults.length > 30) {
+              _realtimeRecentResults.removeRange(30, _realtimeRecentResults.length);
+            }
+          });
+        }
+      } catch (e) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing RTDB recentResults: $e');
       }
     });
   }
@@ -406,6 +618,29 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         });
       } else {
         _pointerAngle = currentAngle;
+      }
+    });
+
+    _spinController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4200),
+    );
+    _spinController.addListener(() {
+      if (_spinAnimation != null && mounted) {
+        final double animVal = _spinAnimation!.value;
+        final int stepCount = animVal.round();
+        final int segment = ((stepCount % 8) + 8) % 8;
+        if (segment != _currentSegment || _pointerAngle != animVal) {
+          setState(() {
+            _currentSegment = segment;
+            _pointerAngle = animVal * (2 * math.pi / 8);
+          });
+        }
+      }
+    });
+    _spinController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _handleDecelerationComplete();
       }
     });
 
@@ -533,16 +768,25 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _dismissBottomSheet();
         _clearStoredResult();
 
+        _spinFallbackTimer?.cancel();
+        _spinController.stop();
+        _spinController.reset();
+
         setState(() {
           _currentBets = {};
           _betClickCounts = {};
           _confirmedBets = {};
           _submittedSpinResult = null;
           _isAutoSubmitting = false;
+          _hasPendingAdditionalBets = false;
           _hasSpunForRound = null;
           _hasStartedFallbackCall = false;
           _hasShownResultForRound = null;
           _isProcessingSpin = false;
+          _isSpinning = false;
+          _spinAnimation = null;
+          _optimisticWinnings = 0;
+          _currentSpinOutcome = null;
           _pendingRoundResult = null;
           _hasPendingResult = false;
           _resultPendingRoundId = null;
@@ -608,10 +852,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newGameState = SpinGameState.betting;
         newCountdown = 30 - secondsIntoCycle;
         newCountdownLabel = "BETS CLOSED";
-        if (!_isAutoSubmitting && _submittedSpinResult == null && !_hasPendingResult) {
-          if (_currentBets.isNotEmpty) {
+        if (!_isAutoSubmitting) {
+          if (_hasUnconfirmedBets()) {
             _autoSubmitBets();
-          } else if (!_hasStartedFallbackCall) {
+          } else if (_currentBets.isEmpty && !_hasPendingResult && !_hasStartedFallbackCall) {
             _hasStartedFallbackCall = true;
             _preFetchRoundOutcome();
           }
@@ -759,28 +1003,49 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             int wager = 0;
             Map<String, int>? betsCopy;
 
-            final resultName = outcome['name'] as String? ?? "";
-            final resultEmoji = outcome['emoji'] as String? ?? "";
-            final resultCategory = outcome['category'] as String?;
-            final int serverSectorIndex = (outcome['sectorIndex'] as num?)?.toInt() ?? 0;
+            final int targetIdx = resolveTargetSectorIndex(outcome, segmentsMap);
+            final matchingSegment = (targetIdx >= 0 && targetIdx < segmentsMap.length)
+                ? segmentsMap[targetIdx]
+                : (segmentsMap.isNotEmpty ? segmentsMap.first : {});
 
-            final matchingSegment = segmentsMap.firstWhere(
-              (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
-              orElse: () => (serverSectorIndex >= 0 && serverSectorIndex < segmentsMap.length)
-                  ? segmentsMap[serverSectorIndex]
-                  : {},
-            );
+            final resultName = outcome['name'] as String? ?? matchingSegment['name'] ?? "";
+            final resultEmoji = outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
+            final resultCategory = outcome['category'] as String? ?? matchingSegment['category'];
 
             final winMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
                 (matchingSegment['multiplier'] as num?)?.toInt() ??
-                0;
+                5;
 
-            // Prioritize authoritative _submittedSpinResult if user placed a bet
-            if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
-              prize = (_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0;
-              wager = (_submittedSpinResult!['totalBet'] as num?)?.toInt() ??
-                  _confirmedBets.values.fold(0, (sum, val) => sum + val);
-              betsCopy = _confirmedBets.isNotEmpty ? Map<String, int>.from(_confirmedBets) : null;
+            // Authoritative Bet & Prize resolution for celebration catch-up:
+            final Map<String, int> activeBets = {};
+            if (_submittedSpinResult != null && _submittedSpinResult!['bets'] is Map) {
+              for (final entry in (_submittedSpinResult!['bets'] as Map).entries) {
+                final k = entry.key.toString();
+                final v = (entry.value as num?)?.toInt() ?? 0;
+                if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
+              }
+            }
+            for (final entry in _confirmedBets.entries) {
+              if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+            }
+            for (final entry in _currentBets.entries) {
+              if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+            }
+
+            if (activeBets.isNotEmpty) {
+              wager = activeBets.values.fold(0, (sum, val) => sum + val);
+              betsCopy = Map<String, int>.from(activeBets);
+              final localPrize = calculateSpinWheelPrize(
+                bets: activeBets,
+                winningName: matchingSegment['name'] ?? resultName,
+                winningCategory: resultCategory ?? matchingSegment['category'],
+                roundType: outcome['type'] as String? ?? 'standard',
+                multiplier: winMultiplier,
+              );
+              final serverPrize = (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId)
+                  ? ((_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0)
+                  : 0;
+              prize = math.max(serverPrize, localPrize);
             } else {
               // Try to recover user's actual bet result from their game history if they were a player
               final history = ref.read(userGameHistoryProvider).value ?? [];
@@ -789,23 +1054,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                 prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
                 wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
                 betsCopy = (matchedHistory['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
-              } else if (_confirmedBets.isNotEmpty) {
-                wager = _confirmedBets.values.fold(0, (sum, val) => sum + val);
-                betsCopy = Map<String, int>.from(_confirmedBets);
-                prize = calculateSpinWheelPrize(
-                  bets: _confirmedBets,
-                  winningName: matchingSegment['name'] ?? resultName,
-                  winningCategory: resultCategory ?? matchingSegment['category'],
-                  roundType: outcome['type'] as String? ?? 'standard',
-                  multiplier: winMultiplier,
-                );
               }
             }
 
             final winningItem = SpinItem(
               name: matchingSegment['name'] ?? resultName,
               multiplier: winMultiplier,
-              emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
+              emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? '🎰'),
               category: resultCategory ?? matchingSegment['category']
             );
 
@@ -813,6 +1068,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             final roundIdVal = outcome['roundId']?.toString() ?? _currentRoundId ?? '';
 
             _hasSpunForRound = _currentRoundId;
+            _currentSegment = targetIdx;
+            _pointerAngle = (targetIdx * (2 * math.pi / 8));
+            _spinCompleted = true;
+            _recordRoundOutcomeForRecentResults(outcome);
             _resultLock = true;
             _hasPendingResult = false;
             _hasShownResultForRound = _currentRoundId;
@@ -853,13 +1112,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Cannot play while offline. Please check your connection."),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        _showConnectionNotFoundDialog();
       }
       return;
     }
@@ -977,18 +1230,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           }
         });
         
-        // ONLY SHOW SNACKBAR TO ACTIVE PLAYERS!
+        // If network issue, show dedicated connection dialog
         if (hadBet) {
-          String errorMessage = "Failed to spin. Please try again.";
           final errorStr = e.toString();
-          if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
-            errorMessage = "Betting phase closed. Please wait for the next round.";
-          } else if (e is FirebaseFunctionsException) {
-            errorMessage = e.message ?? errorMessage;
-          } else {
-            errorMessage = "Error: ${errorStr.split('\\n').first}";
+          if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline || errorStr.contains('network') || errorStr.contains('unavailable') || errorStr.contains('deadline-exceeded')) {
+            _showConnectionNotFoundDialog();
           }
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
         }
       }
     }
@@ -1007,9 +1254,58 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       return;
     }
 
+    final outcomeRoundId = outcome['roundId']?.toString();
+    final activeRoundId = (now ~/ serverRoundMs).toString();
+
+    // Stale Round Guard: If this result belongs to a past round, do NOT disrupt the new round!
+    if (outcomeRoundId != null && outcomeRoundId != activeRoundId) {
+      debugPrint('[SPIN_GAME_LOG] ⚠️ Discarded stale spin outcome from past round: $outcomeRoundId (current: $activeRoundId)');
+      setState(() {
+        _isSpinning = false;
+        _isProcessingSpin = false;
+        _gameState = (secondsIntoCycle < 30) ? SpinGameState.betting : SpinGameState.spinning;
+        _isBetLocked = (secondsIntoCycle >= 20);
+      });
+      return;
+    }
+
     _tickTimer?.cancel();
     _idleController.stop();
     _idleController.reset();
+    ScaffoldMessenger.of(context).clearSnackBars();
+
+    _currentSpinOutcome = outcome;
+
+    final settings = ref.read(gameSettingsProvider).value;
+    final segmentsMap = (settings?['segments'] as List? ?? []);
+    final int targetIdx = resolveTargetSectorIndex(outcome, segmentsMap);
+    final int startIdx = _currentSegment;
+
+    // Calculate dynamic spin duration based on time left in 30s-35s phase
+    final msIntoCycle = now % serverRoundMs;
+    int remainingSpinMs = 35000 - msIntoCycle;
+    if (remainingSpinMs < 1200) {
+      remainingSpinMs = 1200; // Minimum 1.2s so the user sees a smooth finish
+    } else if (remainingSpinMs > 4500) {
+      remainingSpinMs = 4500;
+    }
+
+    final int distance = (targetIdx - (startIdx % 8) + 8) % 8;
+    final int fullRotations = remainingSpinMs > 2500 ? 4 : 2;
+    final double totalSegmentSteps = (fullRotations * 8 + distance).toDouble();
+
+    final double startVal = startIdx.toDouble();
+    final double targetVal = startVal + totalSegmentSteps;
+
+    _spinAnimation = Tween<double>(
+      begin: startVal,
+      end: targetVal,
+    ).animate(
+      CurvedAnimation(
+        parent: _spinController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
 
     setState(() {
       _isSpinning = true;
@@ -1017,268 +1313,180 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       _gameState = SpinGameState.spinning;
     });
 
-    final settings = ref.read(gameSettingsProvider).value;
-    final segmentsMap = (settings?['segments'] as List? ?? []);
+    _playPhaseSound(SpinGameState.spinning);
+    debugPrint('[SPIN_WHEEL_EVENT] 🎡 Starting Hardware-Accelerated Spin: roundId=$outcomeRoundId, startIdx=$startIdx, targetIdx=$targetIdx, duration=${remainingSpinMs}ms');
 
-    // Do NOT overwrite user's actual winnings with public outcome['prize'].
-    // Public RTDB outcome never contains private user prizes.
-    final outcomeRoundId = outcome['roundId']?.toString();
-    int prize = 0;
-    if (_submittedSpinResult != null &&
-        (_submittedSpinResult!['roundId']?.toString() == outcomeRoundId || outcomeRoundId == null)) {
-      prize = (_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0;
-    } else if (outcome['prize'] != null) {
-      prize = (outcome['prize'] as num).toInt();
-    }
-    final label = outcome['label'] as String? ?? "0x";
-    final type = outcome['type'] as String? ?? "standard";
-    _lastResultType = type;
+    _spinController.duration = Duration(milliseconds: remainingSpinMs);
+    _spinController.forward(from: 0.0);
+  }
 
-    final int serverSectorIndex = (outcome['sectorIndex'] as num?)?.toInt() ?? 0;
-    final int targetIdx = serverSectorIndex;
-    final int startIdx = _currentSegment;
-    
-    // Calculate dynamic deceleration to finish exactly before results phase
-    final activeRoundId = (now ~/ serverRoundMs).toString();
-    final msIntoCycle = now % serverRoundMs;
+  void _handleDecelerationComplete() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
 
-    // Stale Round Guard: If this result belongs to a past round, do NOT disrupt the new round's betting phase!
-    if (outcomeRoundId != null && outcomeRoundId != activeRoundId) {
-      debugPrint('[SPIN_GAME_LOG] ⚠️ Discarded stale spin outcome from past round: $outcomeRoundId (current: $activeRoundId)');
+    final outcome = _currentSpinOutcome;
+    if (outcome == null) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Deceleration complete without active outcome.');
       setState(() {
         _isSpinning = false;
         _isProcessingSpin = false;
-        _gameState = (msIntoCycle < 30000) ? SpinGameState.betting : SpinGameState.spinning;
-        _isBetLocked = (msIntoCycle >= 25000);
       });
       return;
     }
 
-    double targetSpinDuration;
-    if (msIntoCycle >= 35000) {
-      // Past the spin phase of the current round, spin quickly
-      targetSpinDuration = 600.0;
-    } else {
-      // Normal case: finish exactly at the end of the spin phase
-      targetSpinDuration = (35000 - msIntoCycle).toDouble().clamp(600.0, 5000.0);
-    }
-    
-    int distanceToTarget = (targetIdx - startIdx + 8) % 8;
-    int fullRotations = (targetSpinDuration ~/ 1200).clamp(1, 4); 
-    final int totalTicks = distanceToTarget + (fullRotations * 8);
+    final roundId = outcome['roundId']?.toString() ?? _currentRoundId ?? "";
+    final settings = ref.read(gameSettingsProvider).value;
+    final segmentsMap = (settings?['segments'] as List? ?? []);
 
-    debugPrint('[SPIN_WHEEL_EVENT] 🎡 Starting Wheel Animation: roundId: $outcomeRoundId, msIntoCycle: $msIntoCycle, duration: ${targetSpinDuration.toInt()}ms, startSector: $startIdx, targetSector: $targetIdx, totalTicks: $totalTicks');
+    final int targetIdx = resolveTargetSectorIndex(outcome, segmentsMap);
 
-    _tickDurations = [];
-    double sumSquares = 0;
-    for (int i = 0; i < totalTicks; i++) {
-      sumSquares += (i / totalTicks) * (i / totalTicks);
-    }
-    
-    double baseA = 50.0; // minimum tick duration
-    double baseB = (targetSpinDuration - totalTicks * baseA) / (sumSquares == 0 ? 1 : sumSquares);
-    if (baseB < 0) { 
-      baseB = 0; 
-      baseA = targetSpinDuration / totalTicks; 
-    }
-    
-    for (int i = 0; i < totalTicks; i++) {
-      double progress = i / totalTicks;
-      _tickDurations.add(baseA + baseB * progress * progress);
-    }
-    
-    _tickFireTimes = [];
-    double acc = 0;
-    for (double d in _tickDurations) {
-      _tickFireTimes.add(acc);
-      acc += d;
-    }
-    
-    _tickCurrentIndex = startIdx;
-    _currentTickIndex = 0;
-    _tickTargetIndex = targetIdx;
-    
-    final DateTime startTime = DateTime.now();
-    
-    void tickStep() {
-      if (!mounted || !_isSpinning) {
-        _tickTimer?.cancel();
-        return;
-      }
-      
-      final elapsedMs = (DateTime.now().difference(startTime).inMicroseconds / 1000.0);
-      
-      int ticksAdvanced = 0;
-      while (_currentTickIndex < _tickFireTimes.length && 
-             _tickFireTimes[_currentTickIndex] <= elapsedMs) {
-        _tickCurrentIndex = (_tickCurrentIndex + 1) % 8;
-        _currentTickIndex++;
-        ticksAdvanced++;
-      }
+    // Authoritative Bet & Prize resolution:
+    final bool hasServerResult = _submittedSpinResult != null &&
+        (_submittedSpinResult!['roundId']?.toString() == roundId || roundId.isEmpty);
 
-      if (ticksAdvanced > 0 && mounted) {
-        setState(() {
-          _currentSegment = _tickCurrentIndex;
-        });
-      }
-      
-      if (_currentTickIndex >= _tickFireTimes.length) {
-        _tickTimer?.cancel();
-
-        final roundId = outcome['roundId']?.toString() ?? "";
-
-        // Authoritative Bet & Prize resolution:
-        final bool hasServerResult = _submittedSpinResult != null &&
-            (_submittedSpinResult!['roundId']?.toString() == roundId || roundId.isEmpty);
-
-        final Map<String, int> activeBets = _confirmedBets.isNotEmpty
-            ? _confirmedBets
-            : (_currentBets.isNotEmpty ? _currentBets : {});
-
-        final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty;
-
-        final totalBet = activeBets.values.fold(0, (sum, val) => sum + val);
-        final effectiveTotalBet = totalBet > 0
-            ? totalBet
-            : (hasServerResult ? ((_submittedSpinResult?['totalBet'] as num?)?.toInt() ?? 0) : 0);
-
-        final betsCopy = activeBets.isNotEmpty
-            ? Map<String, int>.from(activeBets)
-            : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
-
-        final resultName = outcome['name'] as String? ?? "";
-        final resultEmoji = outcome['emoji'] as String? ?? "";
-        final resultCategory = outcome['category'] as String?;
-
-        final matchingSegment = segmentsMap.firstWhere(
-          (s) => s['name']?.toString().toLowerCase().trim() == resultName.toLowerCase().trim(),
-          orElse: () => (targetIdx >= 0 && targetIdx < segmentsMap.length) ? segmentsMap[targetIdx] : {},
-        );
-
-        final itemMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
-            (matchingSegment['multiplier'] as num?)?.toInt() ??
-            0;
-
-        final winningItem = SpinItem(
-          name: matchingSegment['name'] ?? resultName,
-          multiplier: itemMultiplier,
-          emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? ''),
-          category: resultCategory ?? matchingSegment['category'],
-        );
-
-        // AUTHORITATIVE PRIZE:
-        // 1. Prioritize _submittedSpinResult['prize'] as authoritative server receipt
-        // 2. If temporarily unavailable, calculate fallback: confirmed bet * multiplier
-        // 3. If losing bet or spectator, 0
-        int effectivePrize = 0;
-        if (hasConfirmedBet && effectiveTotalBet > 0) {
-          if (hasServerResult && _submittedSpinResult!['prize'] != null) {
-            effectivePrize = (_submittedSpinResult!['prize'] as num).toInt();
-          } else if (prize > 0) {
-            effectivePrize = prize;
-          } else {
-            effectivePrize = calculateSpinWheelPrize(
-              bets: activeBets,
-              winningName: winningItem.name,
-              winningCategory: winningItem.category,
-              roundType: type,
-              multiplier: itemMultiplier,
-            );
-          }
-        }
-
-        final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
-
-        setState(() {
-          _spinCompleted = true;
-          _currentSegment = targetIdx;
-          if (effectiveTotalBet > 0) {
-            _todayProfits += (effectivePrize - effectiveTotalBet);
-          }
-          _isSpinning = false;
-          _isProcessingSpin = false;
-          _currentBets = {};
-          _betClickCounts = {};
-          _confirmedBets = {};
-          // Do not clear _submittedSpinResult until result dialog completely finishes using it!
-          _storedWinItem = winningItem;
-          _storedPrize = effectivePrize;
-          _storedWager = effectiveTotalBet;
-          _storedWinners = roundWinners;
-          _storedRoundId = roundId;
-          _storedBets = betsCopy;
-          _resultLock = true;
-          _lastRoundResultForHistory = {
-            'roundId': roundId,
-            'name': winningItem.name,
-            'emoji': winningItem.emoji,
-            'label': '${winningItem.multiplier}x',
-            'multiplier': winningItem.multiplier,
-          };
-        });
-
-        _playPhaseSound(SpinGameState.results);
-
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(userGameHistoryProvider);
-        ref.invalidate(luckySpinStatsProvider);
-
-        // Show result ONLY when in the Results phase (34.5s - 38.5s)
-        final nowMs = _synchronizedTimeMs;
-        const serverRoundMs = 40000;
-        final msIntoCycle = nowMs % serverRoundMs;
-        final activeRoundId = (nowMs ~/ serverRoundMs).toString();
-
-        debugPrint('[SPIN_WHEEL_EVENT] 🎯 Wheel Animation Finished: landedOn: ${winningItem.name} (${winningItem.emoji}), sector: $targetIdx, multiplier: ${winningItem.multiplier}x, wager: $effectiveTotalBet, prize: $effectivePrize, profit: ${effectivePrize - effectiveTotalBet}');
-
-        // Strict Guard: ONLY trigger bottom sheet if still in current round's result window!
-        if (_hasShownResultForRound != roundId && roundId == activeRoundId && msIntoCycle >= 34500 && msIntoCycle < 38500) {
-          debugPrint('[SPIN_WHEEL_EVENT] 📜 Triggering Result Bottom Sheet for round $roundId');
-          _hasShownResultForRound = roundId;
-          _showStoredResult();
-        } else if (roundId != activeRoundId || msIntoCycle >= 38500) {
-          debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
-          _clearStoredResult();
-        }
-        return;
+    // Authoritative Bet & Prize resolution:
+    // Merge all bets across server receipt, confirmed state, and local bets taking the max wager per item
+    final Map<String, int> activeBets = {};
+    if (_submittedSpinResult != null && _submittedSpinResult!['bets'] is Map) {
+      for (final entry in (_submittedSpinResult!['bets'] as Map).entries) {
+        final k = entry.key.toString();
+        final v = (entry.value as num?)?.toInt() ?? 0;
+        if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
       }
     }
-    
-    _tickTimer?.cancel();
-    _tickTimer = Timer.periodic(const Duration(milliseconds: 16), (_) => tickStep());
-  }
+    for (final entry in _confirmedBets.entries) {
+      if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+    }
+    for (final entry in _currentBets.entries) {
+      if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+    }
 
-  void _buildTickDurations(int totalTicks, double slowdownFactor, int baseDuration) {
-    _tickDurations = [];
-    
-    int accelerationTicks = (totalTicks * 0.25).round();
-    int constantTicks = (totalTicks * 0.30).round();
-    int decelerationTicks = (totalTicks * 0.30).round();
-    int settlingTicks = totalTicks - accelerationTicks - constantTicks - decelerationTicks;
-    
-    double baseTickMs = baseDuration / totalTicks;
-    
-    double minTickMs = baseTickMs * 0.15;
-    double maxTickMs = baseTickMs * 2.5;
-    
-    for (int i = 0; i < totalTicks; i++) {
-      double progress = i / totalTicks;
-      double duration;
-      
-      if (i < accelerationTicks) {
-        double accelProgress = i / accelerationTicks;
-        duration = maxTickMs - (maxTickMs - minTickMs * 2) * accelProgress;
-      } else if (i < accelerationTicks + constantTicks) {
-        duration = minTickMs * 2;
-      } else if (i < accelerationTicks + constantTicks + decelerationTicks) {
-        double decelProgress = (i - accelerationTicks - constantTicks) / decelerationTicks;
-        duration = (minTickMs * 2) + ((maxTickMs * slowdownFactor) - (minTickMs * 2)) * decelProgress;
+    final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty;
+
+    final totalBet = activeBets.values.fold(0, (sum, val) => sum + val);
+    final effectiveTotalBet = totalBet > 0
+        ? totalBet
+        : (hasServerResult ? ((_submittedSpinResult?['totalBet'] as num?)?.toInt() ?? 0) : 0);
+
+    final betsCopy = activeBets.isNotEmpty
+        ? Map<String, int>.from(activeBets)
+        : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+
+    final matchingSegment = (targetIdx >= 0 && targetIdx < segmentsMap.length)
+        ? segmentsMap[targetIdx]
+        : (segmentsMap.isNotEmpty ? segmentsMap.first : {});
+
+    final resultName = outcome['name'] as String? ?? matchingSegment['name'] ?? "";
+    final resultEmoji = outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
+    final resultCategory = outcome['category'] as String? ?? matchingSegment['category'];
+    final type = outcome['type'] as String? ?? "standard";
+
+    final itemMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
+        (matchingSegment['multiplier'] as num?)?.toInt() ??
+        5;
+
+    final winningItem = SpinItem(
+      name: matchingSegment['name'] ?? resultName,
+      multiplier: itemMultiplier,
+      emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? '🎰'),
+      category: resultCategory ?? matchingSegment['category'],
+    );
+
+    // AUTHORITATIVE PRIZE:
+    // 1. Calculate prize from activeBets
+    // 2. If server has a higher prize (e.g. jackpot bonuses), use the max
+    // 3. 0 for losing bets or spectators
+    int effectivePrize = 0;
+    if (hasConfirmedBet && effectiveTotalBet > 0) {
+      final localCalculatedPrize = calculateSpinWheelPrize(
+        bets: activeBets,
+        winningName: winningItem.name,
+        winningCategory: winningItem.category,
+        roundType: type,
+        multiplier: itemMultiplier,
+      );
+
+      if (hasServerResult && _submittedSpinResult!['prize'] != null) {
+        final serverPrize = (_submittedSpinResult!['prize'] as num).toInt();
+        effectivePrize = math.max(serverPrize, localCalculatedPrize);
       } else {
-        double settleProgress = (i - accelerationTicks - constantTicks - decelerationTicks) / settlingTicks;
-        duration = maxTickMs * slowdownFactor * (1 + settleProgress * 2);
+        effectivePrize = localCalculatedPrize;
       }
-      
-      _tickDurations.add(duration.clamp(minTickMs, maxTickMs * 1.5));
+    }
+
+    final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
+
+    setState(() {
+      _spinCompleted = true;
+      _currentSegment = targetIdx;
+      _pointerAngle = (targetIdx * (2 * math.pi / 8));
+      _isSpinning = false;
+      _isProcessingSpin = false;
+      _spinAnimation = null;
+      _optimisticWinnings = effectivePrize;
+
+      if (effectiveTotalBet > 0) {
+        _todayProfits += (effectivePrize - effectiveTotalBet);
+      }
+
+      _currentBets = {};
+      _betClickCounts = {};
+      _confirmedBets = {};
+
+      _storedWinItem = winningItem;
+      _storedPrize = effectivePrize;
+      _storedWager = effectiveTotalBet;
+      _storedWinners = roundWinners;
+      _storedRoundId = roundId;
+      _storedBets = betsCopy;
+      _resultLock = true;
+      _lastRoundResultForHistory = {
+        'roundId': roundId,
+        'name': winningItem.name,
+        'emoji': winningItem.emoji,
+        'label': '${winningItem.multiplier}x',
+        'multiplier': winningItem.multiplier,
+      };
+    });
+
+    _recordRoundOutcomeForRecentResults({
+      'roundId': roundId,
+      'name': winningItem.name,
+      'emoji': winningItem.emoji,
+      'label': '${winningItem.multiplier}x',
+      'multiplier': winningItem.multiplier,
+      'category': winningItem.category,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+
+    _playPhaseSound(SpinGameState.results);
+
+    // Provide haptic feedback upon wheel coming to a stop
+    if (effectivePrize > 0) {
+      HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
+
+    ref.invalidate(walletBalanceProvider);
+    ref.invalidate(userGameHistoryProvider);
+    ref.invalidate(luckySpinStatsProvider);
+
+    final nowMs = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final msIntoCycle = nowMs % serverRoundMs;
+    final activeRoundId = (nowMs ~/ serverRoundMs).toString();
+
+    debugPrint('[SPIN_WHEEL_EVENT] 🎯 Hardware-Accelerated Wheel Landed: sector=$targetIdx, item=${winningItem.name}, prize=$effectivePrize, wager=$effectiveTotalBet');
+
+    // Strict Guard: ONLY trigger bottom sheet if in valid results window (34.5s - 38.5s)
+    if (_hasShownResultForRound != roundId && roundId == activeRoundId && msIntoCycle >= 34500 && msIntoCycle < 38500) {
+      debugPrint('[SPIN_WHEEL_EVENT] 📜 Triggering Result Bottom Sheet for round $roundId');
+      _hasShownResultForRound = roundId;
+      _showStoredResult();
+    } else if (roundId != activeRoundId || msIntoCycle >= 38500) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
+      _clearStoredResult();
     }
   }
 
@@ -1378,6 +1586,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     // Proactively dismiss any existing bottom sheet to avoid stacking
     _dismissBottomSheet();
+    ScaffoldMessenger.of(context).clearSnackBars();
 
     _isBottomSheetOpen = true;
     _bottomSheetOpenTime = DateTime.now();
@@ -1520,12 +1729,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     WakelockService().release();
     _offsetSubscription?.cancel();
     _rtdbRoundSubscription?.cancel();
+    _rtdbRecentResultsSubscription?.cancel();
     _connectivitySub?.cancel();
     _platformConnectivitySub?.cancel();
     _debounceTimer?.cancel();
     _timer?.cancel();
     _tickTimer?.cancel();
+    _spinFallbackTimer?.cancel();
     _idleController.dispose();
+    _spinController.dispose();
     // Do NOT clear bet state here so accepted bets persist if user leaves the screen before round completion
     super.dispose();
   }
@@ -1823,7 +2035,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                       builder: (context, ref, child) {
                         final balance = ref.watch(walletBalanceProvider).value?['diamonds'] ?? 0;
                         final totalLocalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-                        final displayedBalance = (balance - totalLocalBet).clamp(0, balance);
+                        final displayedBalance = math.max(0, balance - totalLocalBet + _optimisticWinnings);
 
                         final history = ref.watch(userGameHistoryProvider).value ?? [];
                         final stats = ref.watch(luckySpinStatsProvider).value;
@@ -1842,7 +2054,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                       }
                     ),
                     
-                    if (_isOffline)
+                    if (_isOffline && _gameState == SpinGameState.betting && !_isSpinning && !_isBottomSheetOpen)
                       Positioned.fill(
                         child: Container(
                           color: Colors.black87,
@@ -1860,12 +2072,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                 ),
                                 const SizedBox(height: 20),
                                 const Text(
-                                  "Network Connection Required",
+                                  "Connection Not Found",
                                   style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
                                 ),
                                 const SizedBox(height: 8),
                                 const Text(
-                                  "Please check your internet connection\nand try again.",
+                                  "Unable to reach the game server.\nPlease verify your connection and try again.",
                                   textAlign: TextAlign.center,
                                   style: TextStyle(color: Colors.white60, fontSize: 13),
                                 ),
@@ -2117,37 +2329,55 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final settings = ref.read(gameSettingsProvider).value;
     final segments = settings?['segments'] as List? ?? [];
 
-    final List<dynamic> fullHistory = List.from(history);
-    // Add current round result from stored win item
-    if (_spinCompleted && _storedWinItem != null) {
-      final alreadyPresent = fullHistory.any((rec) => rec is Map && rec['roundId']?.toString() == _currentRoundId);
-      if (!alreadyPresent) {
-        fullHistory.insert(0, {
-          'roundId': _currentRoundId,
-          'name': _storedWinItem!.name,
-          'emoji': _storedWinItem!.emoji,
-          'label': '${_storedWinItem!.multiplier}x',
-          'multiplier': _storedWinItem!.multiplier,
-        });
-      }
-    } else if (_lastRoundResultForHistory != null) {
-      // After result sheet dismissed, preserve last round result in history
-      final lastRrId = _lastRoundResultForHistory!['roundId']?.toString();
-      final alreadyPresent = fullHistory.any((rec) => rec is Map && rec['roundId']?.toString() == lastRrId);
-      if (!alreadyPresent && lastRrId != null) {
-        fullHistory.insert(0, _lastRoundResultForHistory);
+    final Map<String, Map<String, dynamic>> mergedByRoundId = {};
+
+    // 1. First add server stats recentResults / history
+    for (final item in history) {
+      if (item is Map) {
+        final rId = item['roundId']?.toString();
+        if (rId != null && rId.isNotEmpty) {
+          mergedByRoundId[rId] = Map<String, dynamic>.from(item);
+        }
       }
     }
 
-    final visibleHistory = fullHistory.where((rec) {
-      if (rec is Map) {
-        final roundIdStr = rec['roundId']?.toString();
-        if (roundIdStr != null && _currentRoundId != null && roundIdStr == _currentRoundId.toString() && !_spinCompleted) {
-          return false;
-        }
+    // 2. Overlay live realtime results received from RTDB or local landing
+    for (final item in _realtimeRecentResults) {
+      final rId = item['roundId']?.toString();
+      if (rId != null && rId.isNotEmpty) {
+        mergedByRoundId[rId] = Map<String, dynamic>.from(item);
+      }
+    }
+
+    // 3. Add current round result from stored win item if landed
+    if (_spinCompleted && _storedWinItem != null && _currentRoundId != null) {
+      mergedByRoundId[_currentRoundId!] = {
+        'roundId': _currentRoundId,
+        'name': _storedWinItem!.name,
+        'emoji': _storedWinItem!.emoji,
+        'label': '${_storedWinItem!.multiplier}x',
+        'multiplier': _storedWinItem!.multiplier,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+    } else if (_lastRoundResultForHistory != null) {
+      final lastRrId = _lastRoundResultForHistory!['roundId']?.toString();
+      if (lastRrId != null && lastRrId.isNotEmpty) {
+        mergedByRoundId[lastRrId] = Map<String, dynamic>.from(_lastRoundResultForHistory!);
+      }
+    }
+
+    final visibleHistory = mergedByRoundId.values.where((rec) {
+      final roundIdStr = rec['roundId']?.toString();
+      if (roundIdStr != null && _currentRoundId != null && roundIdStr == _currentRoundId.toString() && !_spinCompleted) {
+        return false;
       }
       return true;
-    }).toList();
+    }).toList()
+      ..sort((a, b) {
+        final aRound = int.tryParse(a['roundId']?.toString() ?? '0') ?? 0;
+        final bRound = int.tryParse(b['roundId']?.toString() ?? '0') ?? 0;
+        return bRound.compareTo(aRound);
+      });
 
     return Container(
       width: double.infinity,
@@ -2165,19 +2395,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: visibleHistory.map((rec) {
-                  String emoji = '🎡';
-                  if (rec is Map) {
-                    final e = rec['emoji']?.toString();
-                    final l = rec['label']?.toString() ?? rec['name']?.toString() ?? '';
-                    emoji = (e != null && e.isNotEmpty) ? e : _getFoodEmoji(l);
-                  } else if (rec is num) {
-                    final idx = rec.toInt();
-                    if (idx >= 0 && idx < segments.length) {
-                      emoji = segments[idx]['emoji'] ?? '🎡';
-                    }
-                  } else if (rec is String) {
-                    emoji = _getFoodEmoji(rec);
-                  }
+                  final e = rec['emoji']?.toString();
+                  final l = rec['label']?.toString() ?? rec['name']?.toString() ?? '';
+                  final emoji = (e != null && e.isNotEmpty) ? e : _getFoodEmoji(l);
 
                   bool isNew = visibleHistory.indexOf(rec) == 0;
 
@@ -2576,43 +2796,98 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   }
 
   void _showGameHistorySheet() {
+    int activeTab = 0;
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F172A),
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
-      builder: (context) => Stack(
-        children: [
-          Container(
-            padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Premium Styled Gold "Game Records" Title Banner
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 10),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFBBF24), Color(0xFFF59E0B), Color(0xFFD97706)],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          return Stack(
+            children: [
+              Container(
+                padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Premium Styled Gold "Game Records" Title Banner
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 10),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFFBBF24), Color(0xFFF59E0B), Color(0xFFD97706)],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
+                        boxShadow: [
+                          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
+                        ],
+                      ),
+                      child: const Text(
+                        "Game Records",
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                      ),
                     ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
-                    ],
-                  ),
-                  child: const Text(
-                    "Game Records",
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.5),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                
-                Flexible(
-                  child: Consumer(
+                    const SizedBox(height: 14),
+
+                    // Tab Selector: [ My Bets ] [ All Rounds ]
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () => setSheetState(() => activeTab = 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: activeTab == 0 ? const Color(0xFFF59E0B) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                "My Bets",
+                                style: TextStyle(
+                                  color: activeTab == 0 ? Colors.white : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => setSheetState(() => activeTab = 1),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: activeTab == 1 ? const Color(0xFFF59E0B) : Colors.transparent,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                "All Rounds",
+                                style: TextStyle(
+                                  color: activeTab == 1 ? Colors.white : Colors.white70,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    Flexible(
+                      child: activeTab == 0
+                          ? Consumer(
                     builder: (context, ref, child) {
                       final historyAsync = ref.watch(userGameHistoryProvider);
                       return historyAsync.when(
@@ -2826,7 +3101,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                         error: (err, _) => Center(child: Text("Error loading records: $err", style: const TextStyle(color: Colors.white70))),
                       );
                     },
-                  ),
+                  )
+                : _buildAllRoundsList(),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -2849,7 +3125,105 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             ),
           ),
         ],
-      ),
+      );
+    },
+  ),
+);
+  }
+
+  Widget _buildAllRoundsList() {
+    return Consumer(
+      builder: (context, ref, child) {
+        final stats = ref.watch(luckySpinStatsProvider).value;
+        final serverRecents = stats?['recentResults'] as List? ?? [];
+        
+        final Map<String, Map<String, dynamic>> merged = {};
+        for (final item in serverRecents) {
+          if (item is Map) {
+            final rId = item['roundId']?.toString();
+            if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+          }
+        }
+        for (final item in _realtimeRecentResults) {
+          final rId = item['roundId']?.toString();
+          if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+        }
+
+        final sortedRounds = merged.values.toList()
+          ..sort((a, b) {
+            final aRound = int.tryParse(a['roundId']?.toString() ?? '0') ?? 0;
+            final bRound = int.tryParse(b['roundId']?.toString() ?? '0') ?? 0;
+            return bRound.compareTo(aRound);
+          });
+
+        if (sortedRounds.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 40),
+            child: Text("Waiting for round outcomes...", style: TextStyle(color: Colors.white70, fontSize: 14)),
+          );
+        }
+
+        return ListView.builder(
+          shrinkWrap: true,
+          itemCount: sortedRounds.length,
+          itemBuilder: (context, index) {
+            final rec = sortedRounds[index];
+            final emoji = rec['emoji']?.toString() ?? _getFoodEmoji(rec['name']?.toString() ?? '');
+            final name = rec['name']?.toString() ?? 'Unknown';
+            final mult = rec['multiplier'] ?? 5;
+            final rId = rec['roundId']?.toString() ?? '';
+            final roundNum = _getRelativeRoundNumber(rId);
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF334155), Color(0xFF1E293B)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFFFBBF24), width: 1.5),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(emoji.isNotEmpty ? emoji : '🎰', style: const TextStyle(fontSize: 22)),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("Round: #$roundNum", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 2),
+                        Text(name, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFF59E0B)),
+                    ),
+                    child: Text("${mult}x", style: const TextStyle(color: Color(0xFFFBBF24), fontWeight: FontWeight.w900, fontSize: 14)),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2902,6 +3276,62 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       ),
     );
   }
+}
+
+int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmentsMap) {
+  if (outcome == null || segmentsMap.isEmpty) return 0;
+
+  final outcomeName = (outcome['name'] as String? ?? '').toLowerCase().trim();
+  final outcomeType = (outcome['type'] as String? ?? '').toLowerCase().trim();
+
+  // 1. Direct match on segment name
+  if (outcomeName.isNotEmpty) {
+    final idx = segmentsMap.indexWhere((s) {
+      final sName = s['name']?.toString().toLowerCase().trim() ?? '';
+      return sName == outcomeName;
+    });
+    if (idx != -1) return idx;
+
+    // Common synonyms/aliases
+    if (outcomeName == 'skewer' || outcomeName == 'kebab') {
+      final skewerIdx = segmentsMap.indexWhere((s) {
+        final n = s['name']?.toString().toLowerCase().trim() ?? '';
+        return n == 'skewer' || n == 'kebab';
+      });
+      if (skewerIdx != -1) return skewerIdx;
+    }
+    if (outcomeName == 'steak' || outcomeName == 'meat') {
+      final steakIdx = segmentsMap.indexWhere((s) {
+        final n = s['name']?.toString().toLowerCase().trim() ?? '';
+        return n == 'steak' || n == 'meat';
+      });
+      if (steakIdx != -1) return steakIdx;
+    }
+
+    // Special category outcomes: "Salad" or "Pizza"
+    if (outcomeName == 'salad' || outcomeType == 'salad') {
+      final vegIdx = segmentsMap.indexWhere((s) {
+        final n = s['name']?.toString().toLowerCase().trim() ?? '';
+        return n == 'tomato' || n == 'carrot' || n == 'corn' || n == 'cabbage';
+      });
+      if (vegIdx != -1) return vegIdx;
+    }
+    if (outcomeName == 'pizza' || outcomeType == 'pizza') {
+      final meatIdx = segmentsMap.indexWhere((s) {
+        final n = s['name']?.toString().toLowerCase().trim() ?? '';
+        return n == 'steak' || n == 'chicken' || n == 'hotdog' || n == 'skewer';
+      });
+      if (meatIdx != -1) return meatIdx;
+    }
+  }
+
+  // 2. Fallback to sectorIndex from outcome, clamped within segments length
+  final rawSector = (outcome['sectorIndex'] as num?)?.toInt();
+  if (rawSector != null && rawSector >= 0) {
+    return rawSector % segmentsMap.length;
+  }
+
+  return 0;
 }
 
 int calculateSpinWheelPrize({
@@ -2976,7 +3406,12 @@ int calculateSpinWheelPrize({
 
   // 3. Exact segment bet
   if (!paidKeys.contains(winnerName)) {
-    final betOnWinner = normalizedBets[winnerName] ?? normalizedBets[winnerLabel] ?? 0;
+    int betOnWinner = normalizedBets[winnerName] ?? normalizedBets[winnerLabel] ?? 0;
+    if (betOnWinner == 0) {
+      if (winnerName == 'kebab') betOnWinner = normalizedBets['skewer'] ?? 0;
+      if (winnerName == 'skewer') betOnWinner = normalizedBets['kebab'] ?? 0;
+      if (winnerName == 'steak') betOnWinner = normalizedBets['meat'] ?? 0;
+    }
     if (betOnWinner > 0) {
       totalPrize += betOnWinner * multiplier;
       paidKeys.add(winnerName);
@@ -3499,16 +3934,61 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                     ),
                   ],
 
-                  // PODIUM ROW (Side-by-side Top 3 winners from backend data)
+                  // DAILY TOP PLAYER PROFILE CARD
                   Consumer(
                     builder: (context, ref, child) {
+                      // 1. Check daily leaderboard
+                      final leaderboard = ref.watch(luckySpinLeaderboardProvider).valueOrNull ?? [];
+                      final topLeaderboard = leaderboard.isNotEmpty ? leaderboard.first : null;
+
+                      // 2. Check stats document
+                      final stats = ref.watch(luckySpinStatsProvider).valueOrNull;
+                      final todayWinners = (stats?['todayWinners'] as List<dynamic>?) ?? [];
+                      final topTodayWinner = todayWinners.isNotEmpty ? (todayWinners.first as Map<String, dynamic>?) : null;
+
+                      // 3. Check current round winners as fallback
                       final roundId = widget.roundId ?? '';
-                      final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).value ?? [];
-                      final winnersList = liveWinners.isNotEmpty ? liveWinners : widget.winners;
-                      if (winnersList.isEmpty) return const SizedBox.shrink();
+                      final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).valueOrNull ?? [];
+                      final roundWinners = liveWinners.isNotEmpty ? liveWinners : widget.winners;
+                      final topRoundWinner = roundWinners.isNotEmpty ? roundWinners.first : null;
+
+                      String name = "No Daily Winner Yet";
+                      String avatarUrl = "";
+                      int winnings = 0;
+                      bool hasTopPlayer = false;
+
+                      if (topLeaderboard != null && ((topLeaderboard['name'] ?? topLeaderboard['username']) != null)) {
+                        name = (topLeaderboard['name'] ?? topLeaderboard['username'] ?? "User").toString();
+                        avatarUrl = (topLeaderboard['avatar'] ?? topLeaderboard['photoUrl'] ?? "").toString();
+                        winnings = (topLeaderboard['totalWinnings'] as num?)?.toInt() 
+                            ?? (topLeaderboard['totalBets'] as num?)?.toInt() 
+                            ?? 0;
+                        hasTopPlayer = true;
+                      } else if (topTodayWinner != null && ((topTodayWinner['name'] ?? topTodayWinner['username']) != null)) {
+                        name = (topTodayWinner['name'] ?? topTodayWinner['username'] ?? "User").toString();
+                        avatarUrl = (topTodayWinner['avatar'] ?? topTodayWinner['photoUrl'] ?? "").toString();
+                        winnings = (topTodayWinner['amount'] as num?)?.toInt() ?? 0;
+                        hasTopPlayer = true;
+                      } else if (stats != null && stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
+                        name = stats['topWinnerName'].toString();
+                        avatarUrl = (stats['topWinnerAvatar'] ?? "").toString();
+                        winnings = (stats['topWinnerAmount'] as num?)?.toInt() ?? 0;
+                        hasTopPlayer = true;
+                      } else if (topRoundWinner != null && ((topRoundWinner['winnings'] as num?)?.toInt() ?? 0) > 0) {
+                        name = (topRoundWinner['name'] ?? topRoundWinner['username'] ?? "User").toString();
+                        avatarUrl = (topRoundWinner['avatar'] ?? topRoundWinner['photoUrl'] ?? "").toString();
+                        winnings = (topRoundWinner['winnings'] as num?)?.toInt() ?? 0;
+                        hasTopPlayer = true;
+                      } else if (stats != null && stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
+                        name = stats['lastWinnerName'].toString();
+                        avatarUrl = (stats['lastWinnerAvatar'] ?? "").toString();
+                        winnings = (stats['lastWinnerAmount'] as num?)?.toInt() ?? 0;
+                        hasTopPlayer = true;
+                      }
+
                       return Column(
                         children: [
-                          const SizedBox(height: 22),
+                          const SizedBox(height: 18),
                           Row(
                             children: [
                               const Expanded(
@@ -3517,12 +3997,12 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
                                 child: Text(
-                                  "This round's biggest winner",
+                                  "DAILY TOP PLAYER",
                                   style: TextStyle(
                                     color: const Color(0xFFFFD700).withOpacity(0.95),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.5,
+                                    letterSpacing: 0.8,
                                   ),
                                 ),
                               ),
@@ -3531,11 +4011,16 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                               ),
                             ],
                           ),
-                          const SizedBox(height: 22),
-                          _buildWinnersPodium(liveWinners),
+                          const SizedBox(height: 14),
+                          _buildDailyTopPlayerCard(
+                            name: name,
+                            avatarUrl: avatarUrl,
+                            winnings: winnings,
+                            hasTopPlayer: hasTopPlayer,
+                          ),
                         ],
                       );
-                    }
+                    },
                   ),
                 ],
               ),
@@ -3546,120 +4031,156 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     );
   }
 
-  Widget _buildWinnersPodium(List<dynamic> liveWinners) {
-    final List<Widget> slots = [];
-    final winnersList = liveWinners.isNotEmpty ? liveWinners : widget.winners;
-    for (int i = 0; i < 3; i++) {
-      final hasWinner = winnersList.length > i;
-      final w = hasWinner ? winnersList[i] : null;
-      slots.add(
-        Expanded(
-          child: _buildPodiumSlot(w, i),
+  Widget _buildDailyTopPlayerCard({
+    required String name,
+    required String avatarUrl,
+    required int winnings,
+    required bool hasTopPlayer,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF161626),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFFD700).withOpacity(0.4),
+          width: 1.2,
         ),
-      );
-    }
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: slots,
-    );
-  }
-
-  Widget _buildPodiumSlot(dynamic winner, int index) {
-    final rankColors = [
-      const Color(0xFFFFD700), // Gold for Rank 1
-      const Color(0xFFC0C0C0), // Silver for Rank 2
-      const Color(0xFFCD7F32), // Bronze for Rank 3
-    ];
-    final rankBadgeLabel = "${index + 1}";
-
-    final winningsVal = winner != null ? ((winner['winnings'] as num?)?.toInt() ?? 0) : 0;
-    final isValidWinner = winner != null && winningsVal > 0;
-
-    final avatarUrl = isValidWinner ? (winner['avatar'] ?? winner['photoUrl'] ?? "").toString() : "";
-    final name = isValidWinner ? (winner['name'] ?? winner['username'] ?? "User").toString() : "Empty";
-    final amount = isValidWinner ? winningsVal : 0;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          alignment: Alignment.bottomRight,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(2.5),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: rankColors[index],
-                  width: 2.2,
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFFD700).withOpacity(0.12),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Left: Avatar with Glowing Gold Border and Crown Badge
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFFFFD700),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFFD700).withOpacity(0.35),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    ),
+                  ],
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: rankColors[index].withOpacity(0.35),
-                    blurRadius: 8,
-                    spreadRadius: 1,
+                child: CircleAvatar(
+                  radius: 21,
+                  backgroundColor: Colors.white10,
+                  backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                  child: avatarUrl.isEmpty
+                      ? const Icon(Icons.person, color: Color(0xFFFFD700), size: 22)
+                      : null,
+                ),
+              ),
+              const Positioned(
+                top: -6,
+                right: -4,
+                child: Text('👑', style: TextStyle(fontSize: 14)),
+              ),
+            ],
+          ),
+          const SizedBox(width: 12),
+
+          // Center: Player info
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFD700).withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: const Color(0xFFFFD700), width: 0.8),
+                      ),
+                      child: const Text(
+                        "TOP #1",
+                        style: TextStyle(
+                          color: Color(0xFFFFD700),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  hasTopPlayer ? "Today's Highest Earner" : "Spin & Win to Claim Rank #1",
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.6),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+
+          if (hasTopPlayer && winnings > 0) ...[
+            const SizedBox(width: 8),
+            // Right: Total diamond winnings badge
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFD700).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFFFD700).withOpacity(0.5),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const PremiumDiamond(size: 13),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatNumber(winnings),
+                    style: const TextStyle(
+                      color: Color(0xFFFFD700),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ],
               ),
-              child: CircleAvatar(
-                radius: 23,
-                backgroundColor: Colors.white10,
-                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                child: avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white38, size: 22) : null,
-              ),
-            ),
-            Transform.translate(
-              offset: const Offset(3, 3),
-              child: Container(
-                width: 15,
-                height: 15,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFFD700),
-                  shape: BoxShape.circle,
-                ),
-                alignment: Alignment.center,
-                child: Text(
-                  rankBadgeLabel,
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
             ),
           ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          name,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 10.5,
-            fontWeight: FontWeight.bold,
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 4),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const PremiumDiamond(size: 10.5),
-            const SizedBox(width: 2.5),
-            Text(
-              _formatNumber(amount),
-              style: TextStyle(
-                color: rankColors[index],
-                fontSize: 10.5,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 

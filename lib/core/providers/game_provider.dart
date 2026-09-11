@@ -87,14 +87,14 @@ final gameSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((r
     'bettingDurationSeconds': 10,
     'revealDurationSeconds': 5,
     'segments': [
-      {'id': '1', 'name': 'Apple', 'multiplier': 2, 'weight': 550, 'emoji': '🍎'},
-      {'id': '2', 'name': 'Orange', 'multiplier': 3, 'weight': 250, 'emoji': '🍊'},
-      {'id': '3', 'name': 'Banana', 'multiplier': 5, 'weight': 100, 'emoji': '🍌'},
-      {'id': '4', 'name': 'Watermelon', 'multiplier': 8, 'weight': 50, 'emoji': '🍉'},
-      {'id': '5', 'name': 'Grape', 'multiplier': 10, 'weight': 30, 'emoji': '🍇'},
-      {'id': '6', 'name': 'Peach', 'multiplier': 12, 'weight': 10, 'emoji': '🍑'},
-      {'id': '7', 'name': 'Strawberry', 'multiplier': 15, 'weight': 9, 'emoji': '🍓'},
-      {'id': '8', 'name': 'Pineapple', 'multiplier': 100, 'weight': 1, 'emoji': '🍍'},
+      {'id': '1', 'name': 'Tomato', 'multiplier': 5, 'weight': 250, 'emoji': '🍅', 'category': 'salad'},
+      {'id': '2', 'name': 'Hotdog', 'multiplier': 10, 'weight': 100, 'emoji': '🌭', 'category': 'pizza'},
+      {'id': '3', 'name': 'Skewer', 'multiplier': 15, 'weight': 50, 'emoji': '🍢', 'category': 'pizza'},
+      {'id': '4', 'name': 'Chicken', 'multiplier': 25, 'weight': 30, 'emoji': '🍗', 'category': 'pizza'},
+      {'id': '5', 'name': 'Steak', 'multiplier': 45, 'weight': 20, 'emoji': '🥩', 'category': 'pizza'},
+      {'id': '6', 'name': 'Carrot', 'multiplier': 5, 'weight': 250, 'emoji': '🥕', 'category': 'salad'},
+      {'id': '7', 'name': 'Corn', 'multiplier': 5, 'weight': 250, 'emoji': '🌽', 'category': 'salad'},
+      {'id': '8', 'name': 'Cabbage', 'multiplier': 5, 'weight': 150, 'emoji': '🥬', 'category': 'salad'},
     ]
   };
 

@@ -10,11 +10,13 @@ class GameService extends BaseFirebaseService {
   Future<Map<String, dynamic>> playSpinWheel({
     required int betAmount,
     Map<String, int>? bets,
+    String? roundId,
     String? roomId,
   }) async {
     final result = await callFunction('playSpinWheel', {
       'betAmount': betAmount,
       'bets': bets,
+      'roundId': roundId,
       'roomId': roomId,
     });
     return Map<String, dynamic>.from(result);

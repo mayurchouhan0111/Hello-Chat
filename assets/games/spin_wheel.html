@@ -37,7 +37,7 @@
       max-height: 100vh;
       overflow: hidden;
       background-color: #ffd83d;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.65);
+      box-shadow: 0 6px 22px rgba(0,0,0,0.45);
     }
 
     /* Carnival background image from Flutter */
@@ -47,10 +47,10 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background-image: url('../images/processed_image.webp');
-      background-size: 100% 100%;
-      background-repeat: no-repeat;
-      background-position: center;
+      background-image: url('{{BG_IMAGE_DATA}}'), linear-gradient(160deg, #3d2b12 0%, #7a3b1e 35%, #c2410c 70%, #7c2d12 100%);
+      background-size: 100% 100%, cover;
+      background-repeat: no-repeat, no-repeat;
+      background-position: center, center;
       z-index: 1;
     }
 
@@ -128,13 +128,14 @@
       font-size: 32px;
       line-height: 1;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+      margin-top: 6px;
     }
 
     .pod-label {
       font-size: 9.5px;
       font-weight: 900;
       color: #2b2b2b;
-      margin-top: 2px;
+      margin-top: 1px;
       white-space: nowrap;
       text-shadow: 0 1px 1px rgba(255,255,255,0.85);
       letter-spacing: -0.2px;
@@ -174,32 +175,35 @@
     }
 
     /* GLOWING SPOTLIGHT MARKER (HOPS FROM POD TO POD) */
+    /* Positioned via transform3d (compositor-friendly, no layout thrash during spin) */
     .spotlight-marker {
       position: absolute;
-      width: 95px;
-      height: 95px;
+      top: 0;
+      left: 0;
+      width: 84px;
+      height: 84px;
       border-radius: 50%;
-      transform: translate(-50%, -50%);
       pointer-events: none;
       z-index: 8;
-      background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(255, 235, 120, 0.75) 45%, rgba(255, 215, 0, 0.35) 70%, rgba(255, 215, 0, 0) 100%);
-      box-shadow: 0 0 28px 12px rgba(255, 220, 40, 0.75), inset 0 0 15px rgba(255, 255, 255, 0.85);
-      transition: left 0.08s linear, top 0.08s linear;
+      will-change: transform;
+      transition: transform 0.08s linear;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.8) 0%, rgba(255, 245, 160, 0.5) 55%, rgba(255, 220, 50, 0.2) 80%, rgba(255, 215, 0, 0) 100%);
+      box-shadow: 0 0 18px 6px rgba(255, 225, 60, 0.65), inset 0 0 12px rgba(255, 255, 255, 0.8);
     }
 
     .spotlight-marker.winner-pulse {
-      animation: victoryPulse 0.5s infinite alternate ease-in-out;
+      animation: markerGlow 0.5s infinite alternate ease-in-out;
     }
 
-    @keyframes victoryPulse {
-      0% { transform: translate(-50%, -50%) scale(0.95); opacity: 0.85; filter: brightness(1); }
-      100% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; filter: brightness(1.3); }
+    @keyframes markerGlow {
+      0% { opacity: 0.85; }
+      100% { opacity: 1; }
     }
 
-    /* CENTER RED HUB WITH PANDA FACE */
+    /* CENTER HUB WITH PANDA FACE (aligned to detected ring center y≈36.2%) */
     .center-hub {
       position: absolute;
-      top: 34.9%;
+      top: 36.2%;
       left: 50.0%;
       transform: translate(-50%, -50%);
       width: 120px;
@@ -214,74 +218,12 @@
     }
 
     /* PANDA FACE */
-    .panda-wrapper {
-      position: relative;
-      width: 56px;
-      height: 48px;
-      margin-top: -4px;
-    }
-
-    .panda-head {
-      position: absolute;
-      width: 50px;
-      height: 42px;
-      background: #ffffff;
-      border-radius: 50% 50% 46% 46%;
-      left: 3px;
-      top: 5px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.15);
-    }
-
-    .panda-ear {
-      position: absolute;
-      width: 15px;
-      height: 15px;
-      background: #222222;
-      border-radius: 50%;
-      top: 0;
-    }
-    .panda-ear.left { left: 3px; }
-    .panda-ear.right { right: 3px; }
-
-    .panda-eye {
-      position: absolute;
-      width: 14px;
-      height: 17px;
-      background: #222222;
-      border-radius: 50%;
-      top: 13px;
-    }
-    .panda-eye.left { left: 8px; transform: rotate(-14deg); }
-    .panda-eye.right { right: 8px; transform: rotate(14deg); }
-
-    .panda-pupil {
-      position: absolute;
-      width: 5px;
-      height: 5px;
-      background: #ffffff;
-      border-radius: 50%;
-      top: 4px;
-      left: 5px;
-    }
-
-    .panda-nose {
-      position: absolute;
-      width: 8px;
-      height: 6px;
-      background: #222222;
-      border-radius: 4px 4px 6px 6px;
-      top: 26px;
-      left: 21px;
-    }
-
-    .panda-mouth {
-      position: absolute;
-      width: 10px;
-      height: 5px;
-      border-bottom: 2px solid #222222;
-      border-radius: 0 0 8px 8px;
-      top: 32px;
-      left: 20px;
+    /* BIG PANDA EMOJI MATCHING FLUTTER CENTER HUB */
+    .hub-panda {
+      font-size: 52px;
+      line-height: 1;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.25));
+      margin-top: -2px;
     }
 
     .hub-status {
@@ -308,8 +250,7 @@
       top: 48.2%;
       left: 50.0%;
       transform: translate(-50%, -50%);
-      background: rgba(35, 35, 35, 0.84);
-      backdrop-filter: blur(2px);
+      background: rgba(35, 35, 35, 0.9);
       padding: 9px 24px;
       border-radius: 12px;
       z-index: 18;
@@ -325,6 +266,7 @@
       font-weight: 900;
       letter-spacing: 0.8px;
       text-shadow: 0 2px 4px rgba(0,0,0,0.6);
+      white-space: nowrap;
     }
 
     /* FLANKING PEDESTALS: SALAD (LEFT) & PIZZA (RIGHT) */
@@ -344,18 +286,18 @@
     }
 
     .pedestal-btn.salad {
-      top: 58.2%;
+      top: 61.5%;
       left: 17.8%;
     }
 
     .pedestal-btn.pizza {
-      top: 58.2%;
+      top: 61.5%;
       left: 82.2%;
     }
 
     .pedestal-icon-wrap {
-      width: 50px;
-      height: 50px;
+      width: 54px;
+      height: 54px;
       border-radius: 50%;
       background: #ffffff;
       border: 3.5px solid #ffcc00;
@@ -363,7 +305,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 27px;
+      font-size: 29px;
       position: relative;
     }
 
@@ -402,7 +344,7 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      transition: all 0.15s ease;
+      transition: transform 0.12s ease;
       position: relative;
     }
 
@@ -682,8 +624,7 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(3px);
+      background: rgba(0, 0, 0, 0.7);
       z-index: 50;
       display: none;
       opacity: 0;
@@ -697,7 +638,7 @@
 
     .bottom-sheet {
       position: absolute;
-      bottom: -100%;
+      bottom: 0;
       left: 0;
       width: 100%;
       max-height: 78%;
@@ -706,15 +647,17 @@
       border-top-right-radius: 28px;
       padding: 18px 18px 24px 18px;
       box-shadow: 0 -10px 35px rgba(0,0,0,0.6);
-      z-index: 55;
+      z-index: 56;
       color: #f8fafc;
-      transition: bottom 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.2);
+      transform: translateY(105%);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.2);
+      will-change: transform;
       display: flex;
       flex-direction: column;
     }
 
     .bottom-sheet.open {
-      bottom: 0;
+      transform: translateY(0);
     }
 
     .sheet-handle {
@@ -882,73 +825,367 @@
       letter-spacing: 1px;
     }
 
-    /* VICTORY CELEBRATION SHEET */
-    .victory-sheet {
+    /* FLUTTER RESULT BOTTOM SHEET (EXACT 1:1 REPLICA) */
+    /* Dark overlay that dims the game when sheet is open */
+    .result-sheet-overlay {
       position: absolute;
-      bottom: -100%;
+      top: 0;
       left: 0;
       width: 100%;
-      background: #ffffff;
-      border-top-left-radius: 26px;
-      border-top-right-radius: 26px;
-      padding: 20px 20px 24px 20px;
-      box-shadow: 0 -8px 35px rgba(0,0,0,0.5);
-      z-index: 60;
-      color: #1f2937;
-      text-align: center;
-      transition: bottom 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      height: 100%;
+      background: rgba(0, 0, 0, 0.72);
+      z-index: 54;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
     }
 
-    .victory-sheet.open {
+    .result-sheet-overlay.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .result-bottom-sheet {
+      position: absolute;
       bottom: 0;
+      left: 0;
+      width: 100%;
+      background: #0b0b13;
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
+      border-top: 1.5px solid rgba(255, 215, 0, 0.35);
+      box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.75), 0 -4px 30px rgba(255, 215, 0, 0.08);
+      z-index: 55;
+      transform: translateY(105%);
+      transition: transform 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+      box-sizing: border-box;
+      overflow: visible;
     }
 
-    .sheet-emoji {
-      font-size: 58px;
-      line-height: 1;
-      margin-bottom: 4px;
-      filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
+    .result-bottom-sheet.open {
+      transform: translateY(0);
     }
 
-    .sheet-main-title {
-      font-size: 20px;
+    /* TOP STREAMERS + FORK + KNIFE + STICKER EMOJI WRAPPER */
+    /* Hidden when sheet is closed to prevent overflow bleeding onto game screen */
+    .sheet-streamers-wrapper {
+      position: absolute;
+      top: -34px;
+      left: 0;
+      right: 0;
+      height: 72px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease 0s;
+    }
+
+    .result-bottom-sheet.open .sheet-streamers-wrapper {
+      opacity: 1;
+      transition: opacity 0.2s ease 0.2s;
+    }
+
+    .streamers-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .sheet-sticker-emoji {
+      position: absolute;
+      top: -34px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: #1e293b;
+      border: 3.5px solid #ffffff;
+      box-shadow: 0 0 15px rgba(255, 215, 0, 0.45), 0 4px 12px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+    }
+
+    /* SHEET MAIN CONTENT */
+    .sheet-content-wrap {
+      padding: 44px 18px 24px 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* OUTCOME PILL */
+    .sheet-outcome-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 7px 22px;
+      border-radius: 20px;
+      font-size: 14px;
       font-weight: 900;
-      color: #111827;
-      margin-bottom: 2px;
+      letter-spacing: 0.8px;
+      margin-bottom: 18px;
+      text-transform: uppercase;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
 
-    .sheet-multiplier-tag {
+    .sheet-outcome-pill.completed {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1.5px solid rgba(96, 165, 250, 0.5);
+      color: #60a5fa;
+      box-shadow: 0 0 14px rgba(96, 165, 250, 0.25);
+    }
+
+    .sheet-outcome-pill.win {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1.5px solid rgba(74, 222, 128, 0.6);
+      color: #4ade80;
+      box-shadow: 0 0 14px rgba(74, 222, 128, 0.35);
+    }
+
+    .sheet-outcome-pill.lost {
+      background: rgba(30, 41, 59, 0.5);
+      border: 1.5px solid rgba(248, 113, 113, 0.5);
+      color: #f87171;
+      box-shadow: 0 0 14px rgba(248, 113, 113, 0.25);
+    }
+
+    /* RESULTS ROW: PANDA AVATAR + DATA COLUMN */
+    .sheet-results-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      width: 100%;
+      max-width: 320px;
+      margin-bottom: 16px;
+    }
+
+    .sheet-panda-avatar {
+      width: 72px;
+      height: 72px;
+      min-width: 72px;
+      border-radius: 50%;
+      background: #ffffff;
+      border: 2.2px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+
+    .sheet-data-col {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex: 1;
+    }
+
+    .sheet-data-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.75);
+      white-space: nowrap;
+    }
+
+    .sheet-data-result {
+      color: #ffd700;
+      font-weight: 900;
       font-size: 13.5px;
-      font-weight: 800;
-      color: #ef4444;
-      margin-bottom: 10px;
     }
 
-    .sheet-win-box {
-      background: #fef2f2;
-      border: 1.5px dashed #ef4444;
-      border-radius: 12px;
-      padding: 9px;
+    .sheet-data-winnings {
+      font-weight: 900;
+      font-size: 13.5px;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .sheet-data-winnings.win {
+      color: #4ade80;
+    }
+
+    .sheet-data-wager {
+      font-weight: 900;
+      font-size: 13.5px;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    /* BIGGEST WINNER PODIUM SECTION */
+    .sheet-podium-section {
+      width: 100%;
+      max-width: 350px;
+      margin-top: 6px;
+    }
+
+    .sheet-dashed-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       margin-bottom: 14px;
     }
 
-    .sheet-win-amount {
-      font-size: 18px;
-      font-weight: 900;
-      color: #10b981;
+    .dash-line {
+      flex: 1;
+      height: 1px;
+      border-top: 1.5px dashed rgba(255, 215, 0, 0.65);
     }
 
-    .sheet-btn {
-      width: 100%;
-      background: #ef4444;
-      color: #ffffff;
-      font-size: 14px;
+    .dash-label {
+      font-size: 11px;
       font-weight: 900;
-      padding: 11px;
+      color: #ffd700;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    .sheet-podium-slots {
+      display: flex;
+      justify-content: space-around;
+      align-items: flex-start;
+      width: 100%;
+    }
+
+    .podium-slot {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 30%;
+    }
+
+    .podium-avatar-wrap {
+      position: relative;
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      padding: 2.5px;
+      box-sizing: border-box;
+    }
+
+    .podium-avatar-wrap.gold {
+      border: 2.2px solid #ffd700;
+      box-shadow: 0 0 10px rgba(255, 215, 0, 0.35);
+    }
+
+    .podium-avatar-wrap.silver {
+      border: 2.2px solid #c0c0c0;
+      box-shadow: 0 0 10px rgba(192, 192, 192, 0.35);
+    }
+
+    .podium-avatar-wrap.bronze {
+      border: 2.2px solid #cd7f32;
+      box-shadow: 0 0 10px rgba(205, 127, 50, 0.35);
+    }
+
+    .podium-avatar {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: #2a2c38;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      font-weight: 800;
+      color: #cbd5e1;
+    }
+
+    .podium-badge {
+      position: absolute;
+      bottom: -2px;
+      right: -2px;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9.5px;
+      font-weight: 900;
+      color: #000000;
+      background: #ffd700;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    }
+
+    .podium-name {
+      font-size: 11px;
+      font-weight: 700;
+      color: #ffffff;
+      margin-top: 6px;
+      text-align: center;
+      max-width: 80px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .podium-score {
+      font-size: 11px;
+      font-weight: 900;
+      margin-top: 2px;
+      display: inline-flex;
+      align-items: center;
+      gap: 2.5px;
+    }
+
+    .podium-score.gold { color: #ffd700; }
+    .podium-score.silver { color: #c0c0c0; }
+    .podium-score.bronze { color: #cd7f32; }
+
+    /* CATEGORY BREAKDOWN (SALAD & PIZZA SYSTEM BREAKDOWN) */
+    .sheet-category-breakdown {
+      width: 100%;
+      max-width: 320px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      background: rgba(255, 255, 255, 0.06);
       border-radius: 14px;
-      border: none;
-      cursor: pointer;
-      box-shadow: 0 4px 10px rgba(239, 68, 68, 0.35);
+      border: 1px solid rgba(255, 215, 0, 0.25);
+      box-sizing: border-box;
+    }
+
+    .breakdown-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #ffd700;
+      font-weight: 800;
+      font-size: 12.5px;
+      letter-spacing: 0.4px;
+      margin-bottom: 8px;
+    }
+
+    .breakdown-items {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.75);
+    }
+
+    .breakdown-win {
+      color: #ffd700;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      gap: 3px;
     }
   </style>
 </head>
@@ -965,9 +1202,9 @@
       <div class="rules-btn" id="rulesBtn" onclick="openRulesSheet()">Rules &gt;</div>
     </div>
 
-    <!-- 8 FOOD POD HIT TARGETS (PERCENTAGE CALIBRATED DIRECTLY TO BACKGROUND CIRCLES) -->
+    <!-- 8 FOOD POD HIT TARGETS (CENTERED ON THE TRUE WHITE CIRCLE CENTERS DETECTED IN THE BACKGROUND IMAGE) -->
     <!-- 0: 🌭 Hotdog (10x) Top 12 o'clock -->
-    <div class="pod-item" id="pod-0" onclick="handlePodClick(0)" style="top: 16.9%; left: 50.0%;">
+    <div class="pod-item" id="pod-0" onclick="handlePodClick(0)" style="top: 18.22%; left: 50.02%;">
       <span class="pod-emoji">🌭</span>
       <span class="pod-label">win 10 times</span>
       <span class="pod-coins" id="coins-0">🪙</span>
@@ -975,7 +1212,7 @@
     </div>
 
     <!-- 1: 🍢 Skewer (15x) Top-Right 1:30 -->
-    <div class="pod-item" id="pod-1" onclick="handlePodClick(1)" style="top: 22.2%; left: 75.2%;">
+    <div class="pod-item" id="pod-1" onclick="handlePodClick(1)" style="top: 23.07%; left: 76.75%;">
       <span class="pod-emoji">🍢</span>
       <span class="pod-label">win 15 times</span>
       <span class="pod-coins" id="coins-1">🪙</span>
@@ -983,7 +1220,7 @@
     </div>
 
     <!-- 2: 🍗 Chicken (25x) Right 3 o'clock -->
-    <div class="pod-item" id="pod-2" onclick="handlePodClick(2)" style="top: 34.9%; left: 85.6%;">
+    <div class="pod-item" id="pod-2" onclick="handlePodClick(2)" style="top: 36.09%; left: 86.07%;">
       <span class="pod-emoji">🍗</span>
       <span class="pod-label">win 25 times</span>
       <span class="pod-coins" id="coins-2">🪙</span>
@@ -991,7 +1228,7 @@
     </div>
 
     <!-- 3: 🥩 Steak (45x) Bottom-Right 4:30 -->
-    <div class="pod-item" id="pod-3" onclick="handlePodClick(3)" style="top: 47.6%; left: 75.2%;">
+    <div class="pod-item" id="pod-3" onclick="handlePodClick(3)" style="top: 49.19%; left: 76.74%;">
       <span class="pod-emoji">🥩</span>
       <span class="pod-label">win 45 times</span>
       <span class="pod-coins" id="coins-3">🪙</span>
@@ -999,7 +1236,7 @@
     </div>
 
     <!-- 4: 🥕 Carrot (5x) Bottom 6 o'clock -->
-    <div class="pod-item" id="pod-4" onclick="handlePodClick(4)" style="top: 52.9%; left: 50.0%;">
+    <div class="pod-item" id="pod-4" onclick="handlePodClick(4)" style="top: 54.34%; left: 50.02%;">
       <span class="pod-emoji">🥕</span>
       <span class="pod-label">win 5 times</span>
       <span class="pod-coins" id="coins-4">🪙</span>
@@ -1007,7 +1244,7 @@
     </div>
 
     <!-- 5: 🌽 Corn (5x) Bottom-Left 7:30 -->
-    <div class="pod-item" id="pod-5" onclick="handlePodClick(5)" style="top: 47.6%; left: 24.8%;">
+    <div class="pod-item" id="pod-5" onclick="handlePodClick(5)" style="top: 49.18%; left: 23.41%;">
       <span class="pod-emoji">🌽</span>
       <span class="pod-label">win 5 times</span>
       <span class="pod-coins" id="coins-5">🪙</span>
@@ -1015,7 +1252,7 @@
     </div>
 
     <!-- 6: 🥬 Cabbage (5x) Left 9 o'clock -->
-    <div class="pod-item" id="pod-6" onclick="handlePodClick(6)" style="top: 34.9%; left: 14.4%;">
+    <div class="pod-item" id="pod-6" onclick="handlePodClick(6)" style="top: 36.09%; left: 14.02%;">
       <span class="pod-emoji">🥬</span>
       <span class="pod-label">win 5 times</span>
       <span class="pod-coins" id="coins-6">🪙</span>
@@ -1023,7 +1260,7 @@
     </div>
 
     <!-- 7: 🍅 Tomato (5x) Top-Left 10:30 -->
-    <div class="pod-item" id="pod-7" onclick="handlePodClick(7)" style="top: 22.2%; left: 24.8%;">
+    <div class="pod-item" id="pod-7" onclick="handlePodClick(7)" style="top: 23.08%; left: 23.61%;">
       <span class="pod-emoji">🍅</span>
       <span class="pod-label">win 5 times</span>
       <span class="pod-coins" id="coins-7">🪙</span>
@@ -1035,16 +1272,7 @@
 
     <!-- CENTER HUB WITH PANDA FACE & TIMER -->
     <div class="center-hub">
-      <div class="panda-wrapper">
-        <div class="panda-ear left"></div>
-        <div class="panda-ear right"></div>
-        <div class="panda-head">
-          <div class="panda-eye left"><div class="panda-pupil"></div></div>
-          <div class="panda-eye right"><div class="panda-pupil"></div></div>
-          <div class="panda-nose"></div>
-          <div class="panda-mouth"></div>
-        </div>
-      </div>
+      <div class="hub-panda" id="hubPanda">🐼</div>
       <div class="hub-status" id="hubStatus">BETS CLOSED</div>
       <div class="hub-timer" id="hubTimer">9s</div>
     </div>
@@ -1196,40 +1424,245 @@
             <li>🥕 Carrot: 5x | 🌽 Corn: 5x | 🥬 Cabbage: 5x | 🍅 Tomato: 5x</li>
           </ul>
           <p style="margin-bottom: 8px;"><strong>3. Salad & Pizza Jackpots:</strong></p>
-          <p>🥗 <strong>Salad:</strong> Wins if ANY vegetable lands (Carrot, Corn, Cabbage, Tomato)!<br>🍕 <strong>Pizza:</strong> Wins if ANY meat lands (Hotdog, Skewer, Chicken, Steak)!</p>
+          <p>🥗 <strong>Salad:</strong> Wins if ANY vegetable lands (Carrot, Corn, Cabbage, Tomato)!<br>🍕 <strong>Pizza:</strong> Wins if Steak lands (45x jackpot hit)!</p>
         </div>
       </div>
     </div>
 
-    <!-- VICTORY CELEBRATION SHEET -->
-    <div class="victory-sheet" id="victorySheet">
-      <div class="sheet-handle"></div>
-      <div class="sheet-emoji" id="sheetEmoji">🌭</div>
-      <div class="sheet-main-title" id="sheetTitle">Hotdog Wins!</div>
-      <div class="sheet-multiplier-tag" id="sheetMultiplier">Multiplier: 10x</div>
-      <div class="sheet-win-box">
-        <div style="font-size: 11px; font-weight: 700; color: #6b7280;" id="sheetWinLabel">Your Winnings</div>
-        <div class="sheet-win-amount" id="sheetWinAmount">+0 💎</div>
+    <!-- RESULT SHEET DARK OVERLAY (dims game behind sheet) -->
+    <div class="result-sheet-overlay" id="resultSheetOverlay" onclick="closeVictorySheet()"></div>
+
+    <!-- FLUTTER RESULT BOTTOM SHEET (EXACT 1:1 REPLICA) -->
+    <div class="result-bottom-sheet" id="victorySheet">
+      <!-- 1. Top Streamers + Fork + Knife + Sticker Emoji -->
+      <div class="sheet-streamers-wrapper">
+        <svg class="streamers-svg" viewBox="0 0 412 72" preserveAspectRatio="none">
+          <!-- Left Orange Streamer -->
+          <path d="M 120 40 Q 95 14 58 31 Q 33 48 0 32" fill="none" stroke="#ff9800" stroke-width="2.5" stroke-linecap="round" />
+          <!-- Right Cyan Streamer -->
+          <path d="M 292 40 Q 317 14 354 31 Q 379 48 412 32" fill="none" stroke="#00e5ff" stroke-width="2.5" stroke-linecap="round" />
+          
+          <!-- Fork Silhouette (Left of center, around x = 144) -->
+          <g transform="translate(144, 18) scale(0.85)">
+            <!-- Prongs block -->
+            <rect x="-4.5" y="10" width="9" height="5" fill="#ffffff" />
+            <!-- 3 prongs -->
+            <rect x="-4.5" y="0" width="1.6" height="11" fill="#ffffff" />
+            <rect x="-0.8" y="0" width="1.6" height="11" fill="#ffffff" />
+            <rect x="2.9" y="0" width="1.6" height="11" fill="#ffffff" />
+            <!-- Neck & Handle -->
+            <rect x="-1.2" y="15" width="2.4" height="4" fill="#ffffff" />
+            <rect x="-1.6" y="19" width="3.2" height="23" rx="1.2" fill="#ffffff" />
+          </g>
+
+          <!-- Knife Silhouette (Right of center, around x = 268) -->
+          <g transform="translate(268, 18) scale(0.85)">
+            <!-- Blade -->
+            <path d="M -2.2 0 L 2.2 0 Q 3.2 10 2.2 16 L -2.2 16 Z" fill="#ffffff" />
+            <!-- Neck & Handle -->
+            <rect x="-1.2" y="16" width="2.4" height="4" fill="#ffffff" />
+            <rect x="-1.6" y="20" width="3.2" height="22" rx="1.2" fill="#ffffff" />
+          </g>
+        </svg>
+
+        <!-- Center Sticker Emoji -->
+        <div class="sheet-sticker-emoji" id="sheetStickerEmoji">
+          <span id="sheetEmoji">🌭</span>
+        </div>
       </div>
-      <button class="sheet-btn" onclick="closeVictorySheet()">Continue Playing</button>
+
+      <!-- 2. Main Sheet Content -->
+      <div class="sheet-content-wrap">
+        <!-- Handle Bar + Close Row -->
+        <div style="display:flex; align-items:center; justify-content:center; position:relative; margin-bottom:14px;">
+          <div class="sheet-handle" style="margin:0;"></div>
+          <div onclick="closeVictorySheet()" style="position:absolute; right:0; width:28px; height:28px; border-radius:50%; background:rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; color:#e2e8f0;">✕</div>
+        </div>
+
+        <!-- Outcome Pill -->
+        <div class="sheet-outcome-pill completed" id="sheetOutcomePill">
+          <span id="sheetOutcomeIconLeft">🎰</span>
+          <span id="sheetOutcomeText">ROUND COMPLETED</span>
+          <span id="sheetOutcomeIconRight">🎰</span>
+        </div>
+
+        <!-- Results Row: Panda Mascot + Backend Data Column -->
+        <div class="sheet-results-row">
+          <!-- Cute White Circular Panda Avatar matching Wheel Hub -->
+          <div class="sheet-panda-avatar">
+            <div class="hub-panda" style="font-size: 44px;">🐼</div>
+          </div>
+
+          <!-- Dynamic Data Column -->
+          <div class="sheet-data-col">
+            <div class="sheet-data-row">
+              <span>This round's results:</span>
+              <span class="sheet-data-result" id="sheetResultText">🌭 hotdog</span>
+            </div>
+            <div class="sheet-data-row">
+              <span>This round's winnings:</span>
+              <span class="sheet-data-winnings" id="sheetWinningsText">
+                <span>💎</span> <span id="sheetWinningsVal">0</span>
+              </span>
+            </div>
+            <div class="sheet-data-row">
+              <span>Your wager this round:</span>
+              <span class="sheet-data-wager" id="sheetWagerText">
+                <span style="color: #f59e0b;">🪙</span> <span id="sheetWagerVal">0</span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2.5 Salad / Pizza System Breakdown (Matching Flutter) -->
+        <div class="sheet-category-breakdown" id="sheetCategoryBreakdown" style="display: none;">
+          <div class="breakdown-header">
+            <span id="breakdownEmoji">🥗</span>
+            <span id="breakdownTitle">Salad System Breakdown (5x)</span>
+          </div>
+          <div class="breakdown-items" id="breakdownItems"></div>
+        </div>
+
+        <!-- 3. Biggest Winner Podium Section -->
+        <div class="sheet-podium-section">
+          <!-- Dashed Divider -->
+          <div class="sheet-dashed-divider">
+            <div class="dash-line"></div>
+            <span class="dash-label">This round's biggest winner</span>
+            <div class="dash-line"></div>
+          </div>
+
+          <!-- 3 Podium Slots -->
+          <div class="sheet-podium-slots">
+            <!-- Rank 1: Gold -->
+            <div class="podium-slot">
+              <div class="podium-avatar-wrap gold">
+                <div class="podium-avatar" id="winnerAvatar1">v</div>
+                <div class="podium-badge">1</div>
+              </div>
+              <div class="podium-name" id="winnerName1">v</div>
+              <div class="podium-score gold">
+                <span>💎</span> <span id="winnerScore1">1.0M</span>
+              </div>
+            </div>
+
+            <!-- Rank 2: Silver -->
+            <div class="podium-slot">
+              <div class="podium-avatar-wrap silver">
+                <div class="podium-avatar" id="winnerAvatar2">👤</div>
+                <div class="podium-badge">2</div>
+              </div>
+              <div class="podium-name" id="winnerName2">Empty</div>
+              <div class="podium-score silver">
+                <span>💎</span> <span id="winnerScore2">0</span>
+              </div>
+            </div>
+
+            <!-- Rank 3: Bronze -->
+            <div class="podium-slot">
+              <div class="podium-avatar-wrap bronze">
+                <div class="podium-avatar" id="winnerAvatar3">👤</div>
+                <div class="podium-badge">3</div>
+              </div>
+              <div class="podium-name" id="winnerName3">Empty</div>
+              <div class="podium-score bronze">
+                <span>💎</span> <span id="winnerScore3">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <script>
+    // ═══════════════════════════════════════════════════════════════════════════
+    // GLOBAL ERROR FORWARDER (helps debugging on device)
+    // ═══════════════════════════════════════════════════════════════════════════
+    window.addEventListener('error', function(evt) {
+      try {
+        if (window.FlutterApp && window.FlutterApp.postMessage) {
+          window.FlutterApp.postMessage(JSON.stringify({
+            action: 'logError',
+            message: String(evt.message || ''),
+            line: String(evt.lineno || ''),
+          }));
+        }
+      } catch (e) {}
+    });
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FLUTTER BRIDGE INTERFACE
+    // ═══════════════════════════════════════════════════════════════════════════
+    function sendToFlutter(action, payload = {}) {
+      if (window.FlutterApp && window.FlutterApp.postMessage) {
+        window.FlutterApp.postMessage(JSON.stringify({ action, ...payload }));
+      }
+    }
+
+    // === RELEASE DIAGNOSTICS: forward all console.* to Flutter → logcat ===
+    (function(){
+      try {
+        function fwd(level, args) {
+          try {
+            const msg = Array.from(args).map(function(x){ try { return JSON.stringify(x); } catch(e) { return String(x); } }).join(' ');
+            if (window.FlutterApp && window.FlutterApp.postMessage) {
+              window.FlutterApp.postMessage(JSON.stringify({ action: 'log', level: level, msg: msg }));
+            }
+          } catch(e2) {}
+        }
+        var origLog = console.log.bind(console);
+        var origWarn = console.warn.bind(console);
+        var origError = console.error.bind(console);
+        console.log = function() { fwd('log', arguments); return origLog.apply(console, arguments); };
+        console.warn = function() { fwd('warn', arguments); return origWarn.apply(console, arguments); };
+        console.error = function() { fwd('error', arguments); return origError.apply(console, arguments); };
+      } catch(e) {}
+    })();
+
+    // === BOOT HEARTBEAT: proves JS parsed & bridge alive ===
+    sendToFlutter('jsReady');
+    console.log('[SW] JS boot complete, bridge=' + (typeof window.FlutterApp));
+
+    // Server clock sync offset (ms). Positive = server is ahead of device.
+    let serverTimeOffset = 0;
+    let gameCycleStarted = false;
+    let pendingSpinResult = null;
+    let isSpinning = false;
+    let lastSpunRound = null;
+    let flutterDataReceived = false;
+    // Global outcome cache (roundId -> outcome) + last known outcome fallback.
+    // Backend broadcasts every round's winner to RTDB lucky_spin_stats/lastGlobalOutcome,
+    // so betting AND spectating clients both get a compulsory spin + result sheet.
+    let globalOutcomeByRound = {};
+    let lastKnownOutcome = null;
+
+    function getSynchronizedTime() {
+      return Date.now() + serverTimeOffset;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // GAME DEFINITIONS (Aligned with Flutter & percentages)
+    // ═══════════════════════════════════════════════════════════════════════════
     const POD_ITEMS = [
-      { id: 0, name: "Hotdog", emoji: "🌭", multiplier: 10, topPct: 16.9, leftPct: 50.0 },
-      { id: 1, name: "Skewer", emoji: "🍢", multiplier: 15, topPct: 22.2, leftPct: 75.2 },
-      { id: 2, name: "Chicken", emoji: "🍗", multiplier: 25, topPct: 34.9, leftPct: 85.6 },
-      { id: 3, name: "Steak", emoji: "🥩", multiplier: 45, topPct: 47.6, leftPct: 75.2 },
-      { id: 4, name: "Carrot", emoji: "🥕", multiplier: 5, topPct: 52.9, leftPct: 50.0 },
-      { id: 5, name: "Corn", emoji: "🌽", multiplier: 5, topPct: 47.6, leftPct: 24.8 },
-      { id: 6, name: "Cabbage", emoji: "🥬", multiplier: 5, topPct: 34.9, leftPct: 14.4 },
-      { id: 7, name: "Tomato", emoji: "🍅", multiplier: 5, topPct: 22.2, leftPct: 24.8 }
+      { id: 0, name: "Hotdog", emoji: "🌭", multiplier: 10, topPct: 18.22, leftPct: 50.02 },
+      { id: 1, name: "Skewer", emoji: "🍢", multiplier: 15, topPct: 23.07, leftPct: 76.75 },
+      { id: 2, name: "Chicken", emoji: "🍗", multiplier: 25, topPct: 36.09, leftPct: 86.07 },
+      { id: 3, name: "Steak", emoji: "🥩", multiplier: 45, topPct: 49.19, leftPct: 76.74 },
+      { id: 4, name: "Carrot", emoji: "🥕", multiplier: 5, topPct: 54.34, leftPct: 50.02 },
+      { id: 5, name: "Corn", emoji: "🌽", multiplier: 5, topPct: 49.18, leftPct: 23.41 },
+      { id: 6, name: "Cabbage", emoji: "🥬", multiplier: 5, topPct: 36.09, leftPct: 14.02 },
+      { id: 7, name: "Tomato", emoji: "🍅", multiplier: 5, topPct: 23.08, leftPct: 23.61 }
     ];
 
-    // MOCK LEADERBOARD DATA (From Flutter luckySpinLeaderboardProvider)
-    const MOCK_LEADERBOARD = [
+    // Server-accurate winning categories (functions/index.js playSpinWheel):
+    // Salad category pays only when a vegetable wins; Pizza category pays ONLY when
+    // Steak (the pizza-category segment) wins — hotdog/skewer/chicken are NOT pizza wins.
+    const SALAD_ITEMS = ['Carrot', 'Corn', 'Cabbage', 'Tomato'];
+    const PIZZA_ITEMS = ['Steak'];
+
+    // Live leaderboard data (replaced by Flutter bridge)
+    let liveLeaderboard = [
       { name: "King_99", totalBets: 1520000, avatar: "👑" },
       { name: "Sultan_Dubai", totalBets: 980000, avatar: "💎" },
       { name: "LuckyPanda", totalBets: 740000, avatar: "🐼" },
@@ -1237,31 +1670,20 @@
       { name: "StarGamer", totalBets: 210000, avatar: "🌟" }
     ];
 
-    // LOCAL GAME HISTORY (From Flutter userGameHistoryProvider)
-    let gameRecords = [
-      { orderId: "SPIN-89218", label: "Hotdog", emoji: "🌭", prize: 10000, balanceBefore: 9998614646842, balanceAfter: 9998614656842, date: "Today 18:18" },
-      { orderId: "SPIN-89217", label: "Corn", emoji: "🌽", prize: 0, balanceBefore: 9998614647842, balanceAfter: 9998614646842, date: "Today 18:17" }
-    ];
+    // Live game history (replaced by Flutter bridge)
+    let gameRecords = [];
 
     // STATE VARIABLES
     let selectedChip = 100;
-    let playerBalance = 9998614656842;
-    let totalGames = 2;
-    let totalWins = 1;
+    let playerBalance = 0;
+    let totalGames = 0;
+    let totalWins = 0;
     let currentBets = {};
     let confirmedBets = {};
     let isBetLocked = true;
-    let activePointerIndex = 1; // Start on Skewer matching screenshot
-    let currentRoundId = 1155;
-    let recentResults = [
-      { name: "Hotdog", emoji: "🌭", multiplier: 10 },
-      { name: "Corn", emoji: "🌽", multiplier: 5 },
-      { name: "Tomato", emoji: "🍅", multiplier: 5 },
-      { name: "Skewer", emoji: "🍢", multiplier: 15 },
-      { name: "Carrot", emoji: "🥕", multiplier: 5 },
-      { name: "Cabbage", emoji: "🥬", multiplier: 5 },
-      { name: "Chicken", emoji: "🍗", multiplier: 25 }
-    ];
+    let activePointerIndex = 1;
+    let currentRoundId = Math.floor(Date.now() / 40000);
+    let recentResults = [];
 
     // DOM ELEMENTS
     const spotlightMarker = document.getElementById('spotlightMarker');
@@ -1278,7 +1700,9 @@
     const rulesSheet = document.getElementById('rulesSheet');
     const victorySheet = document.getElementById('victorySheet');
 
-    // WEB AUDIO SYNTHESIZER (Guaranteed click & win sound without network 403s)
+    // ═══════════════════════════════════════════════════════════════════════════
+    // WEB AUDIO SYNTHESIZER (Zero network 403s)
+    // ═══════════════════════════════════════════════════════════════════════════
     let audioCtx = null;
     function playTone(freq, duration, type = "sine") {
       try {
@@ -1296,48 +1720,184 @@
       } catch (e) {}
     }
 
-    // POSITION SPOTLIGHT ON POD
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SPOTLIGHT & POD POSITIONING
+    // ═══════════════════════════════════════════════════════════════════════════
     function moveSpotlightToPod(index) {
       const pod = POD_ITEMS[index];
-      spotlightMarker.style.top = pod.topPct + '%';
-      spotlightMarker.style.left = pod.leftPct + '%';
+      const vp = document.querySelector('.app-viewport');
+      const W = vp.clientWidth, H = vp.clientHeight;
+      const x = (pod.leftPct / 100) * W;
+      const y = (pod.topPct / 100) * H;
+      spotlightMarker.style.transform = `translate3d(${x - 42}px, ${y - 42}px, 0)`;
       activePointerIndex = index;
     }
 
-    // INITIAL SETUP
-    moveSpotlightToPod(1); // Point to Skewer
-    updateBalanceDisplay();
-    renderRecentResults();
-    renderLeaderboardList();
-    renderHistoryList();
+    // Initial visual setup (will be updated when Flutter sends data)
+    moveSpotlightToPod(1);
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SERVER-SYNCED 40-SECOND GAME CYCLE
+    // ═══════════════════════════════════════════════════════════════════════════
+    function startGameCycle() {
+      if (gameCycleStarted) return;
+      gameCycleStarted = true;
+      console.log('[SW] cycle started, round=' + currentRoundId);
+
+      // Sync current round from server time
+      currentRoundId = Math.floor(getSynchronizedTime() / 40000);
+      if (roundTitle) roundTitle.textContent = "Today's " + currentRoundId + " Round";
+
+      setInterval(function() {
+        try {
+          var secIntoCycle = Math.floor((getSynchronizedTime() % 40000) / 1000);
+          handleCycleTick(secIntoCycle);
+        } catch (e) {
+          // Never let the timer die — silently recover
+          console.warn('[SpinWheel] Cycle tick error:', e);
+        }
+      }, 250); // 250ms for smooth countdown display
+    }
+
+    // Fallback: start game cycle even without Flutter (for standalone browser testing)
+    setTimeout(function() {
+      if (!gameCycleStarted) {
+        playerBalance = 50000;
+        updateBalanceDisplay();
+        // Set initial bet lock based on current cycle position
+        var secIntoCycle = Math.floor((getSynchronizedTime() % 40000) / 1000);
+        isBetLocked = secIntoCycle >= 20;
+        startGameCycle();
+      }
+    }, 1000);
+
+    let lastHandledSecond = -1;
+
+    // Resolve the outcome that should drive the spin for the current round.
+    // Exactly ONE spin per round: the spin lasts ~3.3s but the spinning phase is
+    // 5s (30-35s), so without this guard the cached outcome would re-spin at the
+    // last spinning tick (34s). Priority:
+    // 1) the user's own server-confirmed bet result (correct sector + prize),
+    // 2) the global RTDB broadcast for this round (spectators / late results).
+    // Returns null while the backend is still slow so the tick can wait until
+    // the last moment (34s) before falling back to the last known outcome.
+    function resolveRoundOutcome() {
+      const cur = String(currentRoundId);
+      if (lastSpunRound === currentRoundId) return null;
+      if (pendingSpinResult && String(pendingSpinResult.roundId || cur) === cur) {
+        const pr = pendingSpinResult;
+        pendingSpinResult = null;
+        return Object.assign({}, pr, { _real: true });
+      }
+      if (globalOutcomeByRound[cur]) {
+        return Object.assign({}, globalOutcomeByRound[cur], { _real: true });
+      }
+      return null;
+    }
+
+    function handleCycleTick(secIntoCycle) {
+      // Only process state transitions once per second
+      if (secIntoCycle === lastHandledSecond) return;
+      lastHandledSecond = secIntoCycle;
+
+      const newRoundId = Math.floor(getSynchronizedTime() / 40000);
+
+      // Round rollover detection
+      if (newRoundId !== currentRoundId) {
+        currentRoundId = newRoundId;
+        if (roundTitle) roundTitle.textContent = "Today's " + currentRoundId + " Round";
+        clearBets();
+        closeVictorySheet();
+        lastHandledSecond = -1;
+      }
+
+      if (secIntoCycle < 20) {
+        // BETTING PHASE (0s-20s)
+        isBetLocked = false;
+        if (hubStatus) hubStatus.textContent = "Select time";
+        if (hubTimer) hubTimer.textContent = (30 - secIntoCycle) + "s";
+        if (centerBanner) centerBanner.style.display = "none";
+        if (spotlightMarker) spotlightMarker.classList.remove('winner-pulse');
+      } else if (secIntoCycle >= 20 && secIntoCycle < 30) {
+        // BETS LOCKED PHASE (20s-30s)
+        if (!isBetLocked) {
+          // First tick of locked phase: auto-submit bets to Flutter
+          isBetLocked = true;
+          if (Object.keys(currentBets).length > 0) {
+            submitBetsToFlutter();
+          }
+        }
+        if (hubStatus) hubStatus.textContent = "BETS CLOSED";
+        if (hubTimer) hubTimer.textContent = (30 - secIntoCycle) + "s";
+        if (centerBanner) centerBanner.style.display = "block";
+        if (spotlightMarker) spotlightMarker.classList.remove('winner-pulse');
+      } else if (secIntoCycle >= 30 && secIntoCycle < 35) {
+        // SPINNING PHASE (30s-35s) — compulsory spin for bettors AND spectators.
+        isBetLocked = true;
+        if (hubStatus) hubStatus.textContent = "Spinning";
+        if (hubTimer) hubTimer.textContent = "";
+        if (centerBanner) centerBanner.style.display = "block";
+        if (!isSpinning) {
+          // Prefer a REAL outcome for this round. Only at the very last spinning
+          // tick (34s) fall back to the last known outcome so the animation still
+          // runs when the backend is unusually slow or the round had zero bets.
+          let outcome = resolveRoundOutcome();
+          if (!outcome && secIntoCycle >= 34 && lastKnownOutcome) {
+            outcome = Object.assign({}, lastKnownOutcome, {
+              _real: false,
+              roundId: String(currentRoundId)
+            });
+            console.log('[SW] 34s fallback spin -> sector=' + outcome.sectorIndex);
+          }
+          if (outcome) {
+            console.log('[SW] spin trigger sector=' + outcome.sectorIndex + ' real=' + (outcome._real === true) + ' sec=' + secIntoCycle);
+            runMarkerSpin(outcome.sectorIndex, outcome);
+          } else {
+            console.log('[SW] spin deferred, sec=' + secIntoCycle + ' noOutcome');
+          }
+        }
+      } else if (secIntoCycle >= 35 && secIntoCycle < 38) {
+        // RESULTS PHASE (35s-38s) — result sheet is already open
+        if (centerBanner) centerBanner.style.display = "none";
+      } else if (secIntoCycle >= 38) {
+        // ROUND TRANSITION (38s-40s) — keep result sheet open so the outcome is
+        // comfortably visible; it closes at the exact moment the next round starts.
+        if (centerBanner) centerBanner.style.display = "none";
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
     // CHIP SELECTION
+    // ═══════════════════════════════════════════════════════════════════════════
     function selectChip(value, el) {
       playTone(520, 0.08);
       selectedChip = value;
       document.querySelectorAll('.chip-item').forEach(c => c.classList.remove('active'));
       el.classList.add('active');
+      sendToFlutter('hapticFeedback', { type: 'light' });
     }
 
-    // POD BETTING ON TAP
+    // ═══════════════════════════════════════════════════════════════════════════
+    // POD BETTING — Dispatches to Flutter for server validation
+    // ═══════════════════════════════════════════════════════════════════════════
     function handlePodClick(index) {
       if (isBetLocked) {
         playTone(220, 0.15, "sawtooth");
         return;
       }
       if (playerBalance < selectedChip) {
-        alert("Insufficient Diamonds!");
+        sendToFlutter('hapticFeedback', { type: 'medium' });
         return;
       }
 
       playTone(740, 0.1, "triangle");
       const item = POD_ITEMS[index];
-      playerBalance -= selectedChip;
+      // Local visual-only deduction (will be confirmed/rejected by Flutter)
       currentBets[item.name] = (currentBets[item.name] || 0) + selectedChip;
-      confirmedBets[item.name] = currentBets[item.name];
-
+      playerBalance -= selectedChip;
       updateBalanceDisplay();
       renderPodBetPill(index, currentBets[item.name]);
+      sendToFlutter('hapticFeedback', { type: 'light' });
     }
 
     // JACKPOT BETTING (SALAD & PIZZA)
@@ -1347,15 +1907,13 @@
         return;
       }
       if (playerBalance < selectedChip) {
-        alert("Insufficient Diamonds!");
+        sendToFlutter('hapticFeedback', { type: 'medium' });
         return;
       }
 
       playTone(820, 0.12, "triangle");
-      playerBalance -= selectedChip;
       currentBets[type] = (currentBets[type] || 0) + selectedChip;
-      confirmedBets[type] = currentBets[type];
-
+      playerBalance -= selectedChip;
       updateBalanceDisplay();
 
       const pill = document.getElementById(type === 'Salad' ? 'pill-salad' : 'pill-pizza');
@@ -1364,7 +1922,52 @@
       pill.style.display = 'flex';
     }
 
-    // RENDER ON-POD BADGE & COIN STACK
+    // SUBMIT BETS TO FLUTTER (server validation)
+    // In standalone mode (no Flutter), bets are processed locally
+    function submitBetsToFlutter() {
+      const totalBet = Object.values(currentBets).reduce((a, b) => a + b, 0);
+      if (totalBet <= 0) return;
+      confirmedBets = { ...currentBets };
+
+      if (window.FlutterApp && window.FlutterApp.postMessage) {
+        // Connected to Flutter: send for server validation
+        sendToFlutter('placeBet', { bets: currentBets, totalBet: totalBet });
+      } else {
+        // Standalone mode: simulate local result for testing
+        var targetIdx = Math.floor(Math.random() * POD_ITEMS.length);
+        var result = {
+          sectorIndex: targetIdx,
+          name: POD_ITEMS[targetIdx].name,
+          emoji: POD_ITEMS[targetIdx].emoji,
+          multiplier: POD_ITEMS[targetIdx].multiplier,
+          prize: 0,
+          totalBet: totalBet,
+          todayWinners: [],
+          type: 'standard'
+        };
+        // Check if user bet on the winning item
+        var winBet = currentBets[POD_ITEMS[targetIdx].name] || 0;
+        if (winBet > 0) {
+          result.prize = winBet * POD_ITEMS[targetIdx].multiplier;
+        }
+        // Check Salad/Pizza category bets
+        var betOnSalad = currentBets['Salad'] || 0;
+        var betOnPizza = currentBets['Pizza'] || 0;
+        if (SALAD_ITEMS.includes(POD_ITEMS[targetIdx].name) && betOnSalad > 0) {
+          result.prize += betOnSalad * 5;
+        }
+        if (PIZZA_ITEMS.includes(POD_ITEMS[targetIdx].name) && betOnPizza > 0) {
+          result.prize += betOnPizza * 45;
+        }
+        setTimeout(function() {
+          window.onBetConfirmed(result);
+        }, 200);
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // UI RENDERING
+    // ═══════════════════════════════════════════════════════════════════════════
     function renderPodBetPill(index, amount) {
       const pill = document.getElementById(`pill-${index}`);
       if (pill) {
@@ -1373,9 +1976,7 @@
         pill.style.display = 'flex';
       }
       const coins = document.getElementById(`coins-${index}`);
-      if (coins) {
-        coins.style.display = 'block';
-      }
+      if (coins) coins.style.display = 'block';
     }
 
     function updateBalanceDisplay() {
@@ -1399,61 +2000,20 @@
       });
     }
 
-    function triggerRefresh() {
-      playTone(600, 0.1);
-      renderRecentResults();
-      updateBalanceDisplay();
-    }
-
-    // 40-SECOND GAME CYCLE SIMULATION
-    let cycleSecond = 21; // 9s left in betting
-
-    setInterval(() => {
-      cycleSecond = (cycleSecond + 1) % 40;
-
-      if (cycleSecond < 30) {
-        const timeLeft = 30 - cycleSecond;
-        if (timeLeft <= 10) {
-          isBetLocked = true;
-          hubStatus.textContent = "BETS CLOSED";
-          hubTimer.textContent = `${timeLeft}s`;
-          centerBanner.style.display = "block";
-        } else {
-          isBetLocked = false;
-          hubStatus.textContent = "Select time";
-          hubTimer.textContent = `${timeLeft}s`;
-          centerBanner.style.display = "none";
-        }
-        spotlightMarker.classList.remove('winner-pulse');
-      } else if (cycleSecond === 30) {
-        isBetLocked = true;
-        hubStatus.textContent = "BETS CLOSED";
-        hubTimer.textContent = "Spinning";
-        centerBanner.style.display = "block";
-        runMarkerSpin();
-      } else if (cycleSecond === 35) {
-        centerBanner.style.display = "none";
-      } else if (cycleSecond === 39) {
-        closeVictorySheet();
-        currentRoundId++;
-        roundTitle.textContent = `Today's ${currentRoundId} Round`;
-        clearBets();
-      }
-    }, 1000);
-
-    // RUN MARKER SPIN ANIMATION
-    function runMarkerSpin() {
-      const targetWinningIndex = Math.floor(Math.random() * POD_ITEMS.length);
-      const winningItem = POD_ITEMS[targetWinningIndex];
-
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SPIN ANIMATION — Server-targeted deceleration
+    // ═══════════════════════════════════════════════════════════════════════════
+    function runMarkerSpin(targetIndex, result) {
+      isSpinning = true;
+      lastSpunRound = currentRoundId;
+      console.log('[SW] spin START sector=' + targetIndex + ' round=' + currentRoundId);
       let currentStep = activePointerIndex;
-      let totalSteps = 24 + targetWinningIndex;
+      let totalSteps = 24 + targetIndex;
       let speed = 42;
 
       function step() {
         currentStep = (currentStep + 1) % 8;
         moveSpotlightToPod(currentStep);
-        playTone(380 + (currentStep * 40), 0.04);
         totalSteps--;
 
         if (totalSteps > 12) {
@@ -1462,79 +2022,184 @@
           speed += 28;
           setTimeout(step, speed);
         } else {
-          moveSpotlightToPod(targetWinningIndex);
+          moveSpotlightToPod(targetIndex);
           spotlightMarker.classList.add('winner-pulse');
           playTone(880, 0.35, "triangle");
-          onSpinFinished(winningItem);
+          isSpinning = false;
+          onSpinFinished(result);
         }
       }
-
       step();
     }
 
-    // ON SPIN FINISHED
-    function onSpinFinished(item) {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SPIN FINISHED — Populate result sheet with server-confirmed data
+    // ═══════════════════════════════════════════════════════════════════════════
+    function onSpinFinished(result) {
+      // If this spin was driven by the last-known fallback (backend slow / round
+      // with zero bets) and a REAL outcome for this round arrived mid-spin,
+      // upgrade the sheet to the real winner so we never display a stale sector.
+      const spinRound = String(result.roundId || currentRoundId || '');
+      const realGlobal = globalOutcomeByRound[spinRound];
+      if (!result._real && realGlobal) {
+        result = Object.assign({}, realGlobal, { _real: true });
+      }
+
+      // Personal server-confirmed result for THIS round upgrades the global
+      // outcome display (authoritative winnings + wager). Spectators keep the
+      // global outcome (totalWager 0 → "ROUND COMPLETED" pill).
+      let personal = null;
+      if (pendingSpinResult) {
+        if (String(pendingSpinResult.roundId || currentRoundId || '') === spinRound) {
+          personal = pendingSpinResult;
+        }
+        pendingSpinResult = null;
+      }
+      const item = POD_ITEMS[result.sectorIndex] || POD_ITEMS.find(p => p.name === result.name) || POD_ITEMS[0];
+      const serverPrize = (personal && personal.prize != null ? personal.prize : result.prize) || 0;
+      const totalWager = (personal ? (personal.totalBet || result.totalBet) : result.totalBet) ||
+        Object.values(confirmedBets).reduce((a, b) => a + b, 0);
+
       totalGames++;
-      const userBet = currentBets[item.name] || 0;
-      let winnings = 0;
+      if (serverPrize > 0) totalWins++;
 
-      if (userBet > 0) {
-        winnings = userBet * item.multiplier;
-        playerBalance += winnings;
-        totalWins++;
-        updateBalanceDisplay();
-      }
+      // Update balance with server-confirmed prize
+      playerBalance = playerBalance + serverPrize;
+      updateBalanceDisplay();
 
-      // Check category win (Salad or Pizza)
-      const isSaladItem = ['Carrot', 'Corn', 'Cabbage', 'Tomato'].includes(item.name);
-      const isPizzaItem = ['Hotdog', 'Skewer', 'Chicken', 'Steak'].includes(item.name);
-      if (isSaladItem && (currentBets['Salad'] || 0) > 0) {
-        const saladWin = currentBets['Salad'] * 2;
-        winnings += saladWin;
-        playerBalance += saladWin;
-      }
-      if (isPizzaItem && (currentBets['Pizza'] || 0) > 0) {
-        const pizzaWin = currentBets['Pizza'] * 2;
-        winnings += pizzaWin;
-        playerBalance += pizzaWin;
-      }
-
-      // Add to records list
+      // Add to history
       gameRecords.unshift({
-        orderId: `SPIN-${Math.floor(10000 + Math.random() * 90000)}`,
+        orderId: result.roundId || currentRoundId.toString(),
         label: item.name,
         emoji: item.emoji,
-        prize: winnings,
-        balanceBefore: playerBalance - winnings,
+        prize: serverPrize,
+        balanceBefore: playerBalance - serverPrize,
         balanceAfter: playerBalance,
         date: "Just now"
       });
       renderHistoryList();
 
+      // Update recent results scroll
       recentResults.unshift({ name: item.name, emoji: item.emoji, multiplier: item.multiplier });
       if (recentResults.length > 10) recentResults.pop();
       renderRecentResults();
 
-      // Show victory bottom sheet
+      // Populate Flutter-replica dark result bottom sheet
       document.getElementById('sheetEmoji').textContent = item.emoji;
-      document.getElementById('sheetTitle').textContent = `${item.name} Wins!`;
-      document.getElementById('sheetMultiplier').textContent = `Multiplier: ${item.multiplier}x`;
+      document.getElementById('sheetResultText').textContent = `${item.emoji} ${item.name.toLowerCase()}`;
+      document.getElementById('sheetWinningsVal').textContent = serverPrize.toLocaleString();
+      document.getElementById('sheetWagerVal').textContent = totalWager.toLocaleString();
 
-      if (winnings > 0) {
-        document.getElementById('sheetWinLabel').textContent = "Congratulations! You Won";
-        document.getElementById('sheetWinAmount').textContent = `+${winnings.toLocaleString()} 💎`;
-        document.getElementById('sheetWinAmount').style.color = "#10b981";
+      // Populate Salad / Pizza System Breakdown
+      const breakdownEl = document.getElementById('sheetCategoryBreakdown');
+      const breakdownItems = document.getElementById('breakdownItems');
+      const breakdownEmoji = document.getElementById('breakdownEmoji');
+      const breakdownTitle = document.getElementById('breakdownTitle');
+      const betOnSalad = confirmedBets['Salad'] || 0;
+      const betOnPizza = confirmedBets['Pizza'] || 0;
+
+      const isSpecialSaladRound = result.type === 'salad' || result.category === 'salad';
+      const isSpecialPizzaRound = result.type === 'pizza' || result.category === 'pizza';
+
+      if (isSpecialSaladRound) {
+        breakdownEl.style.display = 'block';
+        breakdownEmoji.textContent = '🥗';
+        breakdownTitle.textContent = 'Salad System Breakdown (5x)';
+        const saladRows = [
+          { label: '🍅 Tomato', bet: confirmedBets['Tomato'] || 0, mult: 5 },
+          { label: '🥬 Cabbage', bet: confirmedBets['Cabbage'] || 0, mult: 5 },
+          { label: '🌽 Corn', bet: confirmedBets['Corn'] || 0, mult: 5 },
+          { label: '🥕 Carrot', bet: confirmedBets['Carrot'] || 0, mult: 5 },
+          { label: '🥗 Salad (Jackpot)', bet: betOnSalad, mult: 5 }
+        ];
+        breakdownItems.innerHTML = saladRows.map(r => `
+          <div class="breakdown-row">
+            <span>${r.label}</span>
+            <span class="breakdown-win">${r.bet > 0 ? (r.bet * r.mult >= 1000 ? (r.bet * r.mult / 1000).toFixed(1) + 'k' : r.bet * r.mult) : '0'} 💎</span>
+          </div>
+        `).join('');
+      } else if (isSpecialPizzaRound) {
+        breakdownEl.style.display = 'block';
+        breakdownEmoji.textContent = '🍕';
+        breakdownTitle.textContent = 'Pizza System Breakdown (45x)';
+        const pizzaRows = [
+          { label: '🥩 Steak', bet: confirmedBets['Steak'] || 0, mult: 45 },
+          { label: '🍕 Pizza (Jackpot)', bet: betOnPizza, mult: 45 }
+        ];
+        breakdownItems.innerHTML = pizzaRows.map(r => `
+          <div class="breakdown-row">
+            <span>${r.label}</span>
+            <span class="breakdown-win">${r.bet > 0 ? (r.bet * r.mult >= 1000 ? (r.bet * r.mult / 1000).toFixed(1) + 'k' : r.bet * r.mult) : '0'} 💎</span>
+          </div>
+        `).join('');
       } else {
-        document.getElementById('sheetWinLabel').textContent = userBet > 0 ? "You Lost This Round" : "No Bet Placed";
-        document.getElementById('sheetWinAmount').textContent = userBet > 0 ? `-${userBet.toLocaleString()} 💎` : "0 💎";
-        document.getElementById('sheetWinAmount').style.color = userBet > 0 ? "#ef4444" : "#6b7280";
+        breakdownEl.style.display = 'none';
+      }
+
+      // Outcome pill
+      const outcomePill = document.getElementById('sheetOutcomePill');
+      const outcomeText = document.getElementById('sheetOutcomeText');
+      const iconLeft = document.getElementById('sheetOutcomeIconLeft');
+      const iconRight = document.getElementById('sheetOutcomeIconRight');
+      const winningsEl = document.getElementById('sheetWinningsText');
+
+      if (totalWager > 0) {
+        if (serverPrize > 0) {
+          outcomePill.className = 'sheet-outcome-pill win';
+          outcomeText.textContent = 'YOU WIN!';
+          iconLeft.textContent = '🎉';
+          iconRight.textContent = '🎉';
+          winningsEl.classList.add('win');
+          playTone(920, 0.4, "triangle");
+        } else {
+          outcomePill.className = 'sheet-outcome-pill lost';
+          outcomeText.textContent = 'YOU LOST';
+          iconLeft.textContent = '💸';
+          iconRight.textContent = '💸';
+          winningsEl.classList.remove('win');
+        }
+      } else {
+        outcomePill.className = 'sheet-outcome-pill completed';
+        outcomeText.textContent = 'ROUND COMPLETED';
+        iconLeft.textContent = '🎰';
+        iconRight.textContent = '🎰';
+        winningsEl.classList.remove('win');
+      }
+
+      // Podium winners (from server todayWinners or local fallback)
+      const todayWinners = (personal || result).todayWinners || [];
+      if (todayWinners.length > 0) {
+        for (let i = 0; i < 3; i++) {
+          const w = todayWinners[i];
+          const prefix = ['winnerAvatar', 'winnerName', 'winnerScore'];
+          if (w) {
+            document.getElementById(prefix[0] + (i + 1)).textContent = w.photoUrl ? '' : (i === 0 ? '👑' : '👤');
+            document.getElementById(prefix[1] + (i + 1)).textContent = w.name || 'Empty';
+            const score = w.amount || w.totalWinnings || 0;
+            document.getElementById(prefix[2] + (i + 1)).textContent = score >= 1000000 ? (score / 1000000).toFixed(1) + 'M' : (score >= 1000 ? (score / 1000).toFixed(0) + 'K' : score);
+          }
+        }
+      } else if (serverPrize > 0) {
+        document.getElementById('winnerAvatar1').textContent = '👑';
+        document.getElementById('winnerName1').textContent = 'You';
+        document.getElementById('winnerScore1').textContent = serverPrize >= 1000000 ? (serverPrize / 1000000).toFixed(1) + 'M' : (serverPrize >= 1000 ? (serverPrize / 1000).toFixed(0) + 'K' : serverPrize);
       }
 
       victorySheet.classList.add('open');
+      document.getElementById('resultSheetOverlay').classList.add('open');
+
+      // Request fresh data from Flutter
+      sendToFlutter('fetchHistory');
+      sendToFlutter('fetchLeaderboard');
+      sendToFlutter('syncBalance');
     }
 
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHEET CONTROLLERS
+    // ═══════════════════════════════════════════════════════════════════════════
     function closeVictorySheet() {
       victorySheet.classList.remove('open');
+      document.getElementById('resultSheetOverlay').classList.remove('open');
     }
 
     function clearBets() {
@@ -1552,15 +2217,20 @@
       if (pizzaPill) pizzaPill.style.display = 'none';
     }
 
-    // BOTTOM SHEETS MODAL CONTROLLERS
     function openLeaderboardSheet() {
       playTone(500, 0.08);
+      closeVictorySheet();
+      renderLeaderboardList();
+      sendToFlutter('fetchLeaderboard');
       modalOverlay.classList.add('open');
       leaderboardSheet.classList.add('open');
     }
 
     function openHistorySheet() {
       playTone(500, 0.08);
+      closeVictorySheet();
+      renderHistoryList();
+      sendToFlutter('fetchHistory');
       modalOverlay.classList.add('open');
       historySheet.classList.add('open');
     }
@@ -1577,13 +2247,20 @@
       historySheet.classList.remove('open');
       rulesSheet.classList.remove('open');
       victorySheet.classList.remove('open');
+      document.getElementById('resultSheetOverlay').classList.remove('open');
     }
 
-    // RENDER LEADERBOARD LIST
-    function renderLeaderboardList() {
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RENDER LISTS
+    // ═══════════════════════════════════════════════════════════════════════════
+function renderLeaderboardList() {
       const container = document.getElementById('leaderboardListContainer');
       container.innerHTML = '';
-      MOCK_LEADERBOARD.forEach((p, idx) => {
+      if (!liveLeaderboard || liveLeaderboard.length === 0) {
+        container.innerHTML = '<div style="padding:28px 0; text-align:center; color:#94a3b8; font-size:13px;">No players yet — be the first to place a bet!</div>';
+        return;
+      }
+      liveLeaderboard.forEach((p, idx) => {
         const rankClass = idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : 'standard';
         const row = document.createElement('div');
         row.className = 'leaderboard-row';
@@ -1594,13 +2271,12 @@
             <div class="player-name">${p.name}</div>
             <div class="player-sub">Total Wins</div>
           </div>
-          <div class="player-winnings">💎 ${p.totalBets.toLocaleString()}</div>
+          <div class="player-winnings">💎 ${(p.totalBets || 0).toLocaleString()}</div>
         `;
         container.appendChild(row);
       });
     }
 
-    // RENDER GAME HISTORY LIST (CATATAN SAYA)
     function renderHistoryList() {
       const container = document.getElementById('historyListContainer');
       container.innerHTML = '';
@@ -1615,14 +2291,14 @@
           </div>
           <div class="record-row">
             <span>Winning Food:&nbsp;</span>
-            <strong style="color: #ffffff;">${rec.emoji} ${rec.label.toUpperCase()}</strong>
+            <strong style="color: #ffffff;">${rec.emoji} ${(rec.label || '').toUpperCase()}</strong>
           </div>
           <div class="record-row">
             <span>Win Coins:&nbsp;</span>
-            <strong style="color: ${isWin ? '#10b981' : '#f59e0b'};">💎 ${rec.prize.toLocaleString()}</strong>
+            <strong style="color: ${isWin ? '#10b981' : '#f59e0b'};">💎 ${(rec.prize || 0).toLocaleString()}</strong>
           </div>
           <div class="record-row" style="font-size: 11px; color: #94a3b8;">
-            <span>Balance: ${rec.balanceBefore.toLocaleString()} ➔ ${rec.balanceAfter.toLocaleString()}</span>
+            <span>Balance: ${(rec.balanceBefore || 0).toLocaleString()} ➔ ${(rec.balanceAfter || 0).toLocaleString()}</span>
           </div>
           <div class="record-stamp ${isWin ? 'win' : 'lose'}">
             <div class="record-stamp-stars">★ ★ ★</div>
@@ -1632,6 +2308,158 @@
         container.appendChild(card);
       });
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // FLUTTER → JS BRIDGE HANDLERS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    // Receive initial user data from Flutter
+    window.onFlutterData = function(data) {
+      flutterDataReceived = true;
+      console.log('[SW] onFlutterData playingPower=' + data.playingPower + ' uid=' + data.uid);
+      if (data.playingPower !== undefined) playerBalance = data.playingPower;
+      if (data.serverTime) {
+        serverTimeOffset = data.serverTime - Date.now();
+      }
+      updateBalanceDisplay();
+      startGameCycle();
+    };
+
+    // Receive server-confirmed bet result
+    window.onBetConfirmed = function(result) {
+      console.log('[SW] onBetConfirmed round=' + result.roundId + ' sector=' + result.sectorIndex + ' prize=' + result.prize);
+      if (result.serverTime) {
+        serverTimeOffset = result.serverTime - Date.now();
+      }
+      pendingSpinResult = result;
+
+      // Trigger spin targeting the exact server-determined sector
+      if (!isSpinning) {
+        const secIntoCycle = Math.floor((getSynchronizedTime() % 40000) / 1000);
+        if (secIntoCycle >= 30) {
+          pendingSpinResult = null;
+          runMarkerSpin(result.sectorIndex, result);
+        }
+        // If not yet in spinning phase, store result; cycle tick will trigger spin
+      }
+    };
+
+    // Receive GLOBAL round outcome broadcast from RTDB (lucky_spin_stats/lastGlobalOutcome).
+    // Guarantees a spin + result sheet every round for EVERY client (bettors & spectators).
+    window.onGlobalOutcome = function(data) {
+      console.log('[SW] onGlobalOutcome round=' + data.roundId + ' sector=' + data.sectorIndex);
+      try {
+        const roundKey = String(data.roundId || '');
+        lastKnownOutcome = data;
+        if (roundKey) {
+          globalOutcomeByRound[roundKey] = data;
+          // If a spin is already running, just cache — onSpinFinished() will upgrade
+          // the sheet with any personal prize for this round.
+          if (!isSpinning) {
+            const secIntoCycle = Math.floor((getSynchronizedTime() % 40000) / 1000);
+            if (secIntoCycle >= 30 && secIntoCycle < 35) {
+              const outcome = resolveRoundOutcome();
+              if (outcome) runMarkerSpin(outcome.sectorIndex, outcome);
+            }
+          }
+        }
+      } catch (e) {
+        try {
+          if (window.FlutterApp && window.FlutterApp.postMessage) {
+            window.FlutterApp.postMessage(JSON.stringify({
+              action: 'logError',
+              message: String(e && e.message || e) + ' | onGlobalOutcome',
+              line: ''
+            }));
+          }
+        } catch (e2) {}
+      }
+    };
+
+    // Handle bet rejection from Flutter
+    window.onBetRejected = function(reason) {
+      console.log('[SW] onBetRejected reason=' + reason);
+      // Roll back local bet deductions
+      for (const name in currentBets) {
+        playerBalance += currentBets[name];
+      }
+      currentBets = {};
+      confirmedBets = {};
+      updateBalanceDisplay();
+      clearBets();
+      if (reason === 'insufficient_balance') {
+        playTone(220, 0.2, "sawtooth");
+      }
+    };
+
+    // Receive real game history from Flutter
+    window.onHistoryReceived = function(records) {
+      gameRecords = records.map(r => ({
+        orderId: r.orderId || r.roundId || '',
+        label: r.name || r.winningItem || r.label || '',
+        emoji: r.emoji || '',
+        prize: r.prize || 0,
+        balanceBefore: r.balanceBefore || 0,
+        balanceAfter: r.balanceAfter || 0,
+        date: r.date || r.timestamp || ''
+      }));
+      renderHistoryList();
+      // Update history stats
+      totalGames = gameRecords.length;
+      totalWins = gameRecords.filter(r => r.prize > 0).length;
+      updateBalanceDisplay();
+    };
+
+    // Receive real leaderboard from Flutter
+    window.onLeaderboardReceived = function(players) {
+      liveLeaderboard = players.map(p => ({
+        name: p.displayName || p.name || 'Player',
+        totalBets: p.totalWinnings || p.totalBets || 0,
+        avatar: p.photoUrl ? '👤' : (p.avatar || '👤')
+      }));
+      renderLeaderboardList();
+      updateTopPlayersStrip();
+    };
+
+    // Update the compact "Daily Top Players" strip on the main screen
+    function updateTopPlayersStrip() {
+      const el = document.getElementById('topPlayersVal');
+      if (!el) return;
+      if (!liveLeaderboard || liveLeaderboard.length === 0) {
+        el.textContent = 'No players yet >';
+        return;
+      }
+      const names = liveLeaderboard.slice(0, 3).map((p, i) => {
+        const pos = i === 0 ? '1st' : i === 1 ? '2nd' : '3rd';
+        const score = p.totalBets >= 1000000 ? (p.totalBets / 1000000).toFixed(1) + 'M' : (p.totalBets >= 1000 ? (p.totalBets / 1000).toFixed(0) + 'K' : p.totalBets);
+        return pos + ': ' + p.name + ': ' + score;
+      });
+      el.textContent = names.join(' | ') + ' >';
+      console.log('[SW] topPlayersStrip updated');
+    }
+
+    // Receive updated balance from Flutter
+    window.onBalanceUpdate = function(playingPower, diamonds, beans) {
+      playerBalance = playingPower;
+      updateBalanceDisplay();
+    };
+
+    // Receive server time offset from Flutter
+    window.onTimeSync = function(offset) {
+      serverTimeOffset = offset;
+    };
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // EXIT GAME
+    // ═══════════════════════════════════════════════════════════════════════════
+    function exitGame() {
+      sendToFlutter('exitGame');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // INITIALIZATION — Request data from Flutter
+    // ═══════════════════════════════════════════════════════════════════════════
+    sendToFlutter('ready');
   </script>
 </body>
 </html>
