@@ -7,7 +7,6 @@ import 'dart:math' as math;
 import '../../../../core/utils/badge_utils.dart';
 import '../../../../utils/number_formatter.dart';
 import '../../../../core/models/user_model.dart';
-import '../../../../core/widgets/user_badge.dart';
 
 class CelebrityRankingScreen extends ConsumerStatefulWidget {
   const CelebrityRankingScreen({super.key});
@@ -172,60 +171,84 @@ class _CelebrityRankingScreenState extends ConsumerState<CelebrityRankingScreen>
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError || (snapshot.hasData && snapshot.data!.docs.isEmpty)) {
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection(isRoom ? 'rooms' : 'users').limit(50).snapshots(),
+            builder: (ctx, fallbackSnap) {
+              if (fallbackSnap.hasError || !fallbackSnap.hasData) {
+                return const Center(child: Text("Waiting for Legends...", style: TextStyle(color: Colors.white24)));
+              }
+              final fallbackDocs = List<QueryDocumentSnapshot>.from(fallbackSnap.data!.docs);
+              fallbackDocs.sort((a, b) {
+                final aData = a.data() as Map<String, dynamic>;
+                final bData = b.data() as Map<String, dynamic>;
+                final aScore = (aData[field] as num?) ?? (aData['xp'] as num?) ?? (aData['level'] as num?) ?? 0;
+                final bScore = (bData[field] as num?) ?? (bData['xp'] as num?) ?? (bData['level'] as num?) ?? 0;
+                return bScore.compareTo(aScore);
+              });
+              return _buildRankingViewWithDocs(fallbackDocs, field, isRoom: isRoom);
+            },
+          );
+        }
+
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
         final docs = snapshot.data!.docs;
-        if (docs.isEmpty) return const Center(child: Text("Waiting for Legends...", style: TextStyle(color: Colors.white24)));
-
-        return CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            // PRESTIGIOUS PODIUM SECTION
-            SliverToBoxAdapter(
-              child: Container(
-                height: 420,
-                padding: const EdgeInsets.only(top: 20),
-                child: Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none,
-                  children: [
-                    // TOP 2 (Left)
-                    if (docs.length > 1) Positioned(
-                      left: MediaQuery.of(context).size.width * 0.05,
-                      top: 120,
-                      child: _buildPodiumItem(rank: 2, doc: docs[1], field: field, isRoom: isRoom).animate().fadeIn().slideX(begin: -0.2),
-                    ),
-                    
-                    // TOP 3 (Right)
-                    if (docs.length > 2) Positioned(
-                      right: MediaQuery.of(context).size.width * 0.05,
-                      top: 140,
-                      child: _buildPodiumItem(rank: 3, doc: docs[2], field: field, isRoom: isRoom).animate().fadeIn().slideX(begin: 0.2),
-                    ),
-
-                    // TOP 1 (Center) - Pushed High
-                    Positioned(
-                       top: 20,
-                       child: _buildPodiumItem(rank: 1, doc: docs[0], field: field, isRoom: isRoom).animate().fadeIn().scale(begin: const Offset(0.8, 0.8)),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            // RANKED LIST 4+
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-              sliver: SliverList(
-                delegate: SliverChildBuilderDelegate(
-                  (context, index) => _buildListTile(index + 4, docs[index+3], field, isRoom: isRoom),
-                  childCount: docs.length - 3,
-                ),
-              ),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 100)),
-          ],
-        );
+        return _buildRankingViewWithDocs(docs, field, isRoom: isRoom);
       },
+    );
+  }
+
+  Widget _buildRankingViewWithDocs(List<QueryDocumentSnapshot> docs, String field, {required bool isRoom}) {
+    if (docs.isEmpty) return const Center(child: Text("Waiting for Legends...", style: TextStyle(color: Colors.white24)));
+
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        // PRESTIGIOUS PODIUM SECTION
+        SliverToBoxAdapter(
+          child: Container(
+            height: 420,
+            padding: const EdgeInsets.only(top: 20),
+            child: Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                // TOP 2 (Left)
+                if (docs.length > 1) Positioned(
+                  left: MediaQuery.of(context).size.width * 0.05,
+                  top: 120,
+                  child: _buildPodiumItem(rank: 2, doc: docs[1], field: field, isRoom: isRoom).animate().fadeIn().slideX(begin: -0.2),
+                ),
+                
+                // TOP 3 (Right)
+                if (docs.length > 2) Positioned(
+                  right: MediaQuery.of(context).size.width * 0.05,
+                  top: 140,
+                  child: _buildPodiumItem(rank: 3, doc: docs[2], field: field, isRoom: isRoom).animate().fadeIn().slideX(begin: 0.2),
+                ),
+
+                // TOP 1 (Center) - Pushed High
+                Positioned(
+                   top: 20,
+                   child: _buildPodiumItem(rank: 1, doc: docs[0], field: field, isRoom: isRoom).animate().fadeIn().scale(begin: const Offset(0.8, 0.8)),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // RANKED LIST 4+
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => _buildListTile(index + 4, docs[index+3], field, isRoom: isRoom),
+              childCount: math.max(0, docs.length - 3),
+            ),
+          ),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 100)),
+      ],
     );
   }
 

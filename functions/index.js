@@ -3526,6 +3526,10 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             throw new functions.https.HttpsError("not-found", "User profile not found.");
         }
 
+        const userData = userDoc.data() || {};
+        const userName = userData.displayName || userData.username || "User";
+        const userAvatar = userData.profilePhotoUrl || userData.photoURL || "";
+
         const settingsDoc = await transaction.get(settingsRef);
         const statsDoc = await transaction.get(statsRef);
         const privateDoc = await transaction.get(privateStatsRef);
@@ -3771,11 +3775,21 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             };
             transaction.set(roundBetRef, playerBetRecord, { merge: true });
             transaction.set(legacyRoundBetRef, playerBetRecord, { merge: true });
+
+            // Update Daily Players Collection for the Daily Top Players Leaderboard
+            const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
+            transaction.set(dailyPlayerRef, {
+                uid: uid,
+                name: userName,
+                avatar: userAvatar,
+                totalBets: admin.firestore.FieldValue.increment(deltaBet),
+                totalWinnings: admin.firestore.FieldValue.increment(calculatedPrize),
+                amount: admin.firestore.FieldValue.increment(calculatedPrize),
+                updatedAt: now
+            }, { merge: true });
         }
 
         // Leaderboard updates
-        const userName = userDoc.data().displayName || userDoc.data().username || "User";
-        const userAvatar = userDoc.data().profilePhotoUrl || userDoc.data().photoURL || "";
         let todayWinners = currentStats.todayWinners || [];
 
         if (calculatedPrize > 0) {
@@ -3791,7 +3805,15 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             });
             todayWinners.sort((a, b) => b.amount - a.amount);
             todayWinners = todayWinners.slice(0, 10);
-            transaction.update(statsRef, { todayWinners: todayWinners });
+            transaction.update(statsRef, { 
+                todayWinners: todayWinners,
+                topWinnerName: todayWinners[0]?.name || "None",
+                topWinnerAvatar: todayWinners[0]?.avatar || "",
+                topWinnerAmount: todayWinners[0]?.amount || 0,
+                lastWinnerName: userName,
+                lastWinnerAvatar: userAvatar,
+                lastWinnerAmount: calculatedPrize
+            });
         }
 
         // Audit Log History Entry (Deduplicated strictly 1 record per round)
@@ -5812,12 +5834,38 @@ async function resetRoomsRocket() {
     console.log(`[RESET] Finished resetting rocket progress for ${roomsSnap.size} rooms.`);
 }
 
+async function resetLuckySpinDaily() {
+    try {
+        const statsRef = db.collection("games_meta").doc("lucky_spin");
+        await statsRef.update({
+            todayWinners: []
+        });
+        const dailyPlayersSnap = await statsRef.collection("daily_players").get();
+        let batch = db.batch();
+        let count = 0;
+        for (const doc of dailyPlayersSnap.docs) {
+            batch.delete(doc.ref);
+            count++;
+            if (count === 500) {
+                await batch.commit();
+                batch = db.batch();
+                count = 0;
+            }
+        }
+        if (count > 0) await batch.commit();
+        console.log(`[RESET] Reset lucky spin daily players and winners.`);
+    } catch (e) {
+        console.error(`[RESET] Error resetting lucky spin daily:`, e);
+    }
+}
+
 exports.scheduledDailyReset = functions.pubsub.schedule('0 0 * * *')
     .timeZone('UTC')
     .onRun(async (context) => {
         await resetUsersField(["dailyXP", "dailyPrinceXP", "dailyDiamondsSent", "dailyBeansReceived"]);
         await resetRoomsField(["dailyDiamondsSent"]);
         await resetRoomsRocket();
+        await resetLuckySpinDaily();
     });
 
 exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')

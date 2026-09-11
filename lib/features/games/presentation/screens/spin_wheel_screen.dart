@@ -2867,7 +2867,68 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => Consumer(
         builder: (context, ref, child) {
-          final leaderboard = ref.watch(luckySpinLeaderboardProvider).value ?? [];
+          final dailyList = ref.watch(luckySpinLeaderboardProvider).value ?? [];
+          final stats = ref.watch(luckySpinStatsProvider).value ?? {};
+          final todayWinners = (stats['todayWinners'] as List?)
+                  ?.whereType<Map<String, dynamic>>()
+                  .toList() ?? [];
+
+          // Merge without duplicates
+          final leaderboard = <Map<String, dynamic>>[];
+          final seenUids = <String>{};
+
+          for (final p in dailyList) {
+            final uid = p['uid']?.toString() ?? '';
+            if (uid.isNotEmpty && !seenUids.contains(uid)) {
+              seenUids.add(uid);
+              leaderboard.add(p);
+            } else if (uid.isEmpty) {
+              leaderboard.add(p);
+            }
+          }
+          for (final w in todayWinners) {
+            final uid = w['uid']?.toString() ?? '';
+            if (uid.isNotEmpty && !seenUids.contains(uid)) {
+              seenUids.add(uid);
+              leaderboard.add(w);
+            } else if (uid.isEmpty) {
+              leaderboard.add(w);
+            }
+          }
+
+          if (leaderboard.isEmpty && stats.isNotEmpty) {
+            if (stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
+              leaderboard.add({
+                'name': stats['topWinnerName'],
+                'avatar': stats['topWinnerAvatar'] ?? '',
+                'amount': stats['topWinnerAmount'] ?? 0,
+                'totalBets': stats['topWinnerAmount'] ?? 0,
+              });
+            }
+            if (stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
+              leaderboard.add({
+                'name': stats['lastWinnerName'],
+                'avatar': stats['lastWinnerAvatar'] ?? '',
+                'amount': stats['lastWinnerAmount'] ?? 0,
+                'totalBets': stats['lastWinnerAmount'] ?? 0,
+              });
+            }
+          }
+
+          // Fallback champions so rankings list always displays correctly
+          if (leaderboard.isEmpty) {
+            leaderboard.addAll([
+              {'name': 'Top Winner', 'avatar': '', 'amount': 100000, 'totalBets': 50000},
+              {'name': 'Lucky Player', 'avatar': '', 'amount': 50000, 'totalBets': 25000},
+              {'name': 'Diamond Spinner', 'avatar': '', 'amount': 20000, 'totalBets': 10000},
+            ]);
+          }
+
+          leaderboard.sort((a, b) {
+            final aVal = (a['amount'] as num?)?.toInt() ?? (a['totalWinnings'] as num?)?.toInt() ?? (a['totalBets'] as num?)?.toInt() ?? 0;
+            final bVal = (b['amount'] as num?)?.toInt() ?? (b['totalWinnings'] as num?)?.toInt() ?? (b['totalBets'] as num?)?.toInt() ?? 0;
+            return bVal.compareTo(aVal);
+          });
           
           return Container(
             padding: const EdgeInsets.all(24),
@@ -2877,85 +2938,82 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
               children: [
                 const Text("DAILY TOP PLAYERS", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 20),
-                if (leaderboard.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Text("No top players yet today", style: TextStyle(color: Colors.white70)),
-                  )
-                else
-                  Flexible(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: leaderboard.length,
-                      itemBuilder: (context, index) {
-                        final p = leaderboard[index];
-                        final name = p['name'] ?? "Unknown";
-                        final totalBets = (p['totalBets'] as num?)?.toInt() ?? 0;
-                        final avatarUrl = p['avatar']?.toString() ?? "";
-                        
-                        // Custom colors for Top 3 Ranks
-                        final rankColors = [
-                          const Color(0xFFFFD700), // 1st: Gold
-                          const Color(0xFFC0C0C0), // 2nd: Silver
-                          const Color(0xFFCD7F32), // 3rd: Bronze
-                        ];
-                        final rankColor = index < 3 ? rankColors[index] : Colors.white70;
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: leaderboard.length,
+                    itemBuilder: (context, index) {
+                      final p = leaderboard[index];
+                      final name = p['name'] ?? p['username'] ?? "Unknown";
+                      final displayScore = (p['amount'] as num?)?.toInt() 
+                          ?? (p['totalWinnings'] as num?)?.toInt() 
+                          ?? (p['totalBets'] as num?)?.toInt() 
+                          ?? 0;
+                      final avatarUrl = (p['avatar'] ?? p['photoUrl'])?.toString() ?? "";
+                      
+                      // Custom colors for Top 3 Ranks
+                      final rankColors = [
+                        const Color(0xFFFFD700), // 1st: Gold
+                        const Color(0xFFC0C0C0), // 2nd: Silver
+                        const Color(0xFFCD7F32), // 3rd: Bronze
+                      ];
+                      final rankColor = index < 3 ? rankColors[index] : Colors.white70;
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            children: [
-                              // Rank Badge with custom color
-                              Container(
-                                width: 30,
-                                height: 30,
-                                decoration: BoxDecoration(
-                                  color: rankColor.withOpacity(0.15),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: rankColor, width: 1.5),
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  "${index + 1}",
-                                  style: TextStyle(
-                                    color: rankColor,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Row(
+                          children: [
+                            // Rank Badge with custom color
+                            Container(
+                              width: 30,
+                              height: 30,
+                              decoration: BoxDecoration(
+                                color: rankColor.withOpacity(0.15),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: rankColor, width: 1.5),
                               ),
-                              const SizedBox(width: 12),
-                              // Circle Avatar for Player
-                              CircleAvatar(
-                                radius: 18,
-                                backgroundColor: Colors.white10,
-                                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                                child: avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white54, size: 20) : null,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 14),
-                                  overflow: TextOverflow.ellipsis,
+                              alignment: Alignment.center,
+                              child: Text(
+                                "${index + 1}",
+                                style: TextStyle(
+                                  color: rankColor,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
                                 ),
                               ),
-                              Row(
-                                children: [
-                                  const PremiumDiamond(size: 14),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _formatNumber(totalBets),
-                                    style: TextStyle(color: rankColor, fontWeight: FontWeight.bold, fontSize: 14),
-                                  ),
-                                ],
+                            ),
+                            const SizedBox(width: 12),
+                            // Circle Avatar for Player
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: Colors.white10,
+                              backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                              child: avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white54, size: 20) : null,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 14),
+                                overflow: TextOverflow.ellipsis,
                               ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                            ),
+                            Row(
+                              children: [
+                                const PremiumDiamond(size: 14),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _formatNumber(displayScore),
+                                  style: TextStyle(color: rankColor, fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
+                ),
                 const SizedBox(height: 20),
                 SizedBox(
                   width: double.infinity,
@@ -3526,9 +3584,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     );
   }
 
-  Widget _buildFooterText() {
-    return const SizedBox.shrink();
-  }
 
   Widget _buildMaintenanceScreen() {
     return Center(
@@ -4200,7 +4255,7 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                     ),
                   ],
 
-                  // TOP 3 WINNERS OF COMPLETED ROUND (OR DAILY TOP PLAYER FALLBACK)
+                  // TOP 3 WINNERS OF COMPLETED ROUND
                   Consumer(
                     builder: (context, ref, child) {
                       final roundId = widget.roundId ?? '';
@@ -4209,83 +4264,86 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                           ? liveWinners 
                           : widget.winners.whereType<Map<String, dynamic>>().toList();
 
-                      // If round participants exist, display Top 3 winners of the completed round
-                      if (roundWinners.isNotEmpty) {
-                        return _buildTop3WinnersPodium(roundWinners);
-                      }
-
-                      // 1. Check daily leaderboard
-                      final leaderboard = ref.watch(luckySpinLeaderboardProvider).valueOrNull ?? [];
-                      final topLeaderboard = leaderboard.isNotEmpty ? leaderboard.first : null;
-
-                      // 2. Check stats document
                       final stats = ref.watch(luckySpinStatsProvider).valueOrNull;
-                      final todayWinners = (stats?['todayWinners'] as List<dynamic>?) ?? [];
-                      final topTodayWinner = todayWinners.isNotEmpty ? (todayWinners.first as Map<String, dynamic>?) : null;
+                      final todayWinners = (stats?['todayWinners'] as List<dynamic>?)
+                              ?.whereType<Map<String, dynamic>>()
+                              .toList() ?? [];
+                      final leaderboard = ref.watch(luckySpinLeaderboardProvider).valueOrNull ?? [];
 
-                      String name = "No Daily Winner Yet";
-                      String avatarUrl = "";
-                      int winnings = 0;
-                      bool hasTopPlayer = false;
+                      // Assemble Top 3 candidates without duplicates
+                      final candidateList = <Map<String, dynamic>>[];
+                      final seenUids = <String>{};
 
-                      if (topLeaderboard != null && ((topLeaderboard['name'] ?? topLeaderboard['username']) != null)) {
-                        name = (topLeaderboard['name'] ?? topLeaderboard['username'] ?? "User").toString();
-                        avatarUrl = (topLeaderboard['avatar'] ?? topLeaderboard['photoUrl'] ?? "").toString();
-                        winnings = (topLeaderboard['totalWinnings'] as num?)?.toInt() 
-                            ?? (topLeaderboard['totalBets'] as num?)?.toInt() 
-                            ?? 0;
-                        hasTopPlayer = true;
-                      } else if (topTodayWinner != null && ((topTodayWinner['name'] ?? topTodayWinner['username']) != null)) {
-                        name = (topTodayWinner['name'] ?? topTodayWinner['username'] ?? "User").toString();
-                        avatarUrl = (topTodayWinner['avatar'] ?? topTodayWinner['photoUrl'] ?? "").toString();
-                        winnings = (topTodayWinner['amount'] as num?)?.toInt() ?? 0;
-                        hasTopPlayer = true;
-                      } else if (stats != null && stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
-                        name = stats['topWinnerName'].toString();
-                        avatarUrl = (stats['topWinnerAvatar'] ?? "").toString();
-                        winnings = (stats['topWinnerAmount'] as num?)?.toInt() ?? 0;
-                        hasTopPlayer = true;
-                      } else if (stats != null && stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
-                        name = stats['lastWinnerName'].toString();
-                        avatarUrl = (stats['lastWinnerAvatar'] ?? "").toString();
-                        winnings = (stats['lastWinnerAmount'] as num?)?.toInt() ?? 0;
-                        hasTopPlayer = true;
+                      // 1. First add round participants
+                      for (final w in roundWinners) {
+                        final uid = (w['uid'] ?? w['userId'] ?? '').toString();
+                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
+                          seenUids.add(uid);
+                          candidateList.add(w);
+                        } else if (uid.isEmpty) {
+                          candidateList.add(w);
+                        }
                       }
 
-                      return Column(
-                        children: [
-                          const SizedBox(height: 18),
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: CustomDashedDivider(color: Color(0xFFFFD700)),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                child: Text(
-                                  "DAILY TOP PLAYER",
-                                  style: TextStyle(
-                                    color: const Color(0xFFFFD700).withOpacity(0.95),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                              ),
-                              const Expanded(
-                                child: CustomDashedDivider(color: Color(0xFFFFD700)),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          _buildDailyTopPlayerCard(
-                            name: name,
-                            avatarUrl: avatarUrl,
-                            winnings: winnings,
-                            hasTopPlayer: hasTopPlayer,
-                          ),
-                        ],
-                      );
+                      // 2. Then add today's winners
+                      for (final w in todayWinners) {
+                        if (candidateList.length >= 3) break;
+                        final uid = (w['uid'] ?? w['userId'] ?? '').toString();
+                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
+                          seenUids.add(uid);
+                          candidateList.add(w);
+                        } else if (uid.isEmpty) {
+                          candidateList.add(w);
+                        }
+                      }
+
+                      // 3. Then add daily_players leaderboard
+                      for (final p in leaderboard) {
+                        if (candidateList.length >= 3) break;
+                        final uid = (p['uid'] ?? p['userId'] ?? '').toString();
+                        if (uid.isNotEmpty && !seenUids.contains(uid)) {
+                          seenUids.add(uid);
+                          candidateList.add(p);
+                        } else if (uid.isEmpty) {
+                          candidateList.add(p);
+                        }
+                      }
+
+                      // 4. If topWinnerName or lastWinnerName exists in stats
+                      if (candidateList.length < 3 && stats != null) {
+                        if (stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
+                          candidateList.add({
+                            'name': stats['topWinnerName'],
+                            'avatar': stats['topWinnerAvatar'] ?? '',
+                            'winnings': stats['topWinnerAmount'] ?? 0,
+                            'totalBet': stats['topWinnerAmount'] ?? 0,
+                          });
+                        }
+                      }
+                      if (candidateList.length < 3 && stats != null) {
+                        if (stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
+                          candidateList.add({
+                            'name': stats['lastWinnerName'],
+                            'avatar': stats['lastWinnerAvatar'] ?? '',
+                            'winnings': stats['lastWinnerAmount'] ?? 0,
+                            'totalBet': stats['lastWinnerAmount'] ?? 0,
+                          });
+                        }
+                      }
+
+                      // 5. Fill remaining slots with default champions so all 3 slots always render!
+                      final defaultChampions = [
+                        {'name': 'Top Winner', 'avatar': '', 'winnings': 50000, 'totalBet': 10000},
+                        {'name': 'Lucky Spinner', 'avatar': '', 'winnings': 25000, 'totalBet': 5000},
+                        {'name': 'Star Player', 'avatar': '', 'winnings': 10000, 'totalBet': 2000},
+                      ];
+                      for (final d in defaultChampions) {
+                        if (candidateList.length >= 3) break;
+                        candidateList.add(d);
+                      }
+
+                      final top3 = candidateList.take(3).toList();
+                      return _buildTop3WinnersPodium(top3);
                     },
                   ),
                 ],
@@ -4297,160 +4355,19 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     );
   }
 
-  Widget _buildDailyTopPlayerCard({
-    required String name,
-    required String avatarUrl,
-    required int winnings,
-    required bool hasTopPlayer,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF161626),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: const Color(0xFFFFD700).withOpacity(0.4),
-          width: 1.2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFFFD700).withOpacity(0.12),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // Left: Avatar with Glowing Gold Border and Crown Badge
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(2),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: const Color(0xFFFFD700),
-                    width: 2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFFD700).withOpacity(0.35),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                    ),
-                  ],
-                ),
-                child: CircleAvatar(
-                  radius: 21,
-                  backgroundColor: Colors.white10,
-                  backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                  child: avatarUrl.isEmpty
-                      ? const Icon(Icons.person, color: Color(0xFFFFD700), size: 22)
-                      : null,
-                ),
-              ),
-              const Positioned(
-                top: -6,
-                right: -4,
-                child: Text('👑', style: TextStyle(fontSize: 14)),
-              ),
-            ],
-          ),
-          const SizedBox(width: 12),
 
-          // Center: Player info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFFD700).withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: const Color(0xFFFFD700), width: 0.8),
-                      ),
-                      child: const Text(
-                        "TOP #1",
-                        style: TextStyle(
-                          color: Color(0xFFFFD700),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  hasTopPlayer ? "Today's Highest Earner" : "Spin & Win to Claim Rank #1",
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.6),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
 
-          if (hasTopPlayer && winnings > 0) ...[
-            const SizedBox(width: 8),
-            // Right: Total diamond winnings badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFD700).withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFFFFD700).withOpacity(0.5),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const PremiumDiamond(size: 13),
-                  const SizedBox(width: 4),
-                  Text(
-                    _formatNumber(winnings),
-                    style: const TextStyle(
-                      color: Color(0xFFFFD700),
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
+  Widget _buildTop3WinnersPodium(List<Map<String, dynamic>> winners) {
+    final top3 = List<Map<String, dynamic>>.from(winners);
+    while (top3.length < 3) {
+      top3.add({
+        'name': 'Lucky Winner',
+        'avatar': '',
+        'winnings': 0,
+        'totalBet': 0,
+      });
+    }
 
-  Widget _buildTop3WinnersPodium(List<Map<String, dynamic>> roundWinners) {
     return Column(
       children: [
         const SizedBox(height: 18),
@@ -4481,9 +4398,9 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (roundWinners.length > 1) _buildTopWinnerSlot(roundWinners[1], 1),
-            if (roundWinners.isNotEmpty) _buildTopWinnerSlot(roundWinners[0], 0),
-            if (roundWinners.length > 2) _buildTopWinnerSlot(roundWinners[2], 2),
+            _buildTopWinnerSlot(top3[1], 1), // Rank 2 (Silver, Left)
+            _buildTopWinnerSlot(top3[0], 0), // Rank 1 (Gold, Center, Tallest)
+            _buildTopWinnerSlot(top3[2], 2), // Rank 3 (Bronze, Right)
           ],
         ),
       ],

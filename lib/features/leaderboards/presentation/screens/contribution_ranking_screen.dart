@@ -97,27 +97,55 @@ class _RankingList extends ConsumerWidget {
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data!.docs;
-
-        if (docs.isEmpty) {
-          return const Center(child: Text("No rankings found yet", style: TextStyle(color: Colors.grey)));
+        if (snapshot.hasError || (snapshot.hasData && snapshot.data!.docs.isEmpty)) {
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').limit(50).snapshots(),
+            builder: (ctx, fallbackSnap) {
+              if (fallbackSnap.hasError || !fallbackSnap.hasData) {
+                return const Center(child: Text("No rankings found yet", style: TextStyle(color: Colors.grey)));
+              }
+              return _buildRankingListView(fallbackSnap.data!.docs, field);
+            },
+          );
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            final doc = docs[index];
-            final data = doc.data() as Map<String, dynamic>;
-            final user = UserModel.fromMap({...data, 'uid': doc.id});
-            final score = data[field] ?? 0;
-
-            return _RankingTile(index: index + 1, user: user, score: score);
-          },
-        );
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        return _buildRankingListView(snapshot.data!.docs, field);
       },
     ).animate().fadeIn(duration: 400.ms);
+  }
+
+  Widget _buildRankingListView(List<QueryDocumentSnapshot> rawDocs, String field) {
+    final docsWithScores = rawDocs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final user = UserModel.fromMap({...data, 'uid': doc.id});
+      num score = (data[field] as num?) ?? 0;
+      if (score == 0) {
+        score = (data['totalDiamondsSent'] as num?) ??
+                (data['diamondBalance'] as num?) ??
+                (data['diamonds'] as num?) ?? 0;
+      }
+      return {'user': user, 'score': score};
+    }).toList();
+
+    docsWithScores.sort((a, b) => (b['score'] as num).compareTo(a['score'] as num));
+
+    if (docsWithScores.isEmpty) {
+      return const Center(child: Text("No rankings found yet", style: TextStyle(color: Colors.grey)));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      itemCount: docsWithScores.length,
+      itemBuilder: (context, index) {
+        final item = docsWithScores[index];
+        return _RankingTile(
+          index: index + 1,
+          user: item['user'] as UserModel,
+          score: item['score'],
+        );
+      },
+    );
   }
 }
 

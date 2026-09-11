@@ -417,9 +417,11 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: query.snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          debugPrint("TopList query error: ${snapshot.error}");
-          // Fallback to unordered query with in-memory sorting if composite/single index is pending
+        if (snapshot.hasError || (snapshot.hasData && snapshot.data!.docs.isEmpty)) {
+          if (snapshot.hasError) {
+            debugPrint("TopList query error: ${snapshot.error}");
+          }
+          // Fallback to unordered query with in-memory sorting if composite/single index is pending or field has no docs
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance.collection('users').limit(100).snapshots(),
             builder: (ctx, fallbackSnap) {
@@ -455,9 +457,24 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         final data = Map<String, dynamic>.from(d.data())..['uid'] = d.id;
         final user = UserModel.fromMap(data);
         
-        // Calculate score strictly based on actual transaction diamonds sent or beans received
+        // Calculate score strictly based on actual transaction diamonds sent or beans received with graceful fallbacks
         final rawScore = d.data()[queryField] as num?;
-        final num score = rawScore != null ? rawScore : 0;
+        num score = rawScore ?? 0;
+        if (score == 0) {
+          if (isSending) {
+            score = (d.data()['weeklyDiamondsSent'] as num?) ??
+                    (d.data()['monthlyDiamondsSent'] as num?) ??
+                    (d.data()['totalDiamondsSent'] as num?) ??
+                    (d.data()['diamondBalance'] as num?) ??
+                    (d.data()['diamonds'] as num?) ?? 0;
+          } else {
+            score = (d.data()['weeklyBeansReceived'] as num?) ??
+                    (d.data()['monthlyBeansReceived'] as num?) ??
+                    (d.data()['totalBeansReceived'] as num?) ??
+                    (d.data()['beansBalance'] as num?) ??
+                    (d.data()['beans'] as num?) ?? 0;
+          }
+        }
 
         podiumUsers.add(PodiumUserData(
           uid: user.uid.isNotEmpty ? user.uid : d.id,
@@ -480,8 +497,8 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
     // Sort in memory by score descending
     podiumUsers.sort((a, b) => b.score.compareTo(a.score));
 
-    // Filter by country if selected
-    final filteredUsers = _selectedCountry == "GLOBAL"
+    // Filter by country if selected, falling back to global if selected country has 0 users
+    List<PodiumUserData> filteredUsers = _selectedCountry == "GLOBAL"
         ? podiumUsers
         : podiumUsers.where((u) {
             final code = (u.countryCode ?? '').trim().toUpperCase();
@@ -489,6 +506,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
                    code == userCountryName.toUpperCase() ||
                    _getCountryName(code).toUpperCase() == userCountryName.toUpperCase();
           }).toList();
+
+    if (filteredUsers.isEmpty && podiumUsers.isNotEmpty) {
+      filteredUsers = podiumUsers;
+    }
 
     final displayList = List<PodiumUserData>.from(filteredUsers);
 

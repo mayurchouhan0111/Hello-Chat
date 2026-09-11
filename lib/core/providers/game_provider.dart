@@ -1,4 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore;
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore, Timestamp;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -152,11 +152,26 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
       .collection('users')
       .doc(user.uid)
       .collection('game_history')
-      .orderBy('timestamp', descending: true)
-      .limit(50)
+      .limit(100)
       .snapshots()
       .map((snap) {
         final rawDocs = snap.docs.map((d) => d.data()).toList();
+
+        // Robust in-memory sorting by timestamp descending, fallback to roundId or serialNumber
+        rawDocs.sort((a, b) {
+          final tA = a['timestamp'];
+          final tB = b['timestamp'];
+          if (tA is Timestamp && tB is Timestamp) {
+            return tB.compareTo(tA);
+          }
+          final rA = int.tryParse(a['roundId']?.toString() ?? '') ?? 0;
+          final rB = int.tryParse(b['roundId']?.toString() ?? '') ?? 0;
+          if (rA != rB) return rB.compareTo(rA);
+          final sA = int.tryParse(a['serialNumber']?.toString() ?? '') ?? 0;
+          final sB = int.tryParse(b['serialNumber']?.toString() ?? '') ?? 0;
+          return sB.compareTo(sA);
+        });
+
         // Deduplicate by roundId so multiple bet events in the same round never double-count winnings or render duplicate cards
         final seenRounds = <String>{};
         final deduplicated = <Map<String, dynamic>>[];
@@ -173,6 +188,7 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
         return deduplicated;
       })
       .handleError((e) {
+        debugPrint("userGameHistoryProvider error: $e");
         return <Map<String, dynamic>>[];
       });
 });
@@ -206,17 +222,39 @@ final luckySpinLeaderboardProvider = StreamProvider.autoDispose<List<Map<String,
       .doc('lucky_spin')
       .collection('daily_players')
       .snapshots()
-      .map((snap) {
+      .asyncMap((snap) async {
         final docs = snap.docs.map((d) => d.data()).toList();
-        docs.sort((a, b) {
-          final aW = (a['totalWinnings'] as num?)?.toInt() ?? 0;
-          final bW = (b['totalWinnings'] as num?)?.toInt() ?? 0;
-          if (bW != aW) return bW.compareTo(aW);
-          final aB = (a['totalBets'] as num?)?.toInt() ?? 0;
-          final bB = (b['totalBets'] as num?)?.toInt() ?? 0;
-          return bB.compareTo(aB);
-        });
-        return docs.take(100).toList();
+        if (docs.isNotEmpty) {
+          docs.sort((a, b) {
+            final aW = (a['totalWinnings'] as num?)?.toInt() ?? (a['amount'] as num?)?.toInt() ?? 0;
+            final bW = (b['totalWinnings'] as num?)?.toInt() ?? (b['amount'] as num?)?.toInt() ?? 0;
+            if (bW != aW) return bW.compareTo(aW);
+            final aB = (a['totalBets'] as num?)?.toInt() ?? 0;
+            final bB = (b['totalBets'] as num?)?.toInt() ?? 0;
+            return bB.compareTo(aB);
+          });
+          return docs.take(100).toList();
+        }
+
+        // Fallback: Check todayWinners from games_meta/lucky_spin
+        try {
+          final statsDoc = await FirebaseFirestore.instance.collection('games_meta').doc('lucky_spin').get();
+          if (statsDoc.exists && statsDoc.data() != null) {
+            final todayWinners = (statsDoc.data()!['todayWinners'] as List?)
+                ?.map((e) => Map<String, dynamic>.from(e as Map))
+                .toList() ?? [];
+            if (todayWinners.isNotEmpty) {
+              todayWinners.sort((a, b) {
+                final aW = (a['amount'] as num?)?.toInt() ?? 0;
+                final bW = (b['amount'] as num?)?.toInt() ?? 0;
+                return bW.compareTo(aW);
+              });
+              return todayWinners;
+            }
+          }
+        } catch (_) {}
+
+        return <Map<String, dynamic>>[];
       });
 });
 
