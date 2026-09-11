@@ -3496,19 +3496,25 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const currentRoundId = Math.floor(now / ROUND_DURATION_MS).toString();
     const msIntoRound = now % ROUND_DURATION_MS;
 
-    // Strict Round Validation: Prevent betting on expired or future rounds
+    // Graceful Round Validation: Accept bet for current active round if within 1 round margin during active betting
     if (clientRoundId && clientRoundId !== currentRoundId) {
-        throw new functions.https.HttpsError(
-            "failed-precondition",
-            `Round ${clientRoundId} is expired. Current active round is ${currentRoundId}.`
-        );
+        const clientRoundNum = Number(clientRoundId);
+        const serverRoundNum = Number(currentRoundId);
+        const roundDiff = Math.abs(clientRoundNum - serverRoundNum);
+        if (roundDiff > 1 || msIntoRound >= 29800) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `Round ${clientRoundId} is expired. Current active round is ${currentRoundId}.`
+            );
+        }
     }
 
-    // Phase Gate: Bets strictly close at 27.0s (3s remaining before spin)
-    if (msIntoRound >= 27000 && totalBet > 0) {
+    // Phase Gate: Bets close when wheel starts spinning at 29.8s
+    // (Client UI disables betting taps at 27.0s / 3s countdown; the remaining 2.8s is the network transit buffer)
+    if (msIntoRound >= 29800 && totalBet > 0) {
         throw new functions.https.HttpsError(
             "failed-precondition",
-            `Betting phase closed for round ${currentRoundId}. Bets are locked during the final 3 seconds.`
+            `Betting phase closed for round ${currentRoundId}. Bets are locked while the wheel is spinning.`
         );
     }
 

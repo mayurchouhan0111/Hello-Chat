@@ -236,14 +236,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     setState(() {
       _currentBets[exactName] = (_currentBets[exactName] ?? 0) + _selectedChipValue;
       _betClickCounts[exactName] = (_betClickCounts[exactName] ?? 0) + 1;
-      _confirmedBets = {};
     });
 
     final newTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     debugPrint('[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
 
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+    final now = _synchronizedTimeMs;
+    final secIntoCycle = (now % 40000) ~/ 1000;
+    // Faster debounce near the end of betting phase (50ms) to ensure in-flight dispatch before cutoff
+    final debounceDuration = secIntoCycle >= 23 ? const Duration(milliseconds: 50) : const Duration(milliseconds: 200);
+    _debounceTimer = Timer(debounceDuration, () {
       if (!mounted || _currentBets.isEmpty) return;
       _autoSubmitBets();
     });
@@ -333,7 +336,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized from API: offset=$_serverTimeOffset ms');
       }
 
-      if (resultRoundId == submissionRoundId) {
+      if (resultRoundId != null && (resultRoundId == submissionRoundId || _currentRoundId == resultRoundId)) {
         debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId, prize=${result['prize']}, bets=$snapshotBets');
         _submittedSpinResult = result;
         setState(() {
@@ -362,13 +365,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       final errorStr = e.toString();
       if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
-        setState(() {
-          _currentBets = {};
-          _betClickCounts = {};
-          _confirmedBets = {};
-          _submittedSpinResult = null;
-        });
-        GameRecoveryService().clearBetState();
+        if (_confirmedBets.isEmpty) {
+          setState(() {
+            _currentBets = {};
+            _betClickCounts = {};
+            _submittedSpinResult = null;
+          });
+          GameRecoveryService().clearBetState();
+        } else {
+          setState(() {
+            _currentBets = Map.from(_confirmedBets);
+          });
+        }
       } else if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
         _showConnectionNotFoundDialog();
       }
@@ -862,6 +870,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newGameState = SpinGameState.betting;
         newCountdown = 30 - secondsIntoCycle;
         newCountdownLabel = "BETS CLOSED";
+        _debounceTimer?.cancel();
         if (!_isAutoSubmitting) {
           if (_hasUnconfirmedBets()) {
             _autoSubmitBets();

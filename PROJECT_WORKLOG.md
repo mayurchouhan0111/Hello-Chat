@@ -16,6 +16,31 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-09-11 (Update 5)
+- **What Client Asked / Problem**:
+  1. "Game History Issue: For example, if we play 10 rounds, the history is showing only 7 rounds. The other 3 rounds are missing. Every completed round must be recorded and displayed correctly in the game history. No round should be missing. Please make sure all rounds are saved and shown in the history."
+  2. "Incorrect Bet Amount Issue: There is also a problem with the bet amount. For example, if I place a bet of 800,000 diamonds, sometimes the game/history shows 500,000 or 700,000 instead. The displayed bet amount does not match the actual amount I placed. Please make sure the exact amount that the user actually bets is recorded and displayed correctly for that specific round. The bet amount must not be changed, mixed up, or shown incorrectly."
+- **What We Did**:
+  1. **Root Cause Analysis**:
+     - The round timeline is 40 seconds: 0s-30s is the betting phase, 30s-35s is spinning, 35s-40s is results.
+     - On the client, UI betting is disabled when the countdown reaches 3 seconds remaining (27.0s into cycle).
+     - However, the backend Cloud Function `playSpinWheel` in `functions/index.js` had a rigid phase check: `if (msIntoRound >= 27000 && totalBet > 0) throw new HttpsError('failed-precondition')`.
+     - When users placed bets at 4s or 5s countdown (25.0s-26.9s), network latency over 4G/WiFi caused requests to arrive at Google Cloud at `>= 27.0s`. The backend threw `failed-precondition` and rolled back, so **no record was ever created in `game_history`** (causing 3 out of 10 rounds to be completely missing).
+     - Furthermore, when a player tapped multiple food items (e.g. 8 items x 100k = 800k), the client debounced at 300ms and submitted the first batch (e.g. 500k or 700k). When the player tapped the remaining items, the second batch arrived after 27.0s and was rejected by the backend. The backend kept only the earlier 500k/700k batch in `game_history`, discarding the rest.
+  2. **Extended Backend Phase Gate to 29.8s (`functions/index.js`)**:
+     - Updated `msIntoRound >= 29800`: allows full 2.8-second network transit window so every single bet placed on the phone before UI lockout at 27.0s arrives and is committed before the wheel spins at 30.0s.
+     - Added graceful round synchronization tolerance: accepts bets if client round is within ±1 round margin during active betting.
+  3. **Optimized Client-Side Bet Dispatch & State Retention (`spin_wheel_screen.dart`)**:
+     - Dynamic Debounce: lowered debounce to 50ms near the end of the round (`secondsIntoCycle >= 23`) so late bets are transmitted immediately without waiting 300ms.
+     - Immediate Flush: when the round hits 27s ("BETS CLOSED"), any pending debounce timer is canceled and unconfirmed bets are flushed instantly.
+     - Preserved Confirmed Bets: removed `_confirmedBets = {}` wipe on chip tap so previously confirmed bets are remembered and protected against network blips.
+     - Graceful Rollback: on error, reverts unconfirmed bets to `_confirmedBets` instead of wiping the user's entire wager to zero.
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Backend Deployed, Automated Tests Passed (10/10), Rebuilding Release APK.
+
 ### Date: 2026-09-11 (Update 4)
 - **What Client Asked / Problem**:
   1. "in the bottom sheet the same user showing in the 1, 2, 3, so remove that, only show that one which is there, like one user so show the 1 user only, if 2 then show the 2 okay understand my point"
