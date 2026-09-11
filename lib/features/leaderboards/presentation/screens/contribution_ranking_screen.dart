@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
@@ -8,9 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/user_model.dart';
-import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/utils/badge_utils.dart';
-import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../utils/number_formatter.dart';
 
@@ -88,10 +85,10 @@ class _RankingList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // We'll use benchXP for contribution as per existing logic, or a specific field if available
-    final field = filter == 'daily' ? 'dailyXP' : 
-                  filter == 'weekly' ? 'weeklyXP' : 
-                  filter == 'monthly' ? 'monthlyXP' : 'benchXP';
+    // Calculate strictly based on total diamonds sent
+    final field = filter == 'daily' ? 'dailyDiamondsSent' : 
+                  filter == 'weekly' ? 'weeklyDiamondsSent' : 
+                  filter == 'monthly' ? 'monthlyDiamondsSent' : 'totalDiamondsSent';
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
@@ -246,7 +243,7 @@ class _RankingTile extends StatelessWidget {
     );
   }
 
-  Widget _buildStatBadge({required IconData icon, required Color color, required String value, bool isDiamond = false}) {
+  Widget _buildStatBadge({required IconData icon, required Color color, required String value}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
       decoration: BoxDecoration(
@@ -263,20 +260,6 @@ class _RankingTile extends StatelessWidget {
             style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w900),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildTagBadge(String label, {required Color color, required Color textColor}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: textColor, fontSize: 9, fontWeight: FontWeight.w800),
       ),
     );
   }

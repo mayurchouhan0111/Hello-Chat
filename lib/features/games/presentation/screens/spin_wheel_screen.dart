@@ -839,14 +839,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // 35s-37s: Winning & Results ("Winning", lock bets)
       // 37s-40s: Rollover ("Next Round", 3->1s, lock bets)
 
-      if (secondsIntoCycle < 20) {
+      // Total betting time: 30s
+      // 0s-26s: Betting allowed ("Select time", 30->4s)
+      // 27s-29s: Bets locked during final 3s ("BETS CLOSED", 3->1s)
+      // 30s-35s: Spinning ("Spinning", 0s)
+      // 35s-37s: Winning & Results ("Winning")
+      // 37s-40s: Rollover ("Next Round", 3->1s)
+
+      if (secondsIntoCycle < 27) {
         newBetLocked = false;
         newGameState = SpinGameState.betting;
         newCountdown = 30 - secondsIntoCycle;
         newCountdownLabel = "Select time";
-      } else if (secondsIntoCycle >= 20 && secondsIntoCycle < 30) {
+      } else if (secondsIntoCycle >= 27 && secondsIntoCycle < 30) {
         if (!newBetLocked) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🔒 Phase 1b: BETS CLOSED at 20s (roundId: $_currentRoundId, locking & auto-submitting)');
+          debugPrint('[SPIN_WHEEL_EVENT] 🔒 Phase 1b: BETS CLOSED at 27s (3s remaining in round $_currentRoundId, locking & auto-submitting)');
         }
         newBetLocked = true;
         newGameState = SpinGameState.betting;
@@ -2563,12 +2570,53 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             ),
             
             SizedBox(height: 8 * scale),
-            GestureDetector(
-              onTap: () => _showGameHistorySheet(),
-              child: Text(
-                "Catatan saya >",
-                style: TextStyle(color: Colors.black87, fontSize: 11 * scale, fontWeight: FontWeight.w500),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () => _showCurrentRoundPlayersSheet(),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12 * scale),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.people_alt_rounded, size: 12 * scale, color: Colors.black87),
+                        SizedBox(width: 4 * scale),
+                        Text(
+                          "Round Players >",
+                          style: TextStyle(color: Colors.black87, fontSize: 11 * scale, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 14 * scale),
+                GestureDetector(
+                  onTap: () => _showGameHistorySheet(),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(12 * scale),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.history_rounded, size: 12 * scale, color: Colors.black87),
+                        SizedBox(width: 4 * scale),
+                        Text(
+                          "Game Records >",
+                          style: TextStyle(color: Colors.black87, fontSize: 11 * scale, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -2576,6 +2624,224 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     ),
   );
 }
+
+  void _showCurrentRoundPlayersSheet() {
+    final roundId = _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      builder: (sheetContext) => Consumer(
+        builder: (context, ref, child) {
+          final playersAsync = ref.watch(luckySpinRoundPlayersProvider(roundId));
+
+          return Container(
+            padding: const EdgeInsets.all(24),
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "ROUND #${_getRelativeRoundNumber(roundId)} PLAYERS",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      onPressed: () => Navigator.pop(sheetContext),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    "All participating players in this round",
+                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: playersAsync.when(
+                    data: (players) {
+                      if (players.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.sports_esports_outlined, size: 48, color: Colors.white.withOpacity(0.3)),
+                              const SizedBox(height: 12),
+                              const Text(
+                                "No players placed bets yet this round",
+                                style: TextStyle(color: Colors.white70, fontSize: 14),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                "Be the first to place a bet!",
+                                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: players.length,
+                        itemBuilder: (context, index) {
+                          final p = players[index];
+                          final name = (p['name'] ?? p['username'] ?? "User").toString();
+                          final avatarUrl = (p['avatar'] ?? p['photoUrl'] ?? "").toString();
+                          final totalBet = (p['totalBet'] as num?)?.toInt() ?? 0;
+                          final winnings = (p['winnings'] as num?)?.toInt() ?? (p['prize'] as num?)?.toInt() ?? 0;
+                          final betsMap = Map<String, dynamic>.from(p['bets'] ?? {});
+
+                          final rankColors = [
+                            const Color(0xFFFFD700),
+                            const Color(0xFFC0C0C0),
+                            const Color(0xFFCD7F32),
+                          ];
+                          final rankColor = index < 3 ? rankColors[index] : Colors.white70;
+
+                          return Container(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: index < 3 ? rankColor.withOpacity(0.4) : Colors.white10,
+                                width: 1,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 26,
+                                  height: 26,
+                                  decoration: BoxDecoration(
+                                    color: rankColor.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    "${index + 1}",
+                                    style: TextStyle(
+                                      color: rankColor,
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                CircleAvatar(
+                                  radius: 18,
+                                  backgroundColor: Colors.white10,
+                                  backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                                  child: avatarUrl.isEmpty
+                                      ? const Icon(Icons.person, color: Colors.white54, size: 20)
+                                      : null,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        spacing: 4,
+                                        children: betsMap.entries.where((e) => (e.value as num? ?? 0) > 0).map((e) {
+                                          return Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: Colors.white10,
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              "${_getFoodEmoji(e.key)} ${_formatNumber((e.value as num).toInt())}",
+                                              style: const TextStyle(color: Colors.white70, fontSize: 10),
+                                            ),
+                                          );
+                                        }).toList(),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const PremiumDiamond(size: 13),
+                                        const SizedBox(width: 3),
+                                        Text(
+                                          _formatNumber(totalBet),
+                                          style: const TextStyle(
+                                            color: Color(0xFFFFD700),
+                                            fontWeight: FontWeight.w900,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    if (winnings > 0) ...[
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        "Won: +${_formatNumber(winnings)}",
+                                        style: const TextStyle(
+                                          color: Color(0xFF4ADE80),
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 10,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                    loading: () => const Center(
+                      child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+                    ),
+                    error: (err, _) => Center(
+                      child: Text("Error loading players: $err", style: const TextStyle(color: Colors.white60)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildSwapButton({bool isRefresh = false, required double scale}) {
     return Container(
@@ -3934,9 +4200,20 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                     ),
                   ],
 
-                  // DAILY TOP PLAYER PROFILE CARD
+                  // TOP 3 WINNERS OF COMPLETED ROUND (OR DAILY TOP PLAYER FALLBACK)
                   Consumer(
                     builder: (context, ref, child) {
+                      final roundId = widget.roundId ?? '';
+                      final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).valueOrNull ?? [];
+                      final roundWinners = liveWinners.isNotEmpty 
+                          ? liveWinners 
+                          : widget.winners.whereType<Map<String, dynamic>>().toList();
+
+                      // If round participants exist, display Top 3 winners of the completed round
+                      if (roundWinners.isNotEmpty) {
+                        return _buildTop3WinnersPodium(roundWinners);
+                      }
+
                       // 1. Check daily leaderboard
                       final leaderboard = ref.watch(luckySpinLeaderboardProvider).valueOrNull ?? [];
                       final topLeaderboard = leaderboard.isNotEmpty ? leaderboard.first : null;
@@ -3945,12 +4222,6 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                       final stats = ref.watch(luckySpinStatsProvider).valueOrNull;
                       final todayWinners = (stats?['todayWinners'] as List<dynamic>?) ?? [];
                       final topTodayWinner = todayWinners.isNotEmpty ? (todayWinners.first as Map<String, dynamic>?) : null;
-
-                      // 3. Check current round winners as fallback
-                      final roundId = widget.roundId ?? '';
-                      final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).valueOrNull ?? [];
-                      final roundWinners = liveWinners.isNotEmpty ? liveWinners : widget.winners;
-                      final topRoundWinner = roundWinners.isNotEmpty ? roundWinners.first : null;
 
                       String name = "No Daily Winner Yet";
                       String avatarUrl = "";
@@ -3973,11 +4244,6 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                         name = stats['topWinnerName'].toString();
                         avatarUrl = (stats['topWinnerAvatar'] ?? "").toString();
                         winnings = (stats['topWinnerAmount'] as num?)?.toInt() ?? 0;
-                        hasTopPlayer = true;
-                      } else if (topRoundWinner != null && ((topRoundWinner['winnings'] as num?)?.toInt() ?? 0) > 0) {
-                        name = (topRoundWinner['name'] ?? topRoundWinner['username'] ?? "User").toString();
-                        avatarUrl = (topRoundWinner['avatar'] ?? topRoundWinner['photoUrl'] ?? "").toString();
-                        winnings = (topRoundWinner['winnings'] as num?)?.toInt() ?? 0;
                         hasTopPlayer = true;
                       } else if (stats != null && stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
                         name = stats['lastWinnerName'].toString();
@@ -4181,6 +4447,145 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
           ],
         ],
       ),
+    );
+  }
+
+  Widget _buildTop3WinnersPodium(List<Map<String, dynamic>> roundWinners) {
+    return Column(
+      children: [
+        const SizedBox(height: 18),
+        Row(
+          children: [
+            const Expanded(
+              child: CustomDashedDivider(color: Color(0xFFFFD700)),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                "TOP 3 WINNERS",
+                style: TextStyle(
+                  color: const Color(0xFFFFD700).withOpacity(0.95),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+            const Expanded(
+              child: CustomDashedDivider(color: Color(0xFFFFD700)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            if (roundWinners.length > 1) _buildTopWinnerSlot(roundWinners[1], 1),
+            if (roundWinners.isNotEmpty) _buildTopWinnerSlot(roundWinners[0], 0),
+            if (roundWinners.length > 2) _buildTopWinnerSlot(roundWinners[2], 2),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTopWinnerSlot(Map<String, dynamic> winner, int rankIndex) {
+    final rankColors = [
+      const Color(0xFFFFD700), // Gold for Rank 1
+      const Color(0xFFC0C0C0), // Silver for Rank 2
+      const Color(0xFFCD7F32), // Bronze for Rank 3
+    ];
+    final rankLabels = ["#1", "#2", "#3"];
+    final rankColor = rankColors[rankIndex];
+
+    final name = (winner['name'] ?? winner['username'] ?? "User").toString();
+    final avatarUrl = (winner['avatar'] ?? winner['photoUrl'] ?? "").toString();
+    final totalBet = (winner['totalBet'] as num?)?.toInt() ?? 0;
+    final winnings = (winner['winnings'] as num?)?.toInt() ?? (winner['prize'] as num?)?.toInt() ?? 0;
+    final isCenter = rankIndex == 0;
+    final avatarRadius = isCenter ? 24.0 : 20.0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Stack(
+          alignment: Alignment.bottomRight,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(2.5),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: rankColor, width: 2.2),
+                boxShadow: [
+                  BoxShadow(
+                    color: rankColor.withOpacity(0.35),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: CircleAvatar(
+                radius: avatarRadius,
+                backgroundColor: Colors.white10,
+                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                child: avatarUrl.isEmpty
+                    ? Icon(Icons.person, color: rankColor, size: isCenter ? 26 : 22)
+                    : null,
+              ),
+            ),
+            Transform.translate(
+              offset: const Offset(3, 3),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: rankColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  rankLabels[rankIndex],
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        SizedBox(
+          width: 80,
+          child: Text(
+            name,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const PremiumDiamond(size: 10),
+            const SizedBox(width: 2.5),
+            Text(
+              winnings > 0 ? _formatNumber(winnings) : _formatNumber(totalBet),
+              style: TextStyle(
+                color: rankColor,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 

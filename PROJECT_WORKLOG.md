@@ -16,7 +16,51 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
-### Date: 2026-09-11
+### Date: 2026-09-11 (Update 2)
+- **What Client Asked / Problem**:
+  1. "There is a bug in the Lucky Draw history. When I place a bet for one round, the winning amount is showing twice in the history, in two separate entries/layers. Because of this, the winning amount is also being added twice to the total winning calculation. For each round, the winning result should be recorded only once in the history, and the winning amount should be added to the total winning only once."
+  2. "Top 3 Winners are not showing: When a round is completed, the Top 3 players who placed the highest bets should be displayed as the winners. Currently, the Top 3 winners are not being shown. Please check and fix this."
+  3. "Player List is missing: There should be a list showing all the players who participated in the current game/round, including their betting information. Currently, this player list is not showing. Please add this feature."
+  4. "Countdown Timer: Total betting time should be 30 seconds. Players should be able to place bets from 30 seconds down to 4 seconds. When the timer reaches 3 seconds remaining, betting must be disabled and no bets should be accepted during the final 3 seconds."
+  5. "Diamond Sending Ranking (Contribution Top List): Users must be ranked strictly based on the total number of diamonds they send. The user who sends the most diamonds should be ranked #1."
+  6. "Bean Receiving Ranking (Charm Top List): Users must be ranked strictly based on the total number of beans they receive. The user who receives the most beans should be ranked #1."
+  7. "Connection Between Diamond Sending and Bean Receiving: When User A sends 1 diamond to User B, 1 diamond is added to User A's diamond sending ranking and 1 bean is added to User B's bean receiving ranking."
+  8. "Room Ranking (Room Top List): Rooms must be ranked strictly based on the total diamonds sent inside each room (daily, weekly, monthly). The room with the most diamonds sent should be ranked #1."
+- **What We Did**:
+  1. **Fixed Duplicate Win Entries & Doubled Total Winnings**:
+     - In `functions/index.js` `playSpinWheel`: Assigned deterministic Firestore document IDs `userRef.collection("game_history").doc("spin_" + currentRoundId)` so multi-tap top-ups in the same round update the same document atomically instead of creating duplicate records or double-incrementing `totalGameCount`.
+     - In `lib/core/providers/game_provider.dart`: Added in-memory deduplication in `userGameHistoryProvider` keyed by `roundId`, immediately sanitizing legacy duplicate entries so winning amounts are counted strictly once in total win calculations.
+  2. **Top 3 Highest-Bettor Winners Display**:
+     - In `functions/index.js`: Ensured every bettor's entry in `games_meta/lucky_spin/round_player_bets/${roundId}_${uid}` contains `name`, `avatar`, `bets`, `totalBet`, `winnings`, and `updatedAt`.
+     - In `lib/core/providers/game_provider.dart`: Added `luckySpinCurrentRoundWinnersProvider(roundId)` which streams participants ordered primarily by `totalBet` descending (highest bets).
+     - In `lib/features/games/presentation/screens/spin_wheel_screen.dart`: Added `_buildTop3WinnersPodium` in `SpinWheelResultBottomSheet` displaying gold, silver, and bronze podium slots with real player avatars, usernames, bet chips, and diamond rewards.
+  3. **Real-Time Participating Player List Modal**:
+     - Built `_showCurrentRoundPlayersSheet(BuildContext context)` in `spin_wheel_screen.dart` displaying all players in the active round sorted by their total wagers.
+     - Each list tile displays the user's avatar, username, total diamonds wagered, food items bet on, and winning diamonds earned.
+     - Added quick-access buttons in the bottom panel: "Round Players >" and "Game Records >".
+  4. **3-Second Betting Lockout & Countdown Enforcement**:
+     - Total round cycle is 40 seconds; betting starts at $t=0\text{s}$ (countdown 30) and closes at $t=27\text{s}$ (3 seconds remaining before wheel spins).
+     - Client UI disables chips, sets `_isBetLocked = true`, and displays "BETS CLOSED (3s... 2s... 1s)".
+     - Server gate in `playSpinWheel` strictly rejects bets placed when `msIntoRound >= 27000`.
+  5. **Complete Ranking Overhaul (Contribution, Charm, Room)**:
+     - **Contribution (Diamond Sending)**: Ranks users purely on `dailyDiamondsSent`, `weeklyDiamondsSent`, `monthlyDiamondsSent`, and `totalDiamondsSent`.
+     - **Charm (Bean Receiving)**: Ranks users purely on `dailyBeansReceived`, `weeklyBeansReceived`, `monthlyBeansReceived`, and `beans`.
+     - **Atomic 1:1 Connection**: In `sendGiftWithCombo`, every diamond sent atomically increments sender's `diamondsSent` and recipient's `beansReceived`.
+     - **Room Ranking**: Completely replaced the room member count ranking with actual room diamond volume (`dailyDiamondsSent`, `weeklyDiamondsSent`, `monthlyDiamondsSent`, `totalDiamondsSent`).
+     - **Scheduled Resets**: Added `resetRoomsField()` in Cloud Functions crons (`scheduledDailyReset`, `scheduledWeeklyReset`, `scheduledMonthlyReset`) to reset room diamond counts alongside user rankings.
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/core/providers/game_provider.dart`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `lib/features/leaderboards/presentation/screens/leaderboard_screen.dart`
+  - `lib/features/leaderboards/presentation/screens/contribution_ranking_screen.dart`
+  - `test/spin_wheel_round_sync_test.dart`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Completed & Verified with 41 Automated Tests Passing
+
+---
+
+### Date: 2026-09-11 (Update 1)
 - **What Client Asked / Problem**:
   1. "and make srue that eh psin indicator should alwasy sop on the corrrect elemt which is the result okay uderstadn that hign also okay"
   2. "the result in the bottom sheet whihc is contianing the icosn should also get update with the realltime wuth the each round in the relatime okay dunerstadn my point"

@@ -155,7 +155,23 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
       .orderBy('timestamp', descending: true)
       .limit(50)
       .snapshots()
-      .map((snap) => snap.docs.map((d) => d.data()).toList())
+      .map((snap) {
+        final rawDocs = snap.docs.map((d) => d.data()).toList();
+        // Deduplicate by roundId so multiple bet events in the same round never double-count winnings or render duplicate cards
+        final seenRounds = <String>{};
+        final deduplicated = <Map<String, dynamic>>[];
+        for (final item in rawDocs) {
+          final roundId = item['roundId']?.toString();
+          if (roundId != null && roundId.isNotEmpty) {
+            if (seenRounds.contains(roundId)) {
+              continue;
+            }
+            seenRounds.add(roundId);
+          }
+          deduplicated.add(item);
+        }
+        return deduplicated;
+      })
       .handleError((e) {
         return <Map<String, dynamic>>[];
       });
@@ -204,26 +220,48 @@ final luckySpinLeaderboardProvider = StreamProvider.autoDispose<List<Map<String,
       });
 });
 
-// 🏆 Current Round Bets / Winners Stream Provider (Top 3)
+// 🏆 Current Round Top 3 Players (Highest Bettors) Stream Provider
 final luckySpinCurrentRoundWinnersProvider = StreamProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, roundId) {
   if (roundId.isEmpty) return Stream.value([]);
   
   return FirebaseFirestore.instance
       .collection('games_meta')
       .doc('lucky_spin')
-      .collection('current_round_bets')
+      .collection('round_player_bets')
       .where('roundId', isEqualTo: roundId)
       .snapshots()
       .map((snap) {
-        final list = snap.docs
-            .map((d) => d.data())
-            .where((a) => ((a['winnings'] as num?)?.toInt() ?? 0) > 0)
-            .toList();
+        final list = snap.docs.map((d) => d.data()).toList();
+        // Top 3 players who placed the highest bets in the completed round
         list.sort((a, b) {
-          final aWinnings = (a['winnings'] as num?)?.toInt() ?? 0;
-          final bWinnings = (b['winnings'] as num?)?.toInt() ?? 0;
-          return bWinnings.compareTo(aWinnings);
+          final aBet = (a['totalBet'] as num?)?.toInt() ?? 0;
+          final bBet = (b['totalBet'] as num?)?.toInt() ?? 0;
+          if (bBet != aBet) return bBet.compareTo(aBet);
+          final aWin = (a['winnings'] as num?)?.toInt() ?? (a['prize'] as num?)?.toInt() ?? 0;
+          final bWin = (b['winnings'] as num?)?.toInt() ?? (b['prize'] as num?)?.toInt() ?? 0;
+          return bWin.compareTo(aWin);
         });
         return list.take(3).toList();
+      });
+});
+
+// 👥 Participating Players in Current Round Stream Provider
+final luckySpinRoundPlayersProvider = StreamProvider.family.autoDispose<List<Map<String, dynamic>>, String>((ref, roundId) {
+  if (roundId.isEmpty) return Stream.value([]);
+  
+  return FirebaseFirestore.instance
+      .collection('games_meta')
+      .doc('lucky_spin')
+      .collection('round_player_bets')
+      .where('roundId', isEqualTo: roundId)
+      .snapshots()
+      .map((snap) {
+        final list = snap.docs.map((d) => d.data()).toList();
+        list.sort((a, b) {
+          final aBet = (a['totalBet'] as num?)?.toInt() ?? 0;
+          final bBet = (b['totalBet'] as num?)?.toInt() ?? 0;
+          return bBet.compareTo(aBet);
+        });
+        return list;
       });
 });

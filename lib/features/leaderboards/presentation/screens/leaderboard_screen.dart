@@ -408,9 +408,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
               : "monthlyBeansReceived";
     }
 
-    // Query users collection without server orderBy to avoid missing-field exclusions & index issues
+    // Query users collection strictly ordered by the actual diamond sending / bean receiving metric
     final query = FirebaseFirestore.instance
         .collection('users')
+        .orderBy(queryField, descending: true)
         .limit(100);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -418,7 +419,14 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           debugPrint("TopList query error: ${snapshot.error}");
-          return _buildEmptyState();
+          // Fallback to unordered query with in-memory sorting if composite/single index is pending
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('users').limit(100).snapshots(),
+            builder: (ctx, fallbackSnap) {
+              if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
+              return _processAndBuildUserRanking(fallbackSnap.data!.docs, queryField, isSending, userCountryName);
+            },
+          );
         }
 
         if (!snapshot.hasData) {
@@ -427,242 +435,226 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           );
         }
 
-        final docs = snapshot.data!.docs;
-        final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-
-        final podiumUsers = <PodiumUserData>[];
-        for (final d in docs) {
-          try {
-            final data = Map<String, dynamic>.from(d.data())..['uid'] = d.id;
-            final user = UserModel.fromMap(data);
-            
-            // Calculate score with strict separation and fallback to historical activity
-            num score = 0;
-            final rawScore = d.data()[queryField] as num?;
-            if (rawScore != null && rawScore > 0) {
-              score = rawScore;
-            } else {
-              if (isSending) {
-                final dailyXp = d.data()['dailyXP'] as num?;
-                final benchXp = d.data()['benchXP'] as num?;
-                final weeklyXp = d.data()['weeklyXP'] as num?;
-                final monthlyXp = d.data()['monthlyXP'] as num?;
-                final totalSent = d.data()['totalDiamondsSent'] as num?;
-                final xp = d.data()['xp'] as num?;
-                if (_timeFilter == "DAILY") {
-                  score = dailyXp ?? (benchXp != null ? (benchXp * 0.1).round() : 0);
-                } else if (_timeFilter == "WEEKLY") {
-                  score = weeklyXp ?? (benchXp != null ? (benchXp * 0.4).round() : 0);
-                } else {
-                  score = monthlyXp ?? benchXp ?? totalSent ?? xp ?? 0;
-                }
-              } else {
-                final dailyPrince = d.data()['dailyPrinceXP'] as num?;
-                final princeXp = d.data()['princeXP'] as num?;
-                final weeklyPrince = d.data()['weeklyPrinceXP'] as num?;
-                final monthlyPrince = d.data()['monthlyPrinceXP'] as num?;
-                final totalRcvd = d.data()['totalBeansReceived'] as num?;
-                if (_timeFilter == "DAILY") {
-                  score = dailyPrince ?? (princeXp != null ? (princeXp * 0.1).round() : 0);
-                } else if (_timeFilter == "WEEKLY") {
-                  score = weeklyPrince ?? (princeXp != null ? (princeXp * 0.4).round() : 0);
-                } else {
-                  score = monthlyPrince ?? princeXp ?? totalRcvd ?? 0;
-                }
-              }
-            }
-
-            podiumUsers.add(PodiumUserData(
-              uid: user.uid.isNotEmpty ? user.uid : d.id,
-              displayName: user.displayName.isNotEmpty
-                  ? user.displayName
-                  : (user.username.isNotEmpty ? user.username : 'User ${d.id.substring(0, math.min(5, d.id.length))}'),
-              photoUrl: user.profilePhotoUrl,
-              score: score,
-              countryCode: user.country,
-              vipTier: user.vipTier,
-              level: user.level,
-              profileFrame: user.profileFrame,
-              tags: user.tags,
-            ));
-          } catch (e) {
-            debugPrint("TopList: skipping invalid user ${d.id}: $e");
-          }
-        }
-
-        // Sort in memory by score descending
-        podiumUsers.sort((a, b) => b.score.compareTo(a.score));
-
-        // Filter by country if selected
-        final filteredUsers = _selectedCountry == "GLOBAL"
-            ? podiumUsers
-            : podiumUsers.where((u) {
-                final code = (u.countryCode ?? '').trim().toUpperCase();
-                return code == _selectedCountry.toUpperCase() ||
-                       code == userCountryName.toUpperCase() ||
-                       _getCountryName(code).toUpperCase() == userCountryName.toUpperCase();
-              }).toList();
-
-        // Ensure exactly top 50 users are present and populated
-        final displayList = List<PodiumUserData>.from(filteredUsers);
-        if (displayList.length < 50) {
-          final needed = 50 - displayList.length;
-          const demoAvatars = [
-            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150",
-            "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150",
-            "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150",
-            "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150",
-            "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150",
-            "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150",
-            "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150",
-            "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150",
-          ];
-          const demoNames = [
-            "Alexander Rex", "Lady Victoria", "Crown Prince Ryan", "Duchess Sophie",
-            "Lord Sterling", "Princess Aria", "Baron Marcus", "Archduke Vance",
-            "Queen Isabella", "Count Julian", "Emperor Justin", "Lady Beatrice",
-            "Marquis David", "Baroness Elena", "Knight Roland", "Viscount Oliver",
-            "Lady Genevieve", "Prince Arthur", "Countess Michelle", "Duke Lucas"
-          ];
-          for (int i = 0; i < needed; i++) {
-            final rankNum = displayList.length + 1;
-            final avatar = demoAvatars[rankNum % demoAvatars.length];
-            final name = demoNames[rankNum % demoNames.length];
-            final pts = math.max(100, 300000 - (rankNum * 5500) + (rankNum % 7 * 420));
-            displayList.add(PodiumUserData(
-              uid: "contender_$rankNum",
-              displayName: "$name #$rankNum",
-              photoUrl: avatar,
-              score: pts,
-              countryCode: "US",
-              level: math.max(1, 45 - (rankNum ~/ 2)),
-              vipTier: rankNum <= 3 ? "SVIP" : (rankNum <= 10 ? "VIP3" : "VIP1"),
-            ));
-          }
-        }
-
-        // Detect current user rank
-        int currentUserRank = 0;
-        PodiumUserData? currentUserData;
-        for (int i = 0; i < displayList.length; i++) {
-          if (displayList[i].uid == currentUserId) {
-            currentUserRank = i + 1;
-            currentUserData = displayList[i];
-            break;
-          }
-        }
-
-        final top3 = displayList.take(3).toList();
-        final remainingList = displayList.skip(3).take(47).toList();
-
-        return Stack(
-          children: [
-            RefreshIndicator(
-              color: const Color(0xFFFFD700),
-              backgroundColor: const Color(0xFF1E1528),
-              onRefresh: () async {
-                setState(() {});
-              },
-              child: displayList.isEmpty
-                  ? _buildEmptyState()
-                  : CustomScrollView(
-                      physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
-                      slivers: [
-                        // Hierarchical Top 1, 2, 3 Podium Stage
-                        SliverToBoxAdapter(
-                          child: TopListPodium(
-                            topUsers: top3,
-                            isSendingTab: isSending,
-                            isRoomTab: false,
-                          ),
-                        ),
-
-                        const SliverToBoxAdapter(child: SizedBox(height: 12)),
-
-                        // Ranked List (04 to 100+)
-                        SliverPadding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          sliver: SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final user = remainingList[index];
-                                final rank = index + 4;
-                                return _buildRankingListTile(
-                                  rank: rank,
-                                  user: user,
-                                  isSending: isSending,
-                                );
-                              },
-                              childCount: remainingList.length,
-                            ),
-                          ),
-                        ),
-
-                        const SliverToBoxAdapter(child: SizedBox(height: 80)),
-                      ],
-                    ),
-            ),
-
-            // Pinned Sticky Bottom Bar for Current Logged-in User
-            _buildStickyBottomBar(
-              currentUser: currentUserData,
-              rank: currentUserRank,
-              isSending: isSending,
-            ),
-          ],
-        );
+        return _processAndBuildUserRanking(snapshot.data!.docs, queryField, isSending, userCountryName);
       },
     );
   }
 
+  Widget _processAndBuildUserRanking(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String queryField,
+    bool isSending,
+    String userCountryName,
+  ) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    final currentUserProfile = ref.watch(currentUserProfileProvider).value;
+
+    final podiumUsers = <PodiumUserData>[];
+    for (final d in docs) {
+      try {
+        final data = Map<String, dynamic>.from(d.data())..['uid'] = d.id;
+        final user = UserModel.fromMap(data);
+        
+        // Calculate score strictly based on actual transaction diamonds sent or beans received
+        final rawScore = d.data()[queryField] as num?;
+        final num score = rawScore != null ? rawScore : 0;
+
+        podiumUsers.add(PodiumUserData(
+          uid: user.uid.isNotEmpty ? user.uid : d.id,
+          displayName: user.displayName.isNotEmpty
+              ? user.displayName
+              : (user.username.isNotEmpty ? user.username : 'User ${d.id.substring(0, math.min(5, d.id.length))}'),
+          photoUrl: user.profilePhotoUrl,
+          score: score,
+          countryCode: user.country,
+          vipTier: user.vipTier,
+          level: user.level,
+          profileFrame: user.profileFrame,
+          tags: user.tags,
+        ));
+      } catch (e) {
+        debugPrint("TopList: skipping invalid user ${d.id}: $e");
+      }
+    }
+
+    // Sort in memory by score descending
+    podiumUsers.sort((a, b) => b.score.compareTo(a.score));
+
+    // Filter by country if selected
+    final filteredUsers = _selectedCountry == "GLOBAL"
+        ? podiumUsers
+        : podiumUsers.where((u) {
+            final code = (u.countryCode ?? '').trim().toUpperCase();
+            return code == _selectedCountry.toUpperCase() ||
+                   code == userCountryName.toUpperCase() ||
+                   _getCountryName(code).toUpperCase() == userCountryName.toUpperCase();
+          }).toList();
+
+    final displayList = List<PodiumUserData>.from(filteredUsers);
+
+    // Detect current user rank
+    int currentUserRank = 0;
+    PodiumUserData? currentUserData;
+    for (int i = 0; i < displayList.length; i++) {
+      if (displayList[i].uid == currentUserId) {
+        currentUserRank = i + 1;
+        currentUserData = displayList[i];
+        break;
+      }
+    }
+
+    // Fallback: Populate current user stats from profile if not in top 50 list
+    if (currentUserData == null && currentUserProfile != null && currentUserId != null) {
+      final profileMap = currentUserProfile.toMap();
+      final num myScore = (profileMap[queryField] as num?) ?? 0;
+      currentUserData = PodiumUserData(
+        uid: currentUserId,
+        displayName: currentUserProfile.displayName.isNotEmpty
+            ? currentUserProfile.displayName
+            : (currentUserProfile.username.isNotEmpty ? currentUserProfile.username : 'You'),
+        photoUrl: currentUserProfile.profilePhotoUrl,
+        score: myScore,
+        countryCode: currentUserProfile.country,
+        vipTier: currentUserProfile.vipTier,
+        level: currentUserProfile.level,
+        profileFrame: currentUserProfile.profileFrame,
+        tags: currentUserProfile.tags,
+      );
+    }
+
+    final top3 = displayList.take(3).toList();
+    final remainingList = displayList.skip(3).take(47).toList();
+
+    return Stack(
+      children: [
+        RefreshIndicator(
+          color: const Color(0xFFFFD700),
+          backgroundColor: const Color(0xFF1E1528),
+          onRefresh: () async {
+            setState(() {});
+          },
+          child: displayList.isEmpty
+              ? _buildEmptyState()
+              : CustomScrollView(
+                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                  slivers: [
+                    // Hierarchical Top 1, 2, 3 Podium Stage
+                    SliverToBoxAdapter(
+                      child: TopListPodium(
+                        topUsers: top3,
+                        isSendingTab: isSending,
+                        isRoomTab: false,
+                      ),
+                    ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 12)),
+
+                    // Ranked List (04 to 100+)
+                    SliverPadding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      sliver: SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final user = remainingList[index];
+                            final rank = index + 4;
+                            return _buildRankingListTile(
+                              rank: rank,
+                              user: user,
+                              isSending: isSending,
+                            );
+                          },
+                          childCount: remainingList.length,
+                        ),
+                      ),
+                    ),
+
+                    const SliverToBoxAdapter(child: SizedBox(height: 80)),
+                  ],
+                ),
+        ),
+
+        // Pinned Sticky Bottom Bar for Current Logged-in User
+        _buildStickyBottomBar(
+          currentUser: currentUserData,
+          rank: currentUserRank,
+          isSending: isSending,
+        ),
+      ],
+    );
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
-  // 🎙️ Room Tab Content
+  // 🎙️ Room Tab Content (Ranked Strictly by Diamonds Sent in Room)
   // ─────────────────────────────────────────────────────────────────────────
   Widget _buildRoomTabContent() {
+    final queryField = _timeFilter == "DAILY"
+        ? "dailyDiamondsSent"
+        : _timeFilter == "WEEKLY"
+            ? "weeklyDiamondsSent"
+            : "monthlyDiamondsSent";
+
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('rooms')
+          .orderBy(queryField, descending: true)
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError) {
           debugPrint("Room query error: ${snapshot.error}");
-          return _buildEmptyState();
+          // Fallback to reading rooms with in-memory sorting if index is pending
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('rooms').limit(50).snapshots(),
+            builder: (context, fallbackSnap) {
+              if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
+              return _renderRoomRankingList(fallbackSnap.data!.docs, queryField);
+            },
+          );
         }
 
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
         }
 
-        final docs = snapshot.data!.docs;
-        final roomItems = <PodiumUserData>[];
-        for (final d in docs) {
-          try {
-            final data = d.data();
-            roomItems.add(PodiumUserData(
-              uid: d.id,
-              displayName: (data['name'] as String?)?.isNotEmpty == true ? data['name'] : 'Live Room',
-              photoUrl: (data['coverUrl'] as String?) ?? '',
-              score: (data['currentUsersCount'] as num?) ?? 0,
-              isRoom: true,
-            ));
-          } catch (e) {
-            debugPrint("Room parse error: $e");
-          }
-        }
+        return _renderRoomRankingList(snapshot.data!.docs, queryField);
+      },
+    );
+  }
 
-        // Sort in memory by currentUsersCount descending
-        roomItems.sort((a, b) => b.score.compareTo(a.score));
+  Widget _renderRoomRankingList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, String queryField) {
+    final roomItems = <PodiumUserData>[];
+    for (final d in docs) {
+      try {
+        final data = d.data();
+        final num roomDiamonds = (data[queryField] as num?) 
+            ?? (data['totalDiamondsSent'] as num?) 
+            ?? (data['weeklyEarnings'] as num?) 
+            ?? 0;
 
-        if (roomItems.isEmpty) return _buildEmptyState();
+        roomItems.add(PodiumUserData(
+          uid: d.id,
+          displayName: (data['name'] as String?)?.isNotEmpty == true ? data['name'] : 'Live Room',
+          photoUrl: (data['coverUrl'] as String?) ?? '',
+          score: roomDiamonds,
+          isRoom: true,
+        ));
+      } catch (e) {
+        debugPrint("Room parse error: $e");
+      }
+    }
 
-        final top3 = roomItems.take(3).toList();
-        final rest = roomItems.skip(3).toList();
+    // Sort in memory by room total diamonds descending
+    roomItems.sort((a, b) => b.score.compareTo(a.score));
 
-        return CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
+    if (roomItems.isEmpty) return _buildEmptyState();
+
+    final top3 = roomItems.take(3).toList();
+    final rest = roomItems.skip(3).toList();
+
+    return CustomScrollView(
+      physics: const BouncingScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
               child: TopListPodium(
                 topUsers: top3,
                 isSendingTab: true,
@@ -689,8 +681,6 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
             const SliverToBoxAdapter(child: SizedBox(height: 80)),
           ],
         );
-      },
-    );
   }
 
   // ─────────────────────────────────────────────────────────────────────────

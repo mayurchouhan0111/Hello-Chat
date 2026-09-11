@@ -2197,11 +2197,23 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
             if (roomDoc.exists) {
                 const roomData = roomDoc.data();
-                const isSameWeekRoom = !roomData.weekId || roomData.weekId === currentWeekId;
+                const isSameWeekRoom = !roomData.weekId || roomData.weekId === cycleWeekId;
                 const prevWeeklyEarnings = isSameWeekRoom ? (roomData.weeklyEarnings || 0) : 0;
+
+                const roomDaily = (roomData.lastDailySentDate === todayStr) ? (roomData.dailyDiamondsSent || 0) : 0;
+                const roomWeekly = (roomData.lastWeeklySentDate === thisWeekStr) ? (roomData.weeklyDiamondsSent || 0) : 0;
+                const roomMonthly = (roomData.lastMonthlySentDate === thisMonthStr) ? (roomData.monthlyDiamondsSent || 0) : 0;
+
                 transaction.update(roomRef, {
+                    totalDiamondsSent: admin.firestore.FieldValue.increment(totalCost),
+                    dailyDiamondsSent: roomDaily + totalCost,
+                    weeklyDiamondsSent: roomWeekly + totalCost,
+                    monthlyDiamondsSent: roomMonthly + totalCost,
+                    lastDailySentDate: todayStr,
+                    lastWeeklySentDate: thisWeekStr,
+                    lastMonthlySentDate: thisMonthStr,
                     weeklyEarnings: prevWeeklyEarnings + totalCost,
-                    weekId: currentWeekId
+                    weekId: cycleWeekId
                 });
             }
 
@@ -3492,11 +3504,11 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         );
     }
 
-    // Phase Gate: Bets strictly close at 30.0s (30,000ms)
-    if (msIntoRound >= 30000 && totalBet > 0) {
+    // Phase Gate: Bets strictly close at 27.0s (3s remaining before spin)
+    if (msIntoRound >= 27000 && totalBet > 0) {
         throw new functions.https.HttpsError(
             "failed-precondition",
-            `Betting phase closed for round ${currentRoundId}. Please wait for next round.`
+            `Betting phase closed for round ${currentRoundId}. Bets are locked during the final 3 seconds.`
         );
     }
 
@@ -3504,7 +3516,9 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const settingsRef = db.collection("game_settings").doc("lucky_spin");
     const statsRef = db.collection("games_meta").doc("lucky_spin");
     const roundBetRef = statsRef.collection("round_player_bets").doc(`${currentRoundId}_${uid}`);
+    const legacyRoundBetRef = statsRef.collection("current_round_bets").doc(`${currentRoundId}_${uid}`);
     const privateStatsRef = db.collection("games_meta_private").doc(`spin_${currentRoundId}`);
+    const logRef = userRef.collection("game_history").doc(`spin_${currentRoundId}`);
 
     const spinResult = await db.runTransaction(async (transaction) => {
         const userDoc = await transaction.get(userRef);
@@ -3516,6 +3530,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         const statsDoc = await transaction.get(statsRef);
         const privateDoc = await transaction.get(privateStatsRef);
         const existingBetDoc = await transaction.get(roundBetRef);
+        const existingLogDoc = await transaction.get(logRef);
 
         const defaultFoodSegments = [
             { id: "1", name: "Tomato", multiplier: 5, weight: 250, emoji: "🍅", category: "salad" },
@@ -3741,16 +3756,21 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
         transaction.update(userRef, userUpdates);
 
-        // Update Round Bet Ledger
+        // Update Round Bet Ledger (With Full Player Identity for Winners & Player List)
         if (totalBet > 0) {
-            transaction.set(roundBetRef, {
+            const playerBetRecord = {
                 uid: uid,
                 roundId: currentRoundId,
+                name: userName,
+                avatar: userAvatar,
                 bets: bets,
                 totalBet: totalBet,
                 prize: calculatedPrize,
+                winnings: calculatedPrize,
                 updatedAt: now
-            });
+            };
+            transaction.set(roundBetRef, playerBetRecord, { merge: true });
+            transaction.set(legacyRoundBetRef, playerBetRecord, { merge: true });
         }
 
         // Leaderboard updates
@@ -3774,11 +3794,16 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             transaction.update(statsRef, { todayWinners: todayWinners });
         }
 
-        // Audit Log History Entry
-        if (deltaBet > 0) {
-            const currentBetCount = Number(userDoc.data().totalGameCount || 0) + 1;
-            transaction.update(userRef, { totalGameCount: currentBetCount });
-            const logRef = userRef.collection("game_history").doc();
+        // Audit Log History Entry (Deduplicated strictly 1 record per round)
+        if (deltaBet > 0 || totalBet > 0) {
+            let currentBetCount;
+            if (existingLogDoc && existingLogDoc.exists) {
+                currentBetCount = existingLogDoc.data().serialNumber || Number(userDoc.data().totalGameCount || 1);
+            } else {
+                currentBetCount = Number(userDoc.data().totalGameCount || 0) + 1;
+                transaction.update(userRef, { totalGameCount: currentBetCount });
+            }
+
             transaction.set(logRef, {
                 game: "spin_wheel",
                 serialNumber: currentBetCount,
@@ -3790,11 +3815,11 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 label: roundResult.label,
                 multiplier: roundResult.multiplier,
                 emoji: roundResult.emoji,
-                balanceBefore: balance + deltaBet,
+                balanceBefore: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().balanceBefore : (balance + deltaBet),
                 balanceAfter: balance + deltaPrize,
-                orderId: `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
+                orderId: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().orderId : `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
-            });
+            }, { merge: true });
         }
 
         return {
@@ -5742,6 +5767,28 @@ async function resetUsersField(fields) {
     console.log(`[RESET] Finished resetting ${fields.join(", ")} for ${usersSnap.size} users.`);
 }
 
+async function resetRoomsField(fields) {
+    const roomsSnap = await db.collection("rooms").get();
+    let batch = db.batch();
+    let count = 0;
+
+    for (const doc of roomsSnap.docs) {
+        const updateData = {};
+        for (const f of fields) {
+            updateData[f] = 0;
+        }
+        batch.update(doc.ref, updateData);
+        count++;
+        if (count === 500) {
+            await batch.commit();
+            batch = db.batch();
+            count = 0;
+        }
+    }
+    if (count > 0) await batch.commit();
+    console.log(`[RESET] Finished resetting ${fields.join(", ")} for ${roomsSnap.size} rooms.`);
+}
+
 async function resetRoomsRocket() {
     const roomsSnap = await db.collection("rooms").get();
     let batch = db.batch();
@@ -5769,6 +5816,7 @@ exports.scheduledDailyReset = functions.pubsub.schedule('0 0 * * *')
     .timeZone('UTC')
     .onRun(async (context) => {
         await resetUsersField(["dailyXP", "dailyPrinceXP", "dailyDiamondsSent", "dailyBeansReceived"]);
+        await resetRoomsField(["dailyDiamondsSent"]);
         await resetRoomsRocket();
     });
 
@@ -5776,6 +5824,7 @@ exports.scheduledWeeklyReset = functions.pubsub.schedule('0 0 * * 1')
     .timeZone('UTC')
     .onRun(async (context) => {
         await resetUsersField(["weeklyXP", "weeklyPrinceXP", "weeklyDiamondsSent", "weeklyBeansReceived"]);
+        await resetRoomsField(["weeklyDiamondsSent"]);
     });
 
 /**
@@ -5819,6 +5868,7 @@ exports.scheduledMonthlyReset = functions.pubsub.schedule('0 0 1 * *')
     .timeZone('UTC')
     .onRun(async (context) => {
         await resetUsersField(["monthlyXP", "monthlyPrinceXP", "monthlyDiamondsSent", "monthlyBeansReceived"]);
+        await resetRoomsField(["monthlyDiamondsSent"]);
     });
 
 /**

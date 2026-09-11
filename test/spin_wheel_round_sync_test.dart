@@ -18,18 +18,18 @@ void main() {
     });
 
     test('Phase boundaries are strictly enforced across the 40s timeline', () {
-      // Phase 1a: 0s-20s -> Betting Open ("Select time", not locked)
-      for (int sec = 0; sec < 20; sec++) {
+      // Phase 1a: 0s-27s -> Betting Open ("Select time", 30->4s, not locked)
+      for (int sec = 0; sec < 27; sec++) {
         final secondsIntoCycle = sec;
-        expect(secondsIntoCycle < 20, isTrue);
+        expect(secondsIntoCycle < 27, isTrue);
         final isBetLocked = false;
         expect(isBetLocked, isFalse);
       }
 
-      // Phase 1b: 20s-30s -> Bets Closed ("BETS CLOSED", locked)
-      for (int sec = 20; sec < 30; sec++) {
+      // Phase 1b: 27s-30s -> Bets Closed during final 3s ("BETS CLOSED", 3->1s, locked)
+      for (int sec = 27; sec < 30; sec++) {
         final secondsIntoCycle = sec;
-        final isBetLocked = secondsIntoCycle >= 20;
+        final isBetLocked = secondsIntoCycle >= 27;
         expect(isBetLocked, isTrue);
       }
 
