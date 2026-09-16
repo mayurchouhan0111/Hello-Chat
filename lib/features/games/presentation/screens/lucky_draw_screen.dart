@@ -112,6 +112,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
         }
 
         _showResult(result);
+        ref.invalidate(currentUserProfileProvider);
         setState(() => _isDrawing = false);
       }
     } catch (e) {

@@ -12,7 +12,9 @@ class SvgaParserUtil {
   // Cache of parsed MovieEntity objects to avoid CPU-heavy parsing & image decoding on every load
   static final Map<String, MovieEntity> _movieCache = {};
   static final List<String> _movieCacheKeys = [];
-  static const int _maxMovieCacheSize = 80;
+  static const int _maxMovieCacheSize = 120;
+  // Protected assets (e.g. preloaded VIP frames/badges/entry effects) that must never be evicted
+  static final Set<String> _protectedAssetKeys = {};
 
   // Track pending loads to prevent concurrent duplicate reads
   static final Map<String, Future<Uint8List>> _pendingLoads = {};
@@ -87,11 +89,17 @@ class SvgaParserUtil {
     movie.autorelease = false;
 
     _movieCache[cleanPath] = movie;
-    _movieCacheKeys.add(cleanPath);
-    if (_movieCacheKeys.length > _maxMovieCacheSize) {
-      final oldest = _movieCacheKeys.removeAt(0);
-      final evicted = _movieCache.remove(oldest);
-      evicted?.dispose();
+    if (!_protectedAssetKeys.contains(cleanPath)) {
+      _movieCacheKeys.remove(cleanPath);
+      _movieCacheKeys.add(cleanPath);
+      if (_movieCacheKeys.length > _maxMovieCacheSize) {
+        final oldest = _movieCacheKeys.removeAt(0);
+        _movieCache.remove(oldest);
+        // CRITICAL: Do NOT call evicted?.dispose() here! Calling dispose() on a MovieEntity deletes its
+        // underlying native textures immediately. If an active painter or SvgaPlayer is rendering it,
+        // it causes a native SIGSEGV use-after-free crash. Removing from _movieCache allows Dart GC to
+        // safely reclaim it once all active players release references.
+      }
     }
 
     return movie;
@@ -116,11 +124,14 @@ class SvgaParserUtil {
     movie.autorelease = false;
 
     _movieCache[cleanUrl] = movie;
-    _movieCacheKeys.add(cleanUrl);
-    if (_movieCacheKeys.length > _maxMovieCacheSize) {
-      final oldest = _movieCacheKeys.removeAt(0);
-      final evicted = _movieCache.remove(oldest);
-      evicted?.dispose();
+    if (!_protectedAssetKeys.contains(cleanUrl)) {
+      _movieCacheKeys.remove(cleanUrl);
+      _movieCacheKeys.add(cleanUrl);
+      if (_movieCacheKeys.length > _maxMovieCacheSize) {
+        final oldest = _movieCacheKeys.removeAt(0);
+        _movieCache.remove(oldest);
+        // CRITICAL: Do NOT call evicted?.dispose() for safe GC reclamation.
+      }
     }
 
     return movie;
@@ -271,6 +282,9 @@ class SvgaParserUtil {
           'assets/VIP/VIP 7/VIP 7/Crown 1.svga',
           'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.svga',
         ];
+
+        // Protect preloaded core system & VIP assets from ever being evicted during cache churn
+        _protectedAssetKeys.addAll(assetsToPreload.map((e) => e.trim()));
 
         // Parallelize: load in small batches of 3 with 200ms delay to avoid main thread I/O lockup
         const batchSize = 3;

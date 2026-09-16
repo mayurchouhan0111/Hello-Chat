@@ -162,11 +162,11 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
           return data;
         }).toList();
 
-        // Robust in-memory sorting by roundId descending (newest rounds first), then timestamp
+        // Robust in-memory sorting: roundId descending (newest rounds first), then timestamp / createdAt, then serialNumber
         rawDocs.sort((a, b) {
           final rA = int.tryParse(a['roundId']?.toString() ?? '') ?? 0;
           final rB = int.tryParse(b['roundId']?.toString() ?? '') ?? 0;
-          if (rA != rB) return rB.compareTo(rA);
+          if (rA != rB && rA > 0 && rB > 0) return rB.compareTo(rA);
 
           final tA = a['timestamp'];
           final tB = b['timestamp'];
@@ -174,6 +174,11 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
             final cmp = tB.compareTo(tA);
             if (cmp != 0) return cmp;
           }
+
+          final cA = (a['createdAt'] as num?)?.toInt() ?? 0;
+          final cB = (b['createdAt'] as num?)?.toInt() ?? 0;
+          if (cA != cB) return cB.compareTo(cA);
+
           final sA = int.tryParse(a['serialNumber']?.toString() ?? '') ?? 0;
           final sB = int.tryParse(b['serialNumber']?.toString() ?? '') ?? 0;
           return sB.compareTo(sA);

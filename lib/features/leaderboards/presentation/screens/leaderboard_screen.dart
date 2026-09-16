@@ -11,6 +11,7 @@ import 'package:hello_chat/core/utils/room_navigation_helper.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import '../widgets/top_list_podium.dart';
+import '../widgets/monthly_history_modal.dart';
 
 class LeaderboardScreen extends ConsumerStatefulWidget {
   final int initialIndex;
@@ -276,12 +277,12 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
               ),
               const SizedBox(width: 10),
 
-              // Calendar Icon
+              // Calendar Icon (3-Month Rolling History)
               IconButton(
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
                 icon: const Icon(Icons.calendar_month_outlined, color: Colors.white, size: 22),
-                onPressed: _showRulesDialog,
+                onPressed: () => MonthlyHistoryModal.show(context),
               ),
             ],
           ),
@@ -399,13 +400,17 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           ? "dailyDiamondsSent"
           : _timeFilter == "WEEKLY"
               ? "weeklyDiamondsSent"
-              : "monthlyDiamondsSent";
+              : _timeFilter == "MONTHLY"
+                  ? "monthlyDiamondsSent"
+                  : "totalDiamondsSent";
     } else {
       queryField = _timeFilter == "DAILY"
           ? "dailyBeansReceived"
           : _timeFilter == "WEEKLY"
               ? "weeklyBeansReceived"
-              : "monthlyBeansReceived";
+              : _timeFilter == "MONTHLY"
+                  ? "monthlyBeansReceived"
+                  : "totalBeansReceived";
     }
 
     // Query users collection strictly ordered by the actual diamond sending / bean receiving metric
@@ -417,6 +422,12 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: query.snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+          );
+        }
+
         if (snapshot.hasError || (snapshot.hasData && snapshot.data!.docs.isEmpty)) {
           if (snapshot.hasError) {
             debugPrint("TopList query error: ${snapshot.error}");
@@ -425,6 +436,11 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance.collection('users').limit(100).snapshots(),
             builder: (ctx, fallbackSnap) {
+              if (fallbackSnap.connectionState == ConnectionState.waiting && !fallbackSnap.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+                );
+              }
               if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
               return _processAndBuildUserRanking(fallbackSnap.data!.docs, queryField, isSending, userCountryName);
             },
@@ -457,24 +473,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         final data = Map<String, dynamic>.from(d.data())..['uid'] = d.id;
         final user = UserModel.fromMap(data);
         
-        // Calculate score strictly based on actual transaction diamonds sent or beans received with graceful fallbacks
+        // Calculate score strictly based on actual transaction diamonds sent or beans received
         final rawScore = d.data()[queryField] as num?;
-        num score = rawScore ?? 0;
-        if (score == 0) {
-          if (isSending) {
-            score = (d.data()['weeklyDiamondsSent'] as num?) ??
-                    (d.data()['monthlyDiamondsSent'] as num?) ??
-                    (d.data()['totalDiamondsSent'] as num?) ??
-                    (d.data()['diamondBalance'] as num?) ??
-                    (d.data()['diamonds'] as num?) ?? 0;
-          } else {
-            score = (d.data()['weeklyBeansReceived'] as num?) ??
-                    (d.data()['monthlyBeansReceived'] as num?) ??
-                    (d.data()['totalBeansReceived'] as num?) ??
-                    (d.data()['beansBalance'] as num?) ??
-                    (d.data()['beans'] as num?) ?? 0;
-          }
-        }
+        final num score = rawScore ?? 0;
+        if (score <= 0) continue;
 
         podiumUsers.add(PodiumUserData(
           uid: user.uid.isNotEmpty ? user.uid : d.id,
@@ -612,7 +614,9 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         ? "dailyDiamondsSent"
         : _timeFilter == "WEEKLY"
             ? "weeklyDiamondsSent"
-            : "monthlyDiamondsSent";
+            : _timeFilter == "MONTHLY"
+                ? "monthlyDiamondsSent"
+                : "totalDiamondsSent";
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
@@ -621,12 +625,19 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+        }
+
         if (snapshot.hasError) {
           debugPrint("Room query error: ${snapshot.error}");
           // Fallback to reading rooms with in-memory sorting if index is pending
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: FirebaseFirestore.instance.collection('rooms').limit(50).snapshots(),
             builder: (context, fallbackSnap) {
+              if (fallbackSnap.connectionState == ConnectionState.waiting && !fallbackSnap.hasData) {
+                return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+              }
               if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
               return _renderRoomRankingList(fallbackSnap.data!.docs, queryField);
             },
@@ -643,26 +654,66 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
   }
 
   Widget _renderRoomRankingList(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, String queryField) {
-    final roomItems = <PodiumUserData>[];
+    final Map<String, PodiumUserData> uniqueRooms = {};
+
+    // Collect owner UIDs to batch-resolve host profiles if rooms lack custom cover images
+    final List<String> ownerUids = [];
+    for (final d in docs) {
+      final data = d.data();
+      final ownerUid = (data['ownerUid'] as String?) ?? d.id;
+      if (ownerUid.isNotEmpty && !ownerUids.contains(ownerUid)) {
+        ownerUids.add(ownerUid);
+      }
+    }
+    final hostProfiles = ref.watch(batchedProfilesProvider(ownerUids)).value ?? {};
+
     for (final d in docs) {
       try {
         final data = d.data();
-        final num roomDiamonds = (data[queryField] as num?) 
-            ?? (data['totalDiamondsSent'] as num?) 
-            ?? (data['weeklyEarnings'] as num?) 
-            ?? 0;
+        final num roomDiamonds = (data[queryField] as num?) ?? 0;
+        if (roomDiamonds <= 0) continue;
 
-        roomItems.add(PodiumUserData(
-          uid: d.id,
-          displayName: (data['name'] as String?)?.isNotEmpty == true ? data['name'] : 'Live Room',
-          photoUrl: (data['coverUrl'] as String?) ?? '',
-          score: roomDiamonds,
-          isRoom: true,
-        ));
+        final ownerUid = (data['ownerUid'] as String?) ?? d.id;
+
+        // Multi-field image fallback: check roomCover, roomIcon, ownerAvatar, userProfilePic, coverUrl, etc.
+        final String explicitImage = [
+          data['coverUrl'],
+          data['roomCover'],
+          data['roomIcon'],
+          data['ownerAvatar'],
+          data['ownerProfilePic'],
+          data['userProfilePic'],
+          data['photoUrl'],
+          data['profilePhotoUrl'],
+          data['icon'],
+          data['avatar'],
+        ].firstWhere(
+          (val) => val is String && val.trim().isNotEmpty,
+          orElse: () => null,
+        )?.toString().trim() ?? '';
+
+        final hostProfile = hostProfiles[ownerUid];
+        final hostAvatar = hostProfile?.profilePhotoUrl ?? '';
+        final finalPhotoUrl = explicitImage.isNotEmpty ? explicitImage : hostAvatar;
+
+        final currentRoom = uniqueRooms[ownerUid];
+        if (currentRoom == null || roomDiamonds > currentRoom.score) {
+          uniqueRooms[ownerUid] = PodiumUserData(
+            uid: d.id,
+            displayName: (data['name'] as String?)?.isNotEmpty == true
+                ? data['name']
+                : (hostProfile != null && hostProfile.displayName.isNotEmpty ? hostProfile.displayName : 'Live Room'),
+            photoUrl: finalPhotoUrl,
+            score: roomDiamonds,
+            isRoom: true,
+          );
+        }
       } catch (e) {
         debugPrint("Room parse error: $e");
       }
     }
+
+    final roomItems = uniqueRooms.values.toList();
 
     // Sort in memory by room total diamonds descending
     roomItems.sort((a, b) => b.score.compareTo(a.score));
@@ -714,6 +765,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+        }
+
         if (snapshot.hasError) {
           debugPrint("Couple query error: ${snapshot.error}");
           return _buildEmptyState();
@@ -839,10 +894,41 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
                 alignment: Alignment.center,
                 children: [
                   if (isRoom)
-                    CircleAvatar(
-                      radius: 20,
-                      backgroundImage: user.photoUrl.isNotEmpty ? CachedNetworkImageProvider(user.photoUrl) : null,
-                      child: user.photoUrl.isEmpty ? const Icon(Icons.meeting_room_rounded, color: Colors.white54) : null,
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF242A38),
+                        border: Border.all(color: Colors.white12, width: 1.5),
+                      ),
+                      child: ClipOval(
+                        child: user.photoUrl.isNotEmpty
+                            ? CachedNetworkImage(
+                                imageUrl: user.photoUrl,
+                                fit: BoxFit.cover,
+                                memCacheWidth: 150,
+                                memCacheHeight: 150,
+                                placeholder: (context, url) => Container(
+                                  color: const Color(0xFF1B2030),
+                                  child: const Center(
+                                    child: SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD700)),
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  color: const Color(0xFF1B2030),
+                                  child: const Icon(Icons.meeting_room_rounded, color: Colors.white54, size: 20),
+                                ),
+                              )
+                            : Container(
+                                color: const Color(0xFF1B2030),
+                                child: const Icon(Icons.meeting_room_rounded, color: Colors.white54, size: 20),
+                              ),
+                      ),
                     )
                   else
                     AppAvatar(
@@ -936,12 +1022,16 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
             ? (currentUserProfile?.dailyDiamondsSent ?? 0)
             : _timeFilter == "WEEKLY"
                 ? (currentUserProfile?.weeklyDiamondsSent ?? 0)
-                : (currentUserProfile?.monthlyDiamondsSent ?? 0))
+                : _timeFilter == "MONTHLY"
+                    ? (currentUserProfile?.monthlyDiamondsSent ?? 0)
+                    : (currentUserProfile?.totalDiamondsSent ?? 0))
         : (_timeFilter == "DAILY"
             ? (currentUserProfile?.dailyBeansReceived ?? 0)
             : _timeFilter == "WEEKLY"
                 ? (currentUserProfile?.weeklyBeansReceived ?? 0)
-                : (currentUserProfile?.monthlyBeansReceived ?? 0));
+                : _timeFilter == "MONTHLY"
+                    ? (currentUserProfile?.monthlyBeansReceived ?? 0)
+                    : (currentUserProfile?.totalBeansReceived ?? 0));
     final score = currentUser != null ? currentUser.score : userPeriodScore;
     final rankText = rank > 0 ? (rank < 10 ? "0$rank" : "$rank") : "- -";
 

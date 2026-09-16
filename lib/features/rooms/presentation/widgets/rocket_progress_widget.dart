@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/core/utils/rocket_vap_config.dart';
-import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/room_support_provider.dart';
 import '../../../../core/models/room_model.dart';
 import './rocket_detail_sheet.dart';
 
@@ -67,10 +67,10 @@ class _RocketProgressWidgetState extends ConsumerState<RocketProgressWidget> wit
 
   @override
   Widget build(BuildContext context) {
-    final targetsAsync = ref.watch(rocketSettingsProvider);
-    final targets = targetsAsync.valueOrNull ?? const [1000000, 2000000, 3000000, 5000000, 10000000];
+    final config = ref.watch(roomSupportConfigProvider).valueOrNull;
+    final targets = roomSupportCoinsTargets(config);
     final levelIdx = widget.room.rocketLevel.clamp(0, 4);
-    final target = levelIdx < targets.length ? targets[levelIdx] : 10000000;
+    final target = levelIdx < targets.length ? targets[levelIdx] : targets.last;
     final progress = (widget.room.rocketFuel / target).clamp(0.0, 1.0);
     final isCooldown = widget.room.rocketStatus == "cooldown" && 
                        widget.room.rocketCooldownUntil != null &&

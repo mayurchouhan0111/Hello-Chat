@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum TransactionType { recharge, gift_sent, gift_received, exchange, noble_purchase, vip_purchase, purchase, cash_out }
+enum TransactionType { recharge, gift_sent, gift_received, exchange, noble_purchase, vip_purchase, purchase, cash_out, game_win, game_bet }
 
 class WalletTransaction {
   final String id;
@@ -27,6 +27,8 @@ class WalletTransaction {
     type == TransactionType.gift_sent ||
     type == TransactionType.vip_purchase ||
     type == TransactionType.noble_purchase ||
+    type == TransactionType.game_win ||
+    type == TransactionType.game_bet ||
     receivedAmount != null; // Diamonds received in exchange
 
   bool get isBeanTransaction => 

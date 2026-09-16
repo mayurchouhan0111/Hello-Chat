@@ -391,18 +391,24 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     return notifiedWinners;
 }
 
-async function getRocketTargets(transaction = null) {
-    const defaultTargets = [1000000, 2000000, 3000000, 5000000, 10000000];
+async function getRocketTargets() {
+    // Single source of truth: room support config levels (rocket uses first 5).
+    const defaultSupportTargets = [10000000, 20000000, 30000000, 50000000, 100000000];
     try {
-        const configRef = db.collection("system_configs").doc("rocket_settings");
-        const doc = transaction ? await transaction.get(configRef) : await configRef.get();
-        if (doc.exists && Array.isArray(doc.data()?.targets) && doc.data().targets.length === 5) {
-            return doc.data().targets.map(t => parseInt(t) || 0);
+        const configRef = db.collection("room_support_configs").doc("settings");
+        const doc = await configRef.get();
+        const levels = doc.exists ? (doc.data()?.levels || []) : [];
+        if (Array.isArray(levels) && levels.length > 0) {
+            const targets = levels
+                .slice(0, 5)
+                .map(l => l?.coinsTarget ? (parseInt(l.coinsTarget) || 0) : 0)
+                .filter(t => t > 0);
+            if (targets.length === 5) return targets;
         }
     } catch (e) {
         console.error("[ROCKET_CONFIG] Failed to load dynamic targets, fallback to default:", e);
     }
-    return defaultTargets;
+    return defaultSupportTargets;
 }
 
 async function processRocketFueling(transaction, roomId, roomRef, roomData, senderUid, totalCost) {
@@ -445,7 +451,7 @@ async function processRocketFueling(transaction, roomId, roomRef, roomData, send
         roomData.rocketContributions = {};
     }
 
-    const rocketTargets = await getRocketTargets(transaction);
+    const rocketTargets = await getRocketTargets();
     let remainingCost = totalCost;
     let localContributions = { ...(roomData.rocketContributions || {}) };
 
@@ -1996,28 +2002,19 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 const receiverData = receiverDoc.data();
                 const agencyId = receiverData.agencyId;
 
-                if (isLuckyCategory) {
-                    // 🔔 Lucky / Bell Gift Rule: Receiver gets configured base Bean contribution per gift (Default 1 Bean per gift)
-                    // Completely independent of Sender's winning multiplier or gift diamond price
-                    const baseBeanPerGift = giftData.receiverBeanReward != null
-                        ? Number(giftData.receiverBeanReward)
-                        : ((luckyConfig && luckyConfig.receiverBeanReward != null) ? Number(luckyConfig.receiverBeanReward) : 1);
-                    beansEarned = Math.max(1, baseBeanPerGift) * qty;
-                } else {
-                    let hostSharePercent = 1.0; // 1:1 Parity (1 Diamond = 1 Bean)
-                    let agencySharePercent = 0;
+                let hostSharePercent = 1.0; // 1:1 Parity (1 Diamond = 1 Bean)
+                let agencySharePercent = 0;
 
-                    if (agencyId && agencyDoc && agencyDoc.exists) {
-                        hostSharePercent = 0.7;
-                        agencySharePercent = 0.1;
-                        const agencyBeans = Math.floor(totalCost * agencySharePercent);
-                        transaction.update(agencyRef, {
-                            beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
-                            totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
-                        });
-                    }
-                    beansEarned = Math.floor(totalCost * hostSharePercent);
+                if (agencyId && agencyDoc && agencyDoc.exists) {
+                    hostSharePercent = 0.7;
+                    agencySharePercent = 0.1;
+                    const agencyBeans = Math.floor(totalCost * agencySharePercent);
+                    transaction.update(agencyRef, {
+                        beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
+                        totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
+                    });
                 }
+                beansEarned = Math.floor(totalCost * hostSharePercent);
                 
                 // Receiver XP: 1000 diamonds = 1 XP
                 const currentEarned = receiverData.totalDiamondsReceived || (receiverData.princeXP * 1000) || 0;
@@ -2044,24 +2041,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     monthlyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                 });
 
-                // 🏆 Per-User ID Dedicated Top List Subcollection Updates
-
-                const rankingPayload = {
-                    amount: admin.firestore.FieldValue.increment(totalCost),
-                    senderUid: senderUid,
-                    displayName: senderData.displayName || "User",
-                    profilePhotoUrl: senderData.profilePhotoUrl || "",
-                    gender: senderData.gender || "female",
-                    level: senderData.level || 1,
-                    vipTier: senderData.vipTier || "none",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                };
-
-                const rankingsCol = receiverRef.collection("sender_rankings");
-                transaction.set(rankingsCol.doc("daily").collection(todayStr).doc(senderUid), rankingPayload, { merge: true });
-                transaction.set(rankingsCol.doc("weekly").collection(thisWeekStr).doc(senderUid), rankingPayload, { merge: true });
-                transaction.set(rankingsCol.doc("monthly").collection(thisMonthStr).doc(senderUid), rankingPayload, { merge: true });
-                transaction.set(rankingsCol.doc("total").collection("overall").doc(senderUid), rankingPayload, { merge: true });
+                // 🏆 Per-User ID Dedicated Top List Subcollection Updates tracked cleanly below via trackUserSenderRanking
 
                 // 💹 NEW: Process Salary Milestones
                 await processSalaryMilestones(transaction, targetUid, beansEarned, statusDoc, receiverDoc);
@@ -2075,6 +2055,15 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 // Using set merge to avoid crashes if document missing
                 transaction.set(momentRef, { giftCount: admin.firestore.FieldValue.increment(qty) }, { merge: true });
                 transaction.set(userMediaRef, { giftCount: admin.firestore.FieldValue.increment(qty) }, { merge: true });
+            }
+
+            // 🎙️ Real-time Room Seat Received Diamonds Update
+            if (roomId && !isMoment) {
+                const roomParticipantRef = roomRef.collection("participants").doc(targetUid);
+                transaction.set(roomParticipantRef, {
+                    diamondsReceived: admin.firestore.FieldValue.increment(totalCost),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
             }
 
             // 🎬 7. Chat Message (Only for voice rooms)
@@ -2112,10 +2101,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 // 🏠 FAMILY BATTLE SCORE UPDATE (Diamond-based)
                 // When a user sends gifts, their diamond spending contributes to their family's active battle score
                 try {
-                    const senderUserDoc = await transaction.get(db.collection("users").doc(senderUid));
-                    if (senderUserDoc.exists) {
-                        const senderFamilyId = senderUserDoc.data().familyId;
-                        if (senderFamilyId) {
+                    const senderFamilyId = senderDoc.exists ? senderDoc.data().familyId : null;
+                    if (senderFamilyId) {
                             // Check for active battle in this family
                             const activeBattles = await db.collection("families").doc(senderFamilyId)
                                 .collection("battles")
@@ -2159,7 +2146,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                                 console.log(`[FAMILY_BATTLE] User ${senderUid} contributed ${totalCost} diamonds to family ${senderFamilyId} battle score`);
                             }
                         }
-                    }
                 } catch (familyErr) {
                     // Don't fail the gift if family battle update fails
                     console.warn(`[FAMILY_BATTLE] Error updating family battle score:`, familyErr.message);
@@ -3494,16 +3480,10 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const currentRoundId = Math.floor(now / ROUND_DURATION_MS).toString();
     const msIntoRound = now % ROUND_DURATION_MS;
 
-    // Graceful Round Validation: Accept bet for current active round if within 1 round margin during active betting
+    // Graceful Round Validation: Accept bet for current active round if within betting phase
     if (clientRoundId && clientRoundId !== currentRoundId) {
-        const clientRoundNum = Number(clientRoundId);
-        const serverRoundNum = Number(currentRoundId);
-        const roundDiff = Math.abs(clientRoundNum - serverRoundNum);
-        if (roundDiff > 1 || msIntoRound >= 36000) {
-            throw new functions.https.HttpsError(
-                "failed-precondition",
-                `Round ${clientRoundId} is expired. Current active round is ${currentRoundId}.`
-            );
+        if (msIntoRound < 36000) {
+            console.log(`[SpinWheel] Client clock skewed: clientRound=${clientRoundId}, serverRound=${currentRoundId}. Gracefully binding bet to active server round.`);
         }
     }
 
@@ -3638,7 +3618,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             }, { merge: true });
         }
 
-        // Maintain live recentResults array on statsRef (last 30 rounds)
+        // Maintain live recentResults array and broadcast outcome on statsRef (last 30 rounds)
         const roundSummaryItem = {
             roundId: String(currentRoundId),
             name: roundResult.name,
@@ -3652,8 +3632,12 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         let currentRecent = Array.isArray(currentStats.recentResults) ? currentStats.recentResults : [];
         if (!currentRecent.some(r => r && String(r.roundId) === String(currentRoundId))) {
             currentRecent = [roundSummaryItem, ...currentRecent].slice(0, 30);
-            transaction.set(statsRef, { recentResults: currentRecent }, { merge: true });
         }
+        transaction.set(statsRef, {
+            recentResults: currentRecent,
+            lastGlobalOutcome: roundSummaryItem,
+            lastGlobalRound: String(currentRoundId)
+        }, { merge: true });
 
         // 2. Incremental Bet & Payout Computation (Zero Double-Deduction)
         const previousData = existingBetDoc.exists ? existingBetDoc.data() : { totalBet: 0, prize: 0, bets: {} };
@@ -3678,7 +3662,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             throw new functions.https.HttpsError("invalid-argument", "Wagers cannot be reduced once placed.");
         }
 
-        let balance = Number(userDoc.data().diamondBalance || 0);
+        let balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
         let beansBalance = Number(userDoc.data().beansBalance || 0);
 
         if (deltaBet > 0) {
@@ -3754,15 +3738,60 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             paidKeys.add(winnerName);
         }
 
-        const deltaPrize = calculatedPrize - previousPrize;
+        // Strictly deduct only the exact bet wager during the betting phase.
+        // Winnings are NEVER added prematurely while the round is counting down/active.
+        const finalBalance = balance;
 
         const userUpdates = {
-            diamondBalance: balance + deltaPrize
+            diamondBalance: finalBalance,
+            diamonds: finalBalance
         };
-        if (roundResult.type === "pizza" && calculatedPrize > 0) {
-            userUpdates.badges = admin.firestore.FieldValue.arrayUnion("jackpot_winner");
-        }
         transaction.update(userRef, userUpdates);
+
+        // Auto-settle any unclaimed winnings from the immediately preceding round (e.g. if disconnected mid-spin)
+        const prevRoundId = (Number(currentRoundId) - 1).toString();
+        const prevLogRef = userRef.collection("game_history").doc(`spin_${prevRoundId}`);
+        const prevWinTxRef = userRef.collection("transactions").doc(`spin_win_${prevRoundId}`);
+        const [prevLogDoc, prevWinTxDoc] = await Promise.all([
+            transaction.get(prevLogRef),
+            transaction.get(prevWinTxRef)
+        ]);
+        if (prevLogDoc.exists && !prevWinTxDoc.exists) {
+            const prevData = prevLogDoc.data();
+            const unclaimedPrize = Number(prevData.prize || prevData.winnings || 0);
+            if (unclaimedPrize > 0 && prevData.settled !== true) {
+                balance += unclaimedPrize;
+                userUpdates.diamondBalance = balance;
+                userUpdates.diamonds = balance;
+                transaction.update(userRef, userUpdates);
+                transaction.set(prevLogRef, { settled: true, balanceAfter: balance }, { merge: true });
+                transaction.set(prevWinTxRef, {
+                    type: "game_win",
+                    amount: unclaimedPrize,
+                    roundId: prevRoundId,
+                    game: "spin_wheel",
+                    balanceBefore: balance - unclaimedPrize,
+                    balanceAfter: balance,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    description: `Lucky Spin Win (Round #${prevRoundId})`
+                });
+                console.log(`[SpinWheel] Auto-settled previous round ${prevRoundId} win: +${unclaimedPrize} for ${uid}`);
+            }
+        }
+
+        if (deltaBet > 0 || totalBet > 0) {
+            const betTxRef = userRef.collection("transactions").doc(`spin_bet_${currentRoundId}`);
+            transaction.set(betTxRef, {
+                type: "game_bet",
+                amount: -totalBet,
+                roundId: String(currentRoundId),
+                game: "spin_wheel",
+                balanceBefore: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().balanceBefore : (balance + deltaBet),
+                balanceAfter: balance,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: `Lucky Spin Bet (Round #${currentRoundId})`
+            }, { merge: true });
+        }
 
         // Update Round Bet Ledger (With Full Player Identity for Winners & Player List)
         if (totalBet > 0) {
@@ -3832,17 +3861,22 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
             transaction.set(logRef, {
                 game: "spin_wheel",
+                type: "game_bet",
+                settled: false,
                 serialNumber: currentBetCount,
                 roundId: currentRoundId,
                 bets: bets,
                 totalBet: totalBet,
                 prize: calculatedPrize,
+                amount: calculatedPrize,
                 resultType: roundResult.type,
+                name: roundResult.name,
+                winningFood: roundResult.name,
                 label: roundResult.label,
                 multiplier: roundResult.multiplier,
                 emoji: roundResult.emoji,
                 balanceBefore: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().balanceBefore : (balance + deltaBet),
-                balanceAfter: balance + deltaPrize,
+                balanceAfter: finalBalance,
                 orderId: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().orderId : `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
                 createdAt: now,
                 timestamp: admin.firestore.FieldValue.serverTimestamp()
@@ -3869,6 +3903,76 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     });
 
     return spinResult;
+});
+
+exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const uid = context.auth.uid;
+    const roundId = data.roundId ? String(data.roundId).trim() : null;
+    if (!roundId) {
+        throw new functions.https.HttpsError("invalid-argument", "roundId is required.");
+    }
+
+    const userRef = db.collection("users").doc(uid);
+    const logRef = userRef.collection("game_history").doc(`spin_${roundId}`);
+    const winTxRef = userRef.collection("transactions").doc(`spin_win_${roundId}`);
+
+    return db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+
+        const logDoc = await transaction.get(logRef);
+        let balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
+
+        if (!logDoc.exists) {
+            return { settled: true, prize: 0, balance: balance };
+        }
+
+        const logData = logDoc.data();
+        const prize = Number(logData.prize || logData.winnings || 0);
+
+        const winTxDoc = await transaction.get(winTxRef);
+        if (logData.settled === true || winTxDoc.exists) {
+            return { settled: true, prize: prize, balance: balance, alreadySettled: true };
+        }
+
+        let newBalance = balance;
+        if (prize > 0) {
+            newBalance = balance + prize;
+            const updates = {
+                diamondBalance: newBalance,
+                diamonds: newBalance
+            };
+            if (logData.resultType === "pizza") {
+                updates.badges = admin.firestore.FieldValue.arrayUnion("jackpot_winner");
+            }
+            transaction.update(userRef, updates);
+
+            transaction.set(winTxRef, {
+                type: "game_win",
+                amount: prize,
+                roundId: roundId,
+                game: "spin_wheel",
+                balanceBefore: balance,
+                balanceAfter: newBalance,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: `Lucky Spin Win (Round #${roundId})`
+            });
+        }
+
+        transaction.set(logRef, {
+            settled: true,
+            type: prize > 0 ? "game_win" : "game_bet",
+            balanceAfter: newBalance,
+            settledAt: admin.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        console.log(`[SpinWheel] Settled round ${roundId} for user ${uid}: prize=${prize}, newBalance=${newBalance}`);
+        return { settled: true, prize: prize, balance: newBalance };
+    });
 });
 
 exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async (context) => {
@@ -3926,24 +4030,52 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
-        const balance = Number(userDoc.data().diamondBalance || 0);
+        const balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
         if (balance < betAmount) throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds.");
 
         // 8% chance to win 10x
         const isWin = getRandomInt(100) < 8;
         const prize = isWin ? Math.floor(betAmount * 10) : 0;
         const netChange = prize - betAmount;
-
+        const finalBalance = balance + netChange;
         transaction.update(userRef, {
-            diamondBalance: balance + netChange
+            diamondBalance: finalBalance,
+            diamonds: finalBalance
+        });
+
+        if (prize > 0) {
+            const winTxRef = userRef.collection("transactions").doc();
+            transaction.set(winTxRef, {
+                type: "game_win",
+                amount: prize,
+                game: "lucky_draw",
+                balanceBefore: balance - betAmount,
+                balanceAfter: finalBalance,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: "Lucky Draw Win"
+            });
+        }
+        const betTxRef = userRef.collection("transactions").doc();
+        transaction.set(betTxRef, {
+            type: "game_bet",
+            amount: -betAmount,
+            game: "lucky_draw",
+            balanceBefore: balance,
+            balanceAfter: balance - betAmount,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: "Lucky Draw Bet"
         });
 
         const logRef = userRef.collection("game_history").doc();
         transaction.set(logRef, {
             game: "lucky_draw",
+            type: prize > 0 ? "game_win" : "game_bet",
             bet: betAmount,
             prize: prize,
+            amount: prize,
             isWin: isWin,
+            balanceBefore: balance,
+            balanceAfter: finalBalance,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
@@ -4094,9 +4226,34 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
         const netDelta = totalWin - totalBet;
         const newBalance = currentBalance + netDelta;
 
-        // Atomically update user balance
+        // Atomically update user balance (both diamondBalance and diamonds)
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(netDelta)
+            diamondBalance: newBalance,
+            diamonds: newBalance
+        });
+
+        // Record wallet transactions
+        if (totalWin > 0) {
+            const winTxRef = userRef.collection("transactions").doc();
+            transaction.set(winTxRef, {
+                type: "game_win",
+                amount: totalWin,
+                game: "yummy_bingo",
+                balanceBefore: currentBalance - totalBet,
+                balanceAfter: newBalance,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: "Yummy Bingo Win"
+            });
+        }
+        const betTxRef = userRef.collection("transactions").doc();
+        transaction.set(betTxRef, {
+            type: "game_bet",
+            amount: -totalBet,
+            game: "yummy_bingo",
+            balanceBefore: currentBalance,
+            balanceAfter: currentBalance - totalBet,
+            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            description: "Yummy Bingo Bet"
         });
 
         // Update games meta / jackpot
@@ -4111,13 +4268,18 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
         const logRef = userRef.collection("game_history").doc();
         transaction.set(logRef, {
             game: "yummy_bingo",
+            type: totalWin > 0 ? "game_win" : "game_bet",
             lines: lines,
             betPerLine: betPerLine,
             totalBet: totalBet,
             totalWin: totalWin,
+            prize: totalWin,
+            amount: totalWin,
             netDelta: netDelta,
             isWin: totalWin > 0,
             wonJackpot: wonJackpot,
+            balanceBefore: currentBalance,
+            balanceAfter: newBalance,
             roomId: roomId,
             matrix: matrix,
             timestamp: admin.firestore.FieldValue.serverTimestamp()
@@ -5879,12 +6041,175 @@ exports.simulateSalaryMilestone = functions.https.onCall(async (data, context) =
     }
 });
 
+/**
+ * 🗓️ Archive Completed Monthly Leaderboard & Prune to Latest 3 Months
+ * Maintains exactly the latest 3 months in `monthly_leaderboard_history`.
+ * Older months are automatically deleted when the 3-month limit is exceeded.
+ */
+async function archiveMonthlyLeaderboard(targetMonthKey) {
+    try {
+        const now = new Date();
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        
+        let monthKey = targetMonthKey;
+        let monthName = "";
+        if (!monthKey) {
+            // Default to previous calendar month
+            const prevDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+            monthKey = prevDate.toISOString().slice(0, 7);
+            monthName = `${monthNames[prevDate.getUTCMonth()]} ${prevDate.getUTCFullYear()}`;
+        } else {
+            const parts = monthKey.split("-");
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            monthName = `${monthNames[m]} ${y}`;
+        }
+
+        console.log(`[MONTHLY_HISTORY] Archiving leaderboard for ${monthKey} (${monthName})...`);
+
+        // Fetch top senders
+        const sendersSnap = await db.collection("users")
+            .where("monthlyDiamondsSent", ">", 0)
+            .orderBy("monthlyDiamondsSent", "desc")
+            .limit(100)
+            .get();
+
+        const topSenders = sendersSnap.docs.map((doc, idx) => {
+            const d = doc.data() || {};
+            return {
+                rank: idx + 1,
+                uid: doc.id,
+                displayName: d.displayName || d.username || `User ${doc.id.substring(0, 5)}`,
+                photoUrl: d.profilePhotoUrl || "",
+                score: d.monthlyDiamondsSent || 0,
+                countryCode: d.country || "",
+                vipTier: d.vipTier || "none",
+                level: d.level || 1,
+                profileFrame: d.profileFrame || "",
+            };
+        });
+
+        // Fetch top receivers
+        const receiversSnap = await db.collection("users")
+            .where("monthlyBeansReceived", ">", 0)
+            .orderBy("monthlyBeansReceived", "desc")
+            .limit(100)
+            .get();
+
+        const topReceivers = receiversSnap.docs.map((doc, idx) => {
+            const d = doc.data() || {};
+            return {
+                rank: idx + 1,
+                uid: doc.id,
+                displayName: d.displayName || d.username || `User ${doc.id.substring(0, 5)}`,
+                photoUrl: d.profilePhotoUrl || "",
+                score: d.monthlyBeansReceived || 0,
+                countryCode: d.country || "",
+                vipTier: d.vipTier || "none",
+                level: d.level || 1,
+                profileFrame: d.profileFrame || "",
+            };
+        });
+
+        // Fetch top rooms
+        const roomsSnap = await db.collection("rooms")
+            .where("monthlyDiamondsSent", ">", 0)
+            .orderBy("monthlyDiamondsSent", "desc")
+            .limit(50)
+            .get();
+
+        const topRooms = roomsSnap.docs.map((doc, idx) => {
+            const d = doc.data() || {};
+            return {
+                rank: idx + 1,
+                roomId: doc.id,
+                name: d.name || "Live Room",
+                coverUrl: d.coverUrl || "",
+                score: d.monthlyDiamondsSent || 0,
+            };
+        });
+
+        // Store this month's history
+        await db.collection("monthly_leaderboard_history").doc(monthKey).set({
+            monthKey: monthKey,
+            monthName: monthName,
+            archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+            topSenders: topSenders,
+            topReceivers: topReceivers,
+            topRooms: topRooms,
+        }, { merge: true });
+
+        console.log(`[MONTHLY_HISTORY] Successfully archived ${monthKey} with ${topSenders.length} senders, ${topReceivers.length} receivers, ${topRooms.length} rooms.`);
+
+        // 🗑️ ROLLING AUTO-PRUNE: Keep strictly the latest 3 months
+        await pruneMonthlyLeaderboardHistory();
+
+    } catch (err) {
+        console.error("[MONTHLY_HISTORY] Error archiving monthly leaderboard:", err);
+    }
+}
+
+/**
+ * 🗑️ Enforces strictly maximum 3 months in monthly_leaderboard_history.
+ * Deletes any older month when 3-month limit is exceeded.
+ */
+async function pruneMonthlyLeaderboardHistory() {
+    try {
+        const historySnap = await db.collection("monthly_leaderboard_history")
+            .orderBy("monthKey", "desc")
+            .get();
+
+        if (historySnap.docs.length > 3) {
+            console.log(`[MONTHLY_HISTORY] Found ${historySnap.docs.length} months. Pruning oldest to maintain exactly 3 months...`);
+            const batch = db.batch();
+            for (let i = 3; i < historySnap.docs.length; i++) {
+                const oldDoc = historySnap.docs[i];
+                console.log(`[MONTHLY_HISTORY] Deleting oldest month: ${oldDoc.id}`);
+                batch.delete(oldDoc.ref);
+            }
+            await batch.commit();
+            console.log("[MONTHLY_HISTORY] Pruning complete. Exactly 3 latest months retained.");
+        }
+    } catch (err) {
+        console.error("[MONTHLY_HISTORY] Error pruning monthly leaderboard history:", err);
+    }
+}
+
 exports.scheduledMonthlyReset = functions.pubsub.schedule('0 0 1 * *')
     .timeZone('UTC')
     .onRun(async (context) => {
+        // 1. Archive the completed month before resetting counters
+        await archiveMonthlyLeaderboard();
+
+        // 2. Reset monthly fields
         await resetUsersField(["monthlyXP", "monthlyPrinceXP", "monthlyDiamondsSent", "monthlyBeansReceived"]);
         await resetRoomsField(["monthlyDiamondsSent"]);
     });
+
+/**
+ * 🔄 Callable function to ensure the 3 latest monthly history documents exist
+ * and prune any older records.
+ */
+exports.syncMonthlyLeaderboardHistory = functions.https.onCall(async (data, context) => {
+    try {
+        const now = new Date();
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        
+        for (let offset = 1; offset <= 3; offset++) {
+            const targetDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+            const key = targetDate.toISOString().slice(0, 7);
+            const docSnap = await db.collection("monthly_leaderboard_history").doc(key).get();
+            if (!docSnap.exists) {
+                await archiveMonthlyLeaderboard(key);
+            }
+        }
+        await pruneMonthlyLeaderboardHistory();
+        return { success: true, message: "Monthly leaderboard history synchronized and pruned to 3 months." };
+    } catch (error) {
+        console.error("[MONTHLY_HISTORY] Error in syncMonthlyLeaderboardHistory:", error);
+        throw new functions.https.HttpsError("internal", error.message);
+    }
+});
 
 /**
  * --- INITIALIZE TOP LIST METRICS (MIGRATION / REPAIR) ---

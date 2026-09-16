@@ -21,6 +21,8 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   
   final _speakingController = StreamController<bool>.broadcast();
   final _speakingUidsController = StreamController<List<int>>.broadcast();
+  List<int> _lastSpeakingUids = const [];
+  bool? _lastIsSpeaking;
   final _remoteUsersController = StreamController<List<int>>.broadcast();
   final List<int> _remoteUids = [];
   String? _currentRoomId;
@@ -136,8 +138,24 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
                   }
                 }
               }
-              _speakingUidsController.add(speakingUids);
-              _speakingController.add(speakingUids.contains(localAgoraUid));
+
+              // De-duplicate: only emit when speaking set actually changes
+              // Prevents flooding the UI with 5 redundant widget tree rebuilds/sec per seat
+              final currentSet = speakingUids.toSet();
+              final lastSet = _lastSpeakingUids.toSet();
+              final bool changed = currentSet.length != lastSet.length ||
+                  !currentSet.containsAll(lastSet);
+
+              if (changed) {
+                _lastSpeakingUids = List.unmodifiable(speakingUids);
+                _speakingUidsController.add(_lastSpeakingUids);
+              }
+
+              final isLocalSpeaking = speakingUids.contains(localAgoraUid);
+              if (_lastIsSpeaking != isLocalSpeaking) {
+                _lastIsSpeaking = isLocalSpeaking;
+                _speakingController.add(isLocalSpeaking);
+              }
             } catch (e) {
               debugPrint("⚠️ Error in onAudioVolumeIndication: $e");
             }
@@ -161,6 +179,10 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
               debugPrint("🚪 Left channel");
               _remoteUids.clear();
               _remoteUsersController.add([]);
+              _lastSpeakingUids = const [];
+              _speakingUidsController.add([]);
+              _lastIsSpeaking = false;
+              _speakingController.add(false);
               _currentRoomId = null;
               _isRetrying = false;
               _isInChannel = false;

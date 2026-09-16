@@ -124,64 +124,7 @@ class GiftService extends BaseFirebaseService {
 
     final results = rawResults.map((r) => Map<String, dynamic>.from(r as Map? ?? {})).toList();
 
-    // Track diamonds sent and received in the room session
-    try {
-      final totalPoints = gift.priceInDiamonds * quantity;
-      final totalSpentInCall = totalPoints * targetUids.length;
-      final batch = _db.batch();
 
-      for (var targetUid in targetUids) {
-        batch.set(
-          _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid),
-          {'diamondsReceived': FieldValue.increment(totalPoints)},
-          SetOptions(merge: true),
-        );
-      }
-
-      batch.set(
-        _db.collection('rooms').doc(roomId).collection('participants').doc(user.uid),
-        {'diamondsSpent': FieldValue.increment(totalSpentInCall)},
-        SetOptions(merge: true),
-      );
-
-      // Increment room weekly earnings / diamond counter
-      batch.set(
-        _db.collection('rooms').doc(roomId),
-        {'weeklyEarnings': FieldValue.increment(totalSpentInCall)},
-        SetOptions(merge: true),
-      );
-
-      // Update per-room gift leaderboard buckets (daily, weekly, monthly)
-      final now = DateTime.now().toUtc();
-      final dailyBucket = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final dayNum = now.weekday;
-      final thursday = now.add(Duration(days: 4 - dayNum));
-      final yearStart = DateTime.utc(thursday.year, 1, 1);
-      final weekNo = ((thursday.difference(yearStart).inDays) / 7).floor() + 1;
-      final weeklyBucket = '${thursday.year}-W${weekNo.toString().padLeft(2, '0')}';
-      final monthlyBucket = '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}';
-
-      final userDoc = await _db.collection('users').doc(user.uid).get();
-      final userData = userDoc.data() ?? {};
-      final senderName = (userData['displayName'] as String?)?.isNotEmpty == true ? userData['displayName'] as String : (user.displayName ?? 'User');
-      final senderPhoto = (userData['profilePhotoUrl'] as String?) ?? (user.photoURL ?? '');
-
-      final payload = {
-        'amount': FieldValue.increment(totalSpentInCall),
-        'name': senderName,
-        'photoUrl': senderPhoto,
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      final roomRef = _db.collection('rooms').doc(roomId);
-      batch.set(roomRef.collection('gift_leaderboard').doc('daily').collection(dailyBucket).doc(user.uid), payload, SetOptions(merge: true));
-      batch.set(roomRef.collection('gift_leaderboard').doc('weekly').collection(weeklyBucket).doc(user.uid), payload, SetOptions(merge: true));
-      batch.set(roomRef.collection('gift_leaderboard').doc('monthly').collection(monthlyBucket).doc(user.uid), payload, SetOptions(merge: true));
-
-      await batch.commit();
-    } catch (e) {
-      debugPrint("Error updating diamonds metrics: $e");
-    }
 
     // PK Battle Integration: Update scores if target is on a PK team
     if (!isMoment) {

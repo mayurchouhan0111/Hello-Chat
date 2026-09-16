@@ -33,9 +33,11 @@ final walletBalanceProvider = StreamProvider.autoDispose<Map<String, int>>((ref)
       .map((snap) {
         if (!snap.exists) return {'diamonds': 0, 'beans': 0};
         final data = snap.data()!;
+        final diamonds = (data['diamondBalance'] as num?)?.toInt() ?? (data['diamonds'] as num?)?.toInt() ?? 0;
+        final beans = (data['beansBalance'] as num?)?.toInt() ?? (data['beans'] as num?)?.toInt() ?? 0;
         return {
-          'diamonds': data['diamondBalance'] ?? 0,
-          'beans': data['beansBalance'] ?? 0,
+          'diamonds': diamonds,
+          'beans': beans,
         };
       });
 });

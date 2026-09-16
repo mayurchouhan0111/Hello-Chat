@@ -22,6 +22,16 @@ class GameService extends BaseFirebaseService {
     return Map<String, dynamic>.from(result);
   }
 
+  /// Settles winnings for a completed Spin Wheel round.
+  Future<Map<String, dynamic>> settleSpinWheelRound({
+    required String roundId,
+  }) async {
+    final result = await callFunction('settleSpinWheelRound', {
+      'roundId': roundId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
   /// Entry for "Lucky Draw" mini-game.
   Future<Map<String, dynamic>> playLuckyDraw({
     required int betAmount,

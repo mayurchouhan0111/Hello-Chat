@@ -143,20 +143,34 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
       if (ctrl == null) return;
 
       if (videoItem != null) {
-        ctrl.videoItem = videoItem;
-        if (widget.loop) {
-          ctrl.repeat();
-        } else {
-          ctrl.forward();
+        try {
+          ctrl.videoItem = videoItem;
+          if (widget.loop) {
+            ctrl.repeat();
+          } else {
+            ctrl.forward();
+          }
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
+        } catch (e) {
+          debugPrint("🚨 SVGA PLAYER PLAYBACK ERROR: $e");
+          if (mounted) {
+            setState(() {
+              _hasError = true;
+              _isLoading = false;
+            });
+          }
         }
-        setState(() {
-          _isLoading = false;
-        });
       } else {
-        setState(() {
-          _hasError = true;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _hasError = true;
+            _isLoading = false;
+          });
+        }
       }
     } catch (e, stack) {
       debugPrint("🚨 SVGA PLAYER ERROR: Failed to load ${widget.assetPath ?? widget.url}. Error: $e");
@@ -185,8 +199,13 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _controller?.stop();
-    _controller?.dispose();
+    try {
+      _controller?.stop();
+      _controller?.dispose();
+    } catch (e) {
+      debugPrint("⚠️ SVGA controller dispose error: $e");
+    }
+    _controller = null;
     super.dispose();
   }
 

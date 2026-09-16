@@ -8,7 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/providers/room_support_provider.dart';
-import '../../../../core/models/room_model.dart';
+import '../../../../core/models/salary_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
@@ -152,15 +152,20 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     }
   }
 
-  int _calculateLevel(int totalCoins) {
-    if (totalCoins >= 300000000) return 7;
-    if (totalCoins >= 200000000) return 6;
-    if (totalCoins >= 100000000) return 5;
-    if (totalCoins >= 50000000) return 4;
-    if (totalCoins >= 30000000) return 3;
-    if (totalCoins >= 20000000) return 2;
-    if (totalCoins >= 10000000) return 1;
-    return 0;
+  List<Map<String, dynamic>> _configLevels() {
+    final config = ref.watch(roomSupportConfigProvider).valueOrNull;
+    final raw = (config?['levels'] as List<dynamic>?) ?? _defaultLevels();
+    return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  int _calculateLevel(int totalCoins, List<Map<String, dynamic>> levels) {
+    int level = 0;
+    for (final l in levels) {
+      final lvl = (l['level'] as num?)?.toInt() ?? 0;
+      final target = (l['coinsTarget'] as num?)?.toInt() ?? 0;
+      if (totalCoins >= target && lvl > level) level = lvl;
+    }
+    return level;
   }
 
   int _getRequiredPartners(int level) {
@@ -250,15 +255,44 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
       return const Center(child: CircularProgressIndicator(color: textGoldBright));
     }
 
-    final roomAsync = roomId != null ? ref.watch(currentRoomStreamProvider(roomId)) : const AsyncLoading<RoomModel?>();
+    if (roomId == null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.meeting_room_outlined, color: textGoldSub, size: 48),
+            const Gap(12),
+            Text(
+              'No active room found',
+              style: GoogleFonts.plusJakartaSans(color: textGoldSub, fontSize: 16),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final roomAsync = ref.watch(currentRoomStreamProvider(roomId));
     final room = roomAsync.valueOrNull;
+
+    if (roomAsync.isLoading) {
+      return const Center(child: CircularProgressIndicator(color: textGoldBright));
+    }
+
+    if (roomAsync.hasError) {
+      return Center(
+        child: Text(
+          'Failed to load room',
+          style: GoogleFonts.plusJakartaSans(color: Colors.redAccent, fontSize: 14),
+        ),
+      );
+    }
     final isOwner = room != null && ref.watch(currentUserProfileProvider).value?.uid == room.ownerUid;
 
-    final cycle = roomId != null ? ref.watch(roomSupportCycleProvider(roomId)).valueOrNull ?? {} : {};
+    final cycle = ref.watch(roomSupportCycleProvider(roomId)).valueOrNull ?? {};
     int totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? room?.weeklyEarnings ?? 0;
     // Ensure totalCoins is never negative
     totalCoins = totalCoins < 0 ? 0 : totalCoins;
-    final currentLevel = _calculateLevel(totalCoins);
+    final currentLevel = _calculateLevel(totalCoins, _configLevels());
     int lastWeekLevel = (cycle['lastWeekLevel'] as num?)?.toInt() ?? 0;
     lastWeekLevel = lastWeekLevel < 0 ? 0 : lastWeekLevel;
     final activeLevelForPartners = _isAssignmentOpen ? (lastWeekLevel > 0 ? lastWeekLevel : currentLevel) : currentLevel;
@@ -298,11 +332,10 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
           const Gap(18),
 
           // Salary Partners Assignment Grid Card
-          if (roomId != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: _buildPartnerManagementCard(roomId, isOwner, activeLevelForPartners, requiredSlots),
-            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: _buildPartnerManagementCard(roomId, isOwner, activeLevelForPartners, requiredSlots),
+          ),
 
           const Gap(18),
 
@@ -437,23 +470,15 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   // ─── 3B. TARGET SUMMARY HEADER CARD ──────────────────────────────────────────
-  int _getWeeklyTargetCoins(int level) {
-    switch (level) {
-      case 0: return 10000000;
-      case 1: return 20000000;
-      case 2: return 30000000;
-      case 3: return 50000000;
-      case 4: return 100000000;
-      case 5: return 200000000;
-      case 6: return 300000000;
-      case 7: return 300000000;
-      default: return 10000000;
-    }
+  int _getWeeklyTargetCoins(int level, List<Map<String, dynamic>> levels) {
+    if (levels.isEmpty) return 0;
+    final idx = level.clamp(0, levels.length - 1);
+    return (levels[idx]['coinsTarget'] as num?)?.toInt() ?? 0;
   }
 
   Widget _buildTargetSummaryHeaderCard(int totalCoins, int currentLevel) {
-    final targetCoins = _getWeeklyTargetCoins(currentLevel);
-    final progress = (totalCoins / targetCoins).clamp(0.0, 1.0);
+    final targetCoins = _getWeeklyTargetCoins(currentLevel, _configLevels());
+    final progress = targetCoins > 0 ? (totalCoins / targetCoins).clamp(0.0, 1.0) : 0.0;
     final pctText = (progress * 100).toStringAsFixed(1);
 
     return Container(
@@ -661,7 +686,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     // Ensure visitors is never negative
     visitors = visitors < 0 ? 0 : visitors;
 
-    int roomLevel = (cycle['level'] as num?)?.toInt() ?? _calculateLevel(totalCoins);
+    int roomLevel = (cycle['level'] as num?)?.toInt() ?? _calculateLevel(totalCoins, _configLevels());
 
     int rewardCoins = (cycle['predictedRewardCoins'] as num?)?.toInt() ?? 0;
     if (rewardCoins == 0 && roomLevel > 0) {
@@ -679,7 +704,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     lastWeekReward = lastWeekReward < 0 ? 0 : lastWeekReward;
     int lastWeekVisitors = (lastWeek['visitorCount'] as num?)?.toInt() ?? 0;
     lastWeekVisitors = lastWeekVisitors < 0 ? 0 : lastWeekVisitors;
-    final lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins);
+    final lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, _configLevels());
 
     return Container(
       decoration: BoxDecoration(
@@ -784,7 +809,8 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   Widget _buildTargetAndRewardCard() {
     final configAsync = ref.watch(roomSupportConfigProvider);
     final config = configAsync.valueOrNull;
-    final levels = (config?['levels'] as List<dynamic>?) ?? _defaultLevels();
+    final raw = (config?['levels'] as List<dynamic>?) ?? _defaultLevels();
+    final levels = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
 
     return Container(
       decoration: BoxDecoration(
@@ -873,15 +899,15 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                   ),
                   // Rows Level 1 to 7
                   ...levels.map((lvl) {
-                    final l = lvl as Map<String, dynamic>;
-                    final levelNum = l['level'] ?? 1;
+                    final l = Map<String, dynamic>.from(lvl);
+                    final levelNum = (l['level'] as num?)?.toInt() ?? 1;
                     final coinsTarget = (l['coinsTarget'] as num?)?.toInt() ?? 0;
-                    final partnerSlots = l['partnerSlots'] ?? 4;
+                    final partnerSlots = (l['partnerSlots'] as num?)?.toInt() ?? 4;
                     final ownerReward = (l['ownerReward'] as num?)?.toInt() ?? 0;
                     final partnerReward = (l['partnerReward'] as num?)?.toInt() ?? 0;
                     final totalReward = (l['totalReward'] as num?)?.toInt() ?? (ownerReward + (partnerReward * partnerSlots));
 
-                    final isEven = (levelNum as int) % 2 == 0;
+                    final isEven = levelNum % 2 == 0;
 
                     return TableRow(
                       decoration: BoxDecoration(color: isEven ? tableRowBgEven : tableRowBgOdd),
@@ -966,7 +992,8 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
             itemBuilder: (context, index) {
               if (index < partners.length) {
                 final p = partners[index];
-                final partnerUid = p['partnerUid'] as String? ?? p['uid'] as String? ?? p['id'] as String;
+                final partnerUid = p['partnerUid']?.toString() ?? p['uid']?.toString() ?? p['id']?.toString() ?? '';
+                if (partnerUid.isEmpty) return const SizedBox.shrink();
                 return StreamBuilder<DocumentSnapshot>(
                   stream: FirebaseFirestore.instance.collection('users').doc(partnerUid).snapshots(),
                   builder: (context, snap) {
@@ -1286,9 +1313,9 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
               final rank = index + 1;
               final r = rankings[index];
               final totalCoins = (r['totalCoins'] as num?)?.toInt() ?? 0;
-              final level = r['level'] ?? _calculateLevel(totalCoins);
+              final level = (r['level'] as num?)?.toInt() ?? _calculateLevel(totalCoins, _configLevels());
               final coverUrl = r['coverUrl'] as String? ?? '';
-              final roomName = r['roomName'] ?? 'Room ${r['roomId']}';
+              final roomName = r['roomName']?.toString() ?? 'Room ${r['roomId'] ?? ''}';
 
               return GestureDetector(
                 onTap: () {
@@ -1506,15 +1533,21 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   List<Map<String, dynamic>> _defaultLevels() {
-    return [
-      {'level': 1, 'coinsTarget': 10000000, 'partnerSlots': 4, 'ownerReward': 1000000, 'partnerReward': 250000, 'totalReward': 2000000},
-      {'level': 2, 'coinsTarget': 20000000, 'partnerSlots': 4, 'ownerReward': 2000000, 'partnerReward': 500000, 'totalReward': 4000000},
-      {'level': 3, 'coinsTarget': 30000000, 'partnerSlots': 4, 'ownerReward': 3000000, 'partnerReward': 750000, 'totalReward': 6000000},
-      {'level': 4, 'coinsTarget': 50000000, 'partnerSlots': 5, 'ownerReward': 6000000, 'partnerReward': 1200000, 'totalReward': 12000000},
-      {'level': 5, 'coinsTarget': 100000000, 'partnerSlots': 6, 'ownerReward': 11000000, 'partnerReward': 2000000, 'totalReward': 23000000},
-      {'level': 6, 'coinsTarget': 200000000, 'partnerSlots': 7, 'ownerReward': 21000000, 'partnerReward': 3500000, 'totalReward': 45500000},
-      {'level': 7, 'coinsTarget': 300000000, 'partnerSlots': 7, 'ownerReward': 31000000, 'partnerReward': 5000000, 'totalReward': 66000000},
-    ];
+    final levels = SalaryLevel.allLevels.map((salaryLevel) {
+      final target = salaryLevel.targetBeans;
+      final ownerReward = salaryLevel.hostShare.toInt();
+      final partnerReward = salaryLevel.agencyShare.toInt();
+      final totalReward = (salaryLevel.hostShare + salaryLevel.agencyShare).toInt();
+      return {
+        'level': salaryLevel.level,
+        'coinsTarget': target,
+        'partnerSlots': 4,
+        'ownerReward': ownerReward,
+        'partnerReward': partnerReward,
+        'totalReward': totalReward,
+      };
+    }).toList(growable: false);
+    return levels.take(7).toList();
   }
 }
 
@@ -1803,7 +1836,8 @@ class _PartnerPickerState extends State<_PartnerPicker> {
                         shrinkWrap: true,
                         itemCount: _searchResults.length,
                         itemBuilder: (context, i) {
-                          final data = _searchResults[i].data() as Map<String, dynamic>;
+                          final rawData = _searchResults[i].data();
+                          final data = rawData is Map ? Map<String, dynamic>.from(rawData) : <String, dynamic>{};
                           final uid = _searchResults[i].id;
                           final displayName = data['displayName'] as String? ?? 'User';
                           final helloId = data['helloId']?.toString() ?? data['displayId']?.toString() ?? uid;

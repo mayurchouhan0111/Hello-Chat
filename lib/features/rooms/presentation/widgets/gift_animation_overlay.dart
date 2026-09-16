@@ -125,14 +125,17 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
             giftName: giftName,
           );
           
-          // Prevent queue from growing indefinitely (cap at 50 items for spam protection)
-          if (_pendingQueue.length < 50) {
+          // Prevent queue from growing indefinitely (cap at 15 items for spam protection)
+          if (_pendingQueue.length < 15) {
             _pendingQueue.add(anim);
             changed = true;
           }
         }
       }
       _processedMessageIds.add(msg.msgId);
+      if (_processedMessageIds.length > 300) {
+        _processedMessageIds.removeAll(_processedMessageIds.take(_processedMessageIds.length - 150).toList());
+      }
     }
 
     if (changed && mounted) {

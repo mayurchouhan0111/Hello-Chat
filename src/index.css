@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #B4E0A2; /* Sage Green */
+    --primary-dark: #8DBB7E;
+    --secondary: #F9D949;
+    --bg-obsidian: #000000;
+    --bg-deep: #000000;
+    --bg-sidebar: #000000;
+  }
+
+  body {
+    background-color: #000000;
+    color: #f1f5f9;
+    font-family: 'Lexend', sans-serif;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+}
+
+.btn-primary-neon {
+  background-color: #B4E0A2;
+  color: #0C0C0C;
+  padding: 0.75rem 1.5rem;
+  border-radius: 1rem;
+  font-weight: 900;
+  transition: all 0.2s;
+  box-shadow: 0 10px 25px -5px rgba(180, 224, 162, 0.2);
+}
+
+.btn-primary-neon:hover {
+  background-color: #8DBB7E;
+}
+
+.card-premium {
+  background-color: rgba(24, 24, 27, 0.4);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 2rem;
+  padding: 2.5rem;
+  transition: all 0.3s;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.card-premium:hover {
+  background-color: rgba(24, 24, 27, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.glass-input {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  padding: 1rem 1.25rem;
+  color: #ffffff;
+  outline: none;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+
+.glass-input:focus {
+  border-color: #B4E0A2;
+  box-shadow: 0 0 0 2px rgba(180, 224, 162, 0.2);
+}
+
+.glass-input-sm {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.875rem;
+  color: #ffffff;
+  outline: none;
+  font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.glass-input-sm:focus {
+  border-color: #B4E0A2;
+  box-shadow: 0 0 0 2px rgba(180, 224, 162, 0.2);
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  padding: 0.875rem 1.25rem;
+  border-radius: 1.25rem;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+  color: #9ca3af;
+}
+
+.sidebar-link:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+}
+
+.sidebar-link-active {
+  background-color: #B4E0A2;
+  color: #0C0C0C !important;
+  font-weight: 700;
+  box-shadow: 0 10px 25px -5px rgba(180, 224, 162, 0.25);
+}
+
+.sidebar-link-active span {
+  color: #0C0C0C !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272A;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3F3F46;
+}
+

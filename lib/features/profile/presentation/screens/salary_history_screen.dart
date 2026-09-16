@@ -42,8 +42,13 @@ class SalaryHistoryScreen extends ConsumerWidget {
             SliverToBoxAdapter(
               child: _buildProgressHeader(ref, uid),
             ),
+
+            // 2. Salary Milestone Tiers Matrix (10 Levels)
+            SliverToBoxAdapter(
+              child: _buildMilestonesMatrix(ref, uid),
+            ),
   
-            // 2. Transaction List Header
+            // 3. Transaction List Header
             const SliverToBoxAdapter(
               child: Padding(
                 padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
@@ -184,6 +189,194 @@ class SalaryHistoryScreen extends ConsumerWidget {
         child: const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
       ),
       error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  String _formatCompactBeans(int beans) {
+    if (beans >= 1000000000) return '${(beans / 1000000000).toStringAsFixed(1)}B';
+    if (beans >= 1000000) return '${(beans / 1000000).toStringAsFixed(0)}M';
+    if (beans >= 1000) return '${(beans / 1000).toStringAsFixed(0)}K';
+    return beans.toString();
+  }
+
+  Widget _buildMilestonesMatrix(WidgetRef ref, String uid) {
+    final statusAsync = ref.watch(salaryStatusProvider(uid));
+    final status = statusAsync.valueOrNull;
+    final currentLv = status?.currentLevel ?? 0;
+    final completedLevels = status?.completedLevels ?? [];
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(7),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.stars_rounded, color: Color(0xFF6366F1), size: 18),
+                  ),
+                  const Gap(10),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Salary Milestone Matrix",
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15, color: Color(0xFF111827)),
+                      ),
+                      Text(
+                        "10 Official Achievement Levels",
+                        style: TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  "${completedLevels.length}/10 Done",
+                  style: const TextStyle(color: Color(0xFF4B5563), fontSize: 11, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const Gap(14),
+          const Divider(height: 1, color: Color(0xFFF3F4F6)),
+          const Gap(10),
+
+          // Header Row
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Row(
+              children: const [
+                Expanded(
+                  flex: 5,
+                  child: Text("LEVEL / TITLE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text("TARGET", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
+                ),
+                Expanded(
+                  flex: 3,
+                  child: Text("HOST (60%)", textAlign: TextAlign.right, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
+                ),
+                SizedBox(width: 38),
+              ],
+            ),
+          ),
+          const Divider(height: 1, color: Color(0xFFF9FAFB)),
+
+          // 10 Levels List
+          ...SalaryLevel.allLevels.map((lv) {
+            final isCompleted = completedLevels.contains(lv.level);
+            final isCurrent = lv.level == (currentLv + 1);
+
+            Color badgeBg = const Color(0xFFF3F4F6);
+            Color badgeText = const Color(0xFF6B7280);
+            if (isCompleted) {
+              badgeBg = const Color(0xFFDEF7EC);
+              badgeText = const Color(0xFF03543F);
+            } else if (isCurrent) {
+              badgeBg = const Color(0xFFE0E7FF);
+              badgeText = const Color(0xFF3730A3);
+            }
+
+            return Container(
+              margin: const EdgeInsets.symmetric(vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+              decoration: BoxDecoration(
+                color: isCurrent ? const Color(0xFFF5F3FF) : Colors.transparent,
+                borderRadius: BorderRadius.circular(10),
+                border: isCurrent ? Border.all(color: const Color(0xFFC7D2FE), width: 1) : null,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          lv.label,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isCurrent || isCompleted ? FontWeight.w700 : FontWeight.w500,
+                            color: isCompleted ? const Color(0xFF047857) : (isCurrent ? const Color(0xFF4F46E5) : const Color(0xFF374151)),
+                          ),
+                        ),
+                        Text(
+                          "Agency: ${_formatCompactBeans(lv.agencyShare.toInt())}",
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF9CA3AF)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      "◈ ${_formatCompactBeans(lv.targetBeans)}",
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isCompleted ? const Color(0xFF059669) : const Color(0xFF4B5563),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      "\$${NumberFormat.decimalPattern().format((lv.hostShare * 0.01).toInt())}",
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFFD97706),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 30,
+                    child: Center(
+                      child: isCompleted
+                          ? const Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 18)
+                          : (isCurrent
+                              ? const Icon(Icons.trending_up_rounded, color: Color(0xFF6366F1), size: 18)
+                              : const Icon(Icons.lock_outline_rounded, color: Color(0xFFD1D5DB), size: 16)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ),
     );
   }
 

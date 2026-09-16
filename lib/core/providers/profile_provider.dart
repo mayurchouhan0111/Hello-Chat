@@ -148,21 +148,6 @@ final adminFramesProvider = StreamProvider<Map<String, String>>((ref) {
       });
 });
 
-final rocketSettingsProvider = StreamProvider<List<int>>((ref) {
-  return FirebaseFirestore.instance
-      .collection('system_configs')
-      .doc('rocket_settings')
-      .snapshots()
-      .map((snap) {
-        final defaultTargets = [1000000, 2000000, 3000000, 5000000, 10000000];
-        final data = snap.data();
-        if (data == null || data['targets'] == null) return defaultTargets;
-        final list = (data['targets'] as List<dynamic>).map((e) => (e as num).toInt()).toList();
-        if (list.length == 5) return list;
-        return defaultTargets;
-      });
-});
-
 final warehouseItemsProvider = StreamProvider.family<List<Map<String, dynamic>>, String>((ref, category) {
   final authState = ref.watch(authStateProvider);
   final uid = authState.value?.uid;

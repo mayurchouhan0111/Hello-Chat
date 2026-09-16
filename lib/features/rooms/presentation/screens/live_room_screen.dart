@@ -186,6 +186,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   final PageController _bannerPageController = PageController();
   Timer? _bannerTimer;
   int _bannerCurrentPage = 0;
+  final ValueNotifier<int> _bannerCurrentPageNotifier = ValueNotifier<int>(0);
+  Timer? _explosionAutoDismissTimer;
 
   // Store needed providers to avoid ref reads during dispose
   late final VoiceService _voiceService;
@@ -343,6 +345,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       }
     }
 
+    _explosionAutoDismissTimer?.cancel();
+    _bannerCurrentPageNotifier.dispose();
     _chatController.dispose();
 
     // Disable wake lock when leaving room
@@ -776,16 +780,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                     children: [
                                     YouTubeRoomPlayer(room: room, myUid: myUid),
                                       if (!room.isYoutubeActive) ...[
-                                        const SizedBox(height: 8),
                                         Consumer(
-                                          key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}'),
                                           builder: (context, ref, child) {
                                             final pts = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
                                             final hostPart = pts.firstWhere(
-                                              (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
-                                              orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: false, role: 'owner', seatIndex: 0),
+                                              (p) => p.uid == room.ownerUid,
+                                              orElse: () => pts.firstWhere(
+                                                (p) => p.seatIndex == 0,
+                                                orElse: () => Participant(uid: room.ownerUid, joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: false, role: 'owner', seatIndex: 0),
+                                              ),
                                             );
-                                            return _buildHostSeat(hostPart, room, pts);
+                                            return KeyedSubtree(
+                                              key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}_${hostPart.diamondsReceived}'),
+                                              child: _buildHostSeat(hostPart, room, pts),
+                                            );
                                           },
                                         ),
                                       ],
@@ -1037,45 +1045,33 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
-  Widget _buildHostHeaderContent(RoomModel room, UserModel? u, List<Participant> participants) {
+  Widget _buildHostHeaderContent(RoomModel room, UserModel? u) {
     final ownerDisplayName = (u?.displayName.isNotEmpty == true && u!.displayName != 'Host' && u.displayName != 'Guest')
         ? u.displayName
         : (room.name.isNotEmpty ? room.name : (u?.username.isNotEmpty == true ? u!.username : 'Host'));
-
-    final ownerIdString = u?.helloId != null 
-        ? u!.helloId.toString() 
-        : (u?.displayId != null && u!.displayId != 'Pending...' 
-            ? u!.displayId! 
-            : (room.ownerUid.length > 8 ? room.ownerUid.substring(0, 8) : room.ownerUid));
+    final rawOwnerId = (u?.displayId ?? u?.helloId ?? room.ownerUid).toString();
+    final ownerIdString = rawOwnerId.length > 8 ? rawOwnerId.substring(0, 8) : rawOwnerId;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: const Color(0xFFFFD700), width: 1.2),
-          ),
-          child: AppAvatar(
-            radius: 17,
-            imageUrl: u?.profilePhotoUrl ?? "",
-            tags: u?.tags,
-            showFrame: false,
-          ),
+        AppAvatar(
+          imageUrl: u?.profilePhotoUrl ?? '',
+          radius: 17,
         ),
-        const Gap(8),
+        const Gap(6),
         Flexible(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 ownerDisplayName,
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w900,
-                  shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.2,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -1099,13 +1095,18 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     const SizedBox(width: 6),
                     Icon(Icons.group_rounded, size: 11, color: Colors.white.withValues(alpha: 0.75)),
                     const SizedBox(width: 2),
-                    Text(
-                      "${participants.length}",
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.85),
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    Consumer(
+                      builder: (context, ref, _) {
+                        final count = ref.watch(roomParticipantsProvider(widget.roomId).select((p) => p.value?.length ?? 0));
+                        return Text(
+                          "$count",
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -1121,7 +1122,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildRoomAppBar(RoomModel room) {
     final currentUid = ref.watch(authStateProvider).value?.uid;
     final ownerAsync = ref.watch(cachedUserProfileProvider(room.ownerUid));
-    final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -1160,9 +1160,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                             children: [
                               Flexible(
                                 child: ownerAsync.when(
-                                  data: (owner) => _buildHostHeaderContent(room, owner as UserModel?, participants),
-                                  loading: () => _buildHostHeaderContent(room, null, participants),
-                                  error: (_, __) => _buildHostHeaderContent(room, null, participants),
+                                  data: (owner) => _buildHostHeaderContent(room, owner as UserModel?),
+                                  loading: () => _buildHostHeaderContent(room, null),
+                                  error: (_, __) => _buildHostHeaderContent(room, null),
                                 ),
                               ),
                               // Spark Follow Button (Only for Non-Owners)
@@ -1912,14 +1912,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     // Global Owner Seat: Find active owner participant or fallback to ownerUid participant
     final Participant activeHost = allParticipants.firstWhere(
-      (p) => p.seatIndex == 0 || p.uid == room.ownerUid,
-      orElse: () => Participant(
-        uid: room.ownerUid,
-        role: 'owner',
-        seatIndex: 0,
-        isMuted: false,
-        joinedAt: DateTime.now(),
-        lastActive: DateTime.now(),
+      (p) => p.uid == room.ownerUid,
+      orElse: () => allParticipants.firstWhere(
+        (p) => p.seatIndex == 0,
+        orElse: () => host,
       ),
     );
 
@@ -2367,6 +2363,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           // Already broadcasting! Skip Agora role switch to eliminate audio delays
           await takeSeatFuture;
         }
+        if (mounted) {
+          setState(() {
+            _optimisticSeatIndex = null;
+          });
+        }
       } catch (e) {
         if (mounted) {
           setState(() {
@@ -2612,17 +2613,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         ],
       ),
     ).animate().fadeIn().slideX(begin: 1, end: 0);
-  }
-
-  int _getTargetForLevel(int level) {
-    switch (level) {
-      case 0: return 1000000;
-      case 1: return 2000000;
-      case 2: return 3000000;
-      case 3: return 5000000;
-      case 4: return 10000000;
-      default: return 10000000;
-    }
   }
 
   void _showRocketLaunchAnimation(int level) {
@@ -2994,7 +2984,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             child: PageView.builder(
               controller: _bannerPageController,
               onPageChanged: (index) {
-                setState(() => _bannerCurrentPage = index);
+                _bannerCurrentPageNotifier.value = index;
               },
               itemCount: banners.length,
               itemBuilder: (context, index) {
@@ -3025,21 +3015,26 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         ),
         const SizedBox(height: 4),
         if (banners.length > 1)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(banners.length, (i) {
-              final isActive = i == _bannerCurrentPage;
-              return Container(
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                width: isActive ? 8 : 5,
-                height: isActive ? 8 : 5,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isActive ? Colors.white : Colors.white38,
-                  border: isActive ? Border.all(color: Colors.white60, width: 1) : null,
-                ),
+          ValueListenableBuilder<int>(
+            valueListenable: _bannerCurrentPageNotifier,
+            builder: (context, currentPage, _) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(banners.length, (i) {
+                  final isActive = i == currentPage;
+                  return Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                    width: isActive ? 8 : 5,
+                    height: isActive ? 8 : 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isActive ? Colors.white : Colors.white38,
+                      border: isActive ? Border.all(color: Colors.white60, width: 1) : null,
+                    ),
+                  );
+                }),
               );
-            }),
+            },
           ),
       ],
     );
@@ -3060,6 +3055,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   Widget _buildExplosionOverlay(RoomModel room) {
     if (!_showExplosionOverlay) return const SizedBox.shrink();
+
+    // Auto-dismiss safety timer so explosion overlay never blocks queue if user doesn't tap Close
+    _explosionAutoDismissTimer ??= Timer(const Duration(seconds: 8), () {
+      if (!mounted) return;
+      _explosionAutoDismissTimer = null;
+      if (_showExplosionOverlay) {
+        setState(() {
+          _showExplosionOverlay = false;
+        });
+        ref.invalidate(walletBalanceProvider);
+        ref.invalidate(currentUserProfileProvider);
+        Future.delayed(const Duration(milliseconds: 400), () {
+          _processNextRocketQueueItem();
+        });
+      }
+    });
 
     final myUid = FirebaseAuth.instance.currentUser?.uid;
     int? myRank;
@@ -3098,6 +3109,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       level: (_launchingLevel - 1).clamp(0, 4),
       contributions: _launchContributions,
       onClose: () {
+        _explosionAutoDismissTimer?.cancel();
+        _explosionAutoDismissTimer = null;
         setState(() {
           _showExplosionOverlay = false;
         });
@@ -3120,6 +3133,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             xp: myXp,
             frameDuration: myFrameDuration,
             onClose: () {
+              _explosionAutoDismissTimer?.cancel();
+              _explosionAutoDismissTimer = null;
               setState(() {
                 _showExplosionOverlay = false;
               });
@@ -3183,23 +3198,6 @@ class _HostRippleWidgetState extends ConsumerState<HostRippleWidget> with Single
 
     if (!isSpeaking) return const SizedBox.shrink();
 
-    final wavesPath = getVipMicWavesPath(widget.user.vipTier);
-    if (wavesPath != null) {
-      return OverflowBox(
-        maxWidth: 250,
-        maxHeight: 250,
-        child: SizedBox(
-          width: 180,
-          height: 180,
-          child: IgnorePointer(
-            child: SvgaPlayer(
-              key: ValueKey('host_sound_waves_${widget.user.vipTier}'),
-              assetPath: wavesPath,
-            ),
-          ),
-        ),
-      );
-    }
     final frameMult = widget.user.profileFrame.isNotEmpty ? 2.3 : 1.0;
     final double baseRippleSize = 28 * 2 * frameMult;
 

@@ -30,9 +30,12 @@ class RoomService with BaseFirebaseService {
 
   Stream<List<Participant>> getParticipantsStream(String roomId) {
     return _db.collection('rooms').doc(roomId).collection('participants')
-      .orderBy('joinedAt', descending: false)
       .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) => Participant.fromMap(doc.data(), doc.id)).toList());
+      .map((snapshot) {
+        final list = snapshot.docs.map((doc) => Participant.fromMap(doc.data(), doc.id)).toList();
+        list.sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+        return list;
+      });
   }
 
   Stream<List<RoomBannerModel>> getRoomBannersStream() {
@@ -58,8 +61,15 @@ class RoomService with BaseFirebaseService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) throw Exception("User not logged in.");
 
-    final roomId = _db.collection('rooms').doc().id;
+    final roomId = 'room_$uid';
     final roomRef = _db.collection('rooms').doc(roomId);
+
+    final userDoc = await _db.collection('users').doc(uid).get();
+    final userDataProfile = userDoc.data();
+    final hostAvatar = (userDataProfile?['profilePhotoUrl'] as String?)?.trim().isNotEmpty == true
+        ? userDataProfile!['profilePhotoUrl']
+        : (userDataProfile?['photoURL'] as String?) ?? '';
+    final finalCoverUrl = (coverUrl != null && coverUrl.trim().isNotEmpty) ? coverUrl.trim() : hostAvatar;
 
     final roomData = {
       'roomId': roomId,
@@ -67,7 +77,12 @@ class RoomService with BaseFirebaseService {
       'ownerUid': uid,
       'name': name,
       'theme': theme,
-      'coverUrl': coverUrl ?? '',
+      'coverUrl': finalCoverUrl,
+      'roomCover': finalCoverUrl,
+      'roomIcon': finalCoverUrl,
+      'ownerAvatar': hostAvatar,
+      'ownerProfilePic': hostAvatar,
+      'userProfilePic': hostAvatar,
       'isPrivate': isPrivate,
       'passwordHash': password,
       'capacity': capacity,
@@ -84,9 +99,6 @@ class RoomService with BaseFirebaseService {
     // against pre-batch state (get()/exists() on the room would see it as
     // missing, causing the owner seat-0 participant write to be denied).
     await roomRef.set(roomData);
-
-    final userDoc = await _db.collection('users').doc(uid).get();
-    final userDataProfile = userDoc.data() as Map<String, dynamic>?;
 
     final participantData = {
       'uid': uid,
@@ -133,7 +145,7 @@ class RoomService with BaseFirebaseService {
     await _db.runTransaction((transaction) async {
       final roomSnapshot = await transaction.get(roomRef);
       final userSnapshot = await transaction.get(userRef);
-      final userData = userSnapshot.data() as Map<String, dynamic>?;
+      final userData = userSnapshot.data();
       final displayName = userData?['displayName'] ?? 'Guest';
       final photoUrl = userData?['profilePhotoUrl'] ?? '';
 
@@ -361,7 +373,7 @@ class RoomService with BaseFirebaseService {
   Future<Map<String, dynamic>> testConnection() async {
     final result = await callFunction('pingServer');
     final serverProjectId = result['projectId'];
-    final myProjectId = 'hellochat-e8965'; // From firebase_options.dart
+    const myProjectId = 'hellochat-e8965'; // From firebase_options.dart
 
     debugPrint('📡 [RoomService] Ping Result: $result');
     if (serverProjectId != myProjectId) {

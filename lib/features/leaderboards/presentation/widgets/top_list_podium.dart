@@ -291,14 +291,41 @@ class TopListPodium extends ConsumerWidget {
 
                     // Avatar with frame support
                     if (user.isRoom)
-                      CircleAvatar(
-                        radius: 36,
-                        backgroundImage: user.photoUrl.isNotEmpty
-                            ? CachedNetworkImageProvider(user.photoUrl)
-                            : null,
-                        child: user.photoUrl.isEmpty
-                            ? const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 30)
-                            : null,
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: const Color(0xFF242A38),
+                          border: Border.all(color: const Color(0xFFFFD700), width: 2),
+                        ),
+                        child: ClipOval(
+                          child: user.photoUrl.isNotEmpty
+                              ? CachedNetworkImage(
+                                  imageUrl: user.photoUrl,
+                                  fit: BoxFit.cover,
+                                  memCacheWidth: 200,
+                                  memCacheHeight: 200,
+                                  placeholder: (context, url) => Container(
+                                    color: const Color(0xFF1B2030),
+                                    child: const Center(
+                                      child: SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD700)),
+                                      ),
+                                    ),
+                                  ),
+                                  errorWidget: (context, url, error) => Container(
+                                    color: const Color(0xFF1B2030),
+                                    child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 30),
+                                  ),
+                                )
+                              : Container(
+                                  color: const Color(0xFF1B2030),
+                                  child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 30),
+                                ),
+                        ),
                       )
                     else
                       AppAvatar(
@@ -516,14 +543,41 @@ class TopListPodium extends ConsumerWidget {
                               width: 58,
                               height: 58,
                               child: user.isRoom
-                                  ? CircleAvatar(
-                                      radius: 29,
-                                      backgroundImage: user.photoUrl.isNotEmpty
-                                          ? CachedNetworkImageProvider(user.photoUrl)
-                                          : null,
-                                      child: user.photoUrl.isEmpty
-                                          ? const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 24)
-                                          : null,
+                                  ? Container(
+                                      width: 58,
+                                      height: 58,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: const Color(0xFF242A38),
+                                        border: Border.all(color: borderColor, width: 1.5),
+                                      ),
+                                      child: ClipOval(
+                                        child: user.photoUrl.isNotEmpty
+                                            ? CachedNetworkImage(
+                                                imageUrl: user.photoUrl,
+                                                fit: BoxFit.cover,
+                                                memCacheWidth: 160,
+                                                memCacheHeight: 160,
+                                                placeholder: (context, url) => Container(
+                                                  color: const Color(0xFF1B2030),
+                                                  child: const Center(
+                                                    child: SizedBox(
+                                                      width: 14,
+                                                      height: 14,
+                                                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFFFD700)),
+                                                    ),
+                                                  ),
+                                                ),
+                                                errorWidget: (context, url, error) => Container(
+                                                  color: const Color(0xFF1B2030),
+                                                  child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 24),
+                                                ),
+                                              )
+                                            : Container(
+                                                color: const Color(0xFF1B2030),
+                                                child: const Icon(Icons.meeting_room_rounded, color: Colors.white, size: 24),
+                                              ),
+                                      ),
                                     )
                                   : AppAvatar(
                                       imageUrl: user.photoUrl,

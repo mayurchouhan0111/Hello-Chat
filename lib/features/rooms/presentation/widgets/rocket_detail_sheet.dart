@@ -10,6 +10,7 @@ import 'package:hello_chat/core/widgets/vap_player.dart';
 import 'package:hello_chat/core/models/room_model.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/room_support_provider.dart';
 import 'package:hello_chat/core/models/reward_model.dart';
 import 'package:hello_chat/features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
 import 'reward_ranking_widgets.dart';
@@ -70,8 +71,8 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.room.roomId));
     final room = roomAsync.value ?? widget.room;
 
-    final targetsAsync = ref.watch(rocketSettingsProvider);
-    final targets = targetsAsync.valueOrNull ?? const [1000000, 2000000, 3000000, 5000000, 10000000];
+    final config = ref.watch(roomSupportConfigProvider).valueOrNull;
+    final targets = roomSupportCoinsTargets(config);
     final target = _getTargetForLevel(_selectedLevel, targets);
     final fuel = _selectedLevel == room.rocketLevel ? room.rocketFuel : (_selectedLevel < room.rocketLevel ? target : 0);
     final progress = (fuel / target).clamp(0.0, 1.0);

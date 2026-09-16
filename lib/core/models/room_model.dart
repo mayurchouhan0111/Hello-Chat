@@ -175,8 +175,24 @@ class RoomModel {
       createdBy: map['createdBy']?.toString() ?? '',
       ownerUid: map['ownerUid']?.toString() ?? '',
       name: map['name']?.toString() ?? '',
-      theme: map['theme']?.toString() ?? '',
-      coverUrl: map['coverUrl']?.toString() ?? '',
+      theme: map['theme']?.toString() ?? 'classic',
+      coverUrl: ((map['coverUrl'] as String?)?.trim().isNotEmpty == true
+          ? map['coverUrl']
+          : (map['roomCover'] as String?)?.trim().isNotEmpty == true
+              ? map['roomCover']
+              : (map['roomIcon'] as String?)?.trim().isNotEmpty == true
+                  ? map['roomIcon']
+                  : (map['ownerAvatar'] as String?)?.trim().isNotEmpty == true
+                      ? map['ownerAvatar']
+                      : (map['ownerProfilePic'] as String?)?.trim().isNotEmpty == true
+                          ? map['ownerProfilePic']
+                          : (map['userProfilePic'] as String?)?.trim().isNotEmpty == true
+                              ? map['userProfilePic']
+                              : (map['profilePhotoUrl'] as String?)?.trim().isNotEmpty == true
+                                  ? map['profilePhotoUrl']
+                                  : (map['photoUrl'] as String?)?.trim().isNotEmpty == true
+                                      ? map['photoUrl']
+                                      : '')?.toString() ?? '',
       isPrivate: map['isPrivate'] == true,
       passwordHash: map['passwordHash']?.toString(),
       capacity: (map['capacity'] as num?)?.toInt() ?? 10,

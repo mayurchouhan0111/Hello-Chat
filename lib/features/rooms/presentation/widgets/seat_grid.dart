@@ -6,7 +6,6 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/models/emoji_reaction.dart';
 import '../../../../core/widgets/app_avatar.dart';
-import '../../../../core/widgets/svga_player.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_reactions_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -108,13 +107,15 @@ class SeatGrid extends ConsumerWidget {
           if (optimisticMySeatIndex != null && currentUid != null) {
             if (index == optimisticMySeatIndex) {
               // Show current user immediately on the tapped seat
+              final myExisting = participants.firstWhere((p) => p.uid == currentUid, orElse: () => participant);
               effectiveParticipant = Participant(
                 uid: currentUid,
                 seatIndex: index,
-                joinedAt: DateTime.now(),
+                joinedAt: myExisting.uid == currentUid ? myExisting.joinedAt : DateTime.now(),
                 lastActive: DateTime.now(),
-                isMuted: participant.uid == currentUid ? participant.isMuted : false,
+                isMuted: myExisting.uid == currentUid ? myExisting.isMuted : false,
                 role: 'speaker',
+                diamondsReceived: myExisting.uid == currentUid ? myExisting.diamondsReceived : 0,
               );
             } else if (participant.uid == currentUid) {
               // Current user has moved away from this seat
@@ -135,7 +136,7 @@ class SeatGrid extends ConsumerWidget {
             final effectiveProfile = profiles[effectiveParticipant.uid] ??
                 (effectiveParticipant.uid == currentUid ? myProfile : null);
             return OccupiedSeatWidget(
-              key: ValueKey('occupied_${index}_${effectiveParticipant.uid}'),
+              key: ValueKey('occupied_${index}_${effectiveParticipant.uid}_${effectiveParticipant.diamondsReceived}'),
               participant: effectiveParticipant,
               index: index,
               radius: avatarRadius,
@@ -316,34 +317,6 @@ class OccupiedSeatWidget extends ConsumerWidget {
               ),
             ),
           ),
-          Builder(
-            builder: (context) {
-              final displayId = user?.helloId ?? participant.helloId;
-              final idStr = displayId != null ? 'ID:$displayId' : (participant.uid.length >= 6 ? 'ID:${participant.uid.substring(0, 6)}' : '');
-              if (idStr.isEmpty) return const SizedBox.shrink();
-
-              return Container(
-                margin: const EdgeInsets.only(top: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E293B),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: Colors.amberAccent.withValues(alpha: 0.5), width: 0.6),
-                ),
-                child: Text(
-                  idStr,
-                  style: TextStyle(
-                    color: Colors.amberAccent,
-                    fontSize: fontSize > 8 ? fontSize - 1.5 : 7,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              );
-            },
-          ),
           Container(
             margin: const EdgeInsets.only(top: 2),
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -388,29 +361,12 @@ class SpeakingBorderWidget extends ConsumerWidget {
     final int agoraUid = user.uid.hashCode & 0xFFFFFFFF;
     final bool isSpeaking = speakingUids.contains(agoraUid);
     final hasFrame = user.profileFrame.isNotEmpty;
-    final wavesPath = getVipMicWavesPath(user.vipTier);
 
     if (!isSpeaking) return const SizedBox.shrink();
 
-    Widget borderChild;
-    if (wavesPath != null) {
-      borderChild = OverflowBox(
-        maxWidth: radius * 7.0,
-        maxHeight: radius * 7.0,
-        child: SizedBox(
-          width: radius * 6.2,
-          height: radius * 6.2,
-          child: IgnorePointer(
-            child: SvgaPlayer(
-              key: ValueKey('speaking_sound_waves_${user.vipTier}'),
-              assetPath: wavesPath,
-            ),
-          ),
-        ),
-      );
-    } else {
-      borderChild = _buildDefaultSpeakingBorder(radius, hasFrame);
-    }
+    // Use lightweight native Flutter ripple border for all speaking users to eliminate
+    // multi-speaker raster thread crashes and prevent concurrent 60fps SVGA animation loops.
+    final borderChild = _buildDefaultSpeakingBorder(radius, hasFrame);
 
     return RepaintBoundary(child: borderChild);
   }

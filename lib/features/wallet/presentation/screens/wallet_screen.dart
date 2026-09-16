@@ -166,6 +166,14 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
         icon = Icons.account_balance_wallet_rounded;
         color = Colors.purple;
         break;
+      case TransactionType.game_win:
+        icon = Icons.emoji_events_rounded;
+        color = const Color(0xFF00E676);
+        break;
+      case TransactionType.game_bet:
+        icon = Icons.casino_rounded;
+        color = Colors.orange;
+        break;
     }
     return Container(
       width: 40,
