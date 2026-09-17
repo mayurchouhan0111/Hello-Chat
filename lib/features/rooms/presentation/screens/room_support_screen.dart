@@ -997,7 +997,8 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                 return StreamBuilder<DocumentSnapshot>(
                   stream: FirebaseFirestore.instance.collection('users').doc(partnerUid).snapshots(),
                   builder: (context, snap) {
-                    final u = snap.data?.data() as Map<String, dynamic>? ?? {};
+                    final rawUserData = snap.data?.data();
+                    final u = rawUserData is Map ? Map<String, dynamic>.from(rawUserData) : <String, dynamic>{};
                     final name = u['displayName'] as String? ?? p['displayName'] as String? ?? 'Partner';
                     final photoUrl = u['profilePhotoUrl'] as String? ?? p['photoUrl'] as String? ?? '';
 
