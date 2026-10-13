@@ -1,18 +1,8 @@
 import { useState, useEffect } from 'react';
-import { db, auth, functions } from '../firebase';
-import { 
-  collection, 
-  query, 
-  getDocs, 
-  where, 
-  doc, 
-  updateDoc, 
-  limit, 
-  writeBatch, 
-  serverTimestamp,
-  getDoc
-} from 'firebase/firestore';
+import { Link } from 'react-router-dom';
+import { functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
+import { listScopedUsers, asDocList } from '../lib/scopedUsers';
 import { 
   Search, 
   UserPlus, 
@@ -61,9 +51,10 @@ export const AgencyManagement = () => {
   const fetchAllAgencies = async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, "users"), where("isAgencyOwner", "==", true));
-      const snap = await getDocs(q);
-      setAgencies(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // Scoped read: the server returns only agencies inside this caller's
+      // hierarchy, so no client-side `where('isAgencyOwner','==',true)` claim.
+      const all = asDocList(await listScopedUsers());
+      setAgencies(all.filter(u => u.isAgencyOwner || u.role === 'agency'));
     } catch (err) {
       console.error(err);
     } finally {
@@ -74,12 +65,8 @@ export const AgencyManagement = () => {
   const fetchAgencyHosts = async (agencyUid) => {
     setLoading(true);
     try {
-      const q = query(
-        collection(db, "users"), 
-        where("agencyId", "==", agencyUid)
-      );
-      const snap = await getDocs(q);
-      setHosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const all = asDocList(await listScopedUsers());
+      setHosts(all.filter(u => u.agencyId === agencyUid));
     } catch (err) {
       console.error(err);
     } finally {
@@ -90,16 +77,16 @@ export const AgencyManagement = () => {
   const handleRemoveHost = async (hostId) => {
     if (!window.confirm("Release this host from your agency? All current contracts will be voided.")) return;
     try {
-      await updateDoc(doc(db, "users", hostId), {
-        agencyId: null,
-        agencyName: null,
-        role: 'user'
-      });
+      // `agencyId`/`role` are PROTECTED_FIELDS in firestore.rules, so this cannot
+      // be a client-side updateDoc any more. Server-side, scope-checked, and it
+      // leaves balances and XP alone.
+      const release = httpsCallable(functions, 'releaseHostFromAgency');
+      await release({ hostUid: hostId });
       alert("Host has been released from the agency.");
       setSelectedHost(null);
       fetchAgencyHosts(selectedAgency.uid);
     } catch (err) {
-      alert("Remove Error: " + err.message);
+      alert("Remove Error: " + (err.message || err));
     }
   };
 
@@ -109,34 +96,15 @@ export const AgencyManagement = () => {
 
     try {
       setLoading(true);
-      const batch = writeBatch(db);
-
-      // 1. Revoke Agency Owner Status
-      const agencyRef = doc(db, "users", agencyId);
-      batch.update(agencyRef, {
-        isAgencyOwner: false,
-        agencyName: null,
-        agencyStatus: 'inactive'
-      });
-
-      // 2. Release all hosts belonging to this agency
-      const hostsQuery = query(collection(db, "users"), where("agencyId", "==", agencyId));
-      const hostsSnap = await getDocs(hostsQuery);
-      
-      hostsSnap.docs.forEach(hostDoc => {
-        batch.update(hostDoc.ref, {
-          agencyId: null,
-          agencyName: null,
-          role: 'user'
-        });
-      });
-
-      await batch.commit();
-      alert(`Agency "${agency.displayName}" has been deleted and ${hostsSnap.size} hosts have been released.`);
+      // One server-side transaction instead of a client batch that the rules
+      // now reject on `isAgencyOwner`/`agencyId`.
+      const deactivate = httpsCallable(functions, 'deactivateAgency');
+      const res = await deactivate({ agencyUid: agencyId });
+      alert(`Agency "${agency.displayName}" has been deleted and ${res.data.releasedHosts} hosts have been released.`);
       fetchAllAgencies();
     } catch (err) {
       console.error("Delete Agency Error:", err);
-      alert("Failed to delete agency: " + err.message);
+      alert("Failed to delete agency: " + (err.message || err));
     } finally {
       setLoading(false);
     }
@@ -149,30 +117,26 @@ export const AgencyManagement = () => {
     setSearchResults([]);
     
     try {
-      // Attempt 3 Parallel Lookups for Maximum Flexibility
-      const queries = [
-        query(collection(db, "users"), where("uid", "==", term), limit(1)),
-        query(collection(db, "users"), where("username", "==", term), limit(5)),
-        query(collection(db, "users"), where("username_lowercase", "==", term.toLowerCase()), limit(5))
-      ];
-
-      const snaps = await Promise.all(queries.map(q => getDocs(q)));
-      
-      const combined = [];
+      // One scoped read, then match locally. Three parallel `where()` queries on
+      // `users` are denied by the list rule now, and the scoped list is what the
+      // server says this caller may see anyway.
+      const termLower = term.toLowerCase();
       const seenIds = new Set();
-
-      snaps.forEach(snap => {
-        snap.docs.forEach(d => {
-          if (!seenIds.has(d.id)) {
-            const data = d.data();
-            // Don't show users already in an agency if possible
-            if (data.agencyId !== selectedAgency?.uid) {
-              combined.push({ id: d.id, ...data });
-              seenIds.add(d.id);
-            }
-          }
-        });
-      });
+      const combined = (asDocList(await listScopedUsers()))
+        .filter((u) => {
+          if (seenIds.has(u.uid)) return false;
+          const matches =
+            u.uid === term ||
+            u.helloId === term ||
+            (u.username || '').toLowerCase() === termLower ||
+            (u.username_lowercase || '') === termLower;
+          if (!matches) return false;
+          // Don't show users already in this agency.
+          if (u.agencyId === selectedAgency?.uid) return false;
+          seenIds.add(u.uid);
+          return true;
+        })
+        .slice(0, 5);
 
       setSearchResults(combined);
       if (combined.length === 0) {
@@ -191,13 +155,13 @@ export const AgencyManagement = () => {
     if (!window.confirm(`Assign ${targetUser.displayName} as a Host for ${selectedAgency.displayName}?`)) return;
     
     try {
-      const agencyUid = selectedAgency.uid || selectedAgency.id;
-      const userRef = doc(db, "users", targetUser.id || targetUser.uid);
-      await updateDoc(userRef, {
-        agencyId: agencyUid,
-        agencyName: selectedAgency.displayName || 'Unnamed Agency',
-        role: 'host',
-        assignedAt: serverTimestamp()
+      // `role` and `agencyId` are PROTECTED_FIELDS, so this has to go through the
+      // hierarchy callable. The server derives agencyId from the caller's own uid
+      // rather than trusting the payload.
+      const assign = httpsCallable(functions, 'assignHierarchyRole');
+      await assign({
+        targetUid: targetUser.uid || targetUser.id,
+        newRole: 'host'
       });
       
       alert(`${targetUser.displayName} has been assigned to the agency.`);
@@ -233,7 +197,13 @@ export const AgencyManagement = () => {
         </div>
 
         {selectedAgency && (
-          <div className="flex gap-4">
+          <div className="flex flex-wrap items-center gap-4">
+             <Link 
+                to="/commission-wallet"
+                className="flex items-center gap-2 px-5 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-3xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/10"
+             >
+                <Wallet size={18} /> USD Commission Wallet
+             </Link>
              <div className="bg-slate-900/50 border border-white/5 p-4 rounded-3xl flex items-center gap-4 min-w-[200px]">
                 <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl">
                    <Users size={20} />

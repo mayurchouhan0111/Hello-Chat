@@ -2,38 +2,93 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Core User Profiles
-    match /users/{userId} {
+    // Cosmetic public profile projection.
+    //
+    // /users/{userId} is locked to self/hierarchy because that doc carries USD
+    // commission wallets, role and branchId. But the room seat grid and the
+    // leaderboard must render OTHER participants' nickname/avatar/frame, and they
+    // do it through one batched `users where __name__ in [...]` listen
+    // (batchedProfilesProvider). With /users locked, that listen is
+    // PERMISSION_DENIED for every regular user and the room renders
+    // "Something went wrong" instead of the seats.
+    //
+    // The fix is a projection, not a re-loosening: a Cloud Function trigger
+    // mirrors a cosmetic-only whitelist into /publicUsers, which contains no
+    // balances, no roles and no branch ids, so any signed-in user may read it.
+    // Only the admin SDK writes it - `allow write: if false`.
+    match /publicUsers/{uid} {
       allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Core User Profiles
+
+    match /users/{userId} {
+      // SECURITY: was `allow read: if request.auth != null`, which let ANY logged-in app
+      // user read EVERY user doc including USD commission wallets, roles and branch ids.
+      // Branch isolation is now enforced: you may read yourself, anyone in your branch
+      // (Super Admin), anyone you supervise (Admin), your own hosts (Agency), or
+      // everything (Owner). Cross-branch reads are denied.
+      // Everything a normal user needs ABOUT OTHER PEOPLE (names, avatars, search,
+      // leaderboards) lives in the cosmetic /publicUsers projection instead.
+      allow get: if request.auth != null && (
+        isSelf(userId) || isOwner() || isInMyHierarchyScope(userId)
+      );
+      // List rules are evaluated per returned document, so each disjunct below is a
+      // scope predicate a query must provably satisfy: Owner (all), an Agency listing
+      // its own hosts (where agencyId == me), an Admin listing its own agencies/hosts
+      // (where adminId == me), or a Super Admin listing its own branch (where
+      // branchId == me). Unfiltered dumps - which previously exposed every USD wallet
+      // in the platform - are denied. Management screens use the server-derived
+      // `getScopedUsers` callable instead.
+      allow list: if request.auth != null && (
+        isOwner() ||
+        request.auth.uid == resource.data.get('agencyId', '') ||
+        request.auth.uid == resource.data.get('adminId', '') ||
+        (
+          selfData().get('role', '') == 'superadmin' &&
+          resource.data.get('branchId', null) != null &&
+          resource.data.get('branchId', null) == selfData().get('branchId', null)
+        )
+      );
+
+      // Owner may write anything. Everyone else - self or supervisor - is held to
+      // the SAME protected-field list, so the reachable write surface is identical
+      // for both. That symmetry is the point: a manager can no longer grant a
+      // subordinate a privilege (or a balance) that they could not grant themselves.
       allow write: if request.auth != null && (
-        isAdmin() || 
-        (request.auth.uid == userId && 
-         // Prevent self-modifying crucial role, ledger, and VIP fields
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-           'tags', 'isReseller', 'isAgencyOwner', 'isFamilyOwner', 'isVerified',
-           'diamondBalance', 'diamondStock', 'beansBalance', 'walletBalance',
-           'xp', 'dailyXP', 'weeklyXP', 'monthlyXP', 'benchXP', 'princeXP', 
-           'dailyPrinceXP', 'weeklyPrinceXP', 'monthlyPrinceXP', 'level',
-           'svipLevel', 'svipPoints', 'monthlyRecharge'
-         ]) &&
-         // Allow submitting verification requests, but prevent self-approving or self-verifying status
-         (
-           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verificationStatus']) ||
-           (
-             request.resource.data.verificationStatus == 'pending' && 
-             resource.data.verificationStatus != 'verified'
-           )
-         )
+        isOwner() ||
+        (
+          (isInMyHierarchyScope(userId) || isSelf(userId)) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(PROTECTED_FIELDS()) &&
+          isVerificationTransitionOk(userId)
         ) ||
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visitorCount', 'recentVisitors'])) ||
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['familyId', 'isFamilyOwner']) && 
          get(/databases/$(database)/documents/families/$(request.resource.data.familyId)).data.ownerId == request.auth.uid)
       );
 
+
       // Purchase & Finance
       match /transactions/{txId} {
-        allow read, create: if request.auth != null && request.auth.uid == userId;
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+      // Salary progress: the host reads OWN target progress and history. Writes stay
+      // server-side (distributeWeeklySalary / salary crons) so a client cannot forge
+      // target progress. Without this block both subcollections default-denied and
+      // the salary screen always rendered hardcoded fallbacks.
+      match /weeklyTargets/{weekId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+      match /salary_history/{entryId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
+      }
+      match /ledger/{txId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if false;
       }
       match /pending_credits/{creditId} {
         allow read, create: if request.auth != null && request.auth.uid == userId;
@@ -57,11 +112,11 @@ service cloud.firestore {
       }
 
       match /followers/{followerId} {
-        allow read: if true;
+        allow read: if request.auth != null;
         allow write: if request.auth != null && (request.auth.uid == followerId || isAdmin());
       }
       match /following/{followedId} {
-        allow read: if true;
+        allow read: if request.auth != null;
         allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
       }
 
@@ -85,6 +140,7 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if false; // Writes handled by server functions
       }
+
       // Contributors & Ranking
       match /contributors/{contributorId} {
         allow read: if true;
@@ -121,9 +177,16 @@ service cloud.firestore {
     }
 
     // Global Collections
+    // Spin Wheel authoritative round-state documents (BETTING_OPEN/ROUND_LOCKED/SPINNING/ROUND_SETTLED).
+    // Client app subscribes to the active round doc to sync realtime state; writes stay server-only.
+    match /game_rounds/{roundId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Server functions only
+    }
+
     match /app_config/{docId} {
       allow read: if request.auth != null;
-      allow write: if isAdmin();
+      allow write: if isOwner(); // global/business config is Owner-only (spec)
     }
 
     match /usernames/{username} {
@@ -227,8 +290,44 @@ service cloud.firestore {
       allow read: if request.auth != null; 
       allow write: if configId == 'financial_policies' ? isOwner() : isAdmin(); 
     }
-    match /branches/{branchId} {
+    // ─── Collections with NO match block ────────────────────────────────────
+    // These eight were missing entirely, so Firestore's default deny blanked
+    // the admin-panel screens that read them (Lucky Gift Config, Role Frames,
+    // Resellers, Family Battle, SVIP, Custom Gifts...). Four are also used by
+    // the Flutter app, which was equally locked out.
+    match /system_settings/{docId} {
       allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /system_config/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /family_battle_configs/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    match /svip_banners/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+    // Users create these, only admins resolve them.
+    match /custom_gift_requests/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+    match /svip_audit_logs/{docId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update, delete: if isAdmin();
+    }
+    // Money ledgers: the panel and app only render them. Every mutation runs
+    // through a callable (adminAdjustResellerWallet, the lucky-spin code).
+    match /resellers/{docId} { allow read: if request.auth != null; allow write: if false; }
+    match /lucky_gift_transactions/{docId} { allow read: if request.auth != null; allow write: if false; }
+    match /branches/{branchId} {
+      allow read: if isAdmin(); // branch roster (incl. superAdminUid) is staff-only
       allow write: if isOwner();
     }
     match /audit_logs/{logId} {
@@ -243,28 +342,136 @@ service cloud.firestore {
     }
 
     // Agencies
+    // SECURITY: the owner was previously able to write `beansBalance` /
+    // `totalBeansEarned` on their own agency doc, and `withdrawBeans` pays out against
+    // that field - i.e. self-minted withdrawals. Ledger fields are now write-locked to
+    // the server; owners may only edit descriptive fields.
     match /agencies/{agencyId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.ownerUid;
-      allow update, delete: if request.auth != null && (request.auth.uid == resource.data.ownerUid || isAdmin());
+      allow get: if request.auth != null && (
+        isOwner() ||
+        request.auth.uid == resource.data.ownerUid ||
+        isInMyHierarchyScope(agencyId)
+      );
+      allow list: if isOwner();
+      allow create: if request.auth != null &&
+        request.auth.uid == request.resource.data.ownerUid &&
+        !request.resource.data.diff({}).affectedKeys().hasAny([
+          'beansBalance', 'totalBeansEarned'
+        ]);
+      allow update, delete: if request.auth != null && (
+        isOwner() || request.auth.uid == resource.data.ownerUid
+      ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'beansBalance', 'totalBeansEarned'
+      ]);
     }
 
+    // Legacy bean-withdrawal queue (distinct from commission_withdrawals below).
     match /withdrawals/{requestId} {
-      allow read: if request.auth != null && (request.auth.uid == resource.data.uid || isAdmin());
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.uid;
-      allow update: if isAdmin();
+      allow get: if request.auth != null && (request.auth.uid == resource.data.uid || isOwner());
+      allow list: if isOwner();
+      allow create: if false; // server-only: withdrawBeans
+      allow update: if false; // server-only: adminApprove/ adminRejectWithdrawal
+    }
+
+    // ── HB-PMS USD Commission ledgers ────────────────────────────────────────────
+    // All four ledgers are append-only server-side records. Clients get scoped READ
+    // access (Owner sees all; an Agency/Admin sees only rows naming them) and zero
+    // write access, which is what makes the audit trail non-alterable.
+
+    // Commission earned from host recharges (the 30% / 10% split ledger).
+    match /commission_transactions/{txId} {
+      allow get, list: if isCommissionParty(resource.data);
+      allow write: if false;
+    }
+
+    // USD -> Diamond conversion ledger.
+    match /commission_diamond_conversions/{convId} {
+      allow get, list: if isCommissionParty(resource.data);
+      allow write: if false;
+    }
+
+    // Option 1: commission wallet -> reseller wallet transfers (TRF-...).
+    match /commission_reseller_transfers/{trfId} {
+      allow get, list: if isCommissionParty(resource.data);
+      allow write: if false;
+    }
+
+    // Option 2: direct USD cashout requests. Separate ledger from transfers, per spec.
+    match /commission_withdrawals/{requestId} {
+      allow get: if isOwner() || request.auth.uid == resource.data.userId;
+      // The requester must be able to watch their own request move through
+      // pending -> processing -> approved/rejected; Owner still sees everything.
+      allow list: if isOwner() || request.auth.uid == resource.data.get('userId', '');
+      allow write: if false; // submit/review are server-only so funds cannot be forged
+    }
+
+    // ── Host Management ───────────────────────────────────────────────────────
+    // `host_metrics` carries denormalised branchId/adminId/agencyId precisely so
+    // scoped reads are a plain server-side where(). Clients get read-only access
+    // to their own row or the hosts they supervise; every write is server-side so
+    // live minutes, targets and progress cannot be forged.
+    match /host_metrics/{uid} {
+      allow get: if request.auth != null && (
+        isSelf(uid) || isInMyHierarchyScope(uid)
+      );
+      allow list: if isOwner();
+      allow write: if false; // server-only: live-time accrual
+    }
+
+    // Live sessions are transient server bookkeeping. Fully server-private: an
+    // open session is what a dashboard uses to show "live now", and a client that
+    // could forge one would inflate its own live time.
+    match /hostLiveSessions/{uid} {
+      allow read, write: if false;
+    }
+
+    // A recharge order is PROOF OF PAYMENT. Clients must never read or write one:
+    // reading would expose another user's payment reference, and writing would let
+    // anyone mint a "paid" order and then redeem it. Issued and consumed server-side
+    // only, by issueRechargeOrder + redeemRechargeOrder.
+    match /rechargeOrders/{orderId} {
+      allow read, write: if false;
+    }
+
+    // PENDING RECHARGES
+    // Was: no rule at all, so default-deny - the panel's approval list returned
+    // nothing for every tier including Owner. Reads are staff-level; writes are
+    // server-only because approving one credits diamonds (see approveRecharge),
+    // which is exactly the operation that used to be a browser-side mint.
+    match /recharges/{rechargeId} {
+      allow read: if isAdmin();
+      allow write: if false; // create/update: payment gateway webhook or approveRecharge only
+    }
+
+    // The requester is the only non-Owner allowed to see their own financial rows.
+    function isCommissionParty(row) {
+      return request.auth != null && (
+        isOwner() ||
+        request.auth.uid == row.get('userId', '') ||
+        request.auth.uid == row.get('recipientUid', '') ||
+        request.auth.uid == row.get('senderUid', '') ||
+        request.auth.uid == row.get('targetUid', '')
+      );
     }
 
     // Salary & Revenue Distribution
+    // Super Admins are structurally excluded from the salary system (spec), so they get
+    // no salary wallet, no balance and no ledger visibility here.
     match /salaryStatus/{uid} {
-      allow read: if request.auth != null && (request.auth.uid == uid || isAdmin());
-      allow write: if isAdmin(); // Only admins/functions can modify status
+      allow get: if request.auth != null && (request.auth.uid == uid || isOwner());
+      allow list: if isOwner();
+      allow write: if false; // server-only
     }
 
     match /salaryPayouts/{payoutId} {
-      allow read: if request.auth != null && (resource.data.uid == request.auth.uid || isAdmin());
-      allow list: if request.auth != null && (isAdmin() || request.query.limit <= 100); 
-      allow write: if isAdmin(); // Only admins/functions can modify payouts
+      allow get: if request.auth != null && (resource.data.uid == request.auth.uid || isOwner());
+      // was: `allow list: if request.auth != null && (isAdmin() || request.query.limit <= 100)`
+      // which let any logged-in user stream every user's payout ledger; then it was
+      // Owner-only, which hid the holder's OWN payout history. Holder-or-Owner: a
+      // `where('uid','==',me)` query is provable against this predicate, everyone
+      // else's ledger still is not.
+      allow list: if isOwner() || request.auth.uid == resource.data.get('uid', '');
+      allow write: if false; // server-only
     }
 
     // Moments (Global Feed)
@@ -442,8 +649,17 @@ service cloud.firestore {
     match /cp_invites/{inviteId} {
       allow read: if request.auth != null && (request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || isAdmin());
       allow create: if request.auth != null && request.auth.uid == request.resource.data.senderUid;
-      allow update: if request.auth != null && request.auth.uid == resource.data.targetUid;
+      allow update: if request.auth != null && request.auth.uid == request.resource.data.targetUid;
       allow delete: if request.auth != null && request.auth.uid == resource.data.senderUid;
+    }
+    // Couple (CP) relationships. This had NO match block, so Firestore's default
+    // deny rejected the Couple leaderboard query (leaderboard_screen.dart) and the
+    // CP seat synchronizer with PERMISSION_DENIED - the tab rendered
+    // "No Rankings Yet" no matter how much couple activity existed.
+    // Only Cloud Functions create/modify a CP bond.
+    match /cp_relationships/{cpId} {
+      allow read: if request.auth != null;
+      allow write: if false; // Server functions only
     }
 
     // 🔥 Dynamic Event System
@@ -474,7 +690,108 @@ service cloud.firestore {
       }
     }
 
+    // 🎮 Mini-Games System (Spin the Wheel & Lucky Draw)
+    match /game_settings/{gameId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /games_meta/{gameId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+
+      match /{subcollection=**} {
+        allow read: if request.auth != null;
+        allow write: if isAdmin();
+      }
+    }
+
+    // Server-private game outcomes: strictly forbidden from any client direct read/write to prevent cheating
+    match /games_meta_private/{docId} {
+      allow read, write: if false;
+    }
+
     // Helper functions
+
+    // Fields no client may ever write on a user document - neither their own nor
+    // a subordinate's. Everything here is either a privilege or a money field, and
+    // every one of them is written exclusively by Cloud Functions.
+    //
+    // SECURITY: this list previously differed between the self-write branch and the
+    // scoped-manager branch. The manager branch used the smaller OWNER_ONLY_FIELDS
+    // list, so a branch Admin could write `tags: ['Owner']` onto a subordinate and
+    // `isOwner()` would then grant them the whole platform, and could write
+    // `diamondBalance`/`beansBalance`/`walletBalance` outright. One union list for
+    // both branches closes that: a manager can no longer do anything to a
+    // subordinate that a user cannot do to themselves.
+    function PROTECTED_FIELDS() {
+      return [
+        // Privilege / hierarchy
+        'tags', 'role', 'isReseller', 'isAgencyOwner', 'isFamilyOwner', 'isVerified',
+        'branchId', 'superAdminId', 'adminId', 'agencyId',
+        // Platform currencies
+        'diamondBalance', 'diamondStock', 'beansBalance', 'walletBalance',
+        // HB-PMS USD commission wallets
+        'usdCommissionBalance', 'usdResellerBalance', 'totalCommissionEarned',
+        'totalRechargeGenerated', 'pendingWithdrawalBalance', 'totalWithdrawnUSD',
+        // XP / VIP progression (server-computed)
+        'xp', 'dailyXP', 'weeklyXP', 'monthlyXP', 'benchXP', 'princeXP',
+        'dailyPrinceXP', 'weeklyPrinceXP', 'monthlyPrinceXP', 'level',
+        'svipLevel', 'svipPoints', 'monthlyRecharge'
+      ];
+    }
+
+    // Verification is the one status transition clients legitimately drive, so it
+    // is carved out of PROTECTED_FIELDS. A user may only ever move themselves TO
+    // `pending`; only a supervisor may set the terminal `verified` state, and
+    // nobody may self-verify.
+    //
+    // EXPR-ONLY: Firestore rules have no `if` statements and no `let x = ...;`.
+    // Everything is `&&`/`||` plus the `?:` operator, so this reads as one
+    // expression: unchanged -> allow, otherwise self vs supervisor branch.
+    function isVerificationTransitionOk(userId) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verificationStatus'])
+          || (request.auth.uid == userId
+                ? (request.resource.data.get('verificationStatus', null) == 'pending'
+                   && resource.data.get('verificationStatus', null) != 'verified')
+                : (request.resource.data.get('verificationStatus', null) == 'verified'
+                   && resource.data.get('verificationStatus', null) != 'verified'));
+    }
+
+    function selfData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSelf(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // The 5-tier HB-PMS branch-isolation predicate. Mirrors the server-side
+    // `resolveHierarchy()` in functions/index.js - the two must stay in lockstep.
+    //   Owner      -> absolute, every user
+    //   Super Admin-> only users carrying the same branchId
+    //   Admin      -> only users whose adminId is me (my agencies + my hosts)
+    //   Agency     -> only users whose agencyId is me (my hosts)
+    //   Host       -> only myself
+    function isInMyHierarchyScope(userId) {
+      return request.auth != null && (
+        isOwner() ||
+        (
+          selfData().get('role', '') == 'superadmin' &&
+          get(/databases/$(database)/documents/users/$(userId)).data.get('branchId', null) == selfData().get('branchId', null) &&
+          selfData().get('branchId', null) != null
+        ) ||
+        (
+          selfData().get('role', '') == 'admin' &&
+          get(/databases/$(database)/documents/users/$(userId)).data.get('adminId', null) == request.auth.uid
+        ) ||
+        (
+          (selfData().get('role', '') == 'agency' || selfData().get('isAgencyOwner', false) == true) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.get('agencyId', null) == request.auth.uid
+        )
+      );
+    }
+
     function isOwner() {
       return request.auth != null && (
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'owner' ||
@@ -482,11 +799,20 @@ service cloud.firestore {
       );
     }
 
+    // General "platform staff" predicate for CONTENT and MODERATION collections
+    // (gifts, banners, VIP tiers, reports, room configs, ...). Kept permissive on
+    // purpose so branch Admins keep working.
+    //
+    // It is deliberately NOT used for anything financial. Money surfaces are locked
+    // individually: /users privileged fields, /agencies ledger fields, /withdrawals,
+    // and all four /commission_* ledgers. That per-collection locking is what closed
+    // the escalation path - previously `isAdmin()` gated balance writes, letting a
+    // branch Admin rewrite diamond balances and settle their own payouts.
     function isAdmin() {
       return request.auth != null && (
         isOwner() ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('tags', []).hasAny(['Admin', 'SuperAdmin']) ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'superadmin']
+        selfData().get('tags', []).hasAny(['Admin', 'SuperAdmin']) ||
+        selfData().get('role', '') in ['admin', 'superadmin']
       );
     }
   }

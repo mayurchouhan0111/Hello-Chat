@@ -58,11 +58,16 @@ export const GiftManagement = () => {
     imageUrl: '',
     lottieAssetPath: '',
     soundUrl: '',
-    animationFormat: 'json', // json, svga, mp4, vpa, image, sound
+    animationFormat: 'json', // json, svga, mp4, vpa, pag, image, sound
+    tier: '',                 // '' = derive from category | NORMAL | MEDIUM | LUXURY
+    durationMs: 0,            // 0 = auto (asset-derived)
     minSvipLevel: 0,
     isActive: true,
     sortOrder: 0
   });
+
+  // Shelf categories shown in the app's gift box, in client-specified order.
+  const GIFT_CATEGORIES = ['Normal', 'Lucky', 'Medium', 'Luxury', 'CP', 'SVGA', 'VAP', 'Custom', 'Family Battle', 'VIP', 'SVIP'];
 
   useEffect(() => {
     const q = query(collection(db, "gifts"), orderBy("priceInDiamonds", "asc"));
@@ -135,6 +140,12 @@ export const GiftManagement = () => {
       } else if (format === 'mp4' && ext !== 'mp4') {
         alert("❌ Format Mismatch! Selected format is MP4 (.mp4), but uploaded file is ." + ext);
         return;
+      } else if (format === 'vap' && !['vap', 'mp4', 'zip', 'vpa'].includes(ext)) {
+        alert("❌ Format Mismatch! Selected format is VAP (.vap, .mp4, .zip), but uploaded file is ." + ext);
+        return;
+      } else if (format === 'vpa' && !['vpa', 'vap', 'mp4'].includes(ext)) {
+        alert("❌ Format Mismatch! Selected format is VPA (.vpa), but uploaded file is ." + ext);
+        return;
       } else if (format === 'json' && ext !== 'json') {
         alert("❌ Format Mismatch! Selected format is Lottie JSON (.json), but uploaded file is ." + ext);
         return;
@@ -192,6 +203,8 @@ export const GiftManagement = () => {
         priceInDiamonds: Number(data.priceInDiamonds || 0),
         minSvipLevel: Number(data.minSvipLevel || 0),
         animationFormat: data.animationFormat || 'json',
+        tier: data.tier || '',
+        durationMs: Number(data.durationMs || 0),
         updatedAt: serverTimestamp()
       }, { merge: true });
       
@@ -204,7 +217,10 @@ export const GiftManagement = () => {
         category: 'Normal',
         imageUrl: '',
         lottieAssetPath: '',
+        soundUrl: '',
         animationFormat: 'json',
+        tier: '',
+        durationMs: 0,
         minSvipLevel: 0,
         isActive: true,
         sortOrder: 0
@@ -361,11 +377,11 @@ export const GiftManagement = () => {
                                </div>
                             </div>
                          </td>
-                         <td className="px-8 py-6">
-                            <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${gift.category === 'luxury' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-white/5 text-slate-400 border border-white/10'}`}>
-                               {gift.category}
-                            </span>
-                         </td>
+                          <td className="px-8 py-6">
+                             <span className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest ${((gift.category || '').toLowerCase() === 'luxury' || gift.tier === 'LUXURY') ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : gift.tier === 'MEDIUM' ? 'bg-violet-500/20 text-violet-400 border border-violet-500/30' : 'bg-white/5 text-slate-400 border border-white/10'}`}>
+                               {gift.category}{gift.tier ? ` · ${gift.tier}` : ''}
+                             </span>
+                          </td>
                          <td className="px-8 py-6">
                             <div className="flex items-center gap-2 text-emerald-400 font-black">
                                <Coins size={14} />
@@ -483,17 +499,43 @@ export const GiftManagement = () => {
                          value={editingGift ? editingGift.category : newGift.category}
                          onChange={(e) => editingGift ? setEditingGift({...editingGift, category: e.target.value}) : setNewGift({...newGift, category: e.target.value})}
                        >
-                          <option value="Normal">Normal Gift</option>
-                          <option value="Gift">Standard Gift</option>
-                          <option value="Luxury">Luxury Gift (Full Screen)</option>
-                          <option value="Lucky">Lucky Gift (Random Rewards)</option>
-                          <option value="Lucky fruit">Lucky fruit Gift</option>
-                          <option value="Relationship">Relationship Gift</option>
-                          <option value="VIP">VIP Gift (VIP Only)</option>
-                          <option value="SVIP">SVIP Gift (SVIP Only)</option>
+                          {GIFT_CATEGORIES.map(c => (
+                            <option key={c} value={c}>{c}{c === 'Luxury' ? ' Gift (Full Screen)' : c === 'Medium' ? ' Gift (Mid-Ground)' : c === 'Lucky' ? ' Gift (Random Rewards)' : c === 'VIP' ? ' Gift (VIP Only)' : c === 'SVIP' ? ' Gift (SVIP Only)' : ' Gift'}</option>
+                          ))}
+                          {/* Keep legacy docs (Gift, Lucky fruit, Relationship, ...) editable without silently rewriting their category. */}
+                          {!GIFT_CATEGORIES.includes(editingGift ? editingGift.category : newGift.category) && (
+                            <option value={editingGift ? editingGift.category : newGift.category}>
+                              {editingGift ? editingGift.category : newGift.category} (legacy)
+                            </option>
+                          )}
                        </select>
                     </div>
-                 </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Animation Tier</label>
+                       <select 
+                         className="glass-input w-full outline-none appearance-none cursor-pointer bg-slate-900 text-white border border-white/10 rounded-xl px-4 h-12"
+                         value={(editingGift ? editingGift.tier : newGift.tier) || ''}
+                         onChange={(e) => editingGift ? setEditingGift({...editingGift, tier: e.target.value}) : setNewGift({...newGift, tier: e.target.value})}
+                       >
+                          <option value="">Auto (from category)</option>
+                          <option value="NORMAL">NORMAL — seat-anchored burst</option>
+                          <option value="MEDIUM">MEDIUM — mid-ground overlay</option>
+                          <option value="LUXURY">LUXURY — full-screen cinematic</option>
+                       </select>
+                    </div>
+                    <div className="space-y-3">
+                       <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Duration (ms, 0 = auto)</label>
+                       <input 
+                         type="number" min="0" placeholder="0"
+                         className="glass-input w-full h-12"
+                         value={(editingGift ? editingGift.durationMs : newGift.durationMs) || 0}
+                         onChange={(e) => editingGift ? setEditingGift({...editingGift, durationMs: parseInt(e.target.value) || 0}) : setNewGift({...newGift, durationMs: parseInt(e.target.value) || 0})}
+                       />
+                    </div>
+                  </div>
 
                  <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-3">
@@ -507,6 +549,7 @@ export const GiftManagement = () => {
                           <option value="svga">SVGA (.svga)</option>
                           <option value="mp4">MP4 Video (.mp4)</option>
                           <option value="vpa">VPA Luxury (.vpa)</option>
+                          <option value="vap">VAP (.vap, .mp4, .zip)</option>
                        </select>
                     </div>
                     <div className="space-y-3">
@@ -570,7 +613,7 @@ export const GiftManagement = () => {
                         <div className="relative">
                           <input 
                             type="file" 
-                            accept=".svga,.mp4,.json,.vpa"
+                            accept=".svga,.mp4,.json,.vpa,.vap"
                             onChange={(e) => handleFileUpload(e, 'animation')}
                             className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
                             disabled={uploadingField === 'animation'}

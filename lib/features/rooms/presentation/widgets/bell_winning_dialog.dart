@@ -11,6 +11,8 @@ class BellWinningDialog extends StatefulWidget {
   final int multiplier;
   final int winningAmount;
   final int receiverBeans;
+  final String giftName;
+  final String giftImageUrl;
   final VoidCallback onDismiss;
 
   const BellWinningDialog({
@@ -23,6 +25,8 @@ class BellWinningDialog extends StatefulWidget {
     required this.multiplier,
     required this.winningAmount,
     this.receiverBeans = 1,
+    this.giftName = 'Lucky Dates',
+    this.giftImageUrl = 'assets/lucky gift dates/icon.png',
     required this.onDismiss,
   });
 
@@ -36,6 +40,8 @@ class BellWinningDialog extends StatefulWidget {
     required int multiplier,
     required int winningAmount,
     int receiverBeans = 1,
+    String giftName = 'Lucky Dates',
+    String giftImageUrl = 'assets/lucky gift dates/icon.png',
   }) {
     showDialog(
       context: context,
@@ -50,6 +56,8 @@ class BellWinningDialog extends StatefulWidget {
         multiplier: multiplier,
         winningAmount: winningAmount,
         receiverBeans: receiverBeans,
+        giftName: giftName,
+        giftImageUrl: giftImageUrl,
         onDismiss: () => Navigator.of(ctx).pop(),
       ),
     );
@@ -104,11 +112,16 @@ class _BellWinningDialogState extends State<BellWinningDialog> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text("🔔", style: TextStyle(fontSize: 16)),
+                    if (widget.giftImageUrl.isNotEmpty)
+                      widget.giftImageUrl.startsWith('http')
+                          ? Image.network(widget.giftImageUrl, width: 20, height: 20, errorBuilder: (_, __, ___) => const Text("🎁", style: TextStyle(fontSize: 16)))
+                          : Image.asset(widget.giftImageUrl, width: 20, height: 20, errorBuilder: (_, __, ___) => const Text("🎁", style: TextStyle(fontSize: 16)))
+                    else
+                      const Text("🎁", style: TextStyle(fontSize: 16)),
                     const Gap(6),
                     Flexible(
                       child: Text(
-                        "${widget.senderName} sent Bell to ${widget.receiverName}",
+                        "${widget.senderName} sent ${widget.giftName} to ${widget.receiverName}",
                         style: const TextStyle(
                           color: Colors.amberAccent,
                           fontWeight: FontWeight.w800,
@@ -118,7 +131,12 @@ class _BellWinningDialogState extends State<BellWinningDialog> {
                       ),
                     ),
                     const Gap(6),
-                    const Text("🔔", style: TextStyle(fontSize: 16)),
+                    if (widget.giftImageUrl.isNotEmpty)
+                      widget.giftImageUrl.startsWith('http')
+                          ? Image.network(widget.giftImageUrl, width: 20, height: 20, errorBuilder: (_, __, ___) => const Text("🎁", style: TextStyle(fontSize: 16)))
+                          : Image.asset(widget.giftImageUrl, width: 20, height: 20, errorBuilder: (_, __, ___) => const Text("🎁", style: TextStyle(fontSize: 16)))
+                    else
+                      const Text("🎁", style: TextStyle(fontSize: 16)),
                   ],
                 ),
               ),
@@ -150,7 +168,7 @@ class _BellWinningDialogState extends State<BellWinningDialog> {
                         ),
                   ],
 
-                  // Main Bell Graphic
+                  // Main Bell/Gift Graphic
                   Container(
                     width: 120,
                     height: 120,
@@ -169,15 +187,22 @@ class _BellWinningDialogState extends State<BellWinningDialog> {
                       ],
                     ),
                     child: Center(
-                      child: Text(
-                        isWin ? "🔔" : "🛎️",
-                        style: TextStyle(
-                          fontSize: 64,
-                          shadows: isWin
-                              ? [const Shadow(color: Colors.amber, blurRadius: 20)]
-                              : null,
-                        ),
-                      ),
+                      child: widget.giftImageUrl.isNotEmpty
+                          ? Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: widget.giftImageUrl.startsWith('http')
+                                  ? Image.network(widget.giftImageUrl, fit: BoxFit.contain)
+                                  : Image.asset(widget.giftImageUrl, fit: BoxFit.contain),
+                            )
+                          : Text(
+                              isWin ? "🔔" : "🛎️",
+                              style: TextStyle(
+                                fontSize: 64,
+                                shadows: isWin
+                                    ? [const Shadow(color: Colors.amber, blurRadius: 20)]
+                                    : null,
+                              ),
+                            ),
                     ),
                   )
                       .animate()

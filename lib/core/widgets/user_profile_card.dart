@@ -106,7 +106,11 @@ class UserProfileCard extends StatelessWidget {
     String? crownPath;
     String? stripPath;
 
-    if (user.equippedCrown.isNotEmpty && user.equippedCrown != 'none') {
+    final bool isExplicitNoneCrown = user.equippedCrown.toLowerCase() == 'none';
+
+    if (isExplicitNoneCrown) {
+      crownPath = null;
+    } else if (user.equippedCrown.isNotEmpty) {
       crownPath = user.equippedCrown;
     } else if (user.badgeIcon.isNotEmpty && user.badgeIcon != 'none') {
       crownPath = user.badgeIcon;

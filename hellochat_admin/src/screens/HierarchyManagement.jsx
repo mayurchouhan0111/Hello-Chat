@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { db, functions } from '../firebase';
 import { collection, query, getDocs, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
+import { listScopedUsers, asDocList } from '../lib/scopedUsers';
 import { Shield, Users, UserCheck, Building2, Crown, Search, Filter, Plus, Network, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 
@@ -38,23 +39,12 @@ export const HierarchyManagement = () => {
         }
       }
 
-      // 2. Fetch Users with Strict Branch Sandboxing
-      let q;
-      if (isOwner) {
-        // Owner sees global accounts
-        q = query(collection(db, "users"));
-      } else if (isSuperAdmin && branchId) {
-        // Super Admin sandboxed to own branch
-        q = query(collection(db, "users"), where("branchId", "==", branchId));
-      } else if (isAdminRole && authUser?.uid) {
-        // Admin sandboxed to supervised accounts
-        q = query(collection(db, "users"), where("adminId", "==", authUser.uid));
-      } else {
-        q = query(collection(db, "users"), where("role", "==", "host"));
-      }
-
-      const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // 2. Fetch users through the sandboxed callable.
+      // This used to build the branch/admin/role WHERE clause in the browser and
+      // trust it. The server now derives that scope from the caller's own
+      // resolved hierarchy, so a tampered build cannot widen it - and the
+      // unfiltered `getDocs(collection(db,'users'))` below is denied by rules.
+      const list = asDocList(await listScopedUsers());
       setUsers(list);
     } catch (e) {
       console.error("Hierarchy fetch error:", e);

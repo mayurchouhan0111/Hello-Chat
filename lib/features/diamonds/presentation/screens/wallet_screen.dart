@@ -414,7 +414,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                     iconColor: Colors.cyan[300],
                     title: "Reseller Recharge",
                     subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.020",
-                    onTap: () {}, // Simulation Disabled
+                    onTap: () => context.push(AppRoutes.resellerList),
                   ),
                 ]),
 

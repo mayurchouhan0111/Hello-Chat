@@ -8,7 +8,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/router/app_router.dart';
@@ -108,6 +110,38 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
     "Chill & Lo-Fi Beats 🎧",
     "Truth or Dare 🎲",
   ];
+
+  bool _isExistingRoom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingPermanentRoom();
+  }
+
+  Future<void> _checkExistingPermanentRoom() async {
+    final uid = ref.read(authStateProvider).value?.uid;
+    if (uid == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('rooms').doc('room_$uid').get();
+      if (doc.exists && doc.data() != null && mounted) {
+        final data = doc.data()!;
+        setState(() {
+          _isExistingRoom = true;
+          if ((data['name'] as String?)?.isNotEmpty == true) {
+            _nameController.text = data['name'];
+          }
+          if ((data['theme'] as String?)?.isNotEmpty == true) {
+            _selectedTheme = data['theme'];
+          }
+          if (data['capacity'] is num) {
+            _capacity = (data['capacity'] as num).toInt();
+          }
+          _isPrivate = data['isPrivate'] == true;
+        });
+      }
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -1008,7 +1042,7 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
                   const Icon(Icons.rocket_launch_rounded, color: Colors.white, size: 20),
                   const Gap(10),
                   Text(
-                    "START LIVE BROADCAST",
+                    _isExistingRoom ? "RESUME LIVE BROADCAST" : "START LIVE BROADCAST",
                     style: GoogleFonts.plusJakartaSans(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,

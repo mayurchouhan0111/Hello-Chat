@@ -28,8 +28,10 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: periods.length, vsync: this)
-      ..addListener(() => setState(() {}));
+    // No setState listener here: TabBar and TabBarView already subscribe to the
+    // controller, and rebuilding on every animation tick handed each child a
+    // brand-new Firestore stream mid-swipe (visible flicker, refetch per frame).
+    _tabController = TabController(length: periods.length, vsync: this);
   }
 
   @override
@@ -64,11 +66,6 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
     final yearStart = DateTime.utc(thursday.year, 1, 1);
     final weekNo = ((thursday.difference(yearStart).inDays) / 7).floor() + 1;
     return '${thursday.year}-W${weekNo.toString().padLeft(2, '0')}';
-  }
-
-  int _ordinalDate(DateTime date) {
-    final startOfYear = DateTime.utc(date.year, 1, 1);
-    return date.difference(startOfYear).inDays + 1;
   }
 
   Stream<QuerySnapshot> _leaderboardStream(String period) {
@@ -110,15 +107,27 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
             ),
             child: TabBar(
               controller: _tabController,
-              isScrollable: true,
+              // Equal-width tabs, evenly distributed. `isScrollable: true`
+              // left-hugged the three short labels against the back button.
+              isScrollable: false,
+              tabAlignment: TabAlignment.fill,
+              labelPadding: const EdgeInsets.symmetric(horizontal: 2),
               dividerColor: Colors.transparent,
               indicatorColor: const Color(0xFFFFD700),
               indicatorWeight: 3,
-              indicatorSize: TabBarIndicatorSize.label,
+              indicatorSize: TabBarIndicatorSize.tab,
               labelColor: Colors.black,
-              unselectedLabelColor: Colors.grey[400],
-              labelStyle: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
-              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+              unselectedLabelColor: const Color(0xFF94A3B8),
+              labelStyle: const TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 14,
+                letterSpacing: 0.6,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+                letterSpacing: 0.6,
+              ),
               tabs: const [
                 Tab(text: "DAILY"),
                 Tab(text: "WEEKLY"),
@@ -132,7 +141,7 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
         controller: _tabController,
         children: periods
             .map((p) => _LeaderboardTab(
-                  stream: _leaderboardStream(p),
+                  streamFactory: () => _leaderboardStream(p),
                   roomId: widget.roomId,
                   accentColor: p == 'daily'
                       ? const Color(0xFFFF6A88)
@@ -146,65 +155,116 @@ class _RoomGiftLeaderboardScreenState extends State<RoomGiftLeaderboardScreen>
   }
 }
 
-class _LeaderboardTab extends StatelessWidget {
-  final Stream<QuerySnapshot> stream;
+class _LeaderboardTab extends StatefulWidget {
+  final Stream<QuerySnapshot> Function() streamFactory;
   final String roomId;
   final Color accentColor;
 
   const _LeaderboardTab({
-    required this.stream,
+    required this.streamFactory,
     required this.roomId,
     required this.accentColor,
   });
 
   @override
+  State<_LeaderboardTab> createState() => _LeaderboardTabState();
+}
+
+class _LeaderboardTabState extends State<_LeaderboardTab> {
+  late Stream<QuerySnapshot> _stream;
+  late Stream<QuerySnapshot> _fallback;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+  }
+
+  void _subscribe() {
+    // Subscribed once per tab (and again only on pull-to-refresh / retry) so a
+    // parent rebuild cannot hand us a new stream and blank the screen.
+    _stream = widget.streamFactory();
+    // Fallback: live participant totals, used only while the period buckets are
+    // still empty because the cloud function has not written them yet.
+    _fallback = FirebaseFirestore.instance
+        .collection('rooms')
+        .doc(widget.roomId)
+        .collection('participants')
+        .where('diamondsSent', isGreaterThan: 0)
+        .orderBy('diamondsSent', descending: true)
+        .limit(100)
+        .snapshots();
+  }
+
+  Future<void> _refresh() async {
+    setState(_subscribe);
+    // Keep the indicator visible long enough to register on a fast local read.
+    await Future.delayed(const Duration(milliseconds: 400));
+  }
+
+  List<_LeaderboardEntry> _mapDocs(
+    List<QueryDocumentSnapshot> docs,
+    String nameKey,
+    String photoKey,
+    String amountKey,
+  ) {
+    return docs.map((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final rawName = data[nameKey] as String?;
+      return _LeaderboardEntry(
+        uid: doc.id,
+        name: (rawName != null && rawName.isNotEmpty) ? rawName : 'User',
+        photoUrl: (data[photoKey] as String?) ?? '',
+        amount: (data[amountKey] as num?)?.toInt() ?? 0,
+      );
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: stream,
-      builder: (context, snapshot) {
-        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      color: widget.accentColor,
+      backgroundColor: Colors.white,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: _stream,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return _StatusBody(child: _ErrorState(onRetry: _refresh));
+          }
+          if (!snapshot.hasData) {
+            return const _StatusBody(child: _LoadingState());
+          }
+
           final docs = snapshot.data!.docs;
-          final items = docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
-            return _LeaderboardEntry(
-              uid: doc.id,
-              name: (data['name'] as String?)?.isNotEmpty == true ? data['name'] as String : 'User',
-              photoUrl: (data['photoUrl'] as String?) ?? '',
-              amount: (data['amount'] as num?)?.toInt() ?? 0,
+          if (docs.isNotEmpty) {
+            return _buildLeaderboardContent(
+              context,
+              _mapDocs(docs, 'name', 'photoUrl', 'amount'),
             );
-          }).toList();
+          }
 
-          return _buildLeaderboardContent(context, items);
-        }
-
-        // Fallback: Read real-time room participants ordered by diamondsSent
-        return StreamBuilder<QuerySnapshot>(
-          stream: FirebaseFirestore.instance
-              .collection('rooms')
-              .doc(roomId)
-              .collection('participants')
-              .where('diamondsSent', isGreaterThan: 0)
-              .orderBy('diamondsSent', descending: true)
-              .limit(100)
-              .snapshots(),
-          builder: (context, partSnap) {
-            if (partSnap.hasData && partSnap.data!.docs.isNotEmpty) {
-              final items = partSnap.data!.docs.map((doc) {
-                final data = doc.data() as Map<String, dynamic>;
-                return _LeaderboardEntry(
-                  uid: doc.id,
-                  name: (data['name'] as String?)?.isNotEmpty == true ? data['name'] as String : 'User',
-                  photoUrl: (data['profilePhotoUrl'] as String?) ?? '',
-                  amount: (data['diamondsSent'] as num?)?.toInt() ?? 0,
+          return StreamBuilder<QuerySnapshot>(
+            stream: _fallback,
+            builder: (context, partSnap) {
+              if (partSnap.hasError) {
+                return _StatusBody(child: _ErrorState(onRetry: _refresh));
+              }
+              if (!partSnap.hasData) {
+                return const _StatusBody(child: _LoadingState());
+              }
+              final fdocs = partSnap.data!.docs;
+              if (fdocs.isNotEmpty) {
+                return _buildLeaderboardContent(
+                  context,
+                  _mapDocs(fdocs, 'name', 'profilePhotoUrl', 'diamondsSent'),
                 );
-              }).toList();
-              return _buildLeaderboardContent(context, items);
-            }
-
-            return const _EmptyState();
-          },
-        );
-      },
+              }
+              return const _StatusBody(child: _EmptyState());
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -215,12 +275,18 @@ class _LeaderboardTab extends StatelessWidget {
     final rest = items.length > 3 ? items.sublist(3) : <_LeaderboardEntry>[];
 
     return SingleChildScrollView(
-      physics: const BouncingScrollPhysics(),
+      // AlwaysScrollable so pull-to-refresh works even on a short list.
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         children: [
           // 1. Luxury Podium for Top 3
           if (top1 != null)
-            _PodiumSection(top1: top1, top2: top2, top3: top3, accentColor: accentColor),
+            _PodiumSection(
+              top1: top1,
+              top2: top2,
+              top3: top3,
+              accentColor: widget.accentColor,
+            ),
 
           // 2. Ranked List for #4+
           if (rest.isNotEmpty)
@@ -235,7 +301,7 @@ class _LeaderboardTab extends StatelessWidget {
                 return _RankCard(
                   rank: index + 4,
                   entry: item,
-                  accentColor: accentColor,
+                  accentColor: widget.accentColor,
                 ).animate().fadeIn(delay: Duration(milliseconds: (index * 30).clamp(0, 500)));
               },
             ),
@@ -555,54 +621,6 @@ class _RankCard extends StatelessWidget {
   }
 }
 
-class _FallbackLeaderboardList extends StatelessWidget {
-  final List<MapEntry<String, dynamic>> entries;
-  final Color accentColor;
-
-  const _FallbackLeaderboardList({
-    required this.entries,
-    required this.accentColor,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      itemCount: entries.length,
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        final uid = entry.key;
-        final amount = (entry.value as num).toInt();
-
-        return StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance.collection('users').doc(uid).snapshots(),
-          builder: (context, userSnap) {
-            final userData = userSnap.data?.data() as Map<String, dynamic>? ?? {};
-            final name = (userData['displayName'] as String?) ?? 'User';
-            final photoUrl = (userData['profilePhotoUrl'] as String?) ?? '';
-
-            final item = _LeaderboardEntry(
-              uid: uid,
-              name: name,
-              photoUrl: photoUrl,
-              amount: amount,
-            );
-
-            if (index == 0) {
-              return _PodiumSection(top1: item, accentColor: accentColor);
-            }
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _RankCard(rank: index + 1, entry: item, accentColor: accentColor),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 
@@ -623,6 +641,90 @@ class _EmptyState extends StatelessWidget {
             "Gift diamonds in this room to climb the ranking.",
             textAlign: TextAlign.center,
             style: TextStyle(color: Colors.black26, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Centres [child] against the full viewport while staying scrollable, so a
+/// `RefreshIndicator` can still be pulled when a tab is showing a status
+/// message instead of a list.
+class _StatusBody extends StatelessWidget {
+  final Widget child;
+
+  const _StatusBody({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _LoadingState extends StatelessWidget {
+  const _LoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFFFFD700)),
+          ),
+          SizedBox(height: 14),
+          Text(
+            "Loading ranking…",
+            style: TextStyle(color: Colors.black38, fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final Future<void> Function() onRetry;
+
+  const _ErrorState({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.wifi_off_rounded, color: Colors.black26, size: 56),
+          const SizedBox(height: 12),
+          const Text(
+            "Couldn't load ranking",
+            style: TextStyle(color: Colors.black38, fontWeight: FontWeight.w900, fontSize: 15),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            "Check your connection and try again.",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.black26, fontSize: 12, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            label: const Text("RETRY"),
           ),
         ],
       ),

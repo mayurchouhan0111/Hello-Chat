@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
+import '../models/reseller_model.dart';
 import 'base_firebase_service.dart';
 
 class ResellerService extends BaseFirebaseService {
@@ -40,53 +42,88 @@ class ResellerService extends BaseFirebaseService {
       return txs.map((t) => castMap(t)).toList();
     });
   }
-  Stream<List<Map<String, dynamic>>> getActiveResellers() {
-    return _db.collection('users')
+
+  /// Real-time stream of ONLY active and approved merchants / resellers.
+  /// Strictly filters out any disabled or inactive resellers.
+  Stream<List<ResellerModel>> getActiveResellers() {
+    // `users` is hierarchy-locked; `publicUsers` carries the same isReseller
+    // flag. Contact/balance fields come from the dedicated `resellers` docs
+    // (mirrored on promotion), which win the merge below.
+    final usersStream = _db
+        .collection('publicUsers')
         .where('isReseller', isEqualTo: true)
         .snapshots()
-        .map((snap) {
-          if (snap.docs.isEmpty) {
-            return _defaultSampleResellers;
+        .map((snap) => snap.docs
+            .map((doc) => ResellerModel.fromMap(doc.data(), doc.id))
+            .where((r) => r.isActive)
+            .toList())
+        .handleError((_) => <ResellerModel>[]);
+
+    // Combine both streams with deduplication by userId / resellerId
+    return usersStream.asyncMap((userResellers) async {
+      try {
+        final dedicatedSnap = await _db
+            .collection('resellers')
+            .where('status', isEqualTo: 'ACTIVE')
+            .get();
+        final dedicatedResellers = dedicatedSnap.docs
+            .map((doc) => ResellerModel.fromMap(doc.data(), doc.id))
+            .where((r) => r.isActive)
+            .toList();
+
+        final Map<String, ResellerModel> merged = {};
+        for (final r in dedicatedResellers) {
+          merged[r.userId.isNotEmpty ? r.userId : r.resellerId] = r;
+        }
+        for (final r in userResellers) {
+          final key = r.userId.isNotEmpty ? r.userId : r.resellerId;
+          if (!merged.containsKey(key)) {
+            merged[key] = r;
           }
-          return snap.docs.map((doc) {
-            final data = doc.data();
-            return {
-              'uid': doc.id,
-              'displayName': data['displayName'] ?? data['username'] ?? 'Official Reseller',
-              'helloId': data['helloId']?.toString() ?? data['displayId']?.toString() ?? '888001',
-              'profilePhotoUrl': data['profilePhotoUrl'] ?? '',
-              'whatsappNumber': data['phoneNumber'] ?? '+601112280539',
-              'status': data['status'] ?? 'Online',
-              'discountRate': 'Official 5% Bonus',
-            };
-          }).toList();
-        }).handleError((_) => _defaultSampleResellers);
+        }
+
+        final list = merged.values.where((r) => r.isActive).toList();
+        if (list.isEmpty) {
+          return _defaultSampleResellers;
+        }
+        return list;
+      } catch (_) {
+        if (userResellers.isNotEmpty) {
+          return userResellers.where((r) => r.isActive).toList();
+        }
+        return _defaultSampleResellers;
+      }
+    }).handleError((_) => _defaultSampleResellers);
   }
 
-  static const List<Map<String, dynamic>> _defaultSampleResellers = [
-    {
-      'uid': 'reseller_official_1',
-      'displayName': 'Global Diamond Reseller #1',
-      'helloId': '97702581',
-      'profilePhotoUrl': 'https://picsum.photos/seed/reseller1/200',
-      'whatsappNumber': '+601112280539',
-      'status': 'Online 24/7',
-      'discountRate': '5% Bonus Coins',
-    },
-    {
-      'uid': 'reseller_official_2',
-      'displayName': 'Speedy Recharge Merchant',
-      'helloId': '10079037',
-      'profilePhotoUrl': 'https://picsum.photos/seed/reseller2/200',
-      'whatsappNumber': '+601112280539',
-      'status': 'Fast Delivery',
-      'discountRate': 'Instant Credit',
-    },
+  static const List<ResellerModel> _defaultSampleResellers = [
+    ResellerModel(
+      resellerId: '97702581',
+      userId: 'reseller_official_1',
+      name: 'Global Diamond Reseller',
+      avatarUrl: 'https://picsum.photos/seed/reseller1/200',
+      countryFlag: '🇲🇾',
+      whatsappNumber: '+601112280539',
+      coinBalance: 100000000,
+      isOnline: true,
+      status: 'ACTIVE',
+    ),
+    ResellerModel(
+      resellerId: '10079037',
+      userId: 'reseller_official_2',
+      name: 'Speedy Recharge Merchant',
+      avatarUrl: 'https://picsum.photos/seed/reseller2/200',
+      countryFlag: '🇲🇾',
+      whatsappNumber: '+601112280539',
+      coinBalance: 150000000,
+      isOnline: true,
+      status: 'ACTIVE',
+    ),
   ];
 }
 
 final resellerServiceProvider = Provider<ResellerService>((ref) => ResellerService());
 
-final activeResellersProvider = StreamProvider<List<Map<String, dynamic>>>((ref) {
+final activeResellersProvider = StreamProvider<List<ResellerModel>>((ref) {
   return ref.watch(resellerServiceProvider).getActiveResellers();
 });

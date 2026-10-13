@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
+import { listScopedUsers } from '../lib/scopedUsers';
 import { motion } from 'framer-motion';
 
 export const DashboardHome = () => {
@@ -46,18 +47,44 @@ export const DashboardHome = () => {
   }, [isAgencyOwner, isAdmin, authLoading, navigate]);
 
   useEffect(() => {
-    // Real-time telemetry snapshots
-    const unsubUsers = onSnapshot(collection(db, "users"), (snap) => {
-      setStats(prev => ({ ...prev, totalUsers: snap.size }));
-    });
+    // Real-time telemetry snapshots.
+    //
+    // `users` is `allow list: if isOwner()` in firestore.rules, so a raw
+    // onSnapshot(collection(db,'users')) is permission-denied for every tier
+    // below Owner and throws an UNCAUGHT listener error (the old dashboard
+    // silently reported 0). Counts and the 7-day velocity both come from the
+    // scoped callable instead - a non-Owner sees their own scope, an Owner sees
+    // everything, and nobody gets an error.
+    const onListenerError = (err) => console.warn('[dashboard] listener denied:', err?.message);
+    let cancelled = false;
+
+    listScopedUsers()
+      .then((list) => {
+        if (cancelled) return;
+        const now = Date.now();
+        const counts = [0, 0, 0, 0, 0, 0, 0];
+        list.forEach((u) => {
+          const raw = u.createdAt;
+          const d = raw?.toDate ? raw.toDate() : (raw?.seconds ? new Date(raw.seconds * 1000) : null);
+          if (!d) return;
+          const diff = Math.floor((now - d.getTime()) / 86400000);
+          if (diff >= 0 && diff < 7) counts[6 - diff]++;
+        });
+        setStats(prev => ({ ...prev, totalUsers: list.length, velocityData: counts }));
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.warn('[dashboard] scoped user count:', err?.message);
+        if (!cancelled) setLoading(false);
+      });
 
     const unsubRooms = onSnapshot(collection(db, "rooms"), (snap) => {
       setStats(prev => ({ ...prev, activeRooms: snap.size }));
-    });
+    }, onListenerError);
 
     const unsubPKs = onSnapshot(query(collection(db, "rooms"), where("pkActive", "==", true)), (snap) => {
       setStats(prev => ({ ...prev, activePKs: snap.size }));
-    });
+    }, onListenerError);
 
     const unsubRevenue = onSnapshot(query(collection(db, "recharges"), where("status", "==", "approved")), (snap) => {
       let rev = 0;
@@ -66,7 +93,7 @@ export const DashboardHome = () => {
         rev += data.price || (data.amount / 100);
       });
       setStats(prev => ({ ...prev, totalRevenue: rev }));
-    });
+    }, onListenerError);
 
     const qReports = query(collection(db, "reports"), limit(10)); // Fetch more for manual sorting
     const unsubReports = onSnapshot(qReports, (snap) => {
@@ -80,42 +107,14 @@ export const DashboardHome = () => {
         ...prev, 
         recentReports: list.slice(0, 4) 
       }));
-    });
-
-    // Velocity Data (Last 7 Days Registrations)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    
-    const qVelocity = query(
-      collection(db, "users"), 
-      where("createdAt", ">=", sevenDaysAgo)
-    );
-
-    const unsubVelocity = onSnapshot(qVelocity, (snap) => {
-      const counts = [0, 0, 0, 0, 0, 0, 0];
-      const now = new Date();
-      
-      snap.docs.forEach(doc => {
-        const date = doc.data().createdAt?.toDate();
-        if (date) {
-          const diff = Math.floor((now - date) / (1000 * 60 * 60 * 24));
-          if (diff >= 0 && diff < 7) {
-            counts[6 - diff]++;
-          }
-        }
-      });
-      
-      setStats(prev => ({ ...prev, velocityData: counts }));
-      setLoading(false);
-    });
+    }, onListenerError);
 
     return () => {
-      unsubUsers();
+      cancelled = true;
       unsubRooms();
       unsubPKs();
       unsubRevenue();
       unsubReports();
-      unsubVelocity();
     };
   }, []);
 

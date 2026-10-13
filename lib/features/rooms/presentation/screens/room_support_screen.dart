@@ -8,7 +8,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/providers/room_support_provider.dart';
-import '../../../../core/models/salary_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
@@ -104,17 +103,33 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
         setState(() => _isResolving = false);
         return;
       }
+      // 1. Direct lookup of permanent room record
+      final permDoc = await FirebaseFirestore.instance.collection('rooms').doc('room_$uid').get();
+      if (permDoc.exists && mounted) {
+        setState(() => _resolvedRoomId = permDoc.id);
+        return;
+      }
+
+      // 2. Query any room owned by this user
       final snap = await FirebaseFirestore.instance
           .collection('rooms')
           .where('ownerUid', isEqualTo: uid)
-          .where('status', isEqualTo: 'active')
           .limit(1)
           .get();
       if (snap.docs.isNotEmpty && mounted) {
         setState(() => _resolvedRoomId = snap.docs.first.id);
+      } else if (mounted) {
+        // Fallback to permanent room ID format so support streams can establish
+        setState(() => _resolvedRoomId = 'room_$uid');
       }
-    } catch (_) {}
-    if (mounted) setState(() => _isResolving = false);
+    } catch (_) {
+      if (mounted) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) setState(() => _resolvedRoomId = 'room_$uid');
+      }
+    } finally {
+      if (mounted) setState(() => _isResolving = false);
+    }
   }
 
   void _startTimer() {
@@ -154,8 +169,91 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
 
   List<Map<String, dynamic>> _configLevels() {
     final config = ref.watch(roomSupportConfigProvider).valueOrNull;
-    final raw = (config?['levels'] as List<dynamic>?) ?? _defaultLevels();
-    return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    final levelsRaw = config?['levels'];
+    List<dynamic>? rawList;
+    if (levelsRaw is List) {
+      rawList = levelsRaw;
+    } else if (levelsRaw is Map) {
+      rawList = levelsRaw.values.toList();
+    }
+    final raw = (rawList != null && rawList.isNotEmpty) ? rawList : _defaultLevels();
+    final list = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    final candidate = list.isNotEmpty ? list : _defaultLevels();
+    return _autoResolveSequentialLevels(candidate);
+  }
+
+  /// Automatically validates and resolves room support target levels so targets are
+  /// guaranteed to be strictly sequential and monotonically increasing (each level > previous).
+  List<Map<String, dynamic>> _autoResolveSequentialLevels(List<Map<String, dynamic>> levels) {
+    if (levels.isEmpty) return _defaultLevels();
+
+    // 1. Sort by level number ascending
+    final sorted = levels.map((e) => Map<String, dynamic>.from(e)).toList()
+      ..sort((a, b) => ((a['level'] as num?)?.toInt() ?? 0).compareTo((b['level'] as num?)?.toInt() ?? 0));
+
+    final canonical = _defaultLevels();
+    final canonicalMap = {
+      for (final c in canonical) (c['level'] as num?)?.toInt() ?? 0: c
+    };
+
+    // 2. Check for sequence errors (e.g. non-monotonic targets, Level 7 = 50M vs Level 8 = 8M)
+    int prevTarget = 0;
+    bool hasInversion = false;
+    for (int i = 0; i < sorted.length; i++) {
+      final target = (sorted[i]['coinsTarget'] as num?)?.toInt() ?? 0;
+      if (target <= prevTarget) {
+        hasInversion = true;
+        break;
+      }
+      prevTarget = target;
+    }
+
+    if (hasInversion) {
+      // Auto-correct anomalous levels against canonical progressive targets
+      for (int i = 0; i < sorted.length; i++) {
+        final lvlNum = (sorted[i]['level'] as num?)?.toInt() ?? (i + 1);
+        final canon = canonicalMap[lvlNum];
+        if (canon != null) {
+          final canonTarget = (canon['coinsTarget'] as num?)?.toInt() ?? 0;
+          final currentTarget = (sorted[i]['coinsTarget'] as num?)?.toInt() ?? 0;
+          final prevCurrentTarget = i > 0 ? ((sorted[i - 1]['coinsTarget'] as num?)?.toInt() ?? 0) : 0;
+          final nextCurrentTarget = (i < sorted.length - 1) ? ((sorted[i + 1]['coinsTarget'] as num?)?.toInt() ?? 0) : 100000000000;
+
+          if (currentTarget <= prevCurrentTarget || (nextCurrentTarget > 0 && currentTarget >= nextCurrentTarget)) {
+            sorted[i]['coinsTarget'] = canonTarget;
+            sorted[i]['partnerSlots'] = canon['partnerSlots'];
+            sorted[i]['ownerReward'] = canon['ownerReward'];
+            sorted[i]['partnerReward'] = canon['partnerReward'];
+            sorted[i]['totalReward'] = canon['totalReward'];
+          }
+        }
+      }
+    }
+
+    // 3. Final progressive sanity pass: strictly enforce target[i] > target[i-1]
+    int lastTarget = 0;
+    for (int i = 0; i < sorted.length; i++) {
+      final lvlNum = (sorted[i]['level'] as num?)?.toInt() ?? (i + 1);
+      sorted[i]['level'] = lvlNum;
+      int target = (sorted[i]['coinsTarget'] as num?)?.toInt() ?? 0;
+      if (target <= lastTarget) {
+        final canon = canonicalMap[lvlNum];
+        if (canon != null && ((canon['coinsTarget'] as num?)?.toInt() ?? 0) > lastTarget) {
+          target = (canon['coinsTarget'] as num?)?.toInt() ?? (lastTarget + 100000);
+        } else {
+          target = lastTarget + 100000;
+        }
+        sorted[i]['coinsTarget'] = target;
+      }
+      lastTarget = target;
+
+      final pSlots = (sorted[i]['partnerSlots'] as num?)?.toInt() ?? 4;
+      final oReward = (sorted[i]['ownerReward'] as num?)?.toInt() ?? 0;
+      final pReward = (sorted[i]['partnerReward'] as num?)?.toInt() ?? 0;
+      sorted[i]['totalReward'] = (sorted[i]['totalReward'] as num?)?.toInt() ?? (oReward + (pReward * pSlots));
+    }
+
+    return sorted;
   }
 
   int _calculateLevel(int totalCoins, List<Map<String, dynamic>> levels) {
@@ -169,10 +267,21 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   int _getRequiredPartners(int level) {
-    if (level >= 6) return 7;
-    if (level == 5) return 6;
-    if (level == 4) return 5;
-    if (level >= 1) return 4;
+    if (level <= 0) return 4;
+    final levels = _configLevels();
+    for (final l in levels) {
+      if ((l['level'] as num?)?.toInt() == level) {
+        return (l['partnerSlots'] as num?)?.toInt() ?? 4;
+      }
+    }
+    if (level >= 18) return 12;
+    if (level >= 16) return 11;
+    if (level >= 14) return 10;
+    if (level >= 12) return 9;
+    if (level >= 10) return 8;
+    if (level >= 8) return 7;
+    if (level >= 6) return 6;
+    if (level >= 4) return 5;
     return 4; // Default minimum slots for visual grid
   }
 
@@ -471,9 +580,13 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
 
   // ─── 3B. TARGET SUMMARY HEADER CARD ──────────────────────────────────────────
   int _getWeeklyTargetCoins(int level, List<Map<String, dynamic>> levels) {
-    if (levels.isEmpty) return 0;
-    final idx = level.clamp(0, levels.length - 1);
-    return (levels[idx]['coinsTarget'] as num?)?.toInt() ?? 0;
+    if (levels.isEmpty) return 10000000;
+    final targetLevel = (level < levels.length) ? level + 1 : levels.length;
+    final match = levels.firstWhere(
+      (l) => (l['level'] as num?)?.toInt() == targetLevel,
+      orElse: () => levels.last,
+    );
+    return (match['coinsTarget'] as num?)?.toInt() ?? 10000000;
   }
 
   Widget _buildTargetSummaryHeaderCard(int totalCoins, int currentLevel) {
@@ -686,13 +799,17 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     // Ensure visitors is never negative
     visitors = visitors < 0 ? 0 : visitors;
 
-    int roomLevel = (cycle['level'] as num?)?.toInt() ?? _calculateLevel(totalCoins, _configLevels());
+    final levels = _configLevels();
+    final int roomLevel = _calculateLevel(totalCoins, levels);
 
-    int rewardCoins = (cycle['predictedRewardCoins'] as num?)?.toInt() ?? 0;
-    if (rewardCoins == 0 && roomLevel > 0) {
-      final levels = _defaultLevels();
-      final targetLvl = levels.firstWhere((l) => l['level'] == roomLevel, orElse: () => levels.first);
-      rewardCoins = (targetLvl['totalReward'] as num).toInt();
+    int rewardCoins = 0;
+    if (roomLevel > 0) {
+      final targetLvl = levels.firstWhere(
+        (l) => (l['level'] as num?)?.toInt() == roomLevel,
+        orElse: () => levels.first,
+      );
+      rewardCoins = (targetLvl['totalReward'] as num?)?.toInt() ?? 
+                    ((targetLvl['ownerReward'] as num?)?.toInt() ?? 0);
     }
     // Ensure rewardCoins is never negative
     rewardCoins = rewardCoins < 0 ? 0 : rewardCoins;
@@ -700,11 +817,18 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     final lastWeek = historyDocs.isNotEmpty ? historyDocs.first : {};
     int lastWeekCoins = (lastWeek['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
     lastWeekCoins = lastWeekCoins < 0 ? 0 : lastWeekCoins;
+    final lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, levels);
     int lastWeekReward = (lastWeek['totalReward'] as num?)?.toInt() ?? (cycle['lastWeekReward'] as num?)?.toInt() ?? 0;
+    if (lastWeekReward == 0 && lastWeekLevel > 0) {
+      final targetLvl = levels.firstWhere(
+        (l) => (l['level'] as num?)?.toInt() == lastWeekLevel,
+        orElse: () => levels.first,
+      );
+      lastWeekReward = (targetLvl['totalReward'] as num?)?.toInt() ?? 0;
+    }
     lastWeekReward = lastWeekReward < 0 ? 0 : lastWeekReward;
     int lastWeekVisitors = (lastWeek['visitorCount'] as num?)?.toInt() ?? 0;
     lastWeekVisitors = lastWeekVisitors < 0 ? 0 : lastWeekVisitors;
-    final lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, _configLevels());
 
     return Container(
       decoration: BoxDecoration(
@@ -807,10 +931,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
 
   // ─── 6. TARGET & REWARD CARD MATRIX (7 OFFICIAL LEVELS) ─────────────────────
   Widget _buildTargetAndRewardCard() {
-    final configAsync = ref.watch(roomSupportConfigProvider);
-    final config = configAsync.valueOrNull;
-    final raw = (config?['levels'] as List<dynamic>?) ?? _defaultLevels();
-    final levels = raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    final levels = _configLevels();
 
     return Container(
       decoration: BoxDecoration(
@@ -933,7 +1054,11 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   // ─── 7. SALARY PARTNER ASSIGNMENT CARD ──────────────────────────────────────
   Widget _buildPartnerManagementCard(String roomId, bool isOwner, int activeLevel, int requiredSlots) {
     final partnersAsync = ref.watch(roomSupportPartnersProvider(roomId));
-    final partners = partnersAsync.valueOrNull ?? [];
+    final rawPartners = partnersAsync.valueOrNull ?? [];
+    // Prior cycle partners are never shown outside Monday-Tuesday window (e.g. Wednesday after payout through Sunday)
+    final partners = _isAssignmentOpen
+        ? rawPartners.where((p) => RoomSupportService.isPartnerActiveForCycle(p)).toList()
+        : <Map<String, dynamic>>[];
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -995,12 +1120,12 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                 final partnerUid = p['partnerUid']?.toString() ?? p['uid']?.toString() ?? p['id']?.toString() ?? '';
                 if (partnerUid.isEmpty) return const SizedBox.shrink();
                 return StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('users').doc(partnerUid).snapshots(),
+                  stream: FirebaseFirestore.instance.collection('publicUsers').doc(partnerUid).snapshots(),
                   builder: (context, snap) {
                     final rawUserData = snap.data?.data();
                     final u = rawUserData is Map ? Map<String, dynamic>.from(rawUserData) : <String, dynamic>{};
-                    final name = u['displayName'] as String? ?? p['displayName'] as String? ?? 'Partner';
-                    final photoUrl = u['profilePhotoUrl'] as String? ?? p['photoUrl'] as String? ?? '';
+                    final name = u['displayName']?.toString() ?? p['displayName']?.toString() ?? 'Partner';
+                    final photoUrl = u['profilePhotoUrl']?.toString() ?? p['photoUrl']?.toString() ?? '';
 
                     return GestureDetector(
                       onTap: () {
@@ -1123,9 +1248,11 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     }
 
     if (activeLevel < 1) {
+      final levels = _configLevels();
+      final l1Target = levels.isNotEmpty ? ((levels.first['coinsTarget'] as num?)?.toInt() ?? 100000) : 100000;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Room must reach at least Level 1 (>= 10M coins) to assign salary partners."),
+        SnackBar(
+          content: Text("Room must reach at least Level 1 (>= ${_formatNum(l1Target)} coins) to assign salary partners."),
           backgroundColor: borderGold,
           behavior: SnackBarBehavior.floating,
         ),
@@ -1315,13 +1442,13 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
               final r = rankings[index];
               final totalCoins = (r['totalCoins'] as num?)?.toInt() ?? 0;
               final level = (r['level'] as num?)?.toInt() ?? _calculateLevel(totalCoins, _configLevels());
-              final coverUrl = r['coverUrl'] as String? ?? '';
+              final coverUrl = r['coverUrl']?.toString() ?? '';
               final roomName = r['roomName']?.toString() ?? 'Room ${r['roomId'] ?? ''}';
 
               return GestureDetector(
                 onTap: () {
-                  final targetRoomId = r['roomId'] as String?;
-                  if (targetRoomId != null) {
+                  final targetRoomId = r['roomId']?.toString();
+                  if (targetRoomId != null && targetRoomId.isNotEmpty) {
                     context.push('/room/$targetRoomId');
                   }
                 },
@@ -1456,7 +1583,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
                               final level = (doc['achievedLevel'] as num?)?.toInt() ?? 0;
                               final ownerReward = (doc['ownerReward'] as num?)?.toInt() ?? 0;
                               final partnerReward = (doc['partnerReward'] as num?)?.toInt() ?? 0;
-                              final status = doc['distributionStatus'] as String? ?? 'pending';
+                              final status = doc['distributionStatus']?.toString() ?? 'pending';
 
                               Color statusColor = Colors.amber;
                               String statusLabel = 'Pending';
@@ -1527,28 +1654,44 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   String _formatNum(num n) {
-    if (n >= 1000000000) return '${(n / 1000000000).toStringAsFixed(0)}B';
-    if (n >= 1000000) return '${(n / 1000000).toStringAsFixed(0)}M';
-    if (n >= 1000) return '${(n / 1000).toStringAsFixed(0)}K';
+    if (n >= 1000000000) {
+      final val = n / 1000000000;
+      return val % 1 == 0 ? '${val.toInt()}B' : '${val.toStringAsFixed(1)}B';
+    }
+    if (n >= 1000000) {
+      final val = n / 1000000;
+      return val % 1 == 0 ? '${val.toInt()}M' : '${val.toStringAsFixed(1)}M';
+    }
+    if (n >= 1000) {
+      final val = n / 1000;
+      return val % 1 == 0 ? '${val.toInt()}K' : '${val.toStringAsFixed(1)}K';
+    }
     return n.toString();
   }
 
   List<Map<String, dynamic>> _defaultLevels() {
-    final levels = SalaryLevel.allLevels.map((salaryLevel) {
-      final target = salaryLevel.targetBeans;
-      final ownerReward = salaryLevel.hostShare.toInt();
-      final partnerReward = salaryLevel.agencyShare.toInt();
-      final totalReward = (salaryLevel.hostShare + salaryLevel.agencyShare).toInt();
-      return {
-        'level': salaryLevel.level,
-        'coinsTarget': target,
-        'partnerSlots': 4,
-        'ownerReward': ownerReward,
-        'partnerReward': partnerReward,
-        'totalReward': totalReward,
-      };
-    }).toList(growable: false);
-    return levels.take(7).toList();
+    return const [
+      {'level': 1, 'coinsTarget': 100000, 'partnerSlots': 4, 'ownerReward': 11250, 'partnerReward': 1875, 'totalReward': 18750},
+      {'level': 2, 'coinsTarget': 300000, 'partnerSlots': 4, 'ownerReward': 32850, 'partnerReward': 4050, 'totalReward': 49050},
+      {'level': 3, 'coinsTarget': 500000, 'partnerSlots': 4, 'ownerReward': 49700, 'partnerReward': 5075, 'totalReward': 70000},
+      {'level': 4, 'coinsTarget': 1000000, 'partnerSlots': 5, 'ownerReward': 96600, 'partnerReward': 8680, 'totalReward': 140000},
+      {'level': 5, 'coinsTarget': 2000000, 'partnerSlots': 5, 'ownerReward': 200000, 'partnerReward': 18000, 'totalReward': 290000},
+      {'level': 6, 'coinsTarget': 3500000, 'partnerSlots': 6, 'ownerReward': 360000, 'partnerReward': 30000, 'totalReward': 540000},
+      {'level': 7, 'coinsTarget': 5000000, 'partnerSlots': 6, 'ownerReward': 525000, 'partnerReward': 45000, 'totalReward': 795000},
+      {'level': 8, 'coinsTarget': 8000000, 'partnerSlots': 7, 'ownerReward': 840000, 'partnerReward': 70000, 'totalReward': 1330000},
+      {'level': 9, 'coinsTarget': 12000000, 'partnerSlots': 7, 'ownerReward': 1280000, 'partnerReward': 100000, 'totalReward': 1980000},
+      {'level': 10, 'coinsTarget': 18000000, 'partnerSlots': 8, 'ownerReward': 1950000, 'partnerReward': 150000, 'totalReward': 3150000},
+      {'level': 11, 'coinsTarget': 25000000, 'partnerSlots': 8, 'ownerReward': 2750000, 'partnerReward': 200000, 'totalReward': 4350000},
+      {'level': 12, 'coinsTarget': 35000000, 'partnerSlots': 9, 'ownerReward': 3900000, 'partnerReward': 280000, 'totalReward': 6420000},
+      {'level': 13, 'coinsTarget': 50000000, 'partnerSlots': 9, 'ownerReward': 5600000, 'partnerReward': 400000, 'totalReward': 9200000},
+      {'level': 14, 'coinsTarget': 75000000, 'partnerSlots': 10, 'ownerReward': 8500000, 'partnerReward': 600000, 'totalReward': 14500000},
+      {'level': 15, 'coinsTarget': 100000000, 'partnerSlots': 10, 'ownerReward': 11500000, 'partnerReward': 850000, 'totalReward': 20000000},
+      {'level': 16, 'coinsTarget': 150000000, 'partnerSlots': 11, 'ownerReward': 17500000, 'partnerReward': 1250000, 'totalReward': 31250000},
+      {'level': 17, 'coinsTarget': 200000000, 'partnerSlots': 11, 'ownerReward': 23500000, 'partnerReward': 1700000, 'totalReward': 42200000},
+      {'level': 18, 'coinsTarget': 300000000, 'partnerSlots': 12, 'ownerReward': 35500000, 'partnerReward': 2500000, 'totalReward': 65500000},
+      {'level': 19, 'coinsTarget': 450000000, 'partnerSlots': 12, 'ownerReward': 54000000, 'partnerReward': 3800000, 'totalReward': 99600000},
+      {'level': 20, 'coinsTarget': 600000000, 'partnerSlots': 12, 'ownerReward': 72000000, 'partnerReward': 5000000, 'totalReward': 132000000},
+    ];
   }
 }
 
@@ -1634,7 +1777,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
 
       // 1. Direct UID lookup
       try {
-        final uidDoc = await _db.collection('users').doc(query).get();
+        final uidDoc = await _db.collection('publicUsers').doc(query).get();
         if (uidDoc.exists) {
           results.add(uidDoc);
         }
@@ -1644,7 +1787,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       if (parsedInt != null) {
         try {
           final helloSnap = await _db
-              .collection('users')
+              .collection('publicUsers')
               .where('helloId', isEqualTo: parsedInt)
               .limit(10)
               .get();
@@ -1656,7 +1799,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       if (results.isEmpty) {
         try {
           final stringHelloSnap = await _db
-              .collection('users')
+              .collection('publicUsers')
               .where('helloId', isEqualTo: query)
               .limit(10)
               .get();
@@ -1667,7 +1810,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       if (results.isEmpty) {
         try {
           final displaySnap = await _db
-              .collection('users')
+              .collection('publicUsers')
               .where('displayId', isEqualTo: query)
               .limit(10)
               .get();
@@ -1678,7 +1821,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       if (results.isEmpty) {
         try {
           final usernameSnap = await _db
-              .collection('users')
+              .collection('publicUsers')
               .where('username', isEqualTo: query)
               .limit(10)
               .get();
@@ -1690,7 +1833,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       if (results.isEmpty) {
         try {
           final nameSnap = await _db
-              .collection('users')
+              .collection('publicUsers')
               .where('displayName', isGreaterThanOrEqualTo: query)
               .where('displayName', isLessThanOrEqualTo: '$query\uf8ff')
               .limit(15)
@@ -1840,9 +1983,9 @@ class _PartnerPickerState extends State<_PartnerPicker> {
                           final rawData = _searchResults[i].data();
                           final data = rawData is Map ? Map<String, dynamic>.from(rawData) : <String, dynamic>{};
                           final uid = _searchResults[i].id;
-                          final displayName = data['displayName'] as String? ?? 'User';
+                          final displayName = data['displayName']?.toString() ?? 'User';
                           final helloId = data['helloId']?.toString() ?? data['displayId']?.toString() ?? uid;
-                          final photoUrl = data['profilePhotoUrl'] as String? ?? '';
+                          final photoUrl = data['profilePhotoUrl']?.toString() ?? '';
                           final myUid = FirebaseAuth.instance.currentUser?.uid;
 
                           return Container(
@@ -1858,7 +2001,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
                                 AppAvatar(
                                   imageUrl: photoUrl,
                                   radius: 22,
-                                  frameUrl: data['profileFrame'] as String?,
+                                  frameUrl: data['profileFrame']?.toString(),
                                   showFrame: false,
                                 ),
                                 const Gap(12),

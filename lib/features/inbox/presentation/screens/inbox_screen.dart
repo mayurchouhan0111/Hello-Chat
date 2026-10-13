@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:gap/gap.dart';
-import 'package:go_router/go_router.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:hello_chat/core/constants/app_colors.dart';
@@ -59,8 +58,6 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
     final dynamic rawTime = data['createdAt'];
     final DateTime timestamp = rawTime is Timestamp ? rawTime.toDate() : DateTime.now();
     final String type = data['type'] ?? 'system';
-    final Map<String, dynamic> extraData = data['data'] ?? {};
-    final String? actionRoute = extraData['route'];
 
     // Mark as read immediately on open
     if (!(data['read'] as bool? ?? false)) {
@@ -123,42 +120,17 @@ class _InboxScreenState extends ConsumerState<InboxScreen> {
                 ),
               ),
               const Gap(24),
-              // Action buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                          side: BorderSide(color: Colors.grey.shade300),
-                        ),
-                        foregroundColor: Colors.grey.shade700,
-                      ),
-                      child: const Text("CLOSE", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, letterSpacing: 0.5)),
-                    ),
-                  ),
-                  if (actionRoute != null && actionRoute.isNotEmpty) ...[
-                    const Gap(12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.pop(context);
-                          context.push(actionRoute);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        ),
-                        child: const Text("VIEW DETAILS", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5)),
-                      ),
-                    ),
-                  ],
-                ],
+              // Action button
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 0,
+                ),
+                child: const Text("CLOSE", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5)),
               ),
             ],
           ),

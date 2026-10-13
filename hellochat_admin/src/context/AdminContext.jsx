@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { tierOf } from '../lib/tier';
 
 const AdminContext = createContext();
 
@@ -30,28 +31,25 @@ export const AdminProvider = ({ children }) => {
         if (authUser) {
           const userDoc = await getDoc(doc(db, "users", authUser.uid));
           const data = userDoc.data() || {};
-          const tags = data?.tags || [];
-          
-          const rawRole = (data?.role || '').toLowerCase();
-          const userIsOwner = rawRole === 'owner' || tags.includes('Owner');
-          const userIsSuperAdmin = rawRole === 'superadmin' || tags.includes('SuperAdmin');
-          const userIsAdminRole = rawRole === 'admin' || tags.includes('Admin');
-          const userIsAgency = data?.isAgencyOwner === true || rawRole === 'agency' || tags.includes('Agency');
 
-          // Legacy backwards compatibility
-          const isAuthAdmin = userIsOwner || userIsSuperAdmin || userIsAdminRole;
-          
+          // tierOf() mirrors functions/lib/hb_pms.js normalizeTier. The old
+          // `rawRole || fallbackChain` skipped the tag checks entirely whenever
+          // `role` held any value, so `role:'admin'` + `tags:['Owner']` read as
+          // 'admin' here and 'owner' on the server - locking the Owner out of
+          // their own owner-only screens.
+          const derivedRole = tierOf(data);
+
           setUser(authUser);
           setUserData({ uid: authUser.uid, ...data });
-          setIsAdmin(isAuthAdmin);
-          setIsAgencyOwner(userIsAgency);
+          setIsAdmin(derivedRole === 'owner' || derivedRole === 'superadmin' || derivedRole === 'admin');
+          setIsAgencyOwner(derivedRole === 'agency');
 
           // HB-PMS State
-          setRole(rawRole || (userIsOwner ? 'owner' : userIsSuperAdmin ? 'superadmin' : userIsAdminRole ? 'admin' : userIsAgency ? 'agency' : 'host'));
-          setIsOwner(userIsOwner);
-          setIsSuperAdmin(userIsSuperAdmin);
-          setIsAdminRole(userIsAdminRole);
-          setIsAgencyRole(userIsAgency);
+          setRole(derivedRole);
+          setIsOwner(derivedRole === 'owner');
+          setIsSuperAdmin(derivedRole === 'superadmin');
+          setIsAdminRole(derivedRole === 'admin');
+          setIsAgencyRole(derivedRole === 'agency');
           setBranchId(data?.branchId || null);
           setSuperAdminId(data?.superAdminId || null);
           setAdminId(data?.adminId || null);

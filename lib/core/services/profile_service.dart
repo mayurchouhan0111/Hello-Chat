@@ -10,12 +10,23 @@ class ProfileService extends BaseFirebaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final CloudinaryService _cloudinary = CloudinaryService();
 
-  // Stream of user profile
+  /// Stream of user profile.
+  ///
+  /// `users/{uid}` is hierarchy-restricted by firestore.rules (it carries USD
+  /// commission wallets, role and branchId), so any read of *another* user's doc
+  /// is PERMISSION_DENIED. Every room screen that shows a participant's avatar
+  /// or VIP frame goes through here, so route those reads to the cosmetic-only
+  /// `publicUsers/{uid}` projection (written by the projectPublicUser trigger in
+  /// functions/index.js) and keep the full doc for your own account, where the
+  /// private fields (diamond balance, role, branch) are actually readable.
   Stream<UserModel?> getProfileStream(String uid) {
-    return _db.collection('users').doc(uid).snapshots().map((snapshot) {
-      if (!snapshot.exists) return null;
-      final data = snapshot.data();
-      return UserModel.fromMap(Map<String, dynamic>.from(data as Map));
+    if (uid.isEmpty) return Stream.value(null);
+    // SECURITY: other users read via publicUsers; own account keeps the full doc.
+    final isSelf = FirebaseAuth.instance.currentUser?.uid == uid;
+    return _db.collection(isSelf ? 'users' : 'publicUsers').doc(uid).snapshots().map<UserModel?>((snapshot) {
+      if (!snapshot.exists || snapshot.data() == null) return null;
+      final data = snapshot.data()!;
+      return UserModel.fromMap(Map<String, dynamic>.from(data));
     });
   }
 
@@ -122,27 +133,18 @@ class ProfileService extends BaseFirebaseService {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     if (currentUid == null || currentUid == targetUid) return;
 
-    final userRef = _db.collection('users').doc(targetUid);
-    
-    // We update count and shift the visitor avatars list
-    await _db.runTransaction((transaction) async {
-      final snapshot = await transaction.get(userRef);
-      if (!snapshot.exists) return;
-
-      final data = snapshot.data() as Map<String, dynamic>;
-      List<String> visitors = List<String>.from(data['recentVisitors'] ?? []);
-      
-      // Add if not already in recent list (or just add new)
-      if (!visitors.contains(visitorAvatar)) {
-        visitors.insert(0, visitorAvatar);
-        if (visitors.length > 5) visitors = visitors.sublist(0, 5);
-      }
-
-      transaction.update(userRef, {
-        'visitorCount': FieldValue.increment(1),
-        'recentVisitors': visitors,
+    // SECURITY: this used to read+write users/{targetUid} in a client
+    // transaction; that doc is hierarchy-locked now, so the whole read-then-
+    // write pair runs server-side (only visitorCount/recentVisitors were ever
+    // writable cross-user anyway).
+    try {
+      await callFunction('recordProfileVisit', {
+        'targetUid': targetUid,
+        'visitorAvatar': visitorAvatar,
       });
-    });
+    } catch (_) {
+      // Visitor counting is cosmetic; never block the profile screen on it.
+    }
   }
 
   // Media & Social (Restored missing streams and logic)
@@ -277,17 +279,25 @@ class ProfileService extends BaseFirebaseService {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     final Map<String, String> fieldMap = {
       'frame': 'profileFrame',
+      'official_frame': 'profileFrame',
       'mount': 'entryAnimation',
       'bubble': 'chatBubble',
       'aperture': 'equippedMicWave',
       'crown': 'equippedCrown',
+      'personal_page': 'profileTheme',
+      'id': 'prettyId',
     };
     final String targetField = fieldMap[category] ?? category;
 
-    // For local asset paths or direct frame URLs, apply direct update immediately
-    if (itemId.startsWith('assets/') || itemId == 'none') {
+    // For local asset paths, direct frame URLs, mock items, or none, apply direct update immediately
+    if (itemId.startsWith('assets/') || itemId == 'none' || itemId.startsWith('mock_') || itemId.startsWith('vip') || itemId.startsWith('svip') || itemId.startsWith('cp_') || itemId.startsWith('leaderboard_') || itemId.startsWith('rocket_') || itemId.startsWith('official_')) {
       if (uid != null) {
-        await updateProfileFields(uid, {targetField: itemId == 'none' ? '' : itemId});
+        final updateMap = <String, dynamic>{targetField: itemId == 'none' ? 'none' : itemId};
+        if (category == 'crown') {
+          updateMap['badgeIcon'] = itemId == 'none' ? 'none' : itemId;
+          updateMap['equippedCrown'] = itemId == 'none' ? 'none' : itemId;
+        }
+        await updateProfileFields(uid, updateMap);
       }
       return;
     }
@@ -296,7 +306,12 @@ class ProfileService extends BaseFirebaseService {
       await callFunction('equipItem', {'itemId': itemId, 'category': category});
     } catch (e) {
       if (uid != null) {
-        await updateProfileFields(uid, {targetField: itemId});
+        final updateMap = <String, dynamic>{targetField: itemId};
+        if (category == 'crown') {
+          updateMap['badgeIcon'] = itemId;
+          updateMap['equippedCrown'] = itemId;
+        }
+        await updateProfileFields(uid, updateMap);
       }
     }
   }
@@ -420,8 +435,8 @@ class ProfileService extends BaseFirebaseService {
            final data = doc.data();
            final ownerUid = data['ownerUid'] as String;
            
-           // Fetch owner profile to check familyId
-           final ownerDoc = await _db.collection('users').doc(ownerUid).get();
+           // Fetch owner profile to check familyId (publicUsers: other user's doc)
+           final ownerDoc = await _db.collection('publicUsers').doc(ownerUid).get();
            final ownerData = ownerDoc.data();
            if (ownerData != null && ownerData['familyId'] == familyId) {
              familyRooms.add(data);

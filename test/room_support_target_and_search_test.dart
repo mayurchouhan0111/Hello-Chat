@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hello_chat/services/room_support_service.dart';
 
 void main() {
   group('🏆 1. Live Room Appbar Target Header Formatting', () {
@@ -124,6 +125,46 @@ void main() {
     test('Returns null for non-numeric name query Jubayer', () {
       final id = parseNumericId('Jubayer');
       expect(id, isNull);
+    });
+  });
+
+  group('🎯 5. Strictly Progressive 20 Room Support Target Levels Verification', () {
+    test('All 20 Room Support levels are strictly progressive with target[i] > target[i-1]', () {
+      final levels = RoomSupportService.defaultLevels;
+      expect(levels.length, equals(20));
+
+      int prevTarget = 0;
+      for (int i = 0; i < levels.length; i++) {
+        final l = levels[i];
+        final levelNum = (l['level'] as num).toInt();
+        final coinsTarget = (l['coinsTarget'] as num).toInt();
+
+        expect(levelNum, equals(i + 1), reason: 'Level numbers must be sequential 1..20');
+        expect(coinsTarget, greaterThan(prevTarget),
+            reason: 'Level $levelNum ($coinsTarget) must be strictly greater than previous ($prevTarget)');
+        prevTarget = coinsTarget;
+      }
+    });
+
+    test('Corrects Level 7 = 5M and Level 8 = 8M (no 50M drop to 8M)', () {
+      final levels = RoomSupportService.defaultLevels;
+      final lvl7 = levels[6];
+      final lvl8 = levels[7];
+
+      expect(lvl7['coinsTarget'], equals(5000000), reason: 'Level 7 target is 5 Million');
+      expect(lvl8['coinsTarget'], equals(8000000), reason: 'Level 8 target is 8 Million');
+      expect((lvl8['coinsTarget'] as int) > (lvl7['coinsTarget'] as int), isTrue,
+          reason: 'Level 8 (8M) must be strictly higher than Level 7 (5M)');
+    });
+
+    test('RoomSupportService.calculateLevel resolves accurate level across all 20 tiers', () {
+      expect(RoomSupportService.calculateLevel(50000), equals(0));
+      expect(RoomSupportService.calculateLevel(100000), equals(1));
+      expect(RoomSupportService.calculateLevel(5000000), equals(7));
+      expect(RoomSupportService.calculateLevel(8000000), equals(8));
+      expect(RoomSupportService.calculateLevel(50000000), equals(13));
+      expect(RoomSupportService.calculateLevel(600000000), equals(20));
+      expect(RoomSupportService.calculateLevel(1000000000), equals(20));
     });
   });
 }

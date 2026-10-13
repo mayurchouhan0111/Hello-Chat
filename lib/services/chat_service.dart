@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import '../core/models/message_model.dart';
 
 class ChatService {
@@ -93,17 +94,17 @@ class ChatService {
     required String text,
     String type = 'text',
   }) async {
-    // 1. Enforcement Test: Check for mutual blocks
-    final senderDoc = await _db.collection('users').doc(senderUid).get();
-    final receiverDoc = await _db.collection('users').doc(receiverUid).get();
-
-    final List senderBlocked = (senderDoc.data()?['blockedUids'] ?? []) as List;
-    final List receiverBlocked = (receiverDoc.data()?['blockedUids'] ?? []) as List;
-
-    if (senderBlocked.contains(receiverUid)) {
+    // 1. Enforcement Test: Check for mutual blocks.
+    // The receiver's `blockedUids` lives on a hierarchy-locked `users` doc, so
+    // the client asks the server instead (only the boolean relation comes back).
+    final blockRes = await FirebaseFunctions.instance
+        .httpsCallable('checkChatBlock')
+        .call({'otherUid': receiverUid});
+    final blockData = Map<String, dynamic>.from(blockRes.data as Map);
+    if (blockData['iBlockedThem'] == true) {
       throw Exception("You have blocked this user. Unblock them to send a message.");
     }
-    if (receiverBlocked.contains(senderUid)) {
+    if (blockData['theyBlockedMe'] == true) {
       throw Exception("You cannot send messages to this user.");
     }
 

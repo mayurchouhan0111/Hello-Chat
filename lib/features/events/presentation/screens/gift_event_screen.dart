@@ -763,7 +763,7 @@ class _GiftEventScreenState extends ConsumerState<GiftEventScreen>
 
         // Stream real users from Firestore to guarantee the full 50 contenders are present
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance.collection('users').limit(100).snapshots(),
+          stream: FirebaseFirestore.instance.collection('publicUsers').limit(100).snapshots(),
           builder: (context, userSnap) {
             final combined = List<EventParticipant>.from(participants);
             final existingUids = combined.map((p) => p.uid).toSet();

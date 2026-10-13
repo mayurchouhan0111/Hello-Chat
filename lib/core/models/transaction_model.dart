@@ -49,11 +49,22 @@ class WalletTransaction {
 
   factory WalletTransaction.fromMap(Map<String, dynamic> data, String id) {
     // Determine type safely to prevent crashes on new/unrecognized types
-    final typeString = data['type'] ?? 'recharge';
-    final txType = TransactionType.values.firstWhere(
-      (e) => e.name == typeString,
-      orElse: () => TransactionType.recharge,
-    );
+    final rawType = (data['action'] ?? data['type'] ?? 'recharge').toString().toLowerCase().trim();
+    TransactionType txType;
+    if (rawType == 'spin_wheel_cost' || rawType == 'game_bet') {
+      txType = TransactionType.game_bet;
+    } else if (rawType == 'spin_wheel_prize' || rawType == 'game_win') {
+      txType = TransactionType.game_win;
+    } else if (rawType == 'spin_wheel_loss' || rawType == 'game_settle_loss') {
+      txType = TransactionType.game_bet;
+    } else if (rawType == 'spin_reconciliation_offset') {
+      txType = TransactionType.recharge;
+    } else {
+      txType = TransactionType.values.firstWhere(
+        (e) => e.name == rawType,
+        orElse: () => TransactionType.recharge,
+      );
+    }
 
     return WalletTransaction(
       id: id,

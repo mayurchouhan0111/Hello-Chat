@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
-import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import '../../../../core/services/cloudinary_service.dart';
 import '../../../../core/models/room_model.dart';
+import '../../../../core/models/room_theme_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/models/user_model.dart';
 import 'administrator_sheet.dart';
 import 'room_music_sheet.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 
@@ -105,7 +103,7 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [10, 12, 16].map((cap) => ListTile(
+          children: kRoomCapacityOptions.map((cap) => ListTile(
             title: Text("$cap Seats"),
             onTap: () async {
               await _update(room.roomId, "capacity", cap);
@@ -144,7 +142,12 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
     return roomAsync.when(
       data: (room) {
         if (room == null) return const Center(child: Text("Room not found"));
-        
+        final isOwner = uid != null && uid == room.ownerUid;
+        final isAdmin = uid != null && (room.isUserAdmin(uid) || room.admins.contains(uid));
+        if (!isOwner && !isAdmin) {
+          return const SizedBox.shrink();
+        }
+
         return Container(
           decoration: const BoxDecoration(
             color: Color(0xFFF5F5F5),
@@ -259,8 +262,10 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
                               "Lock", 
                               onTap: () => _showPasswordDialog(room)
                             ),
-                            const SizedBox(width: 6),
-                            _buildBottomAction(Icons.admin_panel_settings_outlined, "Admin", onTap: () => _showAdminPanel(room)),
+                            if (room.ownerUid == uid) ...[
+                              const SizedBox(width: 6),
+                              _buildBottomAction(Icons.admin_panel_settings_outlined, "Admin", onTap: () => _showAdminPanel(room)),
+                            ],
                             if (room.bannedUids.isNotEmpty) ...[
                               const SizedBox(width: 6),
                               _buildBottomAction(Icons.block, "Bans", onTap: () => _showBannedUsers(room)),
@@ -283,68 +288,191 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   }
 
   void _showThemePicker(RoomModel room) {
-    final themes = [
-      {'name': 'Default', 'color': Colors.deepPurple, 'img': ''},
-      {'name': 'Ocean', 'color': Colors.blue, 'img': 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500'},
-      {'name': 'Sunset', 'color': Colors.orange, 'img': 'https://images.unsplash.com/photo-1502481851512-e9e2529bfbf9?w=500'},
-      {'name': 'Neon', 'color': Colors.pinkAccent, 'img': 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=500'},
-    ];
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text("Room Theme", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-            const Gap(20),
-            SizedBox(
-              height: 120,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: themes.length,
-                separatorBuilder: (_, __) => const Gap(16),
-                itemBuilder: (context, index) {
-                  final t = themes[index];
-                  final isSelected = room.theme == t['name'];
-                  return GestureDetector(
-                    onTap: () async {
-                      await _update(room.roomId, "theme", t['name']);
-                      if (t['img'] != null && (t['img'] as String).isNotEmpty) {
-                        await _update(room.roomId, "coverUrl", t['img']);
-                      }
-                      if (mounted) Navigator.pop(context);
-                    },
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 80,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: t['color'] as Color,
-                            borderRadius: BorderRadius.circular(16),
-                            border: isSelected ? Border.all(color: AppColors.primary, width: 3) : null,
-                            image: (t['img'] as String).isNotEmpty 
-                              ? DecorationImage(image: NetworkImage(t['img'] as String), fit: BoxFit.cover) 
-                              : null,
-                          ),
-                          child: isSelected ? const Icon(Icons.check_circle, color: Colors.white) : null,
-                        ),
-                        const Gap(8),
-                        Text(t['name'] as String, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  );
-                },
+      isScrollControlled: true,
+      builder: (sheetContext) => DefaultTabController(
+        length: 2,
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.65,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)),
+                ),
               ),
-            ),
-          ],
+              const Gap(12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Room Background Theme", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 20, color: Colors.black54),
+                    onPressed: () => Navigator.pop(sheetContext),
+                  ),
+                ],
+              ),
+              const Text(
+                "Customize the ambient room background. Cover photo remains untouched.",
+                style: TextStyle(color: Colors.black54, fontSize: 12),
+              ),
+              const Gap(14),
+              Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F4F6),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: TabBar(
+                  indicator: BoxDecoration(
+                    color: AppColors.primary,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.black87,
+                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  tabs: const [
+                    Tab(text: "Normal Themes"),
+                    Tab(text: "✨ Luxury Themes"),
+                  ],
+                ),
+              ),
+              const Gap(16),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _buildThemeGrid(room, RoomThemeCatalog.normalThemes, sheetContext),
+                    _buildThemeGrid(room, RoomThemeCatalog.luxuryThemes, sheetContext),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildThemeGrid(RoomModel room, List<RoomTheme> themes, BuildContext sheetContext) {
+    final activeThemeId = room.theme.toLowerCase();
+
+    return GridView.builder(
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 12,
+        childAspectRatio: 0.75,
+      ),
+      itemCount: themes.length,
+      itemBuilder: (context, index) {
+        final t = themes[index];
+        final isSelected = activeThemeId == t.id.toLowerCase() || activeThemeId == t.name.toLowerCase();
+
+        return GestureDetector(
+          onTap: () async {
+            // Theme selection updates theme & backgroundUrl ONLY. Cover photo is 100% separate.
+            await _update(room.roomId, "theme", t.id);
+            await _update(room.roomId, "backgroundUrl", t.imageUrl ?? t.assetPath ?? '');
+            if (mounted) {
+              Navigator.pop(sheetContext);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text("Theme updated: ${t.name}"),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            }
+          },
+          child: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isSelected ? const Color(0xFFFFD700) : (t.isLuxury ? Colors.amber.withOpacity(0.4) : Colors.black12),
+                      width: isSelected ? 3 : 1,
+                    ),
+                    gradient: LinearGradient(
+                      colors: t.gradient,
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    boxShadow: isSelected
+                        ? [const BoxShadow(color: Color(0x66FFD700), blurRadius: 8, spreadRadius: 1)]
+                        : null,
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: Stack(
+                    children: [
+                      if (t.assetPath != null && t.assetPath!.isNotEmpty)
+                        Positioned.fill(
+                          child: Image.asset(t.assetPath!, fit: BoxFit.cover),
+                        )
+                      else if (t.imageUrl != null && t.imageUrl!.isNotEmpty)
+                        Positioned.fill(
+                          child: Image.network(t.imageUrl!, fit: BoxFit.cover),
+                        ),
+                      if (t.isLuxury)
+                        Positioned(
+                          top: 4,
+                          left: 4,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD700),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              "LUXURY",
+                              style: TextStyle(color: Colors.black87, fontSize: 8, fontWeight: FontWeight.w900),
+                            ),
+                          ),
+                        ),
+                      if (isSelected)
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFFD700),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.check, size: 12, color: Colors.black87),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const Gap(6),
+              Text(
+                t.name,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                  color: isSelected ? AppColors.primary : Colors.black87,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -361,6 +489,13 @@ class _RoomSettingsSheetState extends ConsumerState<RoomSettingsSheet> {
   }
 
   void _showAdminPanel(RoomModel room) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (room.ownerUid != uid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Only the room owner can manage administrators")),
+      );
+      return;
+    }
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,

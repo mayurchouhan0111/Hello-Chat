@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AdminProvider } from './context/AdminContext';
+import { RequireRole } from './components/RequireRole';
 import { LoginScreen } from './screens/LoginScreen';
 import { AdminLayout } from './components/AdminLayout';
 import { DashboardHome } from './screens/DashboardHome';
@@ -31,6 +32,62 @@ import { WinningConfigManagement } from './screens/WinningConfigManagement';
 
 import { SVIPManagement } from './screens/SVIPManagement';
 import { HierarchyManagement } from './screens/HierarchyManagement';
+import { HostMetrics } from './screens/HostMetrics';
+import { CommissionWallet } from './screens/CommissionWallet';
+
+/**
+ * HB-PMS route table.
+ *
+ * `min` is the lowest tier that may open the screen, and mirrors the navigation
+ * menus already built into AdminLayout:
+ *   agency     -> portal + its own roster
+ *   admin      -> branch users / agencies / rooms / reports
+ *   superadmin -> branch configuration
+ *   owner      -> everything (money, payout, content, settings, audit)
+ *
+ * The screen is the only convenience: the callable behind each screen enforces
+ * the same tier again, so widening a `min` here cannot widen real access.
+ */
+const ROUTES = [
+  { path: '/', min: 'agency', element: <DashboardHome /> },
+
+  // ── Agency portal & Commission Wallet ──
+  { path: '/agencies', min: 'agency', element: <AgencyManagement /> },
+  { path: '/hosts', min: 'agency', element: <HostMetrics /> },
+  { path: '/commission-wallet', min: 'agency', element: <CommissionWallet /> },
+
+  // ── Branch staff ──
+  { path: '/users', min: 'admin', element: <UserManagement /> },
+  { path: '/rooms', min: 'admin', element: <RoomManagement /> },
+  { path: '/reports', min: 'admin', element: <ModerationReports /> },
+
+  // ── Super Admin ──
+  { path: '/hierarchy', min: 'superadmin', element: <HierarchyManagement /> },
+
+  // ── Owner only: money, payout, platform content, settings, audit ──
+  { path: '/financials', min: 'owner', element: <FinancialManagement /> },
+  { path: '/withdrawals', min: 'owner', element: <WithdrawalManagement /> },
+  { path: '/resellers', min: 'owner', element: <ResellerManagement /> },
+  { path: '/kyc', min: 'owner', element: <KYCManagement /> },
+  { path: '/settings', min: 'owner', element: <SystemSettings /> },
+  { path: '/logs', min: 'owner', element: <AuditLogs /> },
+  { path: '/moderation', min: 'owner', element: <ModerationManagement /> },
+  { path: '/moments', min: 'owner', element: <MomentsManagement /> },
+  { path: '/vip', min: 'owner', element: <VIPManagement /> },
+  { path: '/svip', min: 'owner', element: <SVIPManagement /> },
+  { path: '/gifts', min: 'owner', element: <GiftManagement /> },
+  { path: '/families', min: 'owner', element: <FamilyManagement /> },
+  { path: '/boutique', min: 'owner', element: <EliteBoutiqueManagement /> },
+  { path: '/role-frames', min: 'owner', element: <RoleFrameManagement /> },
+  { path: '/rocket-management', min: 'owner', element: <RocketManagement /> },
+  { path: '/winning-config', min: 'owner', element: <WinningConfigManagement /> },
+  { path: '/minigames', min: 'owner', element: <MiniGamesManagement /> },
+  { path: '/family-battle-config', min: 'owner', element: <FamilyBattleConfig /> },
+  { path: '/room-support', min: 'owner', element: <RoomSupportManagement /> },
+  { path: '/recharge-event', min: 'owner', element: <RechargeEventManagement /> },
+  { path: '/events', min: 'owner', element: <EventBuilder /> },
+  { path: '/relationships', min: 'owner', element: <RelationshipManagement /> }
+];
 
 function App() {
   return (
@@ -38,146 +95,19 @@ function App() {
       <AdminProvider>
         <Routes>
           <Route path="/login" element={<LoginScreen />} />
-          <Route path="/" element={
-            <AdminLayout>
-              <DashboardHome />
-            </AdminLayout>
-          } />
-          <Route path="/rocket-management" element={
-            <AdminLayout>
-              <RocketManagement />
-            </AdminLayout>
-          } />
-          <Route path="/users" element={
-            <AdminLayout>
-              <UserManagement />
-            </AdminLayout>
-          } />
-          <Route path="/rooms" element={
-            <AdminLayout>
-              <RoomManagement />
-            </AdminLayout>
-          } />
-          <Route path="/gifts" element={
-            <AdminLayout>
-              <GiftManagement />
-            </AdminLayout>
-          } />
-          <Route path="/winning-config" element={
-            <AdminLayout>
-              <WinningConfigManagement />
-            </AdminLayout>
-          } />
-          <Route path="/vip" element={
-            <AdminLayout>
-              <VIPManagement />
-            </AdminLayout>
-          } />
-          <Route path="/svip" element={
-            <AdminLayout>
-              <SVIPManagement />
-            </AdminLayout>
-          } />
-          <Route path="/role-frames" element={
-            <AdminLayout>
-              <RoleFrameManagement />
-            </AdminLayout>
-          } />
-          <Route path="/agencies" element={
-            <AdminLayout>
-              <AgencyManagement />
-            </AdminLayout>
-          } />
-          <Route path="/families" element={
-            <AdminLayout>
-              <FamilyManagement />
-            </AdminLayout>
-          } />
-          <Route path="/financials" element={
-            <AdminLayout>
-              <FinancialManagement />
-            </AdminLayout>
-          } />
-          <Route path="/reports" element={
-            <AdminLayout>
-              <ModerationReports />
-            </AdminLayout>
-          } />
-          <Route path="/moderation" element={
-            <AdminLayout>
-              <ModerationManagement />
-            </AdminLayout>
-          } />
-          <Route path="/settings" element={
-            <AdminLayout>
-              <SystemSettings />
-            </AdminLayout>
-          } />
-          <Route path="/minigames" element={
-            <AdminLayout>
-              <MiniGamesManagement />
-            </AdminLayout>
-          } />
-          <Route path="/logs" element={
-            <AdminLayout>
-              <AuditLogs />
-            </AdminLayout>
-          } />
-          <Route path="/withdrawals" element={
-            <AdminLayout>
-              <WithdrawalManagement />
-            </AdminLayout>
-          } />
-          <Route path="/kyc" element={
-            <AdminLayout>
-              <KYCManagement />
-            </AdminLayout>
-          } />
-          <Route path="/boutique" element={
-            <AdminLayout>
-              <EliteBoutiqueManagement />
-            </AdminLayout>
-          } />
-          <Route path="/resellers" element={
-            <AdminLayout>
-              <ResellerManagement />
-            </AdminLayout>
-          } />
-          <Route path="/moments" element={
-            <AdminLayout>
-              <MomentsManagement />
-            </AdminLayout>
-          } />
-          <Route path="/room-support" element={
-            <AdminLayout>
-              <RoomSupportManagement />
-            </AdminLayout>
-          } />
-          <Route path="/family-battle-config" element={
-            <AdminLayout>
-              <FamilyBattleConfig />
-            </AdminLayout>
-          } />
-          <Route path="/recharge-event" element={
-            <AdminLayout>
-              <RechargeEventManagement />
-            </AdminLayout>
-          } />
-          <Route path="/events" element={
-            <AdminLayout>
-              <EventBuilder />
-            </AdminLayout>
-          } />
-          <Route path="/relationships" element={
-            <AdminLayout>
-              <RelationshipManagement />
-            </AdminLayout>
-          } />
-          <Route path="/hierarchy" element={
-            <AdminLayout>
-              <HierarchyManagement />
-            </AdminLayout>
-          } />
+          {ROUTES.map((r) => (
+            <Route
+              key={r.path}
+              path={r.path}
+              element={
+                <RequireRole min={r.min}>
+                  <AdminLayout>{r.element}</AdminLayout>
+                </RequireRole>
+              }
+            />
+          ))}
+          {/* Unknown paths fall through to the dashboard rather than a blank page. */}
+          <Route path="*" element={<RequireRole min="agency"><AdminLayout><DashboardHome /></AdminLayout></RequireRole>} />
         </Routes>
       </AdminProvider>
     </Router>

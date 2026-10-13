@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/widgets/app_avatar.dart';
@@ -11,7 +10,7 @@ import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/family_provider.dart';
-import '../../../../core/constants/app_colors.dart';
+import '../../../../core/providers/room_provider.dart';
 
 class ViewersListSheet extends ConsumerStatefulWidget {
   final String roomId;
@@ -262,6 +261,7 @@ class _ViewersListSheetState extends ConsumerState<ViewersListSheet> with Single
         itemBuilder: (context, index) {
           return _ViewerListItem(
             participant: typeParticipants[index],
+            roomId: widget.roomId,
             isOwner: typeParticipants[index].uid == widget.ownerUid,
             onTap: () {
               Navigator.pop(context);
@@ -313,11 +313,13 @@ class _ViewersListSheetState extends ConsumerState<ViewersListSheet> with Single
 
 class _ViewerListItem extends ConsumerWidget {
   final Participant participant;
+  final String roomId;
   final bool isOwner;
   final VoidCallback onTap;
 
   const _ViewerListItem({
     required this.participant,
+    required this.roomId,
     required this.isOwner,
     required this.onTap,
   });
@@ -325,9 +327,9 @@ class _ViewerListItem extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AsyncValue<UserModel?> userAsync = ref.watch(userProfileProvider(participant.uid));
-    final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
-    final isMe = currentUserUid == participant.uid;
     final liveUser = userAsync.value;
+    final roomData = ref.watch(currentRoomStreamProvider(roomId)).value;
+    final isParticipantAdmin = roomData?.isUserAdmin(participant.uid) ?? false;
 
     return Material(
       color: Colors.transparent,
@@ -339,7 +341,7 @@ class _ViewerListItem extends ConsumerWidget {
             children: [
               _buildAvatar(liveUser),
               const Gap(8),
-              Expanded(child: _buildUserInfo(userAsync)),
+              Expanded(child: _buildUserInfo(userAsync, isParticipantAdmin)),
             ],
           ),
         ),
@@ -368,31 +370,31 @@ class _ViewerListItem extends ConsumerWidget {
     );
   }
 
-  Widget _buildUserInfo(AsyncValue<UserModel?> userAsync) {
+  Widget _buildUserInfo(AsyncValue<UserModel?> userAsync, bool isParticipantAdmin) {
     try {
       return userAsync.when(
         data: (user) {
           try {
-            if (user == null) return _buildBasicInfo();
-            return _buildRichInfo(user);
+            if (user == null) return _buildBasicInfo(isParticipantAdmin);
+            return _buildRichInfo(user, isParticipantAdmin);
           } catch (e) {
             debugPrint("Error rendering rich info for participant: $e");
-            return _buildBasicInfo();
+            return _buildBasicInfo(isParticipantAdmin);
           }
         },
-        loading: () => _buildBasicInfo(),
+        loading: () => _buildBasicInfo(isParticipantAdmin),
         error: (err, stack) {
           debugPrint("Error loading profile for participant: $err");
-          return _buildBasicInfo();
+          return _buildBasicInfo(isParticipantAdmin);
         },
       );
     } catch (e) {
       debugPrint("Error in _buildUserInfo: $e");
-      return _buildBasicInfo();
+      return _buildBasicInfo(isParticipantAdmin);
     }
   }
 
-  Widget _buildBasicInfo() {
+  Widget _buildBasicInfo(bool isParticipantAdmin) {
     final displayId = participant.helloId;
     final idStr = displayId != null ? 'ID:$displayId' : '';
 
@@ -414,6 +416,10 @@ class _ViewerListItem extends ConsumerWidget {
               const Gap(4),
               _buildTag("Host", const Color(0xFFFFD700), Colors.white),
             ],
+            if (isParticipantAdmin) ...[
+              const Gap(4),
+              _buildTag("Admin", Colors.purple, Colors.white),
+            ],
           ],
         ),
         if (idStr.isNotEmpty) ...[
@@ -431,7 +437,7 @@ class _ViewerListItem extends ConsumerWidget {
     );
   }
 
-  Widget _buildRichInfo(UserModel user) {
+  Widget _buildRichInfo(UserModel user, bool isParticipantAdmin) {
     try {
       final gender = participant.tags.contains('Male') ? 'M' :
                      participant.tags.contains('Female') ? 'F' : null;
@@ -468,7 +474,7 @@ class _ViewerListItem extends ConsumerWidget {
                 ),
               if (isOwner)
                 _buildTag("Host", const Color(0xFFFFD700), Colors.white),
-              if (participant.role == 'admin')
+              if (isParticipantAdmin)
                 _buildTag("Admin", Colors.purple, Colors.white),
               if (gender != null)
                 _buildGenderBadge(gender),
@@ -512,7 +518,7 @@ class _ViewerListItem extends ConsumerWidget {
       );
     } catch (e) {
       debugPrint("Exception inside _buildRichInfo: $e");
-      return _buildBasicInfo();
+      return _buildBasicInfo(isParticipantAdmin);
     }
   }
 

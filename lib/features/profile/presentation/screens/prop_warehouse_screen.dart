@@ -47,15 +47,8 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
   late TabController _tabController;
   String? _loadingItemId;
 
-  // Track selected item per tab index
-  final Map<int, Map<String, dynamic>> _selectedItems = {};
-
-  // Local state for mock equipped items
-  String _equippedMockId = 'none';
-  String _equippedMockAperture = 'none';
-  String _equippedMockTheme = 'none';
-  String _equippedMockCrown = 'none';
-  String _equippedMockOfficial = 'none';
+  // Track selected item ID per tab index
+  final Map<int, String> _selectedItemIds = {};
 
   final List<String> _tabsList = [
     "ID",
@@ -233,6 +226,23 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     }
 
     // 5. Database Purchased / Vault Items
+    if (item['expiresAt'] != null) {
+      final expiresAt = item['expiresAt'];
+      DateTime? expiryDate;
+      if (expiresAt is Timestamp) {
+        expiryDate = expiresAt.toDate();
+      } else if (expiresAt is String) {
+        expiryDate = DateTime.tryParse(expiresAt);
+      }
+      if (expiryDate != null && expiryDate.isBefore(DateTime.now())) {
+        return const AssetAccessInfo(
+          isUnlocked: false,
+          requirementText: "Expired",
+          status: AssetAccessStatus.lockedStore,
+        );
+      }
+    }
+
     bool isUnlocked = true;
     if (item.containsKey('isUnlocked')) {
       isUnlocked = item['isUnlocked'] == true;
@@ -249,11 +259,21 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     );
   }
 
-  void _initializeSelection(int tabIndex, List<Map<String, dynamic>> items) {
-    if (!_selectedItems.containsKey(tabIndex) && items.isNotEmpty) {
-      final equipped = items.firstWhere((item) => item['isEquipped'] == true, orElse: () => items.first);
-      _selectedItems[tabIndex] = equipped;
+  Map<String, dynamic>? _getSelectedItem(int tabIndex, List<Map<String, dynamic>> items, UserModel? user) {
+    if (items.isEmpty) return null;
+    final selectedId = _selectedItemIds[tabIndex];
+    if (selectedId != null) {
+      final found = items.where((item) => item['id'] == selectedId).firstOrNull;
+      if (found != null) return found;
     }
+    // Default to the currently active equipped item, or first item
+    final equipped = items.where((item) {
+      final access = _getItemAccessInfo(item, user);
+      return (item['isEquipped'] == true) && access.isUnlocked;
+    }).firstOrNull ?? items.where((item) => item['isEquipped'] == true).firstOrNull;
+    final result = equipped ?? items.first;
+    _selectedItemIds[tabIndex] = result['id'];
+    return result;
   }
 
   String tabIndexToCategory(int index) {
@@ -268,16 +288,18 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     return '';
   }
 
-  List<Map<String, dynamic>> _getMockIdItems() {
+  List<Map<String, dynamic>> _getMockIdItems(UserModel? user) {
+    final String equippedId = user?.prettyId ?? '';
+    final bool isNone = equippedId.isEmpty || equippedId.toLowerCase() == 'none';
     return [
       {
         'id': 'none',
         'name': 'Default ID',
         'type': 'Standard',
         'imageUrl': '',
-        'idText': '827361',
+        'idText': user?.helloId?.toString() ?? '827361',
         'category': 'id',
-        'isEquipped': _equippedMockId == 'none',
+        'isEquipped': isNone,
         'expiryDate': 'Permanent'
       },
       {
@@ -287,7 +309,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'imageUrl': '',
         'idText': '888888',
         'category': 'id',
-        'isEquipped': _equippedMockId == 'mock_id_6',
+        'isEquipped': equippedId == '888888' || equippedId == 'mock_id_6',
         'expiryDate': '30 Days'
       },
       {
@@ -297,7 +319,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'imageUrl': '',
         'idText': '99999',
         'category': 'id',
-        'isEquipped': _equippedMockId == 'mock_id_5',
+        'isEquipped': equippedId == '99999' || equippedId == 'mock_id_5',
         'expiryDate': '30 Days'
       },
       {
@@ -307,13 +329,15 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'imageUrl': '',
         'idText': '7777',
         'category': 'id',
-        'isEquipped': _equippedMockId == 'mock_id_4',
+        'isEquipped': equippedId == '7777' || equippedId == 'mock_id_4',
         'expiryDate': '30 Days'
       }
     ];
   }
 
-  List<Map<String, dynamic>> _getMockApertureItems() {
+  List<Map<String, dynamic>> _getMockApertureItems(UserModel? user) {
+    final String equippedWave = user?.equippedMicWave ?? '';
+    final bool isNone = equippedWave.isEmpty || equippedWave.toLowerCase() == 'none';
     return [
       {
         'id': 'none',
@@ -321,7 +345,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Standard',
         'imageUrl': '',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'none',
+        'isEquipped': isNone,
         'expiryDate': 'Permanent'
       },
       {
@@ -330,7 +354,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 1/Sound Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip1_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 1/Sound Waives.svga' || equippedWave == 'vip1_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -339,7 +363,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 2/VIP 2/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip2_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 2/VIP 2/Mic Waives.svga' || equippedWave == 'vip2_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -348,7 +372,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 3/VIP 3/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip3_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 3/VIP 3/Mic Waives.svga' || equippedWave == 'vip3_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -357,7 +381,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 4/VIP 4/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip4_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 4/VIP 4/Mic Waives.svga' || equippedWave == 'vip4_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -366,7 +390,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 5/VIP 5/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip5_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 5/VIP 5/Mic Waives.svga' || equippedWave == 'vip5_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -375,7 +399,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 6/VIP 6/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip6_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 6/VIP 6/Mic Waives.svga' || equippedWave == 'vip6_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -384,7 +408,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 7/VIP 7/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip7_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 7/VIP 7/Mic Waives.svga' || equippedWave == 'vip7_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -393,7 +417,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 8/VIP 8/Mic Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'vip8_mic_wave',
+        'isEquipped': equippedWave == 'assets/VIP/VIP 8/VIP 8/Mic Waives.svga' || equippedWave == 'vip8_mic_wave',
         'expiryDate': '30 Days'
       },
       {
@@ -402,7 +426,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 1/SVIP 1 Ring.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip1_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/svip 1/SVIP 1 Ring.svga' || equippedWave == 'svip1_mic_wave',
         'expiryDate': '60 Days'
       },
       {
@@ -411,7 +435,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 2/svip 2.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip2_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/svip 2/svip 2.svga' || equippedWave == 'svip2_mic_wave',
         'expiryDate': '60 Days'
       },
       {
@@ -420,7 +444,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 3/mic_wave_svip3.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip3_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/svip 3/mic_wave_svip3.svga' || equippedWave == 'svip3_mic_wave',
         'expiryDate': '60 Days'
       },
       {
@@ -429,7 +453,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 4/mic_wave_svip4.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip4_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/svip 4/mic_wave_svip4.svga' || equippedWave == 'svip4_mic_wave',
         'expiryDate': '60 Days'
       },
       {
@@ -438,7 +462,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 5/mic_wave_svip4_SVGA.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip5_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/svip 5/mic_wave_svip4_SVGA.svga' || equippedWave == 'svip5_mic_wave',
         'expiryDate': '60 Days'
       },
       {
@@ -447,13 +471,15 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/SVIP 6/SVIP 6 Sound Waives.svga',
         'category': 'aperture',
-        'isEquipped': _equippedMockAperture == 'svip6_mic_wave',
+        'isEquipped': equippedWave == 'assets/SVIP Kit/SVIP 6/SVIP 6 Sound Waives.svga' || equippedWave == 'svip6_mic_wave',
         'expiryDate': '60 Days'
       }
     ];
   }
 
-  List<Map<String, dynamic>> _getMockThemeItems() {
+  List<Map<String, dynamic>> _getMockThemeItems(UserModel? user) {
+    final String equippedTheme = user?.profileTheme ?? '';
+    final bool isNone = equippedTheme.isEmpty || equippedTheme.toLowerCase() == 'none';
     return [
       {
         'id': 'none',
@@ -461,7 +487,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Standard',
         'imageUrl': '',
         'category': 'personal_page',
-        'isEquipped': _equippedMockTheme == 'none',
+        'isEquipped': isNone,
         'expiryDate': 'Permanent'
       },
       {
@@ -470,7 +496,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': '',
         'category': 'personal_page',
-        'isEquipped': _equippedMockTheme == 'mock_theme_1',
+        'isEquipped': equippedTheme == 'mock_theme_1',
         'expiryDate': '30 Days'
       },
       {
@@ -479,13 +505,15 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': '',
         'category': 'personal_page',
-        'isEquipped': _equippedMockTheme == 'mock_theme_2',
+        'isEquipped': equippedTheme == 'mock_theme_2',
         'expiryDate': '30 Days'
       }
     ];
   }
 
-  List<Map<String, dynamic>> _getMockCrownItems() {
+  List<Map<String, dynamic>> _getMockCrownItems(UserModel? user) {
+    final String equippedCrown = user?.equippedCrown ?? '';
+    final bool isNone = equippedCrown.isEmpty || equippedCrown.toLowerCase() == 'none';
     return [
       {
         'id': 'none',
@@ -493,7 +521,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Standard',
         'imageUrl': '',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'none',
+        'isEquipped': isNone,
         'expiryDate': 'Permanent'
       },
       {
@@ -502,7 +530,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 1/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip1_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 1/Crown 1.svga' || equippedCrown == 'vip1_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -511,7 +539,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 2/VIP 2/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip2_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 2/VIP 2/Crown 1.svga' || equippedCrown == 'vip2_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -520,7 +548,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 3/VIP 3/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip3_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 3/VIP 3/Crown 1.svga' || equippedCrown == 'vip3_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -529,7 +557,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 4/VIP 4/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip4_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 4/VIP 4/Crown 1.svga' || equippedCrown == 'vip4_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -538,7 +566,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 5/VIP 5/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip5_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 5/VIP 5/Crown 1.svga' || equippedCrown == 'vip5_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -547,7 +575,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 6/VIP 6/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip6_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 6/VIP 6/Crown 1.svga' || equippedCrown == 'vip6_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -556,7 +584,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 7/VIP 7/Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip7_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 7/VIP 7/Crown 1.svga' || equippedCrown == 'vip7_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -565,7 +593,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'VIP Package',
         'imageUrl': 'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'vip8_crown_1',
+        'isEquipped': equippedCrown == 'assets/VIP/VIP 8/VIP 8/VIP 8 Crown 1.svga' || equippedCrown == 'vip8_crown_1',
         'expiryDate': '30 Days'
       },
       {
@@ -574,7 +602,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 1/SVIP 1 Crown.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip1_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/svip 1/SVIP 1 Crown.svga' || equippedCrown == 'svip1_crown',
         'expiryDate': '60 Days'
       },
       {
@@ -583,7 +611,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 2/SVIP 2 Crown.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip2_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/svip 2/SVIP 2 Crown.svga' || equippedCrown == 'svip2_crown',
         'expiryDate': '60 Days'
       },
       {
@@ -592,7 +620,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 3/SVIP 3 Crown.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip3_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/svip 3/SVIP 3 Crown.svga' || equippedCrown == 'svip3_crown',
         'expiryDate': '60 Days'
       },
       {
@@ -601,7 +629,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 4/Crown 1_SVGA.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip4_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/svip 4/Crown 1_SVGA.svga' || equippedCrown == 'svip4_crown',
         'expiryDate': '60 Days'
       },
       {
@@ -610,7 +638,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/svip 5/Crown 1_SVGA_SVGA.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip5_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/svip 5/Crown 1_SVGA_SVGA.svga' || equippedCrown == 'svip5_crown',
         'expiryDate': '60 Days'
       },
       {
@@ -619,7 +647,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'SVIP Package',
         'imageUrl': 'assets/SVIP Kit/SVIP 6/VIP 8 Crown.svga',
         'category': 'crown',
-        'isEquipped': _equippedMockCrown == 'svip6_crown',
+        'isEquipped': equippedCrown == 'assets/SVIP Kit/SVIP 6/VIP 8 Crown.svga' || equippedCrown == 'svip6_crown',
         'expiryDate': '60 Days'
       }
     ];
@@ -639,7 +667,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Standard',
         'imageUrl': '',
         'category': 'official_frame',
-        'isEquipped': isNoneEquipped && _equippedMockOfficial == 'none',
+        'isEquipped': isNoneEquipped,
         'expiryDate': 'Permanent'
       },
       {
@@ -648,7 +676,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Official',
         'imageUrl': adminFrames['super-admin'] ?? 'assets/Helo chat/Superadmin.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == (adminFrames['super-admin'] ?? 'assets/Helo chat/Superadmin.svga') || _equippedMockOfficial == 'official_frame_super',
+        'isEquipped': equippedFrame == (adminFrames['super-admin'] ?? 'assets/Helo chat/Superadmin.svga') || equippedFrame == 'official_frame_super',
         'expiryDate': 'Permanent'
       },
       {
@@ -657,7 +685,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Official',
         'imageUrl': adminFrames['admin'] ?? 'assets/images/super/admin.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == (adminFrames['admin'] ?? 'assets/images/super/admin.svga') || _equippedMockOfficial == 'official_frame_admin',
+        'isEquipped': equippedFrame == (adminFrames['admin'] ?? 'assets/images/super/admin.svga') || equippedFrame == 'official_frame_admin',
         'expiryDate': 'Permanent'
       },
       {
@@ -666,7 +694,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Official',
         'imageUrl': adminFrames['agency'] ?? 'assets/Helo chat/Agency.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == (adminFrames['agency'] ?? 'assets/Helo chat/Agency.svga') || _equippedMockOfficial == 'official_frame_agency',
+        'isEquipped': equippedFrame == (adminFrames['agency'] ?? 'assets/Helo chat/Agency.svga') || equippedFrame == 'official_frame_agency',
         'expiryDate': 'Permanent'
       },
       {
@@ -675,7 +703,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Official',
         'imageUrl': adminFrames['official'] ?? 'assets/Helo chat/Official.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == (adminFrames['official'] ?? 'assets/Helo chat/Official.svga') || _equippedMockOfficial == 'official_frame_official',
+        'isEquipped': equippedFrame == (adminFrames['official'] ?? 'assets/Helo chat/Official.svga') || equippedFrame == 'official_frame_official',
         'expiryDate': 'Permanent'
       },
       {
@@ -684,7 +712,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Official',
         'imageUrl': adminFrames['reseller'] ?? 'assets/images/super/reseller.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == (adminFrames['reseller'] ?? 'assets/images/super/reseller.svga') || _equippedMockOfficial == 'official_frame_reseller',
+        'isEquipped': equippedFrame == (adminFrames['reseller'] ?? 'assets/images/super/reseller.svga') || equippedFrame == 'official_frame_reseller',
         'expiryDate': 'Permanent'
       },
     ];
@@ -698,7 +726,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
           'type': 'Couple Pair',
           'imageUrl': adminFrames['cp'] ?? 'assets/Helo chat/1.svga',
           'category': 'official_frame',
-          'isEquipped': equippedFrame == (adminFrames['cp'] ?? 'assets/Helo chat/1.svga') || _equippedMockOfficial == 'cp_frame_1',
+          'isEquipped': equippedFrame == (adminFrames['cp'] ?? 'assets/Helo chat/1.svga') || equippedFrame == 'cp_frame_1',
           'expiryDate': 'Active CP'
         },
         {
@@ -707,7 +735,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
           'type': 'Couple Pair',
           'imageUrl': 'assets/Helo chat/2.svga',
           'category': 'official_frame',
-          'isEquipped': equippedFrame == 'assets/Helo chat/2.svga' || _equippedMockOfficial == 'cp_frame_2',
+          'isEquipped': equippedFrame == 'assets/Helo chat/2.svga' || equippedFrame == 'cp_frame_2',
           'expiryDate': 'CP Lv. 5'
         },
         {
@@ -716,7 +744,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
           'type': 'Couple Pair',
           'imageUrl': 'assets/Helo chat/3.svga',
           'category': 'official_frame',
-          'isEquipped': equippedFrame == 'assets/Helo chat/3.svga' || _equippedMockOfficial == 'cp_frame_3',
+          'isEquipped': equippedFrame == 'assets/Helo chat/3.svga' || equippedFrame == 'cp_frame_3',
           'expiryDate': 'CP Lv. 10'
         },
       ]);
@@ -729,7 +757,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Rocket Event',
         'imageUrl': 'assets/Helo chat/Rockeet_SVGA.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == 'assets/Helo chat/Rockeet_SVGA.svga' || _equippedMockOfficial == 'rocket_frame_launch',
+        'isEquipped': equippedFrame == 'assets/Helo chat/Rockeet_SVGA.svga' || equippedFrame == 'rocket_frame_launch',
         'expiryDate': 'Special Event'
       },
       {
@@ -738,7 +766,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Leaderboard',
         'imageUrl': 'assets/Helo chat/Top 1.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == 'assets/Helo chat/Top 1.svga' || _equippedMockOfficial == 'leaderboard_top1',
+        'isEquipped': equippedFrame == 'assets/Helo chat/Top 1.svga' || equippedFrame == 'leaderboard_top1',
         'expiryDate': 'Rank #1'
       },
       {
@@ -747,7 +775,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Leaderboard',
         'imageUrl': 'assets/Helo chat/Top 2.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == 'assets/Helo chat/Top 2.svga' || _equippedMockOfficial == 'leaderboard_top2',
+        'isEquipped': equippedFrame == 'assets/Helo chat/Top 2.svga' || equippedFrame == 'leaderboard_top2',
         'expiryDate': 'Rank #2'
       },
       {
@@ -756,7 +784,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
         'type': 'Leaderboard',
         'imageUrl': 'assets/Helo chat/Top 3.svga',
         'category': 'official_frame',
-        'isEquipped': equippedFrame == 'assets/Helo chat/Top 3.svga' || _equippedMockOfficial == 'leaderboard_top3',
+        'isEquipped': equippedFrame == 'assets/Helo chat/Top 3.svga' || equippedFrame == 'leaderboard_top3',
         'expiryDate': 'Rank #3'
       },
     ]);
@@ -822,13 +850,13 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
             child: TabBarView(
               controller: _tabController,
               children: [
-                _PropWarehouseTabPage(child: _buildMockWarehouse(0, _getMockIdItems(), "ID Packages")),
+                _PropWarehouseTabPage(child: _buildMockWarehouse(0, _getMockIdItems(user), "ID Packages")),
                 _PropWarehouseTabPage(child: _buildRealWarehouse(1, 'frame', "Avatar Frames")),
                 _PropWarehouseTabPage(child: _buildRealWarehouse(2, 'mount', "Entry Effects")),
-                _PropWarehouseTabPage(child: _buildMockWarehouse(3, _getMockApertureItems(), "Mic Waves")),
+                _PropWarehouseTabPage(child: _buildMockWarehouse(3, _getMockApertureItems(user), "Mic Waves")),
                 _PropWarehouseTabPage(child: _buildRealWarehouse(4, 'bubble', "Messages Bubbles")),
-                _PropWarehouseTabPage(child: _buildMockWarehouse(5, _getMockThemeItems(), "Profile Page Themes")),
-                _PropWarehouseTabPage(child: _buildMockWarehouse(6, _getMockCrownItems(), "Crowns")),
+                _PropWarehouseTabPage(child: _buildMockWarehouse(5, _getMockThemeItems(user), "Profile Page Themes")),
+                _PropWarehouseTabPage(child: _buildMockWarehouse(6, _getMockCrownItems(user), "Crowns")),
                 _PropWarehouseTabPage(child: _buildMockWarehouse(7, _getMockOfficialItems(user), "Official Items")),
               ],
             ),
@@ -913,8 +941,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
         if (items.isEmpty) return _buildEmptyState();
 
-        _initializeSelection(tabIndex, items);
-        final selectedItem = _selectedItems[tabIndex];
+        final selectedItem = _getSelectedItem(tabIndex, items, user);
 
         return GridView.builder(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -935,8 +962,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
       loading: () => const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
       error: (_, __) {
         if (svipItems.isNotEmpty) {
-          _initializeSelection(tabIndex, svipItems);
-          final selectedItem = _selectedItems[tabIndex];
+          final selectedItem = _getSelectedItem(tabIndex, svipItems, user);
           return GridView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -960,8 +986,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
   Widget _buildMockWarehouse(int tabIndex, List<Map<String, dynamic>> items, String subtitle) {
     final user = ref.watch(currentUserProfileProvider).value;
-    _initializeSelection(tabIndex, items);
-    final selectedItem = _selectedItems[tabIndex];
+    final selectedItem = _getSelectedItem(tabIndex, items, user);
 
     return GridView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
@@ -982,7 +1007,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
   Widget _buildItemCard(Map<String, dynamic> item, bool isSelected, int tabIndex, String category, UserModel? user) {
     final access = _getItemAccessInfo(item, user);
-    final isEquipped = item['isEquipped'] ?? false;
+    final isEquipped = (item['isEquipped'] == true) && access.isUnlocked;
     final String name = item['name'] ?? 'Elite Item';
     final String url = item['imageUrl'] ?? '';
     final String expiry = _resolveItemExpiry(item);
@@ -991,7 +1016,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
       child: GestureDetector(
         onTap: () {
           setState(() {
-            _selectedItems[tabIndex] = item;
+            _selectedItemIds[tabIndex] = item['id'];
           });
         },
       child: Container(
@@ -1473,17 +1498,51 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     return const Icon(Icons.inventory_2_outlined, color: Colors.black26, size: 35);
   }
 
+  List<Map<String, dynamic>> _getItemsForTab(int tabIndex, UserModel? user) {
+    switch (tabIndex) {
+      case 0:
+        return _getMockIdItems(user);
+      case 1:
+        final vault = ref.watch(warehouseItemsProvider('frame')).value ?? [];
+        final svip = _getSvipWarehouseItems('frame', user?.svipLevel ?? 0, user);
+        final map = <String, Map<String, dynamic>>{};
+        for (var item in svip) map[item['id']] = item;
+        for (var item in vault) map[item['id']] = item;
+        return map.values.toList();
+      case 2:
+        final vault = ref.watch(warehouseItemsProvider('mount')).value ?? [];
+        final svip = _getSvipWarehouseItems('mount', user?.svipLevel ?? 0, user);
+        final map = <String, Map<String, dynamic>>{};
+        for (var item in svip) map[item['id']] = item;
+        for (var item in vault) map[item['id']] = item;
+        return map.values.toList();
+      case 3:
+        return _getMockApertureItems(user);
+      case 4:
+        return ref.watch(warehouseItemsProvider('bubble')).value ?? [];
+      case 5:
+        return _getMockThemeItems(user);
+      case 6:
+        return _getMockCrownItems(user);
+      case 7:
+        return _getMockOfficialItems(user);
+      default:
+        return [];
+    }
+  }
+
   Widget _buildBottomActionBar() {
     final activeTabIdx = _tabController.index;
-    final selectedItem = _selectedItems[activeTabIdx];
+    final user = ref.watch(currentUserProfileProvider).value;
+    final items = _getItemsForTab(activeTabIdx, user);
+    final selectedItem = _getSelectedItem(activeTabIdx, items, user);
 
     if (selectedItem == null) {
       return const SizedBox.shrink();
     }
 
-    final user = ref.watch(currentUserProfileProvider).value;
     final access = _getItemAccessInfo(selectedItem, user);
-    final isEquipped = selectedItem['isEquipped'] ?? false;
+    final isEquipped = (selectedItem['isEquipped'] == true) && access.isUnlocked;
     final String category = tabIndexToCategory(activeTabIdx);
 
     return Container(
@@ -1588,20 +1647,12 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     try {
       if (isEquipped) {
         // UNEQUIP ITEM
-        setState(() {
-          if (category == 'id') _equippedMockId = 'none';
-          if (category == 'aperture') _equippedMockAperture = 'none';
-          if (category == 'personal_page') _equippedMockTheme = 'none';
-          if (category == 'crown') _equippedMockCrown = 'none';
-          if (category == 'official_frame') _equippedMockOfficial = 'none';
-        });
-
         final unequipMap = <String, dynamic>{
-          targetField: '',
+          targetField: 'none',
         };
         if (category == 'crown') {
-          unequipMap['badgeIcon'] = '';
-          unequipMap['equippedCrown'] = '';
+          unequipMap['badgeIcon'] = 'none';
+          unequipMap['equippedCrown'] = 'none';
         }
         await ref.read(profileServiceProvider).updateProfileFields(uid, unequipMap);
         await ref.read(profileServiceProvider).equipItem('none', category);
@@ -1632,15 +1683,8 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
       } else {
         // EQUIP ITEM
         final String itemUrl = (item['imageUrl'] ?? '').toString();
-        final String valueToSave = itemUrl.isNotEmpty ? itemUrl : id;
-
-        setState(() {
-          if (category == 'id') _equippedMockId = id;
-          if (category == 'aperture') _equippedMockAperture = id;
-          if (category == 'personal_page') _equippedMockTheme = id;
-          if (category == 'crown') _equippedMockCrown = id;
-          if (category == 'official_frame') _equippedMockOfficial = id;
-        });
+        final String idText = (item['idText'] ?? '').toString();
+        final String valueToSave = idText.isNotEmpty ? idText : (itemUrl.isNotEmpty ? itemUrl : id);
 
         final equipMap = <String, dynamic>{
           targetField: valueToSave,

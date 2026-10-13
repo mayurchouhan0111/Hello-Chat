@@ -64,6 +64,19 @@ final userActiveRoomStreamProvider = StreamProvider<RoomModel?>((ref) {
           : null);
 });
 
+final userPermanentRoomStreamProvider = StreamProvider<RoomModel?>((ref) {
+  final user = ref.watch(authStateProvider).value;
+  if (user == null) return Stream.value(null);
+
+  return FirebaseFirestore.instance
+      .collection('rooms')
+      .doc('room_${user.uid}')
+      .snapshots()
+      .map((snapshot) => snapshot.exists && snapshot.data() != null
+          ? RoomModel.fromFirestore(snapshot)
+          : null);
+});
+
 final roomBannersProvider = StreamProvider<List<RoomBannerModel>>((ref) {
   return ref.watch(roomServiceProvider).getRoomBannersStream();
 });

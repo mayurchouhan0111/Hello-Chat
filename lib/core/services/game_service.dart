@@ -12,12 +12,14 @@ class GameService extends BaseFirebaseService {
     Map<String, int>? bets,
     String? roundId,
     String? roomId,
+    String? txnId,
   }) async {
     final result = await callFunction('playSpinWheel', {
       'betAmount': betAmount,
       'bets': bets,
       'roundId': roundId,
       'roomId': roomId,
+      if (txnId != null) 'txnId': txnId,
     });
     return Map<String, dynamic>.from(result);
   }
@@ -25,9 +27,67 @@ class GameService extends BaseFirebaseService {
   /// Settles winnings for a completed Spin Wheel round.
   Future<Map<String, dynamic>> settleSpinWheelRound({
     required String roundId,
+    String? txnId,
   }) async {
     final result = await callFunction('settleSpinWheelRound', {
       'roundId': roundId,
+      if (txnId != null) 'txnId': txnId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  /// Retrieves the authoritative outcome for a Spin Wheel round (reveals after 27s).
+  Future<Map<String, dynamic>> getSpinWheelRoundOutcome({
+    required String roundId,
+  }) async {
+    final result = await callFunction('getSpinWheelRoundOutcome', {
+      'roundId': roundId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  /// Syncs the authoritative round state machine (BETTING_OPEN / SPINNING / ROUND_SETTLED).
+  Future<Map<String, dynamic>> syncSpinWheelRound({
+    String? roundId,
+  }) async {
+    final result = await callFunction('syncSpinWheelRound', {
+      if (roundId != null) 'roundId': roundId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  /// Atomically reverts staged bets for the current round and refunds diamonds.
+  Future<Map<String, dynamic>> revertSpinWheelBets({
+    String? roundId,
+  }) async {
+    final result = await callFunction('revertSpinWheelBets', {
+      if (roundId != null) 'roundId': roundId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  /// Single-turn atomic spin engine execution.
+  Future<Map<String, dynamic>> playInstantSpinWheel({
+    required int cost,
+    int? chosenSector,
+    String? txnId,
+  }) async {
+    final result = await callFunction('playInstantSpinWheel', {
+      'cost': cost,
+      if (chosenSector != null) 'chosenSector': chosenSector,
+      if (txnId != null) 'txnId': txnId,
+    });
+    return Map<String, dynamic>.from(result);
+  }
+
+  /// Reconciles the Spin the Wheel transaction ledger against the user's Diamond balance.
+  Future<Map<String, dynamic>> reconcileSpinWheelLedger({
+    String? targetUid,
+    bool autoCorrect = false,
+  }) async {
+    final result = await callFunction('reconcileSpinWheelLedger', {
+      if (targetUid != null) 'targetUid': targetUid,
+      'autoCorrect': autoCorrect,
     });
     return Map<String, dynamic>.from(result);
   }

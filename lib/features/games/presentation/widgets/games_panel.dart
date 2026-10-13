@@ -54,7 +54,6 @@ class GamesPanel extends StatelessWidget {
               ),
             ],
           ),
-          // NOTE: Temporarily commented out from UI. Can be un-commented later.
           /*
           const Gap(16),
           Row(

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/widgets/app_avatar.dart';
@@ -28,7 +27,6 @@ class EntryEffectOverlay extends ConsumerStatefulWidget {
 
 class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _slideAnimation;
   late Animation<double> _fadeAnimation;
 
   @override
@@ -37,10 +35,6 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
-    );
-
-    _slideAnimation = Tween<double>(begin: -300, end: 0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.4, curve: Curves.easeOutBack)),
     );
 
     _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
@@ -66,22 +60,21 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(cachedUserProfileProvider(widget.participant.uid));
-    final UserModel? u = userAsync.valueOrNull as UserModel?;
+    final UserModel? u = userAsync.valueOrNull;
 
     final String vip = u?.vipTier ?? widget.participant.vipTier;
     final String frame = u?.profileFrame ?? widget.participant.profileFrame;
     final String noble = u?.nobleTier ?? widget.participant.nobleTier;
     final String name = (u?.displayName ?? widget.participant.displayName).trim().isEmpty ? "GUEST" : (u?.displayName ?? widget.participant.displayName);
     final String photo = u?.profilePhotoUrl ?? widget.participant.profilePhotoUrl;
-    String customAnim = (u?.entryAnimation ?? widget.participant.entryAnimation).trim();
-    if (customAnim.toLowerCase() == 'none') {
-      customAnim = '';
-    }
+    final rawAnim = (u?.entryAnimation ?? widget.participant.entryAnimation).trim();
+    final bool isExplicitNone = rawAnim.toLowerCase() == 'none';
+    String customAnim = isExplicitNone ? '' : rawAnim;
 
     final int svipLevel = u?.svipLevel ?? 0;
     final int vipLevel = _getVipLevel(vip);
 
-    if (customAnim.isEmpty) {
+    if (customAnim.isEmpty && !isExplicitNone) {
       if (svipLevel > 0) {
         final svipModel = SVIPLevelModel.getLevelByTier(svipLevel);
         customAnim = svipModel.entryAnimationAsset;
@@ -139,6 +132,7 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
                   child: SvgaPlayer(
                     assetPath: customAnim,
                     fit: BoxFit.cover,
+                    playAudio: true,
                   ),
                 ),
               ),
@@ -169,65 +163,7 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
     );
   }
 
-  Widget _buildSvgaEntry(String asset, String name, String photo, Color accent, double width) {
-    return SizedBox(
-      width: width,
-      height: 220,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.center,
-        children: [
-          // 1. The SVGA Background Animation
-          Positioned.fill(
-            child: SvgaPlayer(assetPath: asset),
-          ),
-          
-          // 2. User Avatar
-          Positioned(
-            top: 65,
-            child: AppAvatar(
-              imageUrl: photo.isEmpty ? "https://picsum.photos/seed/${name}/100" : photo,
-              frameUrl: widget.participant.profileFrame,
-              vipTier: widget.participant.vipTier,
-              radius: 24,
-              showFrame: true,
-            ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
-          ),
 
-          // 3. Floating Name Banner
-          Positioned(
-            bottom: 15,
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: [Colors.black.withOpacity(0.85), Colors.black.withOpacity(0.55)]),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: accent.withOpacity(0.8), width: 1.5),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.stars_rounded, color: accent, size: 14),
-                    const SizedBox(width: 8),
-                    Text(
-                      name.toUpperCase(),
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, shadows: [Shadow(color: accent, blurRadius: 4)]),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      "HAS ARRIVED!",
-                      style: TextStyle(color: accent.withOpacity(0.7), fontWeight: FontWeight.bold, fontSize: 10),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
 
   Widget _buildVehicleEntry(String asset, String name, String photo, Color accent, double width) {

@@ -258,13 +258,13 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
     _playerStateSubscription?.cancel();
     _videoStateSubscription?.cancel();
     if (_controller != null) {
-      final c = _controller;
+      // ponytail: do NOT call close() here. youtube_player_iframe registers a WebView
+      // JS-channel handler that keeps forwarding events into the controller after our
+      // StreamSubscriptions are cancelled; closing it makes a late event hit a closed
+      // BroadcastStreamController ("Bad state: Cannot add new events after calling close").
+      // The platform WebView is destroyed with this widget anyway, so skipping close()
+      // leaks nothing and removes the uncaught async error on every room exit.
       _controller = null;
-      Future.delayed(const Duration(milliseconds: 500), () {
-        try {
-          c?.close();
-        } catch (_) {}
-      });
     }
     super.dispose();
   }

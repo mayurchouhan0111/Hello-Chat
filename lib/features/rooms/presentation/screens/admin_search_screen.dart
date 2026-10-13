@@ -34,7 +34,7 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
     try {
       final helloId = int.tryParse(query);
       if (helloId != null) {
-        final snap = await FirebaseFirestore.instance.collection('users').where('helloId', isEqualTo: helloId).limit(1).get();
+        final snap = await FirebaseFirestore.instance.collection('publicUsers').where('helloId', isEqualTo: helloId).limit(1).get();
         if (snap.docs.isNotEmpty) {
           setState(() {
             _searchedUser = UserModel.fromMap(snap.docs.first.data());
@@ -60,27 +60,34 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
     }
   }
 
-  void _addAdmin() async {
-    if (_searchedUser == null) return;
+  void _addAdmin({UserModel? target, String? targetUid}) async {
+    final uid = targetUid ?? target?.uid ?? _searchedUser?.uid;
+    if (uid == null) return;
 
     final isAdminRole = widget.initialRole == 'admin';
-    final list = isAdminRole ? widget.room.admins : widget.room.moderators;
+    final adminList = widget.room.admins.where((id) => id != widget.room.ownerUid).toList();
+    final list = isAdminRole ? adminList : widget.room.moderators;
     final maxLimit = isAdminRole ? 12 : 999;
+
+    if (uid == widget.room.ownerUid) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Room owner cannot be added as administrator")));
+      return;
+    }
 
     if (list.length >= maxLimit) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isAdminRole ? "Maximum 12 administrators" : "Maximum moderators reached")));
       return;
     }
 
-    if (list.contains(_searchedUser!.uid)) {
+    if (list.contains(uid)) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is already a${isAdminRole ? 'n administrator' : ' moderator'}")));
       return;
     }
 
     if (isAdminRole) {
-      await ref.read(roomServiceProvider).addModerator(widget.room.roomId, _searchedUser!.uid);
+      await ref.read(roomServiceProvider).addAdmin(widget.room.roomId, uid);
     } else {
-      await ref.read(roomServiceProvider).addRoomModerator(widget.room.roomId, _searchedUser!.uid);
+      await ref.read(roomServiceProvider).addRoomModerator(widget.room.roomId, uid);
     }
 
     if (mounted) {
@@ -91,6 +98,9 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final participantsAsync = ref.watch(roomParticipantsProvider(widget.room.roomId));
+    final adminList = widget.room.admins.where((id) => id != widget.room.ownerUid).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
@@ -164,13 +174,13 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
                       ],
                     ),
                     const Spacer(),
-                    if (widget.room.admins.length >= 12)
+                    if (adminList.length >= 12)
                       const Padding(
                         padding: EdgeInsets.only(bottom: 12),
                         child: Text("A maximum of 12 administrators can be added", style: TextStyle(color: Colors.black54, fontSize: 12)),
                       ),
                     InkWell(
-                      onTap: _addAdmin,
+                      onTap: () => _addAdmin(),
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 14),
@@ -190,7 +200,57 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
                   ],
                 ),
               )
-            : const SizedBox.shrink(),
+            : participantsAsync.when(
+                data: (participants) {
+                  final nonAdminParticipants = participants.where((p) => p.uid != widget.room.ownerUid && !adminList.contains(p.uid)).toList();
+                  if (nonAdminParticipants.isEmpty) {
+                    return const Center(child: Text("No room participants to add.\nUse search by ID above.", textAlign: TextAlign.center, style: TextStyle(color: Colors.black45)));
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Text(
+                          "Room Participants (${nonAdminParticipants.length})",
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: nonAdminParticipants.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1, indent: 64),
+                          itemBuilder: (context, index) {
+                            final p = nonAdminParticipants[index];
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundImage: NetworkImage(p.profilePhotoUrl.isNotEmpty ? p.profilePhotoUrl : 'https://picsum.photos/200'),
+                              ),
+                              title: Text(p.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text("ID: ${p.helloId ?? p.uid.substring(0, 6)}", style: const TextStyle(fontSize: 12)),
+                              trailing: ElevatedButton(
+                                onPressed: () => _addAdmin(targetUid: p.uid),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF00E5FF),
+                                  foregroundColor: Colors.black87,
+                                  elevation: 0,
+                                  minimumSize: const Size(0, 36),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                ),
+                                child: Text(widget.initialRole == 'admin' ? "+ Add Admin" : "+ Add Mod", style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                },
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (_, __) => const Center(child: Text("Use search by user ID above", style: TextStyle(color: Colors.black45))),
+              ),
     );
   }
 }

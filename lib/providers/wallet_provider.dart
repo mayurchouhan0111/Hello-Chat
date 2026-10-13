@@ -1,8 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../core/models/user_model.dart';
 import '../core/models/transaction_model.dart';
 import '../core/providers/auth_provider.dart';
 
@@ -21,23 +18,27 @@ final walletTransactionsProvider = StreamProvider.autoDispose<List<WalletTransac
       .map((snap) => snap.docs.map((doc) => WalletTransaction.fromMap(doc.data(), doc.id)).toList());
 });
 
-// 2. Wallet Balance Stream (extracted from user document)
-final walletBalanceProvider = StreamProvider.autoDispose<Map<String, int>>((ref) {
+// 2. Wallet Balance Stream (extracted from user document with monotonic seq)
+final walletBalanceProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
   final user = ref.watch(authStateProvider).value;
-  if (user == null) return Stream.value({'diamonds': 0, 'beans': 0});
+  if (user == null) return Stream.value({'diamonds': 0, 'beans': 0, 'seq': 0});
 
   return FirebaseFirestore.instance
       .collection('users')
       .doc(user.uid)
       .snapshots()
       .map((snap) {
-        if (!snap.exists) return {'diamonds': 0, 'beans': 0};
+        if (!snap.exists) return {'diamonds': 0, 'beans': 0, 'seq': 0};
         final data = snap.data()!;
         final diamonds = (data['diamondBalance'] as num?)?.toInt() ?? (data['diamonds'] as num?)?.toInt() ?? 0;
         final beans = (data['beansBalance'] as num?)?.toInt() ?? (data['beans'] as num?)?.toInt() ?? 0;
+        final seq = (data['seq'] as num?)?.toInt() ?? 0;
+        final lastTxnId = data['lastTxnId'] as String?;
         return {
           'diamonds': diamonds,
           'beans': beans,
+          'seq': seq,
+          'lastTxnId': lastTxnId,
         };
       });
 });

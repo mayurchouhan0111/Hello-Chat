@@ -80,4 +80,29 @@ void main() {
     }
     expect(err, isNull);
   });
+
+  testWidgets('RoomSupportScreen renders safely with null config and cycle data', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          currentRoomStreamProvider('empty_room').overrideWith((ref) => Stream.value(null)),
+          currentUserProfileProvider.overrideWith((ref) => Stream.value(null)),
+          roomSupportConfigProvider.overrideWith((ref) => Stream.value(null)),
+          roomSupportCycleProvider('empty_room').overrideWith((ref) => Stream.value(null)),
+          roomSupportPartnersProvider('empty_room').overrideWith((ref) => Stream.value([])),
+          roomSupportHistoryProvider('empty_room').overrideWith((ref) => Stream.value([])),
+          roomSupportRankingsProvider.overrideWith((ref) => Stream.value([])),
+        ],
+        child: const MaterialApp(
+          home: RoomSupportScreen(roomId: 'empty_room'),
+        ),
+      ),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final err = tester.takeException();
+    expect(err, isNull);
+  });
 }

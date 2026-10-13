@@ -69,9 +69,17 @@ class RoomService with BaseFirebaseService {
     final hostAvatar = (userDataProfile?['profilePhotoUrl'] as String?)?.trim().isNotEmpty == true
         ? userDataProfile!['profilePhotoUrl']
         : (userDataProfile?['photoURL'] as String?) ?? '';
-    final finalCoverUrl = (coverUrl != null && coverUrl.trim().isNotEmpty) ? coverUrl.trim() : hostAvatar;
+    final existingDoc = await roomRef.get();
+    final existingData = existingDoc.data();
 
-    final roomData = {
+    // ponytail: null coverUrl means "no new image picked" on resume, so keep the stored
+    // cover instead of clobbering it with the host avatar. Explicit non-empty wins.
+    final existingCover = (existingData?['coverUrl'] as String?)?.trim() ?? '';
+    final finalCoverUrl = (coverUrl != null && coverUrl.trim().isNotEmpty)
+        ? coverUrl.trim()
+        : (existingCover.isNotEmpty ? existingCover : hostAvatar);
+
+    final roomData = <String, dynamic>{
       'roomId': roomId,
       'createdBy': uid,
       'ownerUid': uid,
@@ -88,23 +96,33 @@ class RoomService with BaseFirebaseService {
       'capacity': capacity,
       'currentUsersCount': 1,
       'backgroundMusic': backgroundMusic,
-      'createdAt': FieldValue.serverTimestamp(),
       'status': 'active',
-      'admins': [uid],
-      'bannedUids': [],
+      'lastOpenedAt': FieldValue.serverTimestamp(),
+      'admins': <String>[],
+      'admin_ids': <String>[],
+      'backgroundUrl': (existingData?['backgroundUrl'] as String?)?.trim() ?? '',
+      'bannedUids': existingData?['bannedUids'] ?? [],
     };
 
-    // Split into two commits: the room doc MUST exist before writing the
-    // owner's participant doc, because Firestore rules evaluate batch writes
-    // against pre-batch state (get()/exists() on the room would see it as
-    // missing, causing the owner seat-0 participant write to be denied).
-    await roomRef.set(roomData);
+    if (!existingDoc.exists) {
+      // First-time permanent room creation: initialize baseline counters
+      roomData['createdAt'] = FieldValue.serverTimestamp();
+      roomData['totalDiamondsSent'] = 0;
+      roomData['dailyDiamondsSent'] = 0;
+      roomData['weeklyDiamondsSent'] = 0;
+      roomData['monthlyDiamondsSent'] = 0;
+      roomData['weeklyEarnings'] = 0;
+    }
+
+    // Use SetOptions(merge: true) to never wipe existing accumulated counters
+    await roomRef.set(roomData, SetOptions(merge: true));
 
     final participantData = {
       'uid': uid,
       'displayName': userDataProfile?['displayName'] ?? 'Host',
       'profilePhotoUrl': userDataProfile?['profilePhotoUrl'] ?? '',
       'role': 'owner',
+      'isAdmin': false,
       'joinedAt': FieldValue.serverTimestamp(),
       'lastActive': FieldValue.serverTimestamp(),
       'seatIndex': 0,
@@ -131,6 +149,28 @@ class RoomService with BaseFirebaseService {
     });
 
     await participantBatch.commit();
+
+    // Ensure all stale participants from prior sessions do not carry false admin status
+    try {
+      final oldParticipants = await roomRef.collection('participants').get();
+      final cleanupBatch = _db.batch();
+      bool needsCleanup = false;
+      for (final doc in oldParticipants.docs) {
+        if (doc.id != uid) {
+          final data = doc.data();
+          if (data['isAdmin'] == true || data['role'] == 'admin') {
+            cleanupBatch.update(doc.reference, {
+              'isAdmin': false,
+              'role': 'audience',
+            });
+            needsCleanup = true;
+          }
+        }
+      }
+      if (needsCleanup) {
+        await cleanupBatch.commit();
+      }
+    } catch (_) {}
     return roomId;
   }
 
@@ -150,12 +190,16 @@ class RoomService with BaseFirebaseService {
       final photoUrl = userData?['profilePhotoUrl'] ?? '';
 
       final participantSnapshot = await transaction.get(participantRef);
+      final roomData = roomSnapshot.exists ? roomSnapshot.data() : null;
+      final roomAdmins = ((roomData?['admins'] ?? roomData?['admin_ids']) as List?)?.map((e) => e.toString()).toList() ?? [];
+      final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
+      final isDesignatedAdmin = !isOwner && roomAdmins.contains(uid);
 
       if (!participantSnapshot.exists) {
-        final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
         transaction.set(participantRef, {
           'uid': uid,
-          'role': isOwner ? 'owner' : 'audience',
+          'role': isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience'),
+          'isAdmin': isDesignatedAdmin,
           'seatIndex': isOwner ? 0 : -1,
           'joinedAt': FieldValue.serverTimestamp(),
           'lastActive': FieldValue.serverTimestamp(),
@@ -193,14 +237,13 @@ class RoomService with BaseFirebaseService {
           });
         }
 
-        debugPrint('[ROOM_JOIN] New participant $uid joined room $roomId');
+        debugPrint('[ROOM_JOIN] New participant $uid joined room $roomId (role: ${isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience')}, isAdmin: $isDesignatedAdmin)');
       } else {
         // Restore existing participant — preserve seatIndex and role
         final existingData = participantSnapshot.data() as Map<String, dynamic>;
         final previousSeat = existingData['seatIndex'];
         final previousRole = existingData['role'];
 
-        final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
         final updatePayload = <String, dynamic>{
           'lastActive': FieldValue.serverTimestamp(),
         };
@@ -209,19 +252,20 @@ class RoomService with BaseFirebaseService {
           if (previousSeat != 0) updatePayload['seatIndex'] = 0;
           if (previousRole != 'owner' && previousRole != 'host') updatePayload['role'] = 'owner';
           updatePayload['isMuted'] = false;
+          updatePayload['isAdmin'] = false;
         } else {
           // If seatIndex was lost (set to null/undefined), restore to -1
           if (previousSeat == null) {
             updatePayload['seatIndex'] = -1;
           }
-          if (previousRole == null) {
-            updatePayload['role'] = 'audience';
-          }
+          final isDesignatedAdmin = roomAdmins.contains(uid);
+          updatePayload['role'] = isDesignatedAdmin ? 'admin' : 'audience';
+          updatePayload['isAdmin'] = isDesignatedAdmin;
         }
 
         transaction.update(participantRef, updatePayload);
 
-        debugPrint('[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=$previousRole, isOwner=$isOwner)');
+        debugPrint('[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=${updatePayload['role'] ?? previousRole}, isOwner=$isOwner, isAdmin=${updatePayload['isAdmin']})');
       }
 
       // Track active room on user profile (CRITICAL for presence sync)
@@ -259,11 +303,23 @@ class RoomService with BaseFirebaseService {
   }
 
   Future<void> endRoom(String roomId) async {
+    final uid = _auth.currentUser?.uid;
+    final roomRef = _db.collection('rooms').doc(roomId);
+
+    // ponytail: batch so the room flip and the caller's own cleanup land together.
+    // currentUsersCount is left alone - the onParticipantChange trigger recomputes
+    // it from the remaining participant docs once this delete lands.
+    final batch = _db.batch();
+    batch.update(roomRef, {
+      'status': 'ended',
+      'endedAt': FieldValue.serverTimestamp(),
+    });
+    if (uid != null) {
+      batch.delete(roomRef.collection('participants').doc(uid));
+      batch.update(_db.collection('users').doc(uid), {'activeRoomId': FieldValue.delete()});
+    }
     await Future.wait([
-      _db.collection('rooms').doc(roomId).update({
-        'status': 'ended',
-        'endedAt': FieldValue.serverTimestamp(),
-      }),
+      batch.commit(),
       _cleanupRoomImages(roomId),
     ]);
   }
@@ -361,8 +417,8 @@ class RoomService with BaseFirebaseService {
   }
 
   Future<void> setRoomCapacity(String roomId, int capacity) async {
-    if (![8, 12, 16].contains(capacity)) {
-       throw Exception("Invalid capacity. Allowed values: 8, 12, 16.");
+if (!kRoomCapacityOptions.contains(capacity)) {
+      throw Exception("Invalid capacity. Allowed values: ${kRoomCapacityOptions.join(', ')}.");
     }
     await _db.collection('rooms').doc(roomId).update({
       'capacity': capacity,
@@ -489,17 +545,117 @@ class RoomService with BaseFirebaseService {
   }
 
   // Admin & Settings
-  Future<void> addModerator(String roomId, String targetUid) async {
-    await _db.collection('rooms').doc(roomId).update({
-      'admins': FieldValue.arrayUnion([targetUid])
+  Future<void> addAdmin(String roomId, String targetUid) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) throw Exception('Authentication required');
+
+    try {
+      await callFunction('roomAddAdmin', {
+        'roomId': roomId,
+        'targetUid': targetUid,
+      });
+      return;
+    } catch (e) {
+      debugPrint('[ROOM_ADMIN] Cloud function fallback to transaction: $e');
+    }
+
+    final roomRef = _db.collection('rooms').doc(roomId);
+    await _db.runTransaction((transaction) async {
+      final roomSnap = await transaction.get(roomRef);
+      if (!roomSnap.exists) throw Exception('Room not found');
+      final roomData = roomSnap.data() as Map<String, dynamic>;
+      final ownerUid = roomData['ownerUid'];
+      if (ownerUid != uid) {
+        throw Exception('Only the room owner can assign administrators');
+      }
+
+      final admins = List<String>.from((roomData['admins'] ?? roomData['admin_ids'] ?? []));
+      if (admins.where((id) => id != ownerUid).length >= 12) {
+        throw Exception('Maximum 12 administrators allowed');
+      }
+      if (targetUid == ownerUid) {
+        throw Exception('Room owner cannot be added as administrator');
+      }
+
+      transaction.update(roomRef, {
+        'admins': FieldValue.arrayUnion([targetUid]),
+        'admin_ids': FieldValue.arrayUnion([targetUid]),
+      });
+
+      final participantRef = roomRef.collection('participants').doc(targetUid);
+      final participantSnap = await transaction.get(participantRef);
+      if (participantSnap.exists) {
+        transaction.update(participantRef, {
+          'isAdmin': true,
+          'role': 'admin',
+        });
+      }
+
+      final msgRef = roomRef.collection('messages').doc();
+      transaction.set(msgRef, {
+        'uid': 'system',
+        'type': 'ROOM_ADMIN_UPDATED',
+        'action': 'ADD_ADMIN',
+        'targetUid': targetUid,
+        'text': 'User was assigned as Room Administrator',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 
-  Future<void> removeModerator(String roomId, String targetUid) async {
-    await _db.collection('rooms').doc(roomId).update({
-      'admins': FieldValue.arrayRemove([targetUid])
+  Future<void> removeAdmin(String roomId, String targetUid) async {
+    final uid = _auth.currentUser?.uid;
+    if (uid == null) throw Exception('Authentication required');
+
+    try {
+      await callFunction('roomRemoveAdmin', {
+        'roomId': roomId,
+        'targetUid': targetUid,
+      });
+      return;
+    } catch (e) {
+      debugPrint('[ROOM_ADMIN] Cloud function fallback to transaction: $e');
+    }
+
+    final roomRef = _db.collection('rooms').doc(roomId);
+    await _db.runTransaction((transaction) async {
+      final roomSnap = await transaction.get(roomRef);
+      if (!roomSnap.exists) throw Exception('Room not found');
+      final roomData = roomSnap.data() as Map<String, dynamic>;
+      final ownerUid = roomData['ownerUid'];
+      if (ownerUid != uid) {
+        throw Exception('Only the room owner can remove administrators');
+      }
+
+      transaction.update(roomRef, {
+        'admins': FieldValue.arrayRemove([targetUid]),
+        'admin_ids': FieldValue.arrayRemove([targetUid]),
+      });
+
+      final participantRef = roomRef.collection('participants').doc(targetUid);
+      final participantSnap = await transaction.get(participantRef);
+      if (participantSnap.exists) {
+        transaction.update(participantRef, {
+          'isAdmin': false,
+          'role': 'audience',
+        });
+      }
+
+      final msgRef = roomRef.collection('messages').doc();
+      transaction.set(msgRef, {
+        'uid': 'system',
+        'type': 'ROOM_ADMIN_UPDATED',
+        'action': 'REMOVE_ADMIN',
+        'targetUid': targetUid,
+        'text': 'User was removed from Room Administrators',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
     });
   }
+
+  // NOTE: there is no moderator->admin alias here. addModerator used to forward
+  // to addAdmin, silently promoting moderators into full Room Admins. Moderator
+  // membership lives only in rooms.moderators via addRoomModerator/removeRoomModerator.
 
   Future<void> addRoomModerator(String roomId, String targetUid) async {
     await _db.collection('rooms').doc(roomId).update({

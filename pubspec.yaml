@@ -91,8 +91,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  integration_test:
-    sdk: flutter
+  # integration_test:
+  #   sdk: flutter
   flutter_lints: ^4.0.0
 
   # Code generation
@@ -124,6 +124,7 @@ flutter:
 
   assets:
     - assets/images/
+    - assets/images/gifts/
     - assets/images/leaderboards/
     - assets/images/rocket_reward/
     - assets/images/super/
@@ -134,11 +135,21 @@ flutter:
     - assets/images/levels_new/
     - assets/icons/
     - assets/animations/lottie/
+    - assets/animations/gifts/
+    - assets/animations/gifts/tencent-VAP-music/
+    - assets/animations/gifts/169522/
+    - assets/animations/gifts/219667/
+    - assets/animations/gifts/2529/
+    - assets/animations/gifts/251779/
+    - assets/animations/gifts/256006/
+    - assets/animations/gifts/normal gift/lucky gift dates/
+    - assets/animations/gifts/lucky gifts bell vap/lucky gifts bell vap/
     - assets/rocket/
     - assets/rocket/rocket_set_svga/
     - assets/rocket/Rocket set SVGA/
     - assets/rocket/VAP/
     - assets/animations/VAP/
+    - assets/lucky gift dates/
     - assets/fonts/
     - assets/stickers/HotCherry-1779517555688/
     - assets/stickers/UtyaDuck-1779516899467/

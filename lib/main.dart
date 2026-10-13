@@ -80,7 +80,58 @@ void main() async {
         }
         return Material(
           color: const Color(0xFF0F172A),
-          child: const SizedBox.shrink(),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    color: Colors.white54,
+                    size: 48,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Something went wrong',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Unable to load this section right now.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF6366F1),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                    icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                    label: const Text('Go Back'),
+                    onPressed: () {
+                      Navigator.maybePop(context);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
         );
       },
     );
@@ -99,23 +150,20 @@ void main() async {
 
 
   // 🛡️ INITIALIZE APP CHECK
-  // This resolves the [unauthenticated] error by proving the app's integrity.
-  await FirebaseAppCheck.instance.activate(
-    androidProvider: kDebugMode ? AndroidProvider.debug : AndroidProvider.playIntegrity,
-    appleProvider: kDebugMode ? AppleProvider.debug : AppleProvider.deviceCheck,
-  );
-  debugPrint('--- [APP CHECK READY] ---');
-
-  // 🛡️ FORCE DEBUG TOKEN LOGGING
-  // This triggers a token fetch which forces the native SDK to print the Debug Token in Logcat.
-  if (kDebugMode) {
+  // App Check is optional monitoring on backend. In debug/development, do not activate to prevent
+  // native rate-limiting ("Too many attempts") from blocking Cloud Functions calls.
+  if (!kDebugMode) {
     try {
-      final token = await FirebaseAppCheck.instance.getToken();
-      debugPrint('🛡️ [AppCheck Diagnostic] Current Token: ${token?.substring(0, 10)}...');
-      debugPrint('🛡️ [AppCheck Diagnostic] Check your Logcat (Native logs) for the "Debug Secret" to paste into Firebase Console.');
+      await FirebaseAppCheck.instance.activate(
+        androidProvider: AndroidProvider.playIntegrity,
+        appleProvider: AppleProvider.deviceCheck,
+      );
+      debugPrint('--- [APP CHECK READY] ---');
     } catch (e) {
-      debugPrint('🛡️ [AppCheck Diagnostic] Error fetching token: $e');
+      debugPrint('⚠️ AppCheck initialization warning: $e');
     }
+  } else {
+    debugPrint('--- [APP CHECK BYPASSED IN DEBUG MODE] ---');
   }
 
   /*
@@ -178,13 +226,8 @@ class HelloChatApp extends ConsumerWidget {
         final vipNum = int.tryParse(profile.vipTier.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
         final role = profile.role;
         AssetPrecacheService.precacheUserAssets(context, vipLevel: vipNum, role: role);
-        AssetPrecacheService.startBackgroundPrecache();
       }
     });
-
-    if (profileAsync.hasValue && profileAsync.value != null) {
-      _preloadGiftsOnStartup(ref);
-    }
 
     return LocationListener(
       child: GlobalPresenceObserver(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
@@ -64,6 +65,7 @@ class SvgaPlayer extends StatefulWidget {
   final double? maxFps;
   final Size? maxRenderSize;
   final bool pauseWhenInvisible;
+  final bool playAudio;
 
   const SvgaPlayer({
     super.key,
@@ -75,6 +77,7 @@ class SvgaPlayer extends StatefulWidget {
     this.maxFps,
     this.maxRenderSize,
     this.pauseWhenInvisible = false,
+    this.playAudio = false,
   });
 
   @override
@@ -150,6 +153,15 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
           } else {
             ctrl.forward();
           }
+          if (widget.playAudio) {
+            final effectiveFps = videoItem.params.fps > 0 ? videoItem.params.fps : 30;
+            final key = widget.assetPath ?? widget.url ?? '';
+            SvgaParserUtil.getPreparedAudios(videoItem, key, effectiveFps).then((audios) {
+              if (mounted && audios.isNotEmpty) {
+                _playPreparedAudios(audios);
+              }
+            });
+          }
           if (mounted) {
             setState(() {
               _isLoading = false;
@@ -184,12 +196,68 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
     }
   }
 
+  AudioPlayer? _audioPlayer;
+  final List<Timer> _audioTimers = [];
+
+  void _playPreparedAudios(List<PreparedSvgaAudio> preparedAudios) {
+    if (!widget.playAudio || preparedAudios.isEmpty || !mounted) return;
+    _audioPlayer ??= AudioPlayer();
+    try {
+      _audioPlayer!.setAudioContext(
+        const AudioContext(
+          android: AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.media,
+            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.playback,
+            options: [
+              AVAudioSessionOptions.mixWithOthers,
+              AVAudioSessionOptions.defaultToSpeaker,
+            ],
+          ),
+        ),
+      );
+    } catch (_) {}
+
+    for (final audio in preparedAudios) {
+      if (audio.delayMs > 0) {
+        final timer = Timer(Duration(milliseconds: audio.delayMs), () async {
+          if (mounted && _audioPlayer != null) {
+            try {
+              await _audioPlayer!.setVolume(1.0);
+              await _audioPlayer!.play(DeviceFileSource(audio.file.path), volume: 1.0);
+            } catch (ae) {
+              debugPrint("[SvgaPlayer] Error playing SVGA audio: $ae");
+            }
+          }
+        });
+        _audioTimers.add(timer);
+      } else {
+        try {
+          _audioPlayer!.setVolume(1.0);
+          _audioPlayer!.play(DeviceFileSource(audio.file.path), volume: 1.0);
+        } catch (ae) {
+          debugPrint("[SvgaPlayer] Error playing SVGA audio: $ae");
+        }
+      }
+    }
+  }
+
   @override
   void didUpdateWidget(covariant SvgaPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.assetPath != widget.assetPath || oldWidget.url != widget.url || oldWidget.loop != widget.loop) {
       _controller?.stop();
       _controller?.videoItem = null;
+      for (final timer in _audioTimers) {
+        timer.cancel();
+      }
+      _audioTimers.clear();
+      _audioPlayer?.stop();
       _loadAnimation();
     } else if (_controller?.videoItem == null) {
       _loadAnimation();
@@ -199,6 +267,13 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final timer in _audioTimers) {
+      timer.cancel();
+    }
+    _audioTimers.clear();
+    _audioPlayer?.stop();
+    _audioPlayer?.dispose();
+    _audioPlayer = null;
     try {
       _controller?.stop();
       _controller?.dispose();

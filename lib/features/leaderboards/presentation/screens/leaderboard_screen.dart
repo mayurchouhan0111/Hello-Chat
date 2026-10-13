@@ -302,6 +302,11 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
       ),
       child: TabBar(
         controller: _tabController,
+        // Equal-width tabs gave "Contribution" only ~25% of the row, so the
+        // label was clipped to "Contrib". Scrollable tabs size to their label.
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 16),
         dividerColor: Colors.transparent,
         indicatorColor: const Color(0xFFFFD700),
         indicatorWeight: 2.5,
@@ -413,9 +418,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
                   : "totalBeansReceived";
     }
 
-    // Query users collection strictly ordered by the actual diamond sending / bean receiving metric
+    // Query publicUsers (cosmetic projection) strictly ordered by the actual
+    // diamond sending / bean receiving metric - `users` is hierarchy-locked.
     final query = FirebaseFirestore.instance
-        .collection('users')
+        .collection('publicUsers')
         .orderBy(queryField, descending: true)
         .limit(100);
 
@@ -434,14 +440,19 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
           }
           // Fallback to unordered query with in-memory sorting if composite/single index is pending or field has no docs
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: FirebaseFirestore.instance.collection('users').limit(100).snapshots(),
+            stream: FirebaseFirestore.instance.collection('publicUsers').limit(100).snapshots(),
             builder: (ctx, fallbackSnap) {
               if (fallbackSnap.connectionState == ConnectionState.waiting && !fallbackSnap.hasData) {
                 return const Center(
                   child: CircularProgressIndicator(color: Color(0xFFFFD700)),
                 );
               }
-              if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
+              if (fallbackSnap.hasError) return _buildErrorState(fallbackSnap.error);
+              if (!fallbackSnap.hasData) {
+                return const Center(
+                  child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+                );
+              }
               return _processAndBuildUserRanking(fallbackSnap.data!.docs, queryField, isSending, userCountryName);
             },
           );
@@ -638,7 +649,10 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
               if (fallbackSnap.connectionState == ConnectionState.waiting && !fallbackSnap.hasData) {
                 return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
               }
-              if (fallbackSnap.hasError || !fallbackSnap.hasData) return _buildEmptyState();
+              if (fallbackSnap.hasError) return _buildErrorState(fallbackSnap.error);
+              if (!fallbackSnap.hasData) {
+                return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+              }
               return _renderRoomRankingList(fallbackSnap.data!.docs, queryField);
             },
           );
@@ -673,7 +687,14 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         final num roomDiamonds = (data[queryField] as num?) ?? 0;
         if (roomDiamonds <= 0) continue;
 
-        final ownerUid = (data['ownerUid'] as String?) ?? d.id;
+        String ownerUid = (data['ownerUid'] as String?)?.trim() ?? '';
+        if (ownerUid.isEmpty) {
+          if (d.id.startsWith('room_')) {
+            ownerUid = d.id.substring(5);
+          } else {
+            ownerUid = d.id;
+          }
+        }
 
         // Multi-field image fallback: check roomCover, roomIcon, ownerAvatar, userProfilePic, coverUrl, etc.
         final String explicitImage = [
@@ -697,14 +718,31 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
         final finalPhotoUrl = explicitImage.isNotEmpty ? explicitImage : hostAvatar;
 
         final currentRoom = uniqueRooms[ownerUid];
-        if (currentRoom == null || roomDiamonds > currentRoom.score) {
+        if (currentRoom == null) {
           uniqueRooms[ownerUid] = PodiumUserData(
-            uid: d.id,
+            uid: d.id.startsWith('room_') ? d.id : 'room_$ownerUid',
             displayName: (data['name'] as String?)?.isNotEmpty == true
                 ? data['name']
                 : (hostProfile != null && hostProfile.displayName.isNotEmpty ? hostProfile.displayName : 'Live Room'),
             photoUrl: finalPhotoUrl,
             score: roomDiamonds,
+            isRoom: true,
+          );
+        } else {
+          // Cumulative aggregation: consolidate split diamond entries under the same permanent owner
+          final combinedScore = currentRoom.score + roomDiamonds;
+          final updatedName = (currentRoom.displayName == 'Live Room' && (data['name'] as String?)?.isNotEmpty == true)
+              ? data['name']
+              : currentRoom.displayName;
+          final updatedPhoto = (currentRoom.photoUrl.isEmpty && finalPhotoUrl.isNotEmpty)
+              ? finalPhotoUrl
+              : currentRoom.photoUrl;
+
+          uniqueRooms[ownerUid] = PodiumUserData(
+            uid: currentRoom.uid,
+            displayName: updatedName,
+            photoUrl: updatedPhoto,
+            score: combinedScore,
             isRoom: true,
           );
         }
@@ -771,7 +809,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
 
         if (snapshot.hasError) {
           debugPrint("Couple query error: ${snapshot.error}");
-          return _buildEmptyState();
+          return _buildErrorState(snapshot.error);
         }
 
         if (!snapshot.hasData) {
@@ -1163,6 +1201,35 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> with Sing
             style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 13),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Query failures (permission-denied, missing index) must NOT masquerade as
+  /// "No Rankings Yet" - that is what hid this bug. Show the real error.
+  Widget _buildErrorState(Object? error) {
+    final raw = error?.toString() ?? 'Unknown error';
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(height: 120),
+            Icon(Icons.cloud_off_rounded, size: 64, color: Colors.white.withValues(alpha: 0.2)),
+            const SizedBox(height: 16),
+            const Text(
+              "Rankings Unavailable",
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              raw.length > 200 ? "${raw.substring(0, 200)}…" : raw,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }

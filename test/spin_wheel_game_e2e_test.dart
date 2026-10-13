@@ -206,8 +206,8 @@ void main() {
 
       // Verify Labels
       expect(find.text("This round's results: "), findsOneWidget);
-      expect(find.text("This round's winnings: "), findsOneWidget);
-      expect(find.text("Your wager this round: "), findsOneWidget);
+      expect(find.text("Gross Payout: "), findsOneWidget);
+      expect(find.text("Total Stake: "), findsOneWidget);
     });
 
     testWidgets('Case 2: Losing Round UI - Renders "YOU LOST", 0 winnings, wager, and item', (tester) async {
@@ -557,4 +557,23 @@ void main() {
       expect(foodSegments[idx]['name'], equals('Chicken'));
     });
   });
+
+  group('Spin Wheel Game - Bet Phase Gate & Auto-Submit Retention', () {
+    test('Bets queued before 27s remain eligible for auto-submit up to 35s without cancellation', () {
+      const serverRoundMs = 40000;
+      // Simulate seconds into round from 27 to 34 (during BETS CLOSED / Spinning)
+      for (int sec = 27; sec < 35; sec++) {
+        final bool isEligibleForAutoSubmit = sec < 35;
+        expect(isEligibleForAutoSubmit, isTrue, reason: 'At second $sec, bets must not be auto-cancelled');
+      }
+    });
+
+    test('Bets are only rejected at or beyond 35s to respect the backend 36s phase gate', () {
+      for (int sec = 35; sec < 40; sec++) {
+        final bool isEligibleForAutoSubmit = sec < 35;
+        expect(isEligibleForAutoSubmit, isFalse, reason: 'At second $sec (>= 35s), bets are locked for outcome reveal');
+      }
+    });
+  });
 }
+

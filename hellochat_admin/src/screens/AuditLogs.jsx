@@ -42,15 +42,48 @@ export const logAdminAction = async (user, action, targetId, details = {}) => {
 export const AuditLogs = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { isOwner } = useAdmin();
 
   useEffect(() => {
-    const q = query(collection(db, "admin_logs"), orderBy("timestamp", "desc"), limit(100));
-    const unsub = onSnapshot(q, (snap) => {
-      setLogs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const unsubs = [];
+    let adminRows = [];
+    let auditRows = [];
+
+    const rebuild = () => {
+      const merged = [...adminRows, ...auditRows]
+        .sort((a, b) => (b.timestamp?.toMillis?.() || 0) - (a.timestamp?.toMillis?.() || 0))
+        .slice(0, 200);
+      setLogs(merged);
       setLoading(false);
-    });
-    return unsub;
-  }, []);
+    };
+
+    const q = query(collection(db, "admin_logs"), orderBy("timestamp", "desc"), limit(100));
+    unsubs.push(onSnapshot(q, (snap) => {
+      adminRows = snap.docs.map(d => ({ id: d.id, ...d.data(), source: 'admin' }));
+      rebuild();
+    }, () => setLoading(false)));
+
+    // Financial / privilege audit trail is Owner-only (audit_logs read rule).
+    // A non-Owner admin skips it instead of triggering a permission error.
+    if (isOwner) {
+      const aq = query(collection(db, "audit_logs"), orderBy("timestamp", "desc"), limit(100));
+      unsubs.push(onSnapshot(aq, (snap) => {
+        auditRows = snap.docs.map(d => {
+          const r = d.data();
+          return {
+            ...r,
+            id: d.id,
+            source: 'audit',
+            adminUid: r.actorUid,
+            adminEmail: r.actorRole ? `${r.actorRole} · ${String(r.actorUid || '').slice(0, 8)}` : r.actorUid
+          };
+        });
+        rebuild();
+      }, () => { /* Owner-only: ignore (e.g. index still building) */ }));
+    }
+
+    return () => unsubs.forEach(u => u());
+  }, [isOwner]);
 
   const getActionIcon = (action) => {
     if (action.includes('GIFT')) return <Tag className="text-pink-500" size={16} />;

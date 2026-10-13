@@ -101,13 +101,13 @@ class AppAvatar extends ConsumerWidget {
     }
 
     // Resolve SVIP Kit Frame asset if user has active svipLevel
-    if (finalFrameUrl.isEmpty && (svipLevel ?? 0) > 0) {
+    if (!isExplicitNone && finalFrameUrl.isEmpty && (svipLevel ?? 0) > 0) {
       final svipModel = SVIPLevelModel.getLevelByTier(svipLevel!);
       finalFrameUrl = svipModel.frameAsset;
     }
 
     // Only apply tag-based frames if no frame is already resolved
-    if (finalFrameUrl.isEmpty && tags != null) {
+    if (!isExplicitNone && finalFrameUrl.isEmpty && tags != null) {
       if (tags!.contains('SuperAdmin')) {
         finalFrameUrl = 'assets/Helo chat/Superadmin.svga';
       } else if (tags!.contains('Admin')) {

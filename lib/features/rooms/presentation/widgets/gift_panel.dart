@@ -10,36 +10,147 @@ import 'package:flutter/services.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
+import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/models/gift_event_model.dart';
 import 'package:hello_chat/core/services/gift_event_service.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/core/widgets/app_toast.dart';
-
-import 'bell_winning_dialog.dart';
+import 'package:hello_chat/core/router/app_router.dart';
+import 'package:hello_chat/core/models/message_model.dart';
+import 'gift_combo_overlay.dart';
+import 'gift_animation_overlay.dart';
+import 'quick_send_combo_bar.dart';
 
 class GiftPanel extends StatefulWidget {
   final String roomId;
   final String? targetUid;
   final bool isMoment;
 
+  /// Fired after a successful send when Quick Send mode is eligible, so the
+  /// room can dock a persistent repeat-send bar instead of leaving the user at
+  /// a closed picker. Pass null to keep the old one-shot behaviour.
+  final void Function(
+    GiftModel gift,
+    String targetUid,
+    String targetName,
+    String targetPhotoUrl, {
+    int startCount,
+  })? onQuickSendActivated;
+
   const GiftPanel({
     super.key, 
     required this.roomId, 
     this.targetUid,
     this.isMoment = false,
+    this.onQuickSendActivated,
   });
 
   @override
   State<GiftPanel> createState() => _GiftPanelState();
 }
 
-class _GiftPanelState extends State<GiftPanel> {
+class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   int _selectedQuantity = 1;
   GiftModel? _selectedGift;
   bool _isSending = false;
   List<String> _selectedTargetUids = [];
   bool _sendToAll = false;
-  String _selectedCategory = 'Gift';
+  String _selectedCategory = 'All Gifts';
+
+  // ── In-Panel Combo Mode State ──────────────────────────────────
+  bool _inComboMode = false;
+  int _comboCount = 0;
+  int _reservedDiamonds = 0;
+  Future<void> _comboChain = Future<void>.value();
+  String? _comboTargetUid;
+  GiftModel? _comboGift;
+  String? _lastTargetName;
+  String? _lastTargetPhoto;
+
+  late final AnimationController _comboRingController = AnimationController(
+    vsync: this,
+    duration: kQuickSendComboWindow,
+  )..addStatusListener(_onComboRingStatus);
+
+  late final AnimationController _comboBounceController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 280),
+  );
+
+  late final Animation<double> _comboBounceScale = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(begin: 1.0, end: 1.30).chain(CurveTween(curve: Curves.easeOutCubic)),
+      weight: 40,
+    ),
+    TweenSequenceItem(
+      tween: Tween(begin: 1.30, end: 1.0).chain(CurveTween(curve: Curves.elasticOut)),
+      weight: 60,
+    ),
+  ]).animate(_comboBounceController);
+
+  void _onComboRingStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      if (mounted) {
+        setState(() {
+          _inComboMode = false;
+          _comboCount = 0;
+          _reservedDiamonds = 0;
+          _comboTargetUid = null;
+          _comboGift = null;
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _comboRingController.removeStatusListener(_onComboRingStatus);
+    _comboRingController.dispose();
+    _comboBounceController.dispose();
+
+    // If dismissed while combo was actively in progress, hand off to QuickSendComboBar on LiveRoomScreen
+    if (_inComboMode && _comboCount > 0 && _comboGift != null && _comboTargetUid != null) {
+      if (widget.onQuickSendActivated != null && !widget.isMoment && !_sendToAll) {
+        final gift = _comboGift!;
+        final targetUid = _comboTargetUid!;
+        final targetName = _lastTargetName ?? "User";
+        final targetPhoto = _lastTargetPhoto ?? "";
+        final count = _comboCount;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.onQuickSendActivated!(
+            gift,
+            targetUid,
+            targetName,
+            targetPhoto,
+            startCount: count,
+          );
+        });
+      }
+    }
+    super.dispose();
+  }
+
+  // publicUsers lookup for the recipient row. Memoised so every rebuild passes
+  // the SAME List to batchedProfilesProvider - a fresh list each time would
+  // register a brand-new provider (and its Firestore listeners) on every tap.
+  List<String> _recipientUids = const [];
+  String _recipientUidsKey = '';
+
+  /// Name for a recipient. rooms/{roomId}/participants docs are written by
+  /// several backend paths and many were created without displayName, which is
+  /// why every chip used to render "User". publicUsers is the readable
+  /// cosmetic projection, so it wins whenever it has a real name.
+  String recipientName(Participant p, Map<String, UserModel?> profiles) {
+    final fromProfile = profiles[p.uid]?.displayName ?? '';
+    if (fromProfile.isNotEmpty && fromProfile != 'User') return fromProfile;
+    return p.displayName.isNotEmpty && p.displayName != 'User' ? p.displayName : 'User';
+  }
+
+  String recipientPhoto(Participant p, Map<String, UserModel?> profiles) {
+    final fromProfile = profiles[p.uid]?.profilePhotoUrl ?? '';
+    if (fromProfile.isNotEmpty) return fromProfile;
+    return p.profilePhotoUrl;
+  }
 
   @override
   void initState() {
@@ -57,6 +168,13 @@ class _GiftPanelState extends State<GiftPanel> {
         final giftsAsync = ref.watch(giftsStreamProvider);
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
         final activeEvent = ref.watch(primaryActiveGiftEventProvider);
+
+        // Event can vanish (or end) while its tab is selected; fall back to
+        // All Gifts instead of filtering to an empty list forever.
+        final effectiveCategory =
+            (_selectedCategory == 'Event' && (activeEvent == null || activeEvent.gifts.isEmpty))
+                ? 'All Gifts'
+                : _selectedCategory;
 
         return Container(
           height: MediaQuery.of(context).size.height * 0.72,
@@ -92,12 +210,12 @@ class _GiftPanelState extends State<GiftPanel> {
               _buildHeader(context, ref, activeEvent),
               const Gap(8),
               participantsAsync.when(
-                data: (pts) => _buildRecipientSelector(pts),
+                data: (pts) => _buildRecipientSelector(ref, pts),
                 loading: () => const SizedBox(height: 52),
                 error: (_, __) => const SizedBox(height: 52),
               ),
               const Divider(color: Colors.white12, height: 14),
-              _buildCategoryTabs(activeEvent),
+              _buildCategoryTabs(activeEvent, effectiveCategory),
               const SizedBox(height: 8),
               Expanded(
                 child: giftsAsync.when(
@@ -107,18 +225,22 @@ class _GiftPanelState extends State<GiftPanel> {
                     }
 
                     final filteredGifts = gifts.where((g) {
-                      if (_selectedCategory == 'All') return true;
-                      final cat = g.category.toLowerCase().trim();
-                      final sel = _selectedCategory.toLowerCase().trim();
-                      if (sel == 'event' && activeEvent != null) {
-                        return activeEvent.gifts.any((eg) => eg.giftId == g.giftId);
+                      if (effectiveCategory == 'All Gifts') return true;
+                      final cat = g.category.toLowerCase().trim().replaceAll('_', ' ');
+                      final sel = effectiveCategory.toLowerCase().trim();
+                      final fmt = g.animationFormat.toLowerCase().trim();
+                      if (sel == 'event') {
+                        return activeEvent != null && activeEvent.gifts.any((eg) => eg.giftId == g.giftId);
                       }
-                      if (sel == 'gift') return cat == 'gift' || cat == 'normal' || cat == 'standard';
-                      if (sel == 'lucky fruit') return cat.contains('fruit');
-                      return cat.contains(sel);
+                      if (sel == 'normal') return cat == 'normal' || cat == 'gift' || cat == 'standard';
+                      if (sel == 'svga') return cat == 'svga' || fmt == 'svga';
+                      if (sel == 'vap') return cat == 'vap' || fmt == 'vap' || fmt == 'vpa' || (fmt == 'mp4' && (cat == 'vap' || g.name.toLowerCase().contains('vap')));
+                      return cat == sel;
                     }).toList();
 
-                    final displayGifts = filteredGifts.isNotEmpty ? filteredGifts : gifts;
+                    // No fallback to the full catalog: an empty tab shows its
+                    // empty state, not every gift in the store.
+                    final displayGifts = filteredGifts;
 
                     return GridView.builder(
                       physics: const BouncingScrollPhysics(),
@@ -137,6 +259,16 @@ class _GiftPanelState extends State<GiftPanel> {
                           activeEvent: activeEvent,
                           onSelect: () {
                              HapticFeedback.selectionClick();
+                             if (_inComboMode) {
+                               _comboRingController.stop();
+                               setState(() {
+                                 _inComboMode = false;
+                                 _comboCount = 0;
+                                 _reservedDiamonds = 0;
+                                 _comboTargetUid = null;
+                                 _comboGift = null;
+                               });
+                             }
                              setState(() => _selectedGift = gift);
                           },
                         );
@@ -157,26 +289,43 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildCategoryTabs(GiftEventModel? activeEvent) {
+  Widget _buildCategoryTabs(GiftEventModel? activeEvent, String effectiveCategory) {
+    // Client-specified order. Event sits directly after Normal and only exists
+    // while an event is live with stock - otherwise the tab disappears.
     final categories = [
+      'All Gifts',
+      'Normal',
       if (activeEvent != null && activeEvent.gifts.isNotEmpty) 'Event',
-      'Gift', 
-      'Lucky', 
-      'Lucky fruit', 
-      'Relationship', 
-      'VIP', 
-      'Custom', 
-      'All'
+      'Lucky',
+      'Medium',
+      'Luxury',
+      'CP',
+      'SVGA',
+      'VAP',
+      'Custom',
+      'Family Battle',
+      'VIP',
+      'SVIP',
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
       child: Row(
         children: categories.map((cat) {
-          final isSelected = _selectedCategory.toLowerCase() == cat.toLowerCase();
+          final isSelected = effectiveCategory.toLowerCase() == cat.toLowerCase();
           return GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
+              if (_inComboMode) {
+                _comboRingController.stop();
+                setState(() {
+                  _inComboMode = false;
+                  _comboCount = 0;
+                  _reservedDiamonds = 0;
+                  _comboTargetUid = null;
+                  _comboGift = null;
+                });
+              }
               setState(() => _selectedCategory = cat);
             },
             child: AnimatedContainer(
@@ -205,7 +354,7 @@ class _GiftPanelState extends State<GiftPanel> {
     );
   }
 
-  Widget _buildRecipientSelector(List<Participant> participants) {
+  Widget _buildRecipientSelector(WidgetRef ref, List<Participant> participants) {
     final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
 
     final recipients = participants.where((p) => 
@@ -226,6 +375,15 @@ class _GiftPanelState extends State<GiftPanel> {
       return 0;
     });
 
+    // One query resolves every chip's name + avatar (publicUsers projection).
+    final uidsKey = recipients.map((p) => p.uid).join(',');
+    if (uidsKey != _recipientUidsKey) {
+      _recipientUidsKey = uidsKey;
+      _recipientUids = recipients.map((p) => p.uid).toList();
+    }
+    final profiles =
+        ref.watch(batchedProfilesProvider(_recipientUids)).value ?? const <String, UserModel?>{};
+
     return SizedBox(
       height: 52,
       child: ListView.builder(
@@ -237,6 +395,16 @@ class _GiftPanelState extends State<GiftPanel> {
             return GestureDetector(
               onTap: () {
                 HapticFeedback.selectionClick();
+                if (_inComboMode) {
+                  _comboRingController.stop();
+                  setState(() {
+                    _inComboMode = false;
+                    _comboCount = 0;
+                    _reservedDiamonds = 0;
+                    _comboTargetUid = null;
+                    _comboGift = null;
+                  });
+                }
                 setState(() {
                   _sendToAll = !_sendToAll;
                   if (_sendToAll) _selectedTargetUids.clear();
@@ -273,10 +441,22 @@ class _GiftPanelState extends State<GiftPanel> {
 
           final p = recipients[index - 1];
           final isSelected = _selectedTargetUids.contains(p.uid);
+          final chipName = recipientName(p, profiles);
+          final chipPhoto = recipientPhoto(p, profiles);
           
           return GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
+              if (_inComboMode) {
+                _comboRingController.stop();
+                setState(() {
+                  _inComboMode = false;
+                  _comboCount = 0;
+                  _reservedDiamonds = 0;
+                  _comboTargetUid = null;
+                  _comboGift = null;
+                });
+              }
               setState(() {
                 if (_sendToAll) _sendToAll = false;
                 if (_selectedTargetUids.contains(p.uid)) {
@@ -307,7 +487,7 @@ class _GiftPanelState extends State<GiftPanel> {
                   CircleAvatar(
                     radius: 16,
                     backgroundImage: CachedNetworkImageProvider(
-                      p.profilePhotoUrl.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : p.profilePhotoUrl
+                      chipPhoto.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : chipPhoto
                     ),
                   ),
                   const Gap(6),
@@ -316,7 +496,7 @@ class _GiftPanelState extends State<GiftPanel> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        p.displayName.isNotEmpty ? p.displayName : "User",
+                        chipName,
                         style: TextStyle(
                           color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
                           fontSize: 11,
@@ -341,7 +521,7 @@ class _GiftPanelState extends State<GiftPanel> {
   }
 
   Widget _buildComboRow() {
-    final combos = [1, 5, 10, 99, 520, 1314];
+    final combos = [1, 2, 5, 10, 99, 520, 1314];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
@@ -352,6 +532,16 @@ class _GiftPanelState extends State<GiftPanel> {
           return GestureDetector(
             onTap: () {
               HapticFeedback.lightImpact();
+              if (_inComboMode) {
+                _comboRingController.stop();
+                setState(() {
+                  _inComboMode = false;
+                  _comboCount = 0;
+                  _reservedDiamonds = 0;
+                  _comboTargetUid = null;
+                  _comboGift = null;
+                });
+              }
               setState(() => _selectedQuantity = q);
             },
             child: AnimatedContainer(
@@ -844,6 +1034,10 @@ class _GiftPanelState extends State<GiftPanel> {
   }
 
   Widget _buildFooter(int diamondBalance, WidgetRef ref) {
+    final effectiveBalance = (diamondBalance - _reservedDiamonds).clamp(0, diamondBalance);
+    final price = _selectedGift?.priceInDiamonds ?? 0;
+    final canAfford = canAffordQuickSend(balance: diamondBalance, reserved: _reservedDiamonds, price: price);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -863,49 +1057,230 @@ class _GiftPanelState extends State<GiftPanel> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      "$diamondBalance",
+                      "$effectiveBalance",
                       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 1,
                     ),
                   ),
                   const SizedBox(width: 6),
-                  const Text(
-                    "Top-up >",
-                    style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 11),
+                  GestureDetector(
+                    onTap: () => context.push(AppRoutes.wallet),
+                    child: const Text(
+                      "Top-up >",
+                      style: TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.bold, fontSize: 11),
+                    ),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(width: 12),
-          GestureDetector(
-            onTap: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              height: 42,
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              decoration: BoxDecoration(
-                gradient: (_selectedGift != null && !_isSending)
-                    ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
-                    : LinearGradient(colors: [Colors.grey.shade700, Colors.grey.shade800]),
-                borderRadius: BorderRadius.circular(22),
-                boxShadow: (_selectedGift != null && !_isSending)
-                    ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 10)]
-                    : [],
+          if (_inComboMode && _selectedGift != null)
+            // ── COMBO BUTTON WITH ANIMATED COUNTDOWN RING ──
+            Semantics(
+              button: true,
+              label: 'COMBO, count $_comboCount',
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: canAfford ? () => _handleComboTap(ref) : null,
+                child: SizedBox(
+                  width: 58,
+                  height: 58,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AnimatedBuilder(
+                        animation: _comboRingController,
+                        builder: (context, _) => SizedBox(
+                          width: 58,
+                          height: 58,
+                          child: CircularProgressIndicator(
+                            value: (1.0 - _comboRingController.value).clamp(0.0, 1.0),
+                            strokeWidth: 3.5,
+                            backgroundColor: Colors.white12,
+                            valueColor: const AlwaysStoppedAnimation(Color(0xFFFFD700)),
+                          ),
+                        ),
+                      ),
+                      ScaleTransition(
+                        scale: _comboBounceScale,
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: canAfford
+                                ? const LinearGradient(
+                                    colors: [Color(0xFFFFD700), Color(0xFFFF6A00)],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  )
+                                : LinearGradient(colors: [Colors.grey.shade700, Colors.grey.shade800]),
+                            boxShadow: canAfford
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(0xFFFF9100).withOpacity(0.6),
+                                      blurRadius: 14,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : [],
+                          ),
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Text(
+                                "COMBO",
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 8,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                              Text(
+                                "x$_comboCount",
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 14,
+                                  height: 1.0,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              alignment: Alignment.center,
-              child: _isSending 
-                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
-                  : const Text(
-                      "Send",
-                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14),
-                    ),
+            )
+          else
+            // ── STANDARD SEND BUTTON ──
+            GestureDetector(
+              onTap: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                height: 42,
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                decoration: BoxDecoration(
+                  gradient: (_selectedGift != null && !_isSending)
+                      ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
+                      : LinearGradient(colors: [Colors.grey.shade700, Colors.grey.shade800]),
+                  borderRadius: BorderRadius.circular(22),
+                  boxShadow: (_selectedGift != null && !_isSending)
+                      ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 10)]
+                      : [],
+                ),
+                alignment: Alignment.center,
+                child: _isSending 
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
+                    : const Text(
+                        "Send",
+                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14),
+                      ),
+              ),
             ),
-          ),
         ],
       ),
     );
+  }
+
+  void _handleComboTap(WidgetRef ref) {
+    if (_selectedGift == null || _comboTargetUid == null) return;
+
+    final gift = _selectedGift!;
+    final targetUid = _comboTargetUid!;
+    final price = gift.priceInDiamonds;
+    final liveBalance = ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
+
+    if (!canAffordQuickSend(balance: liveBalance, reserved: _reservedDiamonds, price: price)) {
+      HapticFeedback.heavyImpact();
+      AppToast.showOverlay(
+        context,
+        message: 'Insufficient Diamonds! Top up to keep the combo going.',
+        type: ToastType.error,
+      );
+      _comboRingController.stop();
+      setState(() {
+        _inComboMode = false;
+        _comboCount = 0;
+      });
+      return;
+    }
+
+    HapticFeedback.lightImpact();
+    setState(() {
+      _reservedDiamonds += price;
+      _comboCount += 1;
+    });
+
+    _comboRingController.reset();
+    _comboRingController.forward();
+    _comboBounceController.forward(from: 0);
+
+    final senderUid = ref.read(currentUserProfileProvider).value?.uid ?? '';
+    final key = comboKeyFor(senderUid, targetUid, gift.giftId);
+    final comboToSend = _comboCount;
+
+    // Optimistic bump: update overlay, banner, seat badge immediately
+    ref.read(giftComboControllerProvider(widget.roomId)).tapLocal(
+      key,
+      senderUid: senderUid,
+      receiverUid: targetUid,
+      giftId: gift.giftId,
+      giftIconUrl: gift.imageUrl,
+      count: comboToSend,
+    );
+    ref.read(giftAnimationControllerProvider(widget.roomId)).playLocalGift(
+      gift: gift,
+      senderUid: senderUid,
+      targetUid: targetUid,
+      quantity: 1,
+      comboCount: comboToSend,
+    );
+
+    // Synchronously capture references before asynchronous chain executes
+    final giftService = ref.read(giftServiceProvider);
+    final comboController = ref.read(giftComboControllerProvider(widget.roomId));
+    final roomId = widget.roomId;
+    final isMoment = widget.isMoment;
+
+    // Chained async dispatch
+    _comboChain = _comboChain.then((_) async {
+      try {
+        await giftService.sendGift(
+          roomId: roomId,
+          gift: gift,
+          targetUids: [targetUid],
+          quantity: 1,
+          comboCount: comboToSend,
+          isMoment: isMoment,
+        );
+      } catch (e) {
+        comboController.rollbackLocal(key);
+        if (mounted) {
+          final cleanMsg = e.toString()
+              .replaceAll('Exception:', '')
+              .replaceAll('FirebaseFunctionsException:', '')
+              .trim();
+          AppToast.showOverlay(
+            context,
+            message: cleanMsg.isNotEmpty ? cleanMsg : "Failed to send gift. Please try again.",
+            type: ToastType.error,
+          );
+        }
+      }
+    }).whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _reservedDiamonds -= price;
+        });
+      }
+    });
   }
 
   Future<void> _sendSelectedGift(WidgetRef ref) async {
@@ -944,64 +1319,81 @@ class _GiftPanelState extends State<GiftPanel> {
       return;
     }
 
-    setState(() => _isSending = true);
+    final giftToSend = _selectedGift!;
+    final qtyToSend = _selectedQuantity;
+    final isMoment = widget.isMoment;
 
-    try {
-      final results = await ref.read(giftServiceProvider).sendGift(
-        roomId: widget.roomId,
-        gift: _selectedGift!,
-        targetUids: finalTargets,
-        quantity: _selectedQuantity,
-        isMoment: widget.isMoment,
-      );
-
-      if (mounted) {
-        Navigator.pop(context);
-
-        final isLucky = (_selectedGift!.category.toLowerCase() == 'lucky') || _selectedGift!.name.toLowerCase().contains('bell');
-        if (isLucky && results.isNotEmpty) {
-          final res = results.first;
-          final multiplier = (res['luckyMultiplier'] as num?)?.toInt() ?? 0;
-          final winningAmount = (res['winningAmount'] as num?)?.toInt() ?? (res['luckyRewardCoins'] as num?)?.toInt() ?? 0;
-          final receiverBeans = (res['receiverBeans'] as num?)?.toInt() ?? 1;
-
-          final currentUserUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-          final senderUser = ref.read(userProfileProvider(currentUserUid)).value;
-          final senderName = senderUser?.displayName ?? "User";
-          String receiverName = "User";
-          try {
-            final targetUid = finalTargets.first;
-            final participants = ref.read(roomParticipantsProvider(widget.roomId)).value ?? [];
-            final targetUser = participants.firstWhere((p) => p.uid == targetUid);
-            receiverName = targetUser.displayName;
-          } catch (_) {}
-
-          BellWinningDialog.show(
-            context: context,
-            senderName: senderName,
-            receiverName: receiverName,
-            giftPrice: _selectedGift!.priceInDiamonds,
-            multiplier: multiplier,
-            winningAmount: winningAmount,
-            receiverBeans: receiverBeans,
-          );
+    // Immediately resolve quick-send target and combo state before popping
+    final canQuickSend = !isMoment && !_sendToAll && finalTargets.length == 1 && qtyToSend == 1;
+    if (canQuickSend) {
+      final targetUid = finalTargets.first;
+      Participant? target;
+      for (final p in ref.read(roomParticipantsProvider(widget.roomId)).value ?? <Participant>[]) {
+        if (p.uid == targetUid) {
+          target = p;
+          break;
         }
       }
-    } catch (e) {
-      if (mounted) {
-        final cleanMsg = e.toString()
-            .replaceAll('Exception:', '')
-            .replaceAll('FirebaseFunctionsException:', '')
-            .trim();
-        AppToast.showOverlay(
-          context,
-          message: cleanMsg.isNotEmpty ? cleanMsg : "Failed to send gift. Please try again.",
-          type: ToastType.error,
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSending = false);
+      final profiles = ref.read(batchedProfilesProvider(_recipientUids)).value ?? const <String, UserModel?>{};
+      final targetName = target != null
+          ? recipientName(target, profiles)
+          : (profiles[targetUid]?.displayName.isNotEmpty ?? false)
+              ? profiles[targetUid]!.displayName
+              : "User";
+      final targetPhoto = target != null ? recipientPhoto(target, profiles) : (profiles[targetUid]?.profilePhotoUrl ?? '');
+
+      // Push optimistic combo update to controller immediately
+      final senderUid = ref.read(currentUserProfileProvider).value?.uid ?? '';
+      final key = comboKeyFor(senderUid, targetUid, giftToSend.giftId);
+      ref.read(giftComboControllerProvider(widget.roomId)).tapLocal(
+        key,
+        senderUid: senderUid,
+        receiverUid: targetUid,
+        giftId: giftToSend.giftId,
+        giftIconUrl: giftToSend.imageUrl,
+        count: 1,
+      );
+
+      // Dock floating QuickSendComboBar above the bottom input bar in the room
+      widget.onQuickSendActivated?.call(
+        giftToSend,
+        targetUid,
+        targetName,
+        targetPhoto,
+        startCount: 1,
+      );
     }
+
+    final giftService = ref.read(giftServiceProvider);
+    final roomId = widget.roomId;
+    final animController = ref.read(giftAnimationControllerProvider(roomId));
+
+    // Requirement 2: Close the gift selection panel immediately upon clicking Send
+    Navigator.pop(context);
+
+    // Trigger local gift animation immediately without delay or interruption
+    for (final targetUid in finalTargets) {
+      animController.playLocalGift(
+        gift: giftToSend,
+        senderUid: currentUserUid ?? '',
+        targetUid: targetUid,
+        quantity: qtyToSend,
+        comboCount: qtyToSend > 1 ? qtyToSend : 1,
+      );
+    }
+
+    // Requirement 1 & 3: Send gift immediately in the background without blocking the UI
+    giftService.sendGift(
+      roomId: roomId,
+      gift: giftToSend,
+      targetUids: finalTargets,
+      quantity: qtyToSend,
+      isMoment: isMoment,
+      comboCount: qtyToSend > 1 ? qtyToSend : 1,
+    ).catchError((e) {
+      debugPrint('[GiftSend] Background send error: $e');
+      return <Map<String, dynamic>>[];
+    });
   }
 
   void _feedSampleGifts(BuildContext context, WidgetRef ref) async {
@@ -1039,6 +1431,14 @@ class _GiftTile extends StatelessWidget {
         ? activeEvent!.gifts.firstWhere((eg) => eg.giftId == gift.giftId) 
         : null;
 
+    final isLuckyBell = gift.giftId == 'lucky_bell' || gift.name.toLowerCase().contains('bell') || gift.name.toLowerCase().contains('dates');
+    final displayImg = (isLuckyBell && (gift.imageUrl == '🔔' || gift.imageUrl.isEmpty))
+        ? 'assets/lucky gift dates/icon.png'
+        : gift.imageUrl;
+    final displayName = (isLuckyBell && gift.name == 'Lucky Bell')
+        ? 'Lucky Dates'
+        : gift.name;
+
     return GestureDetector(
       onTap: onSelect,
       child: AnimatedContainer(
@@ -1075,14 +1475,20 @@ class _GiftTile extends StatelessWidget {
                 SizedBox(
                   width: 42,
                   height: 42,
-                  child: gift.imageUrl.startsWith('http') 
+                  child: displayImg.startsWith('http') 
                     ? CachedNetworkImage(
-                        imageUrl: gift.imageUrl,
+                        imageUrl: displayImg,
                         fit: BoxFit.contain,
                         placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                         errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                       )
-                    : Center(child: Text(gift.imageUrl.isEmpty ? "🎁" : gift.imageUrl, style: const TextStyle(fontSize: 28))),
+                    : displayImg.startsWith('assets/')
+                      ? Image.asset(
+                          displayImg,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Center(child: Text("🎁", style: TextStyle(fontSize: 28))),
+                        )
+                      : Center(child: Text(displayImg.isEmpty ? "🎁" : displayImg, style: const TextStyle(fontSize: 28))),
                 ),
                 if (isEventGift)
                   Positioned(
@@ -1120,7 +1526,7 @@ class _GiftTile extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              gift.name, 
+              displayName, 
               style: TextStyle(
                 color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
                 fontSize: 10.5,

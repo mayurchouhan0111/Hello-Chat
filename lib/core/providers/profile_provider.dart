@@ -24,6 +24,14 @@ final cachedUserProfileProvider = StreamProvider.family<UserModel?, String>((ref
 
 /// Batched provider: fetches profiles for multiple UIDs in a single Firestore query.
 /// Returns a Map<uid, UserModel?>. Replaces N individual Firestore listeners with 1.
+///
+/// Reads `publicUsers`, NOT `users`. firestore.rules locks `users/{uid}` to
+/// self/hierarchy (it carries USD commission wallets, role and branchId), so this
+/// query is PERMISSION_DENIED for anyone outside the caller's branch and the room
+/// seat grid renders "Something went wrong". `publicUsers` is the cosmetic-only
+/// projection written by the projectPublicUser trigger in functions/index.js.
+/// Both consumers - seat_grid.dart and leaderboard_screen.dart - are display-only,
+/// so the whitelist (nickname/avatar/frame/level) is all they ever needed.
 final batchedProfilesProvider = StreamProvider.family<Map<String, UserModel?>, List<String>>((ref, uids) {
   if (uids.isEmpty) return Stream.value({});
   
@@ -42,7 +50,7 @@ final batchedProfilesProvider = StreamProvider.family<Map<String, UserModel?>, L
   
   // Listen to each batch in parallel
   for (final batch in batches) {
-    final sub = db.collection('users').where(FieldPath.documentId, whereIn: batch)
+    final sub = db.collection('publicUsers').where(FieldPath.documentId, whereIn: batch)
       .snapshots()
       .listen((snapshot) {
         for (final doc in snapshot.docs) {
@@ -172,7 +180,7 @@ final warehouseItemsProvider = StreamProvider.family<List<Map<String, dynamic>>,
       'id': 'none',
       'name': 'Default ${category.toUpperCase()}',
       'type': 'Standard',
-      'imageUrl': 'https://i.ibb.co/vz6G3H1/vip1-frame.png', 
+      'imageUrl': '', 
       'category': category,
       'isEquipped': category == 'frame' ? (user.profileFrame.isEmpty || user.profileFrame == 'none') : 
                     (category == 'bubble' ? (user.chatBubble.isEmpty || user.chatBubble == 'none') : 

@@ -50,8 +50,55 @@ class FollowListScreen extends ConsumerWidget {
         ),
       ),
       body: uidsAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text("Error: $err")),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+        error: (err, stack) => Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.person_off_outlined, size: 64, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                const Text(
+                  "Unable to load users",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  "Please check your connection and try again.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    if (type == "Followers") {
+                      ref.invalidate(followersStreamProvider(effectiveUid));
+                    } else if (type == "Following") {
+                      ref.invalidate(followingStreamProvider(effectiveUid));
+                    } else {
+                      ref.invalidate(currentUserProfileProvider);
+                    }
+                  },
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text("Retry"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (uids) {
           if (uids.isEmpty) {
             return Center(
@@ -98,19 +145,124 @@ class _FollowUserCard extends ConsumerWidget {
     return profileAsync.when(
       loading: () => Container(
         height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        alignment: Alignment.centerLeft,
-        child: const Text("Loading...", style: TextStyle(color: Colors.grey)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: Colors.grey[200],
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 120,
+                    height: 14,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 80,
+                    height: 11,
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      error: (err, stack) => Container(
-        height: 72,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        alignment: Alignment.centerLeft,
-        child: Text("Error: $err", style: const TextStyle(color: Colors.redAccent)),
+      error: (err, stack) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: Colors.grey[100],
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.person_outline_rounded, color: Colors.grey, size: 28),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    "User Unavailable",
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "ID: ${uid.length > 8 ? '${uid.substring(0, 8)}...' : uid}",
+                    style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            IconButton(
+              tooltip: "Retry",
+              icon: const Icon(Icons.refresh_rounded, size: 20, color: Colors.grey),
+              onPressed: () => ref.invalidate(userProfileProvider(uid)),
+            ),
+          ],
+        ),
       ),
       data: (profile) {
-        if (profile == null) return const SizedBox.shrink();
-        final userData = profile as UserModel;
+        if (profile == null) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.person_outline_rounded, color: Colors.grey, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        "User not found",
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        "ID: ${uid.length > 8 ? '${uid.substring(0, 8)}...' : uid}",
+                        style: TextStyle(color: Colors.grey[400], fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final userData = profile;
         return InkWell(
           onTap: () => context.push(AppRoutes.userProfile, extra: userData.uid),
           child: Padding(

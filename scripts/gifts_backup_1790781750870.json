@@ -1,0 +1,67 @@
+{
+  "balloon": {
+    "name": "Balloon",
+    "category": "Gift",
+    "tier": ""
+  },
+  "cake": {
+    "name": "Celebration Cake",
+    "category": "Gift",
+    "tier": ""
+  },
+  "car_king": {
+    "name": "Car King",
+    "category": "Luxury",
+    "tier": ""
+  },
+  "crown": {
+    "name": "Gold Crown",
+    "category": "VIP",
+    "tier": ""
+  },
+  "crystal_palace": {
+    "name": "Crystal Palace",
+    "category": "SVIP",
+    "tier": ""
+  },
+  "lucky_bell": {
+    "name": "Lucky Bell",
+    "category": "Lucky",
+    "tier": ""
+  },
+  "lucky_chest": {
+    "name": "Lucky Chest",
+    "category": "Lucky",
+    "tier": ""
+  },
+  "lucky_fruit": {
+    "name": "Lucky Fruit",
+    "category": "Lucky fruit",
+    "tier": ""
+  },
+  "lucky_star": {
+    "name": "Lucky Star",
+    "category": "Lucky",
+    "tier": ""
+  },
+  "mystic_rings": {
+    "name": "Mystic Rings",
+    "category": "Relationship",
+    "tier": ""
+  },
+  "rocket": {
+    "name": "Rocket",
+    "category": "Luxury",
+    "tier": ""
+  },
+  "rose": {
+    "name": "Rose",
+    "category": "Relationship",
+    "tier": ""
+  },
+  "royal_carriage": {
+    "name": "Royal Carriage",
+    "category": "SVIP",
+    "tier": ""
+  }
+}

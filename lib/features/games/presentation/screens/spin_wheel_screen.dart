@@ -16,7 +16,965 @@ import 'package:hello_chat/core/services/wakelock_service.dart';
 import 'package:hello_chat/core/services/game_recovery_service.dart';
 import 'package:hello_chat/core/services/network_connectivity_service.dart';
 
+/// The SINGLE AUTHORITATIVE SOURCE OF TRUTH for wallet balance in the Spin Wheel game.
+/// Immutable Wallet State Model
+class WalletState {
+  final int confirmedBalance;
+  final Map<String, int> pendingDebits; // txnId -> debitAmount
+  final Map<String, int> pendingCredits; // txnId -> creditAmount (e.g. winning reward for current/settling round)
+  final int seq;
+  final bool isSyncing;
+
+  const WalletState({
+    this.confirmedBalance = 0,
+    this.pendingDebits = const {},
+    this.pendingCredits = const {},
+    this.seq = 0,
+    this.isSyncing = false,
+  });
+
+  int get totalPendingDebits =>
+      pendingDebits.values.fold(0, (sum, val) => sum + val);
+
+  int get totalPendingCredits =>
+      pendingCredits.values.fold(0, (sum, val) => sum + val);
+
+  int get displayedBalance {
+    final balance = confirmedBalance - totalPendingDebits + totalPendingCredits;
+    return balance > 0 ? balance : 0;
+  }
+
+  WalletState copyWith({
+    int? confirmedBalance,
+    Map<String, int>? pendingDebits,
+    Map<String, int>? pendingCredits,
+    int? seq,
+    bool? isSyncing,
+  }) {
+    return WalletState(
+      confirmedBalance: confirmedBalance ?? this.confirmedBalance,
+      pendingDebits: pendingDebits != null
+          ? Map.unmodifiable(pendingDebits)
+          : this.pendingDebits,
+      pendingCredits: pendingCredits != null
+          ? Map.unmodifiable(pendingCredits)
+          : this.pendingCredits,
+      seq: seq ?? this.seq,
+      isSyncing: isSyncing ?? this.isSyncing,
+    );
+  }
+}
+
+/// Single Source of Truth Wallet Manager
+/// Enforces monotonic sequence numbers (`seq`), tracks pending transactions
+/// by unique client-generated `txnId`, rejects stale events strictly by sequence,
+/// enforces transaction idempotency, and strictly prevents balance increases without authoritative transactions.
+class AuthoritativeWalletManager {
+  WalletState _state = const WalletState();
+  bool _hasInitialBalance = false;
+  bool _isBettingPhase = true;
+  int? _bettingPhaseCeiling;
+  int? _roundInitialBalance;
+  final Set<String> _processedTxnIds = <String>{};
+
+  WalletState get state => _state;
+  int get confirmedBalance => _state.confirmedBalance;
+  int get seq => _state.seq;
+  int get walletVersion => _state.seq;
+  bool get hasInitialBalance => _hasInitialBalance;
+  bool get isBettingPhase => _isBettingPhase;
+  int? get bettingPhaseCeiling => _bettingPhaseCeiling;
+  int? get roundInitialBalance => _roundInitialBalance;
+  int get deferredCredits => 0; // Deprecated scalar accumulator eliminated
+  Map<String, int> get pendingDebits => _state.pendingDebits;
+  Map<String, int> get pendingCredits => _state.pendingCredits;
+  Set<String> get processedTxnIds => Set.unmodifiable(_processedTxnIds);
+
+  /// Pure derivation: confirmed balance minus pending bet deductions,
+  /// strictly bounded by the monotonic non-increasing betting ceiling during the betting phase.
+  /// INVARIANT: In the betting phase, diamonds can NEVER increase in any way!
+  int get displayedBalance {
+    final raw = _state.displayedBalance;
+    if (_isBettingPhase) {
+      final ceiling = _bettingPhaseCeiling ?? raw;
+      return math.min(raw, ceiling);
+    }
+    return raw;
+  }
+
+  void enterBettingPhase() {
+    _isBettingPhase = true;
+    _roundInitialBalance = _state.displayedBalance;
+    _bettingPhaseCeiling = _state.displayedBalance;
+    logWalletMutation(
+      source: 'phase_transition',
+      oldBalance: displayedBalance,
+      newBalance: displayedBalance,
+      transactionId: 'enter_betting',
+      walletSeq: _state.seq,
+      eventName: 'enter_betting_phase',
+      roundId: 'current',
+    );
+  }
+
+  void exitBettingPhase() {
+    final oldBal = displayedBalance;
+    _isBettingPhase = false;
+    _bettingPhaseCeiling = null;
+    _roundInitialBalance = null;
+    logWalletMutation(
+      source: 'phase_transition',
+      oldBalance: oldBal,
+      newBalance: displayedBalance,
+      transactionId: 'exit_betting',
+      walletSeq: _state.seq,
+      eventName: 'exit_betting_phase',
+      roundId: 'current',
+    );
+  }
+
+  /// Backward-compatible alias for exiting betting phase.
+  /// Note: Loose scalar deferredCredits has been architecturally eliminated.
+  void exitBettingPhaseAndApplyDeferredCredits() {
+    exitBettingPhase();
+  }
+
+  /// Continually synchronizes wallet manager phase with cycle seconds.
+  /// 0s-29s = betting phase (zero increase permitted),
+  /// 30s-39s = spinning / results phase (ceiling lifted).
+  void syncPhaseWithCycle(int secondsIntoCycle) {
+    if (secondsIntoCycle < 30) {
+      if (!_isBettingPhase) {
+        enterBettingPhase();
+      }
+    } else {
+      if (_isBettingPhase) {
+        exitBettingPhase();
+      }
+    }
+  }
+
+  /// Required structured debugging logger for every Current Amount mutation.
+  void logWalletMutation({
+    required String source,
+    required int oldBalance,
+    required int newBalance,
+    required String transactionId,
+    String? roundId,
+    required int walletSeq,
+    bool fromCache = false,
+    required String eventName,
+    int? timestamp,
+  }) {
+    final delta = newBalance - oldBalance;
+    final direction = delta > 0 ? 'credit' : (delta < 0 ? 'debit' : 'none');
+    final effectiveTime = timestamp ?? DateTime.now().millisecondsSinceEpoch;
+    final effectiveRoundId = (roundId != null && roundId.isNotEmpty) ? roundId : 'N/A';
+
+    final lines = StackTrace.current.toString().split('\n');
+    final relevantFrames = lines
+        .skip(1)
+        .take(3)
+        .map((l) => l.trim().replaceAll(RegExp(r'\s+'), ' '))
+        .join(' -> ');
+
+    debugPrint('''
+[WALLET_MUTATION]
+source: $source
+oldBalance: $oldBalance
+newBalance: $newBalance
+delta: $delta
+direction: $direction
+transactionId: $transactionId
+roundId: $effectiveRoundId
+walletSeq: $walletSeq
+fromCache: $fromCache
+eventName: $eventName
+timestamp: $effectiveTime
+stackTrace: $relevantFrames
+''');
+  }
+
+  /// Backward-compatible logging bridge.
+  void logWalletUpdate({
+    required String source,
+    required int oldBalance,
+    required int newBalance,
+    required int seq,
+    required String txnId,
+    bool fromCache = false,
+    int? timestamp,
+    required String reason,
+  }) {
+    logWalletMutation(
+      source: source,
+      oldBalance: oldBalance,
+      newBalance: newBalance,
+      transactionId: txnId,
+      walletSeq: seq,
+      fromCache: fromCache,
+      eventName: reason,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Initial load or authoritative update from Firestore stream.
+  /// Strictly enforces monotonic sequence numbers: snapshots where streamSeq <= lastAppliedSeq are DROPPED.
+  bool updateFromStream({
+    required int streamDiamonds,
+    required int streamSeq,
+    String? lastTxnId,
+    bool fromCache = false,
+    int? timestamp,
+  }) {
+    final oldBalance = displayedBalance;
+    final currentSeq = _state.seq;
+
+    // 1. First initialization: Accept initial authoritative balance
+    if (!_hasInitialBalance) {
+      _hasInitialBalance = true;
+      _state = _state.copyWith(
+        confirmedBalance: streamDiamonds,
+        seq: streamSeq,
+        isSyncing: false,
+      );
+      _bettingPhaseCeiling = streamDiamonds;
+      _roundInitialBalance = streamDiamonds;
+      if (lastTxnId != null) _processedTxnIds.add(lastTxnId);
+
+      logWalletMutation(
+        source: 'wallet_stream (initial)',
+        oldBalance: oldBalance,
+        newBalance: displayedBalance,
+        transactionId: lastTxnId ?? 'init_stream',
+        walletSeq: streamSeq,
+        fromCache: fromCache,
+        eventName: 'initial_wallet_load',
+        timestamp: timestamp,
+      );
+      return true;
+    }
+
+    // 2. Sequence Gate.
+    // Genuinely OLDER sequence -> definitively stale, drop it.
+    if (streamSeq < currentSeq) {
+      logWalletMutation(
+        source: 'wallet_stream (rejected_stale_seq)',
+        oldBalance: oldBalance,
+        newBalance: displayedBalance,
+        transactionId: lastTxnId ?? 'stale_seq',
+        walletSeq: streamSeq,
+        fromCache: fromCache,
+        eventName: 'rejected_stale_seq',
+        timestamp: timestamp,
+      );
+      return false;
+    }
+
+    // SAME sequence but the balance actually moved -> this is a real balance change
+    // from a money path that does not bump `users.seq` (gift sends, purchases, and
+    // any other writer touching diamondBalance directly). Rejecting these froze the
+    // game's balance until the next seq-bumping settlement, which is what made the
+    // Current Amount look stuck from the second round onwards. Accept the change;
+    // the betting-phase ceiling below still forbids the display from going UP
+    // mid-betting, so anti-regression is preserved.
+    if (streamSeq == currentSeq && streamDiamonds == _state.confirmedBalance) {
+      logWalletMutation(
+        source: 'wallet_stream (no_change)',
+        oldBalance: oldBalance,
+        newBalance: displayedBalance,
+        transactionId: lastTxnId ?? 'no_change',
+        walletSeq: streamSeq,
+        fromCache: fromCache,
+        eventName: 'skipped_no_balance_change',
+        timestamp: timestamp,
+      );
+      return false;
+    }
+
+    // 3. Authoritative Newer Sequence:
+    // Advance sequence and update confirmed balance.
+    if (lastTxnId != null) {
+      _processedTxnIds.add(lastTxnId);
+    }
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+    if (lastTxnId != null && updatedPending.containsKey(lastTxnId)) {
+      updatedPending.remove(lastTxnId);
+    }
+    // Mirror for credits: when the authoritative snapshot carries the settle
+    // txnId (lastTxnId = spin_win_<roundId>), the winning amount is already
+    // inside streamDiamonds - the pending credit must be cleared or the win
+    // is displayed TWICE (observed +150k phantom after live round settle).
+    final updatedCredits = Map<String, int>.from(_state.pendingCredits);
+    if (lastTxnId != null && updatedCredits.containsKey(lastTxnId)) {
+      updatedCredits.remove(lastTxnId);
+    }
+
+    _state = _state.copyWith(
+      confirmedBalance: streamDiamonds,
+      seq: streamSeq,
+      pendingDebits: updatedPending,
+      pendingCredits: updatedCredits,
+      isSyncing: updatedPending.isNotEmpty,
+    );
+
+    // During betting phase, ceiling keeps displayed balance clamped to non-increasing values
+    if (_isBettingPhase) {
+      final newRaw = _state.displayedBalance;
+      _bettingPhaseCeiling = math.min(_bettingPhaseCeiling ?? newRaw, newRaw);
+    }
+
+    logWalletMutation(
+      source: 'wallet_stream (applied_newer_seq)',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: lastTxnId ?? 'stream_update',
+      walletSeq: streamSeq,
+      fromCache: fromCache,
+      eventName: 'authoritative_stream_update',
+      timestamp: timestamp,
+    );
+    return true;
+  }
+
+  /// Registers a pending bet deduction by unique client txnId for instant UI feedback.
+  void addPendingDebit({
+    required String txnId,
+    required int amount,
+    String? roundId,
+  }) {
+    if (amount <= 0) return;
+    final oldBalance = displayedBalance;
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+    updatedPending[txnId] = (updatedPending[txnId] ?? 0) + amount;
+
+    _state = _state.copyWith(
+      pendingDebits: updatedPending,
+      isSyncing: true,
+    );
+
+    // Monotonic Non-Increasing Ratchet: Ceiling moves down with every bet tap
+    if (_isBettingPhase) {
+      final newRaw = _state.displayedBalance;
+      _bettingPhaseCeiling = math.min(_bettingPhaseCeiling ?? newRaw, newRaw);
+    }
+
+    logWalletMutation(
+      source: 'client_optimistic_bet',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: _state.seq,
+      eventName: 'pending_bet_registered',
+    );
+  }
+
+  /// Registers a pending winning reward credit by unique round/txnId so that right after
+  /// the round completes, the user immediately sees the reward amount added to their balance!
+  void recordPendingCredit({
+    required String txnId,
+    required int amount,
+    String? roundId,
+  }) {
+    if (amount <= 0) return;
+    final oldBalance = displayedBalance;
+    final updatedCredits = Map<String, int>.from(_state.pendingCredits);
+    updatedCredits[txnId] = amount;
+
+    _state = _state.copyWith(
+      pendingCredits: updatedCredits,
+    );
+
+    // Ensure ceiling accommodates the optimistic winning credit
+    final newRaw = _state.displayedBalance;
+    if (_bettingPhaseCeiling != null && newRaw > _bettingPhaseCeiling!) {
+      _bettingPhaseCeiling = newRaw;
+    }
+
+    logWalletMutation(
+      source: 'client_optimistic_win_credit',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: _state.seq,
+      eventName: 'round_win_reward_pending_credited: $amount',
+    );
+  }
+
+  /// Reconciles confirmed bet transaction using txnId and server sequence.
+  void reconcileBetSuccess({
+    required String txnId,
+    required int serverBalance,
+    required int serverSeq,
+    String? roundId,
+    int? timestamp,
+    int? remainingPendingAmount,
+  }) {
+    final oldBalance = displayedBalance;
+    final currentSeq = _state.seq;
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+
+    if (remainingPendingAmount != null) {
+      if (remainingPendingAmount > 0) {
+        updatedPending[txnId] = remainingPendingAmount;
+      } else {
+        updatedPending.remove(txnId);
+      }
+    } else {
+      updatedPending.remove(txnId);
+    }
+
+    _processedTxnIds.add(txnId);
+
+    // Apply sequence ordering: if serverSeq > currentSeq, advance sequence
+    final newSeq = serverSeq > currentSeq ? serverSeq : currentSeq;
+
+    // During betting phase, serverBalance can never increase confirmedBalance
+    final safeBalance = (_isBettingPhase && serverBalance > _state.confirmedBalance)
+        ? _state.confirmedBalance
+        : serverBalance;
+
+    _state = _state.copyWith(
+      confirmedBalance: safeBalance,
+      seq: newSeq,
+      pendingDebits: updatedPending,
+      isSyncing: updatedPending.isNotEmpty,
+    );
+
+    _hasInitialBalance = true;
+
+    if (_isBettingPhase) {
+      final newRaw = _state.displayedBalance;
+      _bettingPhaseCeiling = math.min(_bettingPhaseCeiling ?? newRaw, newRaw);
+    }
+
+    logWalletMutation(
+      source: 'backend_bet_confirm',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: newSeq,
+      timestamp: timestamp,
+      eventName: 'authoritative_bet_confirmed',
+    );
+  }
+
+  /// Reconciles failed/rejected bet transaction: rolls back only this pending txnId.
+  void reconcileBetFailure({
+    required String txnId,
+    required String errorMessage,
+    String? roundId,
+  }) {
+    final oldBalance = displayedBalance;
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+    updatedPending.remove(txnId);
+
+    _state = _state.copyWith(
+      pendingDebits: updatedPending,
+      isSyncing: updatedPending.isNotEmpty,
+    );
+
+    if (_isBettingPhase) {
+      final currentRaw = _state.displayedBalance;
+      final maxAllowed = _roundInitialBalance ?? currentRaw;
+      _bettingPhaseCeiling = math.min(currentRaw, maxAllowed);
+    }
+
+    logWalletMutation(
+      source: 'backend_bet_rollback',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: _state.seq,
+      eventName: 'bet_failure_rollback: $errorMessage',
+    );
+  }
+
+  /// Rolls back ALL pending + confirmed bets for a round after an authoritative server
+  /// revert (revertSpinWheelBets). Clears the staged pending debit and restores the
+  /// betting-phase ceiling to the round's initial balance so the refunded diamonds are
+  /// spendable again. The wallet stream reconciles the confirmed balance once the refund
+  /// transaction lands (higher seq, refunded balance).
+  void reconcileBetRevert({
+    required String txnId,
+    String? roundId,
+  }) {
+    final oldBalance = displayedBalance;
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+    updatedPending.remove(txnId);
+    if (roundId != null) updatedPending.remove('spin_bet_$roundId');
+
+    _state = _state.copyWith(
+      pendingDebits: updatedPending,
+      isSyncing: updatedPending.isNotEmpty,
+    );
+
+    if (_isBettingPhase) {
+      _bettingPhaseCeiling = _roundInitialBalance ?? displayedBalance;
+      _roundInitialBalance = _bettingPhaseCeiling;
+    }
+
+    logWalletMutation(
+      source: 'backend_bet_revert',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: _state.seq,
+      eventName: 'bets_reverted_refund_pending',
+    );
+  }
+
+  /// Reconciles round settlement (WIN / LOSS).
+  /// Enforces:
+  /// 1. NO BET = NO CREDIT (if userHadAcceptedBet is false, prize is strictly 0 and balance does not change).
+  /// 2. Idempotency: duplicate txnIds are dropped immediately.
+  /// 3. Monotonic sequence advancement.
+  void reconcileSettlement({
+    required String txnId,
+    required int serverBalance,
+    required int serverSeq,
+    required int prize,
+    String? roundId,
+    bool userHadAcceptedBet = true,
+    int? timestamp,
+    bool isPastRound = false,
+  }) {
+    final effectiveRoundId = (roundId != null && roundId.isNotEmpty) ? roundId : txnId;
+    final oldBalance = displayedBalance;
+    final currentSeq = _state.seq;
+
+    // INVARIANT 1: Zero Bet = Zero Reward (Pure Spectator)
+    if (!userHadAcceptedBet) {
+      final updatedCredits = Map<String, int>.from(_state.pendingCredits);
+      updatedCredits.remove(txnId);
+      if (roundId != null) updatedCredits.remove('spin_win_$roundId');
+      _state = _state.copyWith(pendingCredits: updatedCredits);
+
+      if (_processedTxnIds.contains(txnId)) return;
+      _processedTxnIds.add(txnId);
+
+      logWalletMutation(
+        source: 'backend_settlement_nobet',
+        oldBalance: oldBalance,
+        newBalance: displayedBalance,
+        transactionId: txnId,
+        roundId: roundId,
+        walletSeq: _state.seq,
+        timestamp: timestamp,
+        eventName: 'zero_bet_settlement_rejected_credit',
+      );
+      return;
+    }
+
+    // INVARIANT 2: Idempotency
+    if (_processedTxnIds.contains(txnId)) {
+      // The wallet stream pre-registers lastTxnId in _processedTxnIds, so the
+      // authoritative settle RESPONSE often arrives "already processed". The
+      // server balance is absolute truth - if it differs from what the stream
+      // delivered (transient/stale snapshot), apply it instead of dropping it.
+      // Setting an absolute balance twice is a no-op, so this stays idempotent.
+      if (serverBalance != _state.confirmedBalance) {
+        _state = _state.copyWith(confirmedBalance: serverBalance);
+        final dupRaw = _state.displayedBalance;
+        if (_isBettingPhase && (_bettingPhaseCeiling == null || dupRaw > _bettingPhaseCeiling!)) {
+          _bettingPhaseCeiling = dupRaw;
+        }
+        logWalletMutation(
+          source: 'backend_settlement_duplicate_refresh',
+          oldBalance: oldBalance,
+          newBalance: displayedBalance,
+          transactionId: txnId,
+          roundId: roundId,
+          walletSeq: _state.seq,
+          timestamp: timestamp,
+          eventName: 'duplicate_settle_applied_authoritative_balance',
+        );
+        return;
+      }
+      logWalletMutation(
+        source: 'backend_settlement_duplicate',
+        oldBalance: oldBalance,
+        newBalance: displayedBalance,
+        transactionId: txnId,
+        roundId: roundId,
+        walletSeq: _state.seq,
+        timestamp: timestamp,
+        eventName: 'duplicate_settlement_dropped',
+      );
+      return;
+    }
+    _processedTxnIds.add(txnId);
+
+    final updatedPending = Map<String, int>.from(_state.pendingDebits);
+    updatedPending.remove(txnId);
+    if (roundId != null) {
+      updatedPending.remove('bet_$roundId');
+      updatedPending.remove('spin_bet_$roundId');
+    }
+
+    final updatedCredits = Map<String, int>.from(_state.pendingCredits);
+    updatedCredits.remove(txnId);
+    if (roundId != null) updatedCredits.remove('spin_win_$roundId');
+
+    final newSeq = serverSeq > currentSeq ? serverSeq : currentSeq;
+    // Authoritative wallet principle: serverBalance from Cloud Functions is the single source of truth.
+    // Never discard serverBalance on past-round settlement, as losses must permanently debit the wallet.
+    final targetBalance = serverBalance;
+
+    _state = _state.copyWith(
+      confirmedBalance: targetBalance,
+      seq: newSeq,
+      pendingDebits: updatedPending,
+      pendingCredits: updatedCredits,
+      isSyncing: updatedPending.isNotEmpty,
+    );
+
+    // A prize credit is real money, so the betting-phase ceiling must be able to RISE.
+    // It used to be pinned one-way ("intentionally NOT done"), which meant a win landing
+    // in the NEXT round's betting window stayed unspendable: displayedBalance is clamped
+    // to min(raw, ceiling), every bet was refused, and only re-entering the room - which
+    // rebuilds the wallet from Firestore with no clamp - restored betting. Optimistic
+    // pending debits must still never let the balance dip mid-betting.
+    // Authoritative settlement prize or balance update: adjust ceiling
+    final newRaw = _state.displayedBalance;
+    if (prize > 0 && _isBettingPhase) {
+      _bettingPhaseCeiling = _state.displayedBalance;
+    } else if (_isBettingPhase) {
+      if (_bettingPhaseCeiling == null || newRaw > _bettingPhaseCeiling!) {
+        _bettingPhaseCeiling = newRaw;
+      }
+    }
+
+    logWalletMutation(
+      source: prize > 0
+          ? (isPastRound ? 'backend_settlement_win (past_round)' : 'backend_settlement_win')
+          : 'backend_settlement_loss',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: txnId,
+      roundId: roundId,
+      walletSeq: newSeq,
+      timestamp: timestamp,
+      eventName: prize > 0 ? 'win_prize_credited: $prize' : 'loss_settled_confirmed: balance=$targetBalance',
+    );
+  }
+
+  /// Legacy helper for backward compatibility
+  void confirmBet({
+    required int serverBalance,
+    required String roundId,
+    required int requestSeq,
+    required int timestamp,
+  }) {
+    reconcileBetSuccess(
+      txnId: 'spin_bet_$roundId',
+      serverBalance: serverBalance,
+      serverSeq: requestSeq,
+      roundId: roundId,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Legacy helper for backward compatibility
+  void confirmSettlement({
+    required int serverBalance,
+    required int prize,
+    required String roundId,
+    required int requestSeq,
+    required int timestamp,
+    bool userHadAcceptedBet = true,
+  }) {
+    reconcileSettlement(
+      txnId: 'spin_win_$roundId',
+      serverBalance: serverBalance,
+      serverSeq: requestSeq,
+      prize: prize,
+      roundId: roundId,
+      userHadAcceptedBet: userHadAcceptedBet,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Reset round-scoped tracking upon entering a new round.
+  ///
+  /// Pending debits are deliberately NOT wiped here. An entry still present at the
+  /// round boundary is BY DEFINITION unconfirmed - `reconcileBetSuccess` and
+  /// `updateFromStream` remove entries as soon as the server confirms them. Clearing
+  /// the map unconditionally therefore silently refunded any wager whose confirmation
+  /// had not landed yet (slow or lost callable response), leaving the UI showing more
+  /// diamonds than the server had actually charged until the next authoritative
+  /// event arrived. A genuinely lost response is reconciled by the recovery pass and
+  /// by round settlement, which run the authoritative balance back through here.
+  void onRoundStart() {
+    enterBettingPhase();
+  }
+
+  /// Safety net: drops win credits for rounds TWO or more rounds behind
+  /// [currentRoundId]. The just-ended round is deliberately kept: its settle
+  /// response lands up to ~10s AFTER rollover (observed +3s), and dropping the
+  /// credit early both understates the balance and freezes
+  /// enterBettingPhase's ceiling at the low value for the whole betting
+  /// window. A credit still present one rollover later was never reconciled
+  /// (phantom from a stale result, or lost settle response) - sweep it then.
+  void dropStalePendingCredits(String currentRoundId) {
+    final current = int.tryParse(currentRoundId);
+    if (current == null || _state.pendingCredits.isEmpty) return;
+    final stale = <String>[];
+    for (final key in _state.pendingCredits.keys) {
+      final m = RegExp(r'^spin_win_(\d+)$').firstMatch(key);
+      if (m == null) continue;
+      final creditRound = int.tryParse(m.group(1)!);
+      if (creditRound != null && creditRound < current - 1) stale.add(key);
+    }
+    if (stale.isEmpty) return;
+    final oldBalance = displayedBalance;
+    final updated = Map<String, int>.from(_state.pendingCredits);
+    for (final k in stale) {
+      updated.remove(k);
+    }
+    _state = _state.copyWith(pendingCredits: updated);
+    logWalletMutation(
+      source: 'stale_pending_credit_sweep',
+      oldBalance: oldBalance,
+      newBalance: displayedBalance,
+      transactionId: stale.join(','),
+      roundId: currentRoundId,
+      walletSeq: _state.seq,
+      eventName: 'stale_pending_credits_dropped',
+    );
+  }
+
+  /// Pure derivation: confirmed balance minus pending bet deductions
+  int getDisplayedBalance([int extraPending = 0]) {
+    final balance = _state.confirmedBalance - (_state.totalPendingDebits + extraPending) + _state.totalPendingCredits;
+    final raw = balance > 0 ? balance : 0;
+    if (_isBettingPhase && _bettingPhaseCeiling != null) {
+      return math.min(raw, _bettingPhaseCeiling!);
+    }
+    return raw;
+  }
+}
+
 enum SpinGameState { betting, spinning, results }
+
+/// Drops zero/negative entries and coerces keys to strings, so a bet map can be fed
+/// straight into [calculateSpinWheelPrize]. Mirrors normalizeSpinBets on the server.
+Map<String, int> positiveSpinBets(Map bets) {
+  final out = <String, int>{};
+  bets.forEach((k, v) {
+    final val = (v as num?)?.toInt() ?? 0;
+    if (val > 0) out[k.toString()] = val;
+  });
+  return out;
+}
+
+/// Resolves the authoritative winning food for a merged history row.
+/// Once the server settles a round, its committed [remoteFood] is the immutable truth;
+/// session/animation data may only fill gaps on unsettled rows. This guarantees a
+/// settled round can never swap its displayed winning item when the local animation
+/// or session cache disagrees with Firestore.
+String? resolveMergedWinningFood({
+  required bool remoteSettled,
+  required String remoteFood,
+  required String sessionFood,
+}) {
+  if (remoteSettled && remoteFood.isNotEmpty) return remoteFood;
+  if (sessionFood.isNotEmpty) return sessionFood;
+  return remoteFood.isEmpty ? null : remoteFood;
+}
+
+/// Merges a remote history row with a session row for a given roundId.
+/// Fix A: When a remote/server row exists, server-committed bets and totalBet take precedence.
+/// Session values are used only as fallbacks.
+Map<String, dynamic> mergeHistoryRow({
+  required Map<String, dynamic> remoteRow,
+  required Map<String, dynamic> sessionItem,
+}) {
+  final isRemoteSettled = remoteRow['settled'] == true;
+  final isSessionSettled = sessionItem['settled'] == true;
+  final settled = isRemoteSettled || isSessionSettled;
+
+  final remoteFood = remoteRow['winningFood']?.toString().isNotEmpty == true
+      ? remoteRow['winningFood'].toString()
+      : (remoteRow['name']?.toString() ?? '');
+  final sessionFood = sessionItem['winningFood']?.toString().isNotEmpty == true
+      ? sessionItem['winningFood'].toString()
+      : (sessionItem['name']?.toString() ?? '');
+  final isRemoteAuthoritative = isRemoteSettled && remoteFood.isNotEmpty;
+  final effectiveWinningFood = resolveMergedWinningFood(
+        remoteSettled: isRemoteSettled,
+        remoteFood: remoteFood,
+        sessionFood: sessionFood,
+      ) ??
+      '';
+
+  final effectiveBets = (remoteRow['bets'] is Map && (remoteRow['bets'] as Map).isNotEmpty)
+      ? remoteRow['bets'] as Map
+      : (sessionItem['bets'] is Map ? sessionItem['bets'] as Map : {});
+
+  final serverPrize = (remoteRow['prize'] as num?)?.toInt() ?? (remoteRow['amount'] as num?)?.toInt() ?? 0;
+  final sessionPrize = (sessionItem['prize'] as num?)?.toInt() ?? serverPrize;
+
+  final finalPrize = isRemoteAuthoritative
+      ? serverPrize
+      : (effectiveBets.isNotEmpty && effectiveWinningFood.isNotEmpty
+          ? calculateSpinWheelPrize(
+              bets: positiveSpinBets(effectiveBets),
+              winningName: effectiveWinningFood,
+              multiplier: int.tryParse(
+                      (sessionItem['multiplier'] ?? remoteRow['multiplier'] ?? '5')
+                          .toString()
+                          .replaceAll('x', '')) ??
+                  5,
+              roundType: sessionItem['resultType']?.toString(),
+            )
+          : sessionPrize);
+
+  // Sync session item's bets and totalBet with authoritative server values
+  if (remoteRow['bets'] is Map && (remoteRow['bets'] as Map).isNotEmpty) {
+    sessionItem['bets'] = remoteRow['bets'];
+  }
+  final remoteTotalBet = (remoteRow['totalBet'] as num?)?.toInt() ?? (remoteRow['amount'] as num?)?.toInt();
+  if (remoteTotalBet != null && remoteTotalBet > 0) {
+    sessionItem['totalBet'] = remoteTotalBet;
+  }
+
+  final balBefore = (remoteRow['balanceBefore'] as num?)?.toInt() ?? (sessionItem['balanceBefore'] as num?)?.toInt();
+  final totalWager = (remoteTotalBet != null && remoteTotalBet > 0)
+      ? remoteTotalBet
+      : ((sessionItem['totalBet'] as num?)?.toInt() ?? 0);
+  final balAfter = (remoteRow['balanceAfter'] as num?)?.toInt() ??
+      (balBefore != null && balBefore > 0
+          ? math.max(0, settled ? balBefore - totalWager + finalPrize : balBefore - totalWager)
+          : (sessionItem['balanceAfter'] as num?)?.toInt());
+
+  return {
+    ...remoteRow,
+    ...sessionItem,
+    'bets': effectiveBets,
+    'totalBet': totalWager,
+    'settled': settled,
+    'prize': finalPrize,
+    'amount': finalPrize,
+    if (effectiveWinningFood.isNotEmpty) 'winningFood': effectiveWinningFood,
+    if (effectiveWinningFood.isNotEmpty) 'name': effectiveWinningFood,
+    if (isRemoteAuthoritative && remoteRow['emoji']?.toString().isNotEmpty == true)
+      'emoji': remoteRow['emoji'].toString(),
+    if (isRemoteAuthoritative && remoteRow['label']?.toString().isNotEmpty == true)
+      'label': remoteRow['label'].toString(),
+    if (isRemoteAuthoritative && remoteRow['multiplier']?.toString().isNotEmpty == true)
+      'multiplier': remoteRow['multiplier'].toString(),
+    if (remoteRow['orderId'] != null) 'orderId': remoteRow['orderId'],
+    if (balBefore != null) 'balanceBefore': balBefore,
+    if (balAfter != null) 'balanceAfter': balAfter,
+    if (remoteRow['serialNumber'] != null) 'serialNumber': remoteRow['serialNumber'],
+  };
+}
+
+/// Evaluates displayed prize for a My Bet card.
+/// Fix B: For settled rows or rows where a server prize is present,
+/// displays the prize as-is; never recomputes.
+int resolveCardDisplayPrize({
+  required bool isSettled,
+  required bool hasServerPrize,
+  required int existingPrize,
+  required Map<String, dynamic> betsMap,
+  required String winningFood,
+  required int multiplier,
+  String? roundType,
+}) {
+  if (isSettled || hasServerPrize) {
+    return existingPrize;
+  }
+  if (betsMap.isNotEmpty && winningFood.isNotEmpty) {
+    final normBets = <String, int>{};
+    betsMap.forEach((k, v) {
+      final val = (v as num?)?.toInt() ?? 0;
+      if (val > 0) normBets[k.toString()] = val;
+    });
+    return calculateSpinWheelPrize(
+      bets: normBets,
+      winningName: winningFood,
+      multiplier: multiplier,
+      roundType: roundType,
+    );
+  }
+  return existingPrize;
+}
+
+/// Deduce the winning food from the winning bet in betsMap when prize > 0.
+/// Guarantees that the highlighted chip, displayed name, and icon in Betting History
+/// always match the winning stake that resulted in the payout.
+String deduceWinningFoodFromWinningBet({
+  required Map<String, dynamic> betsMap,
+  required int prize,
+  String? existingFood,
+  String? roundType,
+}) {
+  if (prize <= 0 || betsMap.isEmpty) return existingFood ?? '';
+
+  // 1. If existingFood already explains the prize via a bet in betsMap, keep it
+  if (existingFood != null && existingFood.isNotEmpty) {
+    final normExisting = normalizeFoodKey(existingFood);
+    final mult = resolveFoodMultiplier(normExisting);
+    for (final entry in betsMap.entries) {
+      final normKey = normalizeFoodKey(entry.key.toString());
+      final isAliasMatch = normKey == normExisting ||
+          (normKey == 'burger' && normExisting == 'hotdog') ||
+          (normKey == 'hotdog' && normExisting == 'burger') ||
+          (normKey == 'kebab' && normExisting == 'skewer') ||
+          (normKey == 'skewer' && normExisting == 'kebab') ||
+          (normKey == 'steak' && normExisting == 'meat') ||
+          (normKey == 'meat' && normExisting == 'steak') ||
+          (normKey == 'cabbage' && (normExisting == 'leaf' || normExisting == 'veg'));
+      if (isAliasMatch) {
+        final betAmt = (entry.value as num?)?.toInt() ?? 0;
+        if (betAmt > 0 && betAmt * mult == prize) {
+          return entry.key.toString();
+        }
+      }
+    }
+  }
+
+  // 2. Search for the exact bet that matches prize with its food multiplier
+  final matchingFoods = <String>[];
+  for (final entry in betsMap.entries) {
+    final food = entry.key.toString();
+    final betAmt = (entry.value as num?)?.toInt() ?? 0;
+    if (betAmt <= 0) continue;
+    final mult = resolveFoodMultiplier(food);
+    if (betAmt * mult == prize) {
+      matchingFoods.add(food);
+    }
+  }
+
+  if (matchingFoods.length == 1) {
+    return matchingFoods.first;
+  }
+
+  if (matchingFoods.isNotEmpty) {
+    if (existingFood != null && existingFood.isNotEmpty) {
+      final normExisting = normalizeFoodKey(existingFood);
+      for (final f in matchingFoods) {
+        if (normalizeFoodKey(f) == normExisting) return f;
+      }
+    }
+    return matchingFoods.first;
+  }
+
+  // 3. Category tabs (Salad / Pizza)
+  final saladBet = (betsMap['Salad'] ?? betsMap['salad'] as num?)?.toInt() ?? 0;
+  if (saladBet > 0 && saladBet * 5 == prize) return 'SALAD';
+  final pizzaBet = (betsMap['Pizza'] ?? betsMap['pizza'] as num?)?.toInt() ?? 0;
+  if (pizzaBet > 0 && pizzaBet * 45 == prize) return 'PIZZA';
+
+  return existingFood ?? '';
+}
 
 class SpinWheelScreen extends ConsumerStatefulWidget {
   final String? roomId;
@@ -34,15 +992,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   Map<String, int> _currentBets = {};
   Map<String, int> _betClickCounts = {};
   Map<String, int> _confirmedBets = {};
+  String? _confirmedRoundId;
   String? _focusedIcon;
   String? _lastResultType;
   int _selectedChipValue = 100;
+  int _segmentCount = 8; // Matches server stepAngle = 360 / segments.length
   int _todayProfits = 0;
   bool _isSpinning = false;
   bool _isBetLocked = false;
   bool _isOffline = false;
   bool _platformHasNetwork = true;
   bool? _rtdbConnected;
+  int _lastConnectionNoticeMs = 0;
   Timer? _debounceTimer;
   StreamSubscription? _connectivitySub;
   StreamSubscription? _platformConnectivitySub;
@@ -63,10 +1024,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   Map<String, int>? _storedBets;
 
   String? _hasShownResultForRound;
+  String? _hasTriggeredSpinSyncForRound;
   bool _isBottomSheetOpen = false;
   Route? _bottomSheetRoute;
   DateTime? _bottomSheetOpenTime;
   String? _currentRoundId;
+  String? _settledRoundId;
+  final Set<String> _settlingRoundIds = <String>{};
 
   int _roundTransitionCountdown = 0;
   bool _showRoundTransition = false;
@@ -77,8 +1041,171 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   Animation<double>? _spinAnimation;
   Timer? _spinFallbackTimer;
   int _optimisticWinnings = 0;
+  final AuthoritativeWalletManager _walletManager = AuthoritativeWalletManager();
+  int _balanceSeq = 0;
+
+  int get _currentAuthoritativeDiamonds => _walletManager.displayedBalance;
+
   SpinGameState _gameState = SpinGameState.betting;
   Map<String, dynamic>? _currentSpinOutcome;
+
+  /// Session-persistent cache of recent rounds played in this app session.
+  /// Retains confirmed bets and settled round outcomes so they never vanish
+  /// upon round rollover or during Firestore sync latency.
+  static final Map<String, Map<String, dynamic>> _sessionRoundsHistory = {};
+
+  static void _pruneSessionHistory() {
+    if (_sessionRoundsHistory.length > 50) {
+      final sortedKeys = _sessionRoundsHistory.keys.toList()
+        ..sort((a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0));
+      final keysToRemove = sortedKeys.skip(50).toList();
+      for (final k in keysToRemove) {
+        _sessionRoundsHistory.remove(k);
+      }
+    }
+  }
+
+  void _recordSessionBet({
+    required String roundId,
+    required Map<String, int> bets,
+    required int totalBet,
+    int? prize,
+    String? winningFood,
+    String? emoji,
+    String? label,
+    bool settled = false,
+  }) {
+    if (roundId.isEmpty || totalBet <= 0) return;
+    final existing = _sessionRoundsHistory[roundId] ?? {};
+    final isAlreadySettled = existing['settled'] == true;
+    final existingPrize = (existing['prize'] as num?)?.toInt() ?? (existing['amount'] as num?)?.toInt() ?? 0;
+    // Critical Guard: If this round already won, NEVER allow a subsequent bet update to reset prize to 0
+    final effectivePrize = isAlreadySettled && existingPrize > 0 ? existingPrize : (prize ?? existingPrize);
+    final existingBalBefore = (existing['balanceBefore'] as num?)?.toInt();
+    final curWalletBal = _walletManager.confirmedBalance;
+    final balBefore = existingBalBefore ?? (curWalletBal > 0 ? (curWalletBal + totalBet) : curWalletBal);
+    final balAfter = math.max(0, balBefore - totalBet);
+
+    _sessionRoundsHistory[roundId] = {
+      ...existing,
+      'roundId': roundId,
+      'bets': Map<String, int>.from(bets),
+      'totalBet': totalBet,
+      'prize': effectivePrize,
+      'amount': effectivePrize,
+      if (balBefore > 0) 'balanceBefore': balBefore,
+      if (balAfter >= 0) 'balanceAfter': balAfter,
+      'winningFood': winningFood ?? existing['winningFood'] ?? '',
+      'name': winningFood ?? existing['name'] ?? '',
+      'emoji': emoji ?? existing['emoji'] ?? '🎰',
+      'label': label ?? existing['label'] ?? '',
+      'multiplier': label ?? existing['multiplier'] ?? '',
+      'settled': isAlreadySettled || settled,
+      'timestamp': existing['timestamp'] ?? DateTime.now(),
+      'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+    };
+    _pruneSessionHistory();
+    _notifyHistoryUpdate();
+  }
+
+  void _recordSessionResult({
+    required String roundId,
+    required SpinItem winningItem,
+    required int prize,
+    required int totalBet,
+    required Map<String, dynamic> bets,
+  }) {
+    if (roundId.isEmpty) return;
+    final existing = _sessionRoundsHistory[roundId] ?? {};
+    final effectiveBets = bets.isNotEmpty ? bets : (existing['bets'] as Map? ?? {});
+    final effectiveWager = totalBet > 0 ? totalBet : (existing['totalBet'] as num?)?.toInt() ?? 0;
+
+    if (effectiveBets.isEmpty && effectiveWager <= 0) return;
+
+    final finalPrize = prize;
+
+    _sessionRoundsHistory[roundId] = {
+      ...existing,
+      'roundId': roundId,
+      'bets': Map<String, dynamic>.from(effectiveBets),
+      'totalBet': effectiveWager,
+      'prize': finalPrize,
+      'amount': finalPrize,
+      'winningFood': winningItem.name,
+      'name': winningItem.name,
+      'emoji': winningItem.emoji,
+      'label': '${winningItem.multiplier}x',
+      'multiplier': '${winningItem.multiplier}x',
+      'settled': true,
+      'timestamp': existing['timestamp'] ?? DateTime.now(),
+      'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+    };
+    _pruneSessionHistory();
+    _notifyHistoryUpdate();
+  }
+
+  void _recordSessionSettle({
+    required String roundId,
+    required int prize,
+    int? balanceAfter,
+    int? totalBet,
+  }) {
+    if (roundId.isEmpty) return;
+    final cur = _sessionRoundsHistory[roundId] ??= <String, dynamic>{'roundId': roundId};
+    cur['settled'] = true;
+    cur['prize'] = prize; // Exactly match authoritative backend settlement (even if 0 for loss)
+    cur['amount'] = prize;
+    if (totalBet != null && totalBet > 0) {
+      cur['totalBet'] = totalBet;
+    }
+    final balBefore = (cur['balanceBefore'] as num?)?.toInt();
+    final totalWager = (cur['totalBet'] as num?)?.toInt() ?? 0;
+    if (balanceAfter != null) {
+      cur['balanceAfter'] = balanceAfter;
+    } else if (balBefore != null && balBefore > 0) {
+      cur['balanceAfter'] = balBefore - totalWager + prize;
+    }
+    _notifyHistoryUpdate();
+  }
+
+  /// Reconciles session history after bet submission failure or rejection so unaccepted deltas never persist.
+  /// If prior bets were confirmed for this round, rewrites the session row with the confirmed bets.
+  /// Otherwise, completely removes the unaccepted session entry.
+  void _reconcileSessionHistoryAfterFailure(String roundId) {
+    if (roundId.isEmpty) return;
+    final confirmedBelongs = (_confirmedRoundId == roundId) && _confirmedBets.isNotEmpty;
+    final submittedBelongs = _submittedSpinResult != null &&
+        _submittedSpinResult!['roundId']?.toString() == roundId;
+
+    if (confirmedBelongs && _confirmedBets.isNotEmpty) {
+      final confirmedTotal = _confirmedBets.values.fold<int>(0, (sum, v) => sum + v);
+      if (confirmedTotal > 0) {
+        _recordSessionBet(
+          roundId: roundId,
+          bets: Map<String, int>.from(_confirmedBets),
+          totalBet: confirmedTotal,
+        );
+        return;
+      }
+    } else if (submittedBelongs) {
+      final subBets = _submittedSpinResult!['bets'] is Map
+          ? (_submittedSpinResult!['bets'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+          : <String, int>{};
+      final subTotal = (_submittedSpinResult!['totalBet'] as num?)?.toInt() ??
+          subBets.values.fold<int>(0, (sum, v) => sum + v);
+      if (subTotal > 0) {
+        _recordSessionBet(
+          roundId: roundId,
+          bets: subBets,
+          totalBet: subTotal,
+        );
+        return;
+      }
+    }
+
+    _sessionRoundsHistory.remove(roundId);
+    _notifyHistoryUpdate();
+  }
 
   // Track cached sound paths to avoid socket exceptions
   String? _localBetSoundPath;
@@ -89,111 +1216,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   void _playBetSoundAndHaptic() {}
   void _playCountdownTick() {}
 
-  bool _isShowingConnectionDialog = false;
-
   void _showConnectionNotFoundDialog({String? title, String? message}) {
-    if (!mounted || _isShowingConnectionDialog) return;
-    _isShowingConnectionDialog = true;
-
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => Dialog(
-        backgroundColor: const Color(0xFF1E1B2E),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.amber.withOpacity(0.3), width: 1.5),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.wifi_off_rounded,
-                  color: Colors.redAccent,
-                  size: 40,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                title ?? "Connection Not Found",
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                message ?? "Unable to reach server. Please check your internet connection and try again.",
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white70,
-                        side: const BorderSide(color: Colors.white24),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                      },
-                      child: const Text("CLOSE"),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFACC15),
-                        foregroundColor: Colors.black,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        elevation: 0,
-                      ),
-                      onPressed: () async {
-                        Navigator.of(ctx).pop();
-                        final online = await NetworkConnectivityService().checkConnection();
-                        if (mounted) {
-                          _updateOfflineState(platformOnline: online);
-                        }
-                      },
-                      child: const Text(
-                        "RETRY",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+    // Deliberately NOT a modal - a dialog would fight the 40s round timer. But it must not
+    // be silent either: a refused bet with no feedback is indistinguishable from a bet that
+    // silently vanished, which is exactly the symptom being reported. Throttled so the
+    // 50ms round timer cannot spam it.
+    debugPrint('[SPIN_WHEEL_EVENT] 🔇 connection notice: ${title ?? 'Connection Not Found'} — ${message ?? 'handled silently'}');
+    if (!mounted) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _lastConnectionNoticeMs < 4000) return;
+    _lastConnectionNoticeMs = nowMs;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message ?? 'Connection problem. Your bet was not placed.'),
+        duration: const Duration(seconds: 3),
       ),
-    ).then((_) {
-      _isShowingConnectionDialog = false;
-    });
+    );
   }
 
   void _placeBet(String itemName, List<SpinItem> items) {
@@ -205,46 +1243,77 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       return;
     }
 
-    final lowerName = itemName.toLowerCase().trim();
-    if (lowerName == 'salad' || lowerName == 'pizza') {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Direct bet on category alias "$itemName" ignored');
+    // Authoritative wallet gate: never allow betting against an unsynced balance.
+    if (!_walletManager.hasInitialBalance) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": wallet balance not synced yet.');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Syncing wallet…"),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
       return;
     }
 
+    final lowerName = itemName.toLowerCase().trim();
+
     final matchedItem = items.firstWhere(
-      (item) => item.name.toLowerCase().trim() == itemName.toLowerCase().trim(),
+      (item) => item.name.toLowerCase().trim() == lowerName,
       orElse: () => SpinItem(name: itemName, multiplier: 1, emoji: ''),
     );
     final exactName = matchedItem.name;
 
+    final diamonds = _currentAuthoritativeDiamonds;
     final wallet = ref.read(walletBalanceProvider).value;
-    final diamonds = wallet?['diamonds'] ?? 0;
     final beans = wallet?['beans'] ?? 0;
     final totalPlayingPower = diamonds + (beans * 2 / 7).floor();
 
-    final currentTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-    final confirmedTotalBet = _confirmedBets.values.fold(0, (sum, val) => sum + val);
-    final pendingUnconfirmedBet = math.max(0, currentTotalBet - confirmedTotalBet);
-    if (pendingUnconfirmedBet + _selectedChipValue > totalPlayingPower) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (required: ${pendingUnconfirmedBet + _selectedChipValue}, available: $totalPlayingPower)');
+    // totalPlayingPower derives from displayedBalance which is already
+    // confirmedBalance minus ALL pending debits (including this round's bets).
+    // The new chip alone must fit in the remaining power — do NOT re-add
+    // currentTotalBet here, that double-counts and caps bets at ~half balance.
+    if (_selectedChipValue > totalPlayingPower) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (chip: $_selectedChipValue, available: $totalPlayingPower)');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Insufficient Diamonds & Stars"))
+        const SnackBar(content: Text("Insufficient Diamonds & Stars for this bet"))
       );
       return;
     }
 
     _playBetSoundAndHaptic();
 
+    final now = _synchronizedTimeMs;
+    // FIX 1: Derive txnId from server clock — same formula as _autoSubmitBets —
+    // so reconcileBetSuccess always clears the correct pending debit key.
+    final betRoundId = (now ~/ 40000).toString();
+    final betTxnId = 'bet_$betRoundId';
+
+    _walletManager.addPendingDebit(
+      txnId: betTxnId,
+      amount: _selectedChipValue,
+    );
+
     setState(() {
       _currentBets[exactName] = (_currentBets[exactName] ?? 0) + _selectedChipValue;
       _betClickCounts[exactName] = (_betClickCounts[exactName] ?? 0) + 1;
+      _notifyHistoryUpdate();
     });
 
     final newTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     debugPrint('[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
 
+    final curRound = _currentRoundId;
+    if (curRound != null && curRound.isNotEmpty) {
+      _recordSessionBet(
+        roundId: curRound,
+        bets: _currentBets,
+        totalBet: newTotalBet,
+      );
+    }
+
     _debounceTimer?.cancel();
-    final now = _synchronizedTimeMs;
     final secIntoCycle = (now % 40000) ~/ 1000;
     // Dynamic debounce: 350ms during active betting to naturally group rapid chip taps into a single wager,
     // and 100ms when approaching the 27s cutoff to ensure prompt dispatch.
@@ -279,15 +1348,28 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   bool _hasPendingAdditionalBets = false;
 
   bool _hasUnconfirmedBets() {
+    if (_currentBets.isEmpty) return false;
+    final now = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final activeRound = (now ~/ serverRoundMs).toString();
+    final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+    // Strict Guards: Cannot have unconfirmed bets if outside betting phase (>= 35s) or for mismatched round
+    if (secondsIntoCycle >= 35 || _currentRoundId != activeRound) {
+      return false;
+    }
+    // Only compare against confirmed bets if they belong to this active round
+    final confirmed = (_confirmedRoundId == activeRound || _confirmedRoundId == _currentRoundId)
+        ? _confirmedBets
+        : const <String, int>{};
     for (final entry in _currentBets.entries) {
-      if ((_confirmedBets[entry.key] ?? 0) < entry.value) {
+      if ((confirmed[entry.key] ?? 0) < entry.value) {
         return true;
       }
     }
     return false;
   }
 
-  Future<void> _autoSubmitBets() async {
+  Future<void> _autoSubmitBets({String? forcedRoundId}) async {
     if (_currentBets.isEmpty || _isOffline || !_platformHasNetwork) return;
 
     if (_isAutoSubmitting) {
@@ -299,12 +1381,23 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
     final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
-    final submissionRoundId = (now ~/ serverRoundMs).toString();
+    // When re-dispatching a queued delta after an in-flight call resolved, the caller
+    // forces the round that the ORIGINAL call targeted. The device clock can jitter
+    // by seconds (observed ±13s), so prefer _currentRoundId if aligned.
+    final submissionRoundId = forcedRoundId ?? _currentRoundId ?? (now ~/ serverRoundMs).toString();
 
-    // Taps are already disabled on the UI at second 27. Any bets here were placed
+    // STRICT ROUND GUARD: Never auto-submit for a round that is not the active round
+    if (_currentRoundId != null && submissionRoundId != _currentRoundId && forcedRoundId == null) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Auto-submit cancelled: submissionRoundId ($submissionRoundId) != currentRoundId ($_currentRoundId)');
+      return;
+    }
+
+    // Taps are disabled on the UI at second 27. Any bets queued here were placed
     // legitimately before second 27 and are simply finishing network dispatch. Allow up to second 35.
+    // The server strictly rejects bets when msIntoRound >= 36000 ("Betting phase closed").
     if (secondsIntoCycle >= 35) {
       debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 35s for round $submissionRoundId');
+      _reconcileSessionHistoryAfterFailure(submissionRoundId);
       return;
     }
 
@@ -315,13 +1408,34 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _isAutoSubmitting = true;
     _hasPendingAdditionalBets = false;
     debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$snapshotBets, roundId=$submissionRoundId, secIntoCycle=$secondsIntoCycle');
-    const callTimeout = Duration(seconds: 15);
+    
+    // Eagerly record in session history so the round is visible in My Bets as "IN PLAY" immediately
+    // and is never lost even if network requests are delayed or retry
+    _recordSessionBet(
+      roundId: submissionRoundId,
+      bets: snapshotBets,
+      totalBet: totalBet,
+    );
+    const callTimeout = Duration(seconds: 25);
+    final requestSeq = ++_balanceSeq;
+    // Deterministic per (uid, round): the server keys idempotency on this txnId
+    // (index.js:3554) and echoes it into users.lastTxnId (index.js:3787), which is
+    // how the wallet stream clears a pending debit. A request-seq suffix made every
+    // retry a NEW ledger doc and guaranteed the pending key could never match.
+    final betTxnId = 'bet_$submissionRoundId';
+    final roundPendingKey = betTxnId;
+    // FIX (RTT-corrected offset): serverTime is captured when the function STARTS,
+    // so subtracting it from localNow at RESPONSE time bakes the full ~15-20s callable
+    // round-trip into the offset (seen as -13s->-27s swings that broke phase timing).
+    // Correct with half RTT: assume symmetric latency around the call.
+    final offsetReqStart = DateTime.now().millisecondsSinceEpoch;
     try {
       final result = await ref.read(gameServiceProvider).playSpinWheel(
         betAmount: totalBet,
         bets: snapshotBets,
         roundId: submissionRoundId,
         roomId: widget.roomId,
+        txnId: betTxnId,
       ).timeout(callTimeout);
 
       if (!mounted) return;
@@ -330,99 +1444,243 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final serverTime = (result['serverTime'] as num?)?.toInt();
       if (serverTime != null) {
         final localNow = DateTime.now().millisecondsSinceEpoch;
-        final newOffset = serverTime - localNow;
-        if (_serverTimeOffset == 0) {
+        final newOffset = serverTime - ((offsetReqStart + localNow) ~/ 2);
+        if (_serverTimeOffset == 0 || (_serverTimeOffset - newOffset).abs() > 1500) {
           _serverTimeOffset = newOffset;
         } else {
           _serverTimeOffset = ((_serverTimeOffset * 3) + newOffset) ~/ 4;
         }
+        _lastSynchronizedTimeMs = serverTime;
         debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized: offset=$_serverTimeOffset ms');
       }
 
-      // CRITICAL FIX: If backend accepted and committed the bet for resultRoundId,
-      // the bet WAS deducted and recorded in Firestore game_history!
-      // Accept it if it matches submissionRoundId OR currentRoundId OR wheel is spinning/results.
-      final isMatchingRound = resultRoundId != null && (
-        resultRoundId == submissionRoundId ||
-        resultRoundId == _currentRoundId ||
-        _gameState == SpinGameState.spinning ||
-        _gameState == SpinGameState.results
-      );
+      // If server gracefully bound bet forward to a newer round, remove phantom session record for submissionRoundId
+      if (submissionRoundId != resultRoundId) {
+        _sessionRoundsHistory.remove(submissionRoundId);
+      }
 
-      if (isMatchingRound) {
-        debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId, prize=${result['prize']}, bets=$snapshotBets');
+      final currentRoundNum = int.tryParse(_currentRoundId ?? '') ?? 0;
+      final resultRoundNum = int.tryParse(resultRoundId ?? '') ?? 0;
+      final isForwardOrActive = resultRoundId != null && resultRoundNum >= currentRoundNum;
+
+      final serverBal = (result['balance'] as num?)?.toInt();
+      final serverSeq = (result['seq'] as num?)?.toInt() ?? requestSeq;
+      final effectiveBal = serverBal ?? math.max(0, _walletManager.confirmedBalance - totalBet);
+      final currentTotalWager = _currentBets.values.fold<int>(0, (sum, val) => sum + val);
+      final remainingPending = isForwardOrActive ? math.max(0, currentTotalWager - totalBet) : 0;
+
+      if (isForwardOrActive) {
+        debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId (submitted: $submissionRoundId), prize=${result['prize']}, bets=$snapshotBets, balance=$effectiveBal, seq=$serverSeq, remainingPending=$remainingPending');
         _submittedSpinResult = result;
+        final bool advancedRound = resultRoundNum > currentRoundNum;
+        if (advancedRound) {
+          _currentRoundId = resultRoundId;
+          _subscribeToRealtimeRoundState();
+        }
         setState(() {
-          _confirmedBets = Map.from(snapshotBets);
+          _walletManager.reconcileBetSuccess(
+            txnId: roundPendingKey,
+            serverBalance: effectiveBal,
+            serverSeq: serverSeq,
+            timestamp: serverTime ?? DateTime.now().millisecondsSinceEpoch,
+            remainingPendingAmount: remainingPending,
+          );
+          _confirmedRoundId = resultRoundId;
+          // Merge confirmed amounts per item (max across batches) instead of replacing.
+          // NOTE: _currentBets keeps the FULL total per item so the on-wheel bet badges
+          // stay visible; _hasUnconfirmedBets() below compares confirmed vs current to
+          // decide whether the finally block must re-dispatche delta bets tapped during flight.
+          for (final k in snapshotBets.keys) {
+            final submitted = snapshotBets[k] ?? 0;
+            _confirmedBets[k] = math.max(_confirmedBets[k] ?? 0, submitted);
+          }
+          _notifyHistoryUpdate();
         });
-        GameRecoveryService().clearBetState();
-        ref.invalidate(userGameHistoryProvider);
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(currentUserProfileProvider);
+        _recordSessionBet(
+          roundId: resultRoundId!,
+          bets: snapshotBets,
+          totalBet: totalBet,
+        );
+        if (_currentBets.isEmpty) {
+          GameRecoveryService().clearBetState();
+        } else {
+          _persistBetState();
+        }
         ref.invalidate(transactionStreamProvider);
+
+        final curSec = (_synchronizedTimeMs % 40000) ~/ 1000;
+        if (curSec >= 27 && !_hasPendingResult && !_hasStartedFallbackCall) {
+          _hasStartedFallbackCall = true;
+          _preFetchRoundOutcome();
+        }
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Bet recorded on backend for round $resultRoundId (submitted: $submissionRoundId, current: $_currentRoundId). Marking confirmed to avoid display double-deduction.');
-        _submittedSpinResult = result;
+        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Stale bet response for past round $resultRoundId ignored for active round $_currentRoundId. Reconciling wallet without polluting current round state.');
+        if (resultRoundId != null) {
+          _recordSessionBet(
+            roundId: resultRoundId,
+            bets: snapshotBets,
+            totalBet: totalBet,
+            settled: true,
+          );
+        }
         setState(() {
-          _confirmedBets = Map.from(snapshotBets);
+          _walletManager.reconcileBetSuccess(
+            txnId: roundPendingKey,
+            serverBalance: effectiveBal,
+            serverSeq: serverSeq,
+            timestamp: serverTime ?? DateTime.now().millisecondsSinceEpoch,
+            remainingPendingAmount: 0,
+          );
+          _notifyHistoryUpdate();
         });
         GameRecoveryService().clearBetState();
-        ref.invalidate(userGameHistoryProvider);
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(currentUserProfileProvider);
-        ref.invalidate(transactionStreamProvider);
       }
     } catch (e) {
       debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Handled gracefully.");
       _hasStartedFallbackCall = false;
 
+      final errorStr = e.toString();
+      final isTimeout = e is TimeoutException || errorStr.contains('TimeoutException');
+      final isExplicitBackendError = errorStr.contains('failed-precondition') ||
+          errorStr.contains('invalid-argument') ||
+          errorStr.contains('not-found') ||
+          errorStr.contains('permission-denied') ||
+          errorStr.contains('Betting phase closed') ||
+          errorStr.contains('Bets are locked for round');
+      // A stale-round rejection is the server refusing a RETRIED submission for a round
+      // that already ended. The ORIGINAL submission may have actually landed (timeout
+      // raced a slow response), so the pending debit must be RETAINED — round settlement
+      // reconciles the true server balance. Refunding here would over-credit the wallet.
+      final isStaleRoundRejection = errorStr.contains('stale round submission');
+      final isRoundActive = _currentRoundId == submissionRoundId && _gameState == SpinGameState.betting;
+
+      // CRITICAL FIX: Explicit backend errors (e.g. insufficient diamonds, betting closed) must IMMEDIATELY
+      // refund the pending debit, regardless of whether the round is active.
+      // Only genuine connection timeouts during the active betting phase retain pending debits.
+      if ((isExplicitBackendError && !isStaleRoundRejection) || (!isTimeout && !isRoundActive && !isStaleRoundRejection)) {
+        _walletManager.reconcileBetFailure(
+          txnId: roundPendingKey,
+          errorMessage: errorStr,
+        );
+        _reconcileSessionHistoryAfterFailure(submissionRoundId);
+      } else {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Retaining pending debit for round $submissionRoundId (isTimeout: $isTimeout, isRoundActive: $isRoundActive). Will retry at lock.');
+        _hasPendingAdditionalBets = true;
+      }
+
       if (!mounted) return;
 
-      // If user already has confirmed bets or an authoritative result, never wipe or show error!
-      if (_submittedSpinResult != null || _confirmedBets.isNotEmpty) {
-        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Suppressed error: User already has confirmed bets or result in place.');
-        return;
-      }
+      final bool roundMovedOn = _gameState != SpinGameState.betting || _currentRoundId != submissionRoundId;
 
-      // STRICT PHASE GUARD: Never show late bet failure during spinning or results phase!
-      if (_gameState != SpinGameState.betting || _currentRoundId != submissionRoundId) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Suppressed late bet error during ${_gameState.name} phase.');
-        return;
-      }
-
-      final errorStr = e.toString();
-      if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
-        if (_confirmedBets.isEmpty) {
-          setState(() {
-            _currentBets = {};
-            _betClickCounts = {};
-            _submittedSpinResult = null;
-          });
-          GameRecoveryService().clearBetState();
+      // TRANSPARENT ERROR SURFACING: while the round is still accepting bets, a rejection
+      // is ALWAYS shown to the user instead of silently cancelling their wager. A
+      // rejected/late bet must never look like bets "disappearing for no reason".
+      if (!roundMovedOn) {
+        final String userMessage;
+        if (isTimeout) {
+          userMessage = 'Bet submission for Round $submissionRoundId timed out. Retrying…';
+        } else if (errorStr.contains('Betting phase closed') || errorStr.contains('Bets are locked for round')) {
+          userMessage = 'Bets closed for Round $submissionRoundId before your bet landed.';
+        } else if (errorStr.contains('Insufficient Diamonds')) {
+          userMessage = 'Insufficient Diamonds & Stars for that bet.';
         } else {
-          setState(() {
-            _currentBets = Map.from(_confirmedBets);
-          });
+          userMessage = 'Bet for Round $submissionRoundId was not accepted. Please retry.';
         }
-      } else if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(userMessage), duration: const Duration(seconds: 3)),
+        );
+      }
+
+      // STRICT PHASE GUARD: when the round has already moved to spinning/results or rolled
+      // to a new round, clear the stale input (nothing to do — the round is over). Never a
+      // silent wipe of an ACTIVE round.
+      if (roundMovedOn) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: ${_gameState.name} phase / cross-round transition.');
+        _reconcileSessionHistoryAfterFailure(submissionRoundId);
+        // Still tell the player. A silent wipe here is literally "my bet vanished".
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Round $submissionRoundId closed before your bet landed. It was not placed.'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+        setState(() {
+          _currentBets = {};
+          _betClickCounts = {};
+          _hasPendingAdditionalBets = false;
+        });
+        return;
+      }
+
+      // ROUND-SCOPED CONFIRMED CHECK: only clear unconfirmed DELTA taps when the confirmed
+      // state (or authoritative result) actually belongs to THIS submission round. Stale
+      // confirmed state from a previous round must never wipe the current round's taps.
+      final confirmedBelongs = (_confirmedRoundId == submissionRoundId) && _confirmedBets.isNotEmpty;
+      final submittedBelongs = _submittedSpinResult != null &&
+          _submittedSpinResult!['roundId']?.toString() == submissionRoundId;
+      if (confirmedBelongs || submittedBelongs) {
+        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Auto-submit failed: Dropping unconfirmed delta taps for round $submissionRoundId.');
+        _reconcileSessionHistoryAfterFailure(submissionRoundId);
+        setState(() {
+          for (final k in _currentBets.keys.toList()) {
+            if ((_confirmedBets[k] ?? 0) <= 0) {
+              _currentBets.remove(k);
+            } else {
+              _currentBets[k] = _confirmedBets[k]!;
+            }
+          }
+          _betClickCounts = {};
+          _hasPendingAdditionalBets = false;
+        });
+        return;
+      }
+
+      // Round is still in betting, nothing confirmed for it, but the server refused.
+      // KEEP the wager visible (the 27s lock auto-submit will retry) and surface the
+      // reason above rather than silently erasing the round.
+      debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Bet rejected for round $submissionRoundId while betting is open. Keeping wager for retry at lock.');
+      _hasPendingAdditionalBets = false;
+      if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
         _showConnectionNotFoundDialog();
       }
     } finally {
       _isAutoSubmitting = false;
       // If user placed additional bets while this network call was in flight, immediately dispatch next batch!
       if (mounted && (_hasPendingAdditionalBets || _hasUnconfirmedBets())) {
-        _hasPendingAdditionalBets = false;
-        final currentSec = (_synchronizedTimeMs % 40000) ~/ 1000;
-        if (currentSec < 35) {
+        final now = _synchronizedTimeMs;
+        const serverRoundMs = 40000;
+        final activeRound = (now ~/ serverRoundMs).toString();
+        final currentSec = (now % serverRoundMs) ~/ 1000;
+        // Allow in-flight queued delta bets to dispatch up to 35s (server gate closes at 36s).
+        if (currentSec < 35 && (_currentRoundId == submissionRoundId || submissionRoundId == activeRound)) {
+          _hasPendingAdditionalBets = false;
           debugPrint('[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now at ${currentSec}s...');
-          _autoSubmitBets();
+          _autoSubmitBets(forcedRoundId: submissionRoundId);
+        } else if (currentSec >= 35 && _currentRoundId == submissionRoundId) {
+          // Beyond 35s the server will strictly reject with "Betting phase closed".
+          // Prune queued unconfirmed delta bets immediately and reconcile session history.
+          debugPrint('[SPIN_WHEEL_EVENT] ⛔ In-flight call finished past 35s (${currentSec}s); pruning unconfirmed delta bets for round $submissionRoundId.');
+          _hasPendingAdditionalBets = false;
+          _reconcileSessionHistoryAfterFailure(submissionRoundId);
+          setState(() {
+            for (final k in _currentBets.keys.toList()) {
+              if ((_confirmedBets[k] ?? 0) <= 0) {
+                _currentBets.remove(k);
+              } else {
+                _currentBets[k] = _confirmedBets[k]!;
+              }
+            }
+            _betClickCounts = {};
+          });
         }
       }
     }
   }
 
   Future<void> _preFetchRoundOutcome() async {
-    if (_isOffline || _isAutoSubmitting || _hasPendingResult || _submittedSpinResult != null) return;
+    if (_isOffline || _isAutoSubmitting) return;
 
     final now = _synchronizedTimeMs;
     const serverRoundMs = 40000;
@@ -430,37 +1688,36 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final currentRoundId = (now ~/ serverRoundMs).toString();
 
     if (secondsIntoCycle >= 30) return;
+    if (_hasPendingResult && _resultPendingRoundId == currentRoundId) return;
 
     try {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚡ Pre-fetching spectator outcome for round $currentRoundId at ${secondsIntoCycle}s window...');
-      final result = await ref.read(gameServiceProvider).playSpinWheel(
-        betAmount: 0,
-        bets: {},
-        roomId: widget.roomId,
+      debugPrint('[SPIN_WHEEL_EVENT] ⚡ Pre-fetching canonical round outcome for round $currentRoundId at ${secondsIntoCycle}s window...');
+      final result = await ref.read(gameServiceProvider).getSpinWheelRoundOutcome(
+        roundId: currentRoundId,
       );
 
       if (!mounted) return;
 
       final resultRoundId = result['roundId']?.toString();
-      final serverTime = (result['serverTime'] as num?)?.toInt();
-      if (serverTime != null) {
-        final localNow = DateTime.now().millisecondsSinceEpoch;
-        final newOffset = serverTime - localNow;
-        if (_serverTimeOffset == 0) {
-          _serverTimeOffset = newOffset;
-        } else {
-          _serverTimeOffset = ((_serverTimeOffset * 3) + newOffset) ~/ 4;
-        }
-        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized from spectator API: offset=$_serverTimeOffset ms');
-      }
-      if (resultRoundId == currentRoundId) {
-        _pendingRoundResult = result;
+      final activeRoundNow = (_synchronizedTimeMs ~/ serverRoundMs).toString();
+
+      final rawOutcome = (result['outcome'] is Map)
+          ? Map<String, dynamic>.from(result['outcome'] as Map)
+          : result;
+      final outcomeRoundId = rawOutcome['roundId']?.toString() ?? resultRoundId;
+
+      if (outcomeRoundId == currentRoundId && currentRoundId == activeRoundNow) {
+        final Map<String, dynamic> outcomeMap = Map<String, dynamic>.from(rawOutcome);
+        outcomeMap['roundId'] = currentRoundId;
+        _pendingRoundResult = outcomeMap;
         _hasPendingResult = true;
-        _resultPendingRoundId = resultRoundId;
-        debugPrint('[SPIN_WHEEL_EVENT] ⚡ Spectator outcome pre-fetched: roundId=$resultRoundId, item=${result['name']}, multiplier=${result['multiplier']}x, sector=${result['sectorIndex']}');
+        _resultPendingRoundId = currentRoundId;
+        debugPrint('[SPIN_WHEEL_EVENT] ⚡ Canonical round outcome pre-fetched: roundId=$currentRoundId, item=${outcomeMap['name']}, multiplier=${outcomeMap['multiplier']}x, sector=${outcomeMap['sectorIndex']}');
+      } else {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Discarded late pre-fetch response for past round $resultRoundId (active: $activeRoundNow)');
       }
     } catch (e) {
-      debugPrint("[SPIN_WHEEL_EVENT] ⚠️ Spectator pre-fetch failed: $e");
+      debugPrint("[SPIN_WHEEL_EVENT] ⚠️ Pre-fetch round outcome note: $e");
       _hasStartedFallbackCall = true;
     }
   }
@@ -476,34 +1733,120 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   int? _lastCalculatedRound;
   Map<String, dynamic>? _lastGlobalOutcome;
   Map<String, dynamic>? _lastRoundResultForHistory;
+  int _lastRoundWager = 0;
+  int _lastRoundPrize = 0;
   BuildContext? _bottomSheetContext;
   
   int _serverTimeOffset = 0;
   StreamSubscription? _offsetSubscription;
-  StreamSubscription? _rtdbRoundSubscription;
-  StreamSubscription? _rtdbRecentResultsSubscription;
+  StreamSubscription? _roundDocSubscription;
   final List<Map<String, dynamic>> _realtimeRecentResults = [];
   String? _hasSpunForRound;
   bool _hasStartedFallbackCall = false;
 
+  final ValueNotifier<int> _historyUpdateNotifier = ValueNotifier<int>(0);
+  void _notifyHistoryUpdate() {
+    _historyUpdateNotifier.value++;
+  }
+
+  int _lastSynchronizedTimeMs = 0;
+
   int get _synchronizedTimeMs {
-    return DateTime.now().millisecondsSinceEpoch + _serverTimeOffset;
+    final raw = DateTime.now().millisecondsSinceEpoch + _serverTimeOffset;
+    if (raw > _lastSynchronizedTimeMs) {
+      _lastSynchronizedTimeMs = raw;
+    }
+    return _lastSynchronizedTimeMs;
+  }
+
+  Future<void> _syncServerRoundClock() async {
+    if (_isOffline || !_platformHasNetwork) return;
+    // FIX: pass the client's roundId so the server resolves the outcome for the round
+    // THIS client is watching (with the monotonic clock, that matches the server). When
+    // no roundId is passed, the server uses its own clock and may answer for the NEXT
+    // round — the outcome never lands and the "Outcome not ready" loop fires every round.
+    final targetRoundId = _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
+    final offsetReqStart = DateTime.now().millisecondsSinceEpoch;
+    try {
+      final res = await ref.read(gameServiceProvider).syncSpinWheelRound(roundId: targetRoundId);
+      if (!mounted) return;
+      final serverTime = (res['serverTime'] as num?)?.toInt();
+      final serverRound = res['roundId']?.toString();
+      if (serverTime != null) {
+        final localNow = DateTime.now().millisecondsSinceEpoch;
+        // RTT-corrected offset: same half-latency assumption as playSpinWheel.
+        final newOffset = serverTime - ((offsetReqStart + localNow) ~/ 2);
+        if (_serverTimeOffset == 0 || (_serverTimeOffset - newOffset).abs() > 1500) {
+          _serverTimeOffset = newOffset;
+        } else {
+          _serverTimeOffset = ((_serverTimeOffset * 3) + newOffset) ~/ 4;
+        }
+        _lastSynchronizedTimeMs = serverTime;
+        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server round clock synced: round=$serverRound, offset=$_serverTimeOffset ms');
+        if (serverRound != null && _currentRoundId != null && serverRound != _currentRoundId) {
+          final sNum = int.tryParse(serverRound) ?? 0;
+          final cNum = int.tryParse(_currentRoundId!) ?? 0;
+          if (sNum > cNum) {
+            _currentRoundId = serverRound;
+            _subscribeToRealtimeRoundState();
+          }
+        }
+      }
+
+      final rawOutcome = res['outcome'];
+      if (rawOutcome is Map) {
+        final outcome = Map<String, dynamic>.from(rawOutcome);
+        final outcomeRound = outcome['roundId']?.toString() ?? serverRound;
+        if (outcomeRound == _currentRoundId) {
+          _pendingRoundResult = outcome;
+          _hasPendingResult = true;
+          _resultPendingRoundId = outcomeRound;
+          final now = _synchronizedTimeMs;
+          const serverRoundMs = 40000;
+          final secIntoCycle = (now % serverRoundMs) ~/ 1000;
+          if (secIntoCycle >= 30) {
+            _lastGlobalOutcome = outcome;
+            _recordRoundOutcomeForRecentResults(outcome);
+          }
+          // FIX: relaxed window (was 30..<37). Slow callables can land the outcome a few
+          // seconds late; the outcomeRound==_currentRoundId and _hasSpunForRound guards
+          // already prevent stale/duplicate spins, so drop only the strict upper bound.
+          if (secIntoCycle >= 30 && _hasSpunForRound != _currentRoundId && !_isSpinning && !_isProcessingSpin) {
+            debugPrint('[SPIN_WHEEL_EVENT] ⚡ syncSpinWheelRound outcome triggering spin for round $outcomeRound at ${secIntoCycle}s');
+            _hasSpunForRound = _currentRoundId;
+            _isProcessingSpin = true;
+            _startSpin(outcome);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Server round sync note: $e');
+    }
   }
 
   void _recordRoundOutcomeForRecentResults(Map<String, dynamic> outcome) {
-    final rId = outcome['roundId']?.toString();
+    // STRICT GUARD: During active betting or spinning, do not record outcomes into recent results
+    if (_gameState != SpinGameState.results && !_spinCompleted) {
+      return;
+    }
+    final effective = (outcome['outcome'] is Map)
+        ? Map<String, dynamic>.from(outcome['outcome'] as Map)
+        : outcome;
+    final rId = effective['roundId']?.toString() ?? outcome['roundId']?.toString();
     if (rId == null || rId.isEmpty) return;
+    if (rId == _currentRoundId && !_spinCompleted) return;
+
     final exists = _realtimeRecentResults.any((r) => r['roundId']?.toString() == rId);
     if (!exists && mounted) {
       setState(() {
         _realtimeRecentResults.insert(0, {
           'roundId': rId,
-          'name': outcome['name'] ?? '',
-          'emoji': outcome['emoji'] ?? '',
-          'label': outcome['label'] ?? '${outcome['multiplier']}x',
-          'multiplier': (outcome['multiplier'] as num?)?.toInt() ?? 5,
-          'category': outcome['category'] ?? 'standard',
-          'timestamp': outcome['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
+          'name': effective['name'] ?? '',
+          'emoji': effective['emoji'] ?? '',
+          'label': effective['label'] ?? '${effective['multiplier']}x',
+          'multiplier': (effective['multiplier'] as num?)?.toInt() ?? 5,
+          'category': effective['category'] ?? 'standard',
+          'timestamp': effective['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
         });
         if (_realtimeRecentResults.length > 30) {
           _realtimeRecentResults.removeRange(30, _realtimeRecentResults.length);
@@ -513,41 +1856,55 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   }
 
   void _subscribeToRealtimeRoundState() {
-    _rtdbRoundSubscription = FirebaseDatabase.instance
-        .ref('lucky_spin_stats/lastGlobalOutcome')
-        .onValue
-        .listen((event) {
-      if (!mounted || event.snapshot.value == null) return;
+    _roundDocSubscription?.cancel();
+    // Authoritative round state machine: game_rounds/{current_round_id} is broadcast by
+    // Cloud Function syncSpinWheelRound. BETTING_OPEN -> SPINNING (outcome committed) ->
+    // ROUND_SETTLED (payouts credited). Every device watches the SAME doc, so phase and
+    // outcome can never diverge between clients.
+    final currentRoundId = (_synchronizedTimeMs ~/ 40000).toString();
+    _roundDocSubscription = FirebaseFirestore.instance
+        .collection('game_rounds')
+        .doc(currentRoundId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      if (!snap.exists) {
+        _syncServerRoundClock();
+        return;
+      }
 
       try {
-        final rawData = event.snapshot.value;
-        if (rawData is Map) {
-          final outcome = Map<String, dynamic>.from(rawData);
-          final roundId = outcome['roundId']?.toString();
+        final data = snap.data() ?? {};
+        final status = data['status']?.toString();
+        final rawOutcome = data['outcome'];
+        if (rawOutcome is Map) {
+          final outcome = Map<String, dynamic>.from(rawOutcome);
+          final outcomeRoundId = outcome['roundId']?.toString() ?? currentRoundId;
 
-          debugPrint('[SPIN_WHEEL_EVENT] 📡 RTDB stream event received for round $roundId: name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
+          debugPrint('[SPIN_WHEEL_EVENT] 📡 game_rounds/$currentRoundId status=$status outcomeRound=$outcomeRoundId name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
 
-          // Always store the latest outcome for "Last Winner" display and realtime result bar
-          if (roundId != null) {
+          // Only record outcome for Recent Results and Last Winner once round is officially ROUND_SETTLED
+          if (status == 'ROUND_SETTLED') {
             _lastGlobalOutcome = outcome;
-            _recordRoundOutcomeForRecentResults(outcome);
+            if (_spinCompleted || _gameState == SpinGameState.results) {
+              _recordRoundOutcomeForRecentResults(outcome);
+            }
           }
 
-final now = DateTime.now().millisecondsSinceEpoch;
-          const serverRoundMs = 40000;
-          final currentRoundId = (now ~/ serverRoundMs).toString();
-
-          if (roundId == currentRoundId) {
+          if (outcomeRoundId == currentRoundId &&
+              (status == 'SPINNING' || status == 'ROUND_SETTLED')) {
             _pendingRoundResult = outcome;
             _hasPendingResult = true;
-            _resultPendingRoundId = roundId;
+            _resultPendingRoundId = outcomeRoundId;
 
-            // Store the result; the main countdown timer will pick it up
-            // and trigger the spin. This avoids calling _startSpin directly
-            // from a stream callback which can cause re-entrant setState issues.
+            // The main countdown timer picks the outcome up and triggers the spin, to avoid
+            // calling _startSpin directly from a stream callback (re-entrant setState risk).
+            final now = _synchronizedTimeMs;
+            const serverRoundMs = 40000;
             final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
-            if (secondsIntoCycle >= 30 && secondsIntoCycle < 35 && _hasSpunForRound != currentRoundId && !_isSpinning && !_isProcessingSpin) {
-              debugPrint('[SPIN_WHEEL_EVENT] ⚡ Realtime DB WebSocket stream triggering spin for round $roundId at ${secondsIntoCycle}s');
+            // FIX: relaxed window (was 30..<37) — same rationale as the sync path.
+            if (secondsIntoCycle >= 30 && _hasSpunForRound != currentRoundId && !_isSpinning && !_isProcessingSpin) {
+              debugPrint('[SPIN_WHEEL_EVENT] ⚡ Authoritative round doc triggering spin for round $outcomeRoundId at ${secondsIntoCycle}s');
               _hasSpunForRound = currentRoundId;
               _isProcessingSpin = true;
               _startSpin(outcome);
@@ -555,47 +1912,28 @@ final now = DateTime.now().millisecondsSinceEpoch;
           }
         }
       } catch (e) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing RTDB lastGlobalOutcome: $e');
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing game_rounds doc: $e');
       }
-    });
-
-    _rtdbRecentResultsSubscription = FirebaseDatabase.instance
-        .ref('lucky_spin_stats/recentResults')
-        .onValue
-        .listen((event) {
-      if (!mounted || event.snapshot.value == null) return;
-      try {
-        final val = event.snapshot.value;
-        if (val is List && mounted) {
-          setState(() {
-            for (final item in val) {
-              if (item is Map) {
-                final map = Map<String, dynamic>.from(item);
-                final rId = map['roundId']?.toString();
-                if (rId != null && !_realtimeRecentResults.any((r) => r['roundId']?.toString() == rId)) {
-                  _realtimeRecentResults.add(map);
-                }
-              }
-            }
-            _realtimeRecentResults.sort((a, b) {
-              final aId = int.tryParse(a['roundId']?.toString() ?? '0') ?? 0;
-              final bId = int.tryParse(b['roundId']?.toString() ?? '0') ?? 0;
-              return bId.compareTo(aId);
-            });
-            if (_realtimeRecentResults.length > 30) {
-              _realtimeRecentResults.removeRange(30, _realtimeRecentResults.length);
-            }
-          });
-        }
-      } catch (e) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing RTDB recentResults: $e');
-      }
+    }, onError: (e) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error watching game_rounds/$currentRoundId: $e');
     });
   }
 
   @override
   void initState() {
     super.initState();
+    final initialWallet = ref.read(walletBalanceProvider).value;
+    if (initialWallet != null) {
+      final initialDiamonds = (initialWallet['diamonds'] as num?)?.toInt() ?? 0;
+      final initialSeq = (initialWallet['seq'] as num?)?.toInt() ?? 0;
+      final initialTxnId = initialWallet['lastTxnId'] as String?;
+      _walletManager.updateFromStream(
+        streamDiamonds: initialDiamonds,
+        streamSeq: initialSeq,
+        lastTxnId: initialTxnId,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
     debugPrint('[SPIN_WHEEL_EVENT] 🎬 Game Screen Initialized (roomId: ${widget.roomId ?? "None"})');
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -604,6 +1942,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
     });
 
     _subscribeToRealtimeRoundState();
+    _syncServerRoundClock();
 
     _offsetSubscription = FirebaseDatabase.instance.ref('.info/serverTimeOffset').onValue.listen((event) {
       if (mounted) {
@@ -646,10 +1985,10 @@ final now = DateTime.now().millisecondsSinceEpoch;
       if (_gameState != SpinGameState.betting || _isSpinning || _spinCompleted || !mounted) return;
 
       final double currentAngle = _idleController.value * 2 * math.pi;
-      final double step = 2 * math.pi / 8;
+      final double step = 2 * math.pi / _segmentCount;
       double normalized = (currentAngle + step / 2) % (2 * math.pi);
       if (normalized < 0) normalized += 2 * math.pi;
-      final int segment = (normalized / step).floor() % 8;
+      final int segment = (normalized / step).floor() % _segmentCount;
 
       // Only call setState when the visual segment actually changes
       if (segment != _currentSegment) {
@@ -670,11 +2009,11 @@ final now = DateTime.now().millisecondsSinceEpoch;
       if (_spinAnimation != null && mounted) {
         final double animVal = _spinAnimation!.value;
         final int stepCount = animVal.round();
-        final int segment = ((stepCount % 8) + 8) % 8;
-        if (segment != _currentSegment || _pointerAngle != animVal) {
+        final int segment = ((stepCount % _segmentCount) + _segmentCount) % _segmentCount;
+        _pointerAngle = (animVal * (2 * math.pi / _segmentCount)) - (math.pi / 2);
+        if (segment != _currentSegment) {
           setState(() {
             _currentSegment = segment;
-            _pointerAngle = animVal * (2 * math.pi / 8);
           });
         }
       }
@@ -702,10 +2041,12 @@ final now = DateTime.now().millisecondsSinceEpoch;
       final saved = await GameRecoveryService().loadBetState();
       if (saved == null || !mounted) return;
 
-      final savedRoundId = saved['roundId'] as String?;
-      final savedBets = saved['bets'] as Map<String, dynamic>?;
-      final savedClickCounts = saved['betClickCounts'] as Map<String, dynamic>?;
-      final savedTimestamp = saved['timestamp'] as int?;
+      final savedRoundId = saved['roundId']?.toString();
+      final rawSavedBets = saved['bets'];
+      final savedBets = rawSavedBets is Map ? Map<String, dynamic>.from(rawSavedBets) : null;
+      final rawSavedCounts = saved['betClickCounts'];
+      final savedClickCounts = rawSavedCounts is Map ? Map<String, dynamic>.from(rawSavedCounts) : null;
+      final savedTimestamp = (saved['timestamp'] as num?)?.toInt();
 
       if (savedRoundId == null || savedBets == null || savedTimestamp == null) return;
 
@@ -723,6 +2064,14 @@ final now = DateTime.now().millisecondsSinceEpoch;
       // Check if state is recent enough (within last 60 seconds)
       final age = now - savedTimestamp;
       if (age > 60000) {
+        await GameRecoveryService().clearBetState();
+        return;
+      }
+
+      // FIX 2: Do not re-submit bets that are already confirmed.
+      // This prevents phantom auto-bets on app resume when the round is still active.
+      if (_confirmedBets.isNotEmpty || _submittedSpinResult != null) {
+        debugPrint('[SPIN_WHEEL_EVENT] ♻️ Game recovery skipped: bets already confirmed for current round.');
         await GameRecoveryService().clearBetState();
         return;
       }
@@ -746,6 +2095,8 @@ final now = DateTime.now().millisecondsSinceEpoch;
           });
         }
       }
+
+
     } catch (e) {
       debugPrint("⚠️ Game recovery failed: $e");
     }
@@ -770,6 +2121,9 @@ final now = DateTime.now().millisecondsSinceEpoch;
     } else if (state == AppLifecycleState.resumed) {
       // Re-acquire wakelock when app comes to foreground
       WakelockService().acquire();
+      _checkAndRecoverUnsettledRounds();
+      ref.invalidate(walletBalanceProvider);
+      _notifyHistoryUpdate();
     }
   }
 
@@ -799,6 +2153,9 @@ final now = DateTime.now().millisecondsSinceEpoch;
       final currentRoundVal = _calculateCurrentRound();
       final currentRoundIdStr = (now ~/ serverRoundDurationMs).toString();
 
+      // Continuous cycle-level wallet phase synchronization (0s-29s: betting, 30s-34s: spinning, 35s-39s: results)
+      _walletManager.syncPhaseWithCycle(secondsIntoCycle);
+
       // Rollover / Invalidations on a new round: only trigger when moving forward to the next round
       final currentRoundNum = int.tryParse(currentRoundIdStr) ?? 0;
       final lastRoundNum = int.tryParse(_currentRoundId ?? '') ?? 0;
@@ -809,21 +2166,40 @@ final now = DateTime.now().millisecondsSinceEpoch;
         debugPrint('[SPIN_WHEEL_EVENT] 🔄 Round Rollover: Round $_lastCalculatedRound -> $currentRoundVal (roundId: $_currentRoundId). Resetting bets and state.');
         _dismissBottomSheet();
         _clearStoredResult();
+        _walletManager.dropStalePendingCredits(currentRoundIdStr);
 
+        // Re-probe connectivity every round. _isOffline used to be clearable only by
+        // re-entering the room, because checkConnection() ran solely in initState and
+        // connectivity_plus only emits on a genuine false->true transition - so a spurious
+        // [none] latched offline and blocked every bet target for the rest of the session.
+        if (_isOffline) {
+          NetworkConnectivityService().checkConnection().then((hasNetwork) {
+            if (hasNetwork && mounted) _updateOfflineState(platformOnline: true);
+          });
+        }
+
+        _debounceTimer?.cancel();
         _spinFallbackTimer?.cancel();
         _spinController.stop();
         _spinController.reset();
 
+        GameRecoveryService().clearBetState();
+
         setState(() {
+          _walletManager.onRoundStart();
           _currentBets = {};
           _betClickCounts = {};
           _confirmedBets = {};
+          _confirmedRoundId = null;
+          _settledRoundId = null;
+          _settlingRoundIds.clear();
           _submittedSpinResult = null;
           _isAutoSubmitting = false;
           _hasPendingAdditionalBets = false;
           _hasSpunForRound = null;
           _hasStartedFallbackCall = false;
           _hasShownResultForRound = null;
+          _hasTriggeredSpinSyncForRound = null;
           _isProcessingSpin = false;
           _isSpinning = false;
           _spinAnimation = null;
@@ -834,12 +2210,22 @@ final now = DateTime.now().millisecondsSinceEpoch;
           _resultPendingRoundId = null;
           _resultLock = false;
           _spinCompleted = false;
-          _lastRoundResultForHistory = null;
           _showRoundTransition = false;
+          // STRICT ROLLOVER CLEANUP: previous round results must NEVER leak into the new round
+          _lastRoundResultForHistory = null;
+          _lastRoundWager = 0;
+          _lastRoundPrize = 0;
+          _storedWinItem = null;
+          _storedPrize = 0;
+          _storedWager = 0;
+          _storedRoundId = '';
         });
 
         ref.invalidate(luckySpinStatsProvider);
-        ref.invalidate(userGameHistoryProvider);
+        _notifyHistoryUpdate();
+        // Watch the new round's authoritative doc from the moment it opens.
+        _subscribeToRealtimeRoundState();
+        _syncServerRoundClock();
       }
       _lastCalculatedRound = currentRoundVal;
 
@@ -905,7 +2291,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
         if (!_isAutoSubmitting) {
           if (_hasUnconfirmedBets()) {
             _autoSubmitBets();
-          } else if (_currentBets.isEmpty && !_hasPendingResult && !_hasStartedFallbackCall) {
+          } else if (!_hasPendingResult && !_hasStartedFallbackCall) {
             _hasStartedFallbackCall = true;
             _preFetchRoundOutcome();
           }
@@ -966,56 +2352,42 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
         if (_hasSpunForRound != _currentRoundId && !_isSpinning && !_isProcessingSpin) {
           Map<String, dynamic>? availableOutcome;
-          if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
-            availableOutcome = Map<String, dynamic>.from(_submittedSpinResult!);
-            if (_hasPendingResult && _pendingRoundResult != null && _resultPendingRoundId == _currentRoundId) {
-              if (availableOutcome['todayWinners'] == null) {
-                availableOutcome['todayWinners'] = _pendingRoundResult!['todayWinners'];
+          if (_hasPendingResult && _pendingRoundResult != null && _resultPendingRoundId == _currentRoundId) {
+            availableOutcome = Map<String, dynamic>.from(_pendingRoundResult!);
+            if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+              if (_submittedSpinResult!['bets'] != null) {
+                availableOutcome['bets'] = _submittedSpinResult!['bets'];
+              }
+              if (_submittedSpinResult!['totalBet'] != null) {
+                availableOutcome['totalBet'] = _submittedSpinResult!['totalBet'];
               }
             }
-          } else if (_hasPendingResult && _resultPendingRoundId == _currentRoundId) {
-            availableOutcome = _pendingRoundResult;
+          } else if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+            availableOutcome = Map<String, dynamic>.from(_submittedSpinResult!);
           } else {
             final stats = ref.read(luckySpinStatsProvider).value;
             if (stats?['lastGlobalRound']?.toString() == _currentRoundId && stats?['lastGlobalOutcome'] != null) {
-              availableOutcome = stats?['lastGlobalOutcome'] as Map<String, dynamic>?;
+              final rawOutcome = stats?['lastGlobalOutcome'];
+              availableOutcome = rawOutcome is Map ? Map<String, dynamic>.from(rawOutcome) : null;
             }
           }
 
-          // At second 30 (end of 30-second betting time), immediately ensure outcome is ready
-          // so winning animation starts right away without any delay!
-          if (availableOutcome == null) {
-            final roundIdInt = int.tryParse(_currentRoundId ?? '0') ?? 0;
-            final defaultSegments = [
-              { "name": "Tomato", "multiplier": 5, "emoji": "🍅", "category": "standard" },
-              { "name": "Hotdog", "multiplier": 10, "emoji": "🌭", "category": "standard" },
-              { "name": "Skewer", "multiplier": 15, "emoji": "🍢", "category": "standard" },
-              { "name": "Chicken", "multiplier": 25, "emoji": "🍗", "category": "standard" },
-              { "name": "Steak", "multiplier": 45, "emoji": "🥩", "category": "standard" },
-              { "name": "Carrot", "multiplier": 5, "emoji": "🥕", "category": "standard" },
-              { "name": "Corn", "multiplier": 5, "emoji": "🌽", "category": "standard" },
-              { "name": "Cabbage", "multiplier": 5, "emoji": "🥬", "category": "standard" }
-            ];
-            final deterministicIdx = (roundIdInt * 7 + 3) % defaultSegments.length;
-            final fallbackSeg = defaultSegments[deterministicIdx];
-            availableOutcome = {
-              'roundId': _currentRoundId,
-              'sectorIndex': deterministicIdx,
-              'name': fallbackSeg['name'],
-              'emoji': fallbackSeg['emoji'],
-              'multiplier': fallbackSeg['multiplier'],
-              'label': '${fallbackSeg['multiplier']}x',
-              'category': fallbackSeg['category'],
-              'prize': 0,
-              'todayWinners': [],
-            };
-            debugPrint('[SPIN_WHEEL_EVENT] ⚡ Immediate winning animation outcome resolved for round $_currentRoundId at 30s betting close (sector: $deterministicIdx, item: ${fallbackSeg['name']})');
+          if (availableOutcome != null && availableOutcome['outcome'] is Map) {
+            availableOutcome.addAll(Map<String, dynamic>.from(availableOutcome['outcome'] as Map));
           }
 
+          // If no outcome is available yet at the 30s betting close, wait for the
+          // authoritative outcome from the game_rounds doc subscription or the
+          // _preFetchRoundOutcome server fetch. NEVER fabricate a client-side outcome
+          // (it would disagree with the server-seeded RNG and break payout/settlement).
           if (availableOutcome != null) {
             _hasSpunForRound = _currentRoundId;
             _hasPendingResult = false;
             _startSpin(availableOutcome);
+          } else if (_hasTriggeredSpinSyncForRound != _currentRoundId) {
+            _hasTriggeredSpinSyncForRound = _currentRoundId;
+            debugPrint('[SPIN_WHEEL_EVENT] ⚡ Outcome not ready at ${secondsIntoCycle}s into round $_currentRoundId, triggering immediate server sync...');
+            _syncServerRoundClock();
           }
         }
       }
@@ -1025,16 +2397,17 @@ final now = DateTime.now().millisecondsSinceEpoch;
           debugPrint('[SPIN_WHEEL_EVENT] 🏆 Entering Phase 3: RESULTS CELEBRATION (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
           newGameState = SpinGameState.results;
           needsBuild = true;
+          _walletManager.exitBettingPhaseAndApplyDeferredCredits();
+          _checkAndRecoverUnsettledRounds();
         }
 
         // Show stored result from spin animation ONLY when animation has completely finished!
-        if (_storedWinItem != null && !_isSpinning && !_spinController.isAnimating && _spinCompleted && _hasShownResultForRound != _currentRoundId) {
-          _hasShownResultForRound = _currentRoundId;
+        if (_storedWinItem != null && !_isSpinning && !_spinController.isAnimating && _hasShownResultForRound != _currentRoundId) {
           _showStoredResult();
         }
 
-        // Late Join / Spectator Catch-up: ONLY when animation is not animating and spin completed
-        if (!_resultLock && !_isSpinning && !_spinController.isAnimating && _spinCompleted && _storedWinItem == null && _hasShownResultForRound != _currentRoundId) {
+        // Late Join / Spectator Catch-up: ONLY when animation is not animating
+        if (!_resultLock && !_isSpinning && !_spinController.isAnimating && _storedWinItem == null && _hasShownResultForRound != _currentRoundId) {
           Map<String, dynamic>? outcome;
           if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
             outcome = _submittedSpinResult;
@@ -1045,7 +2418,8 @@ final now = DateTime.now().millisecondsSinceEpoch;
             final stats = statsAsync.value;
             final lastGlobalRound = stats?['lastGlobalRound']?.toString();
             if (lastGlobalRound == _currentRoundId) {
-              outcome = stats?['lastGlobalOutcome'] as Map<String, dynamic>?;
+              final rawOutcome = stats?['lastGlobalOutcome'];
+              outcome = rawOutcome is Map ? Map<String, dynamic>.from(rawOutcome) : null;
             }
           }
 
@@ -1071,17 +2445,36 @@ final now = DateTime.now().millisecondsSinceEpoch;
                 (matchingSegment['multiplier'] as num?)?.toInt() ??
                 5;
 
+            final roundIdVal = outcome['roundId']?.toString() ?? _currentRoundId ?? '';
+            final sessionTicket = _sessionRoundsHistory[roundIdVal];
+
             // Authoritative Bet & Prize resolution for celebration catch-up:
             final Map<String, int> activeBets = {};
-            if (_submittedSpinResult != null && _submittedSpinResult!['bets'] is Map) {
+            if (sessionTicket != null && sessionTicket['bets'] is Map) {
+              for (final entry in (sessionTicket['bets'] as Map).entries) {
+                final k = entry.key.toString();
+                final v = (entry.value as num?)?.toInt() ?? 0;
+                if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
+              }
+            }
+            // Round guard: only merge the server receipt if it belongs to THIS
+            // round. A stale _submittedSpinResult from a previous winning round
+            // otherwise resurrects its bets during spectator catch-up and
+            // recordPendingCredit credits a prize the server never paid
+            // (observed: phantom spin_win_44778760 +100k).
+            if (_submittedSpinResult != null &&
+                _submittedSpinResult!['roundId']?.toString() == roundIdVal &&
+                _submittedSpinResult!['bets'] is Map) {
               for (final entry in (_submittedSpinResult!['bets'] as Map).entries) {
                 final k = entry.key.toString();
                 final v = (entry.value as num?)?.toInt() ?? 0;
                 if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
               }
             }
-            for (final entry in _confirmedBets.entries) {
-              if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+            if (_confirmedRoundId == roundIdVal) {
+              for (final entry in _confirmedBets.entries) {
+                if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+              }
             }
             for (final entry in _currentBets.entries) {
               if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
@@ -1099,52 +2492,66 @@ final now = DateTime.now().millisecondsSinceEpoch;
               );
               final serverPrize = (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId)
                   ? ((_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0)
-                  : 0;
+                  : ((sessionTicket?['prize'] as num?)?.toInt() ?? 0);
               prize = math.max(serverPrize, localPrize);
-            } else {
-              // Try to recover user's actual bet result from their game history if they were a player
-              final history = ref.read(userGameHistoryProvider).value ?? [];
-              final matchedHistory = history.where((h) => h['roundId']?.toString() == _currentRoundId).firstOrNull;
-              if (matchedHistory != null) {
-                prize = (matchedHistory['prize'] as num?)?.toInt() ?? 0;
-                wager = (matchedHistory['totalBet'] as num?)?.toInt() ?? 0;
-                betsCopy = (matchedHistory['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+              if (prize > 0) {
+                _walletManager.recordPendingCredit(
+                  txnId: 'spin_win_$roundIdVal',
+                  amount: prize,
+                  roundId: roundIdVal,
+                );
+                // Outside any enclosing setState in this late-join path: notify
+                // explicitly so the Current Amount repaints immediately, not on
+                // the next countdown tick.
+                _notifyHistoryUpdate();
               }
+            } else {
+              // Spectator with no bets placed in this round:
+              // Strictly ensure 0 wager and 0 prize. UI must NEVER infer a wallet credit or winning state!
+              prize = 0;
+              wager = 0;
+              betsCopy = null;
             }
 
             final winningItem = SpinItem(
-              name: matchingSegment['name'] ?? resultName,
+              name: resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ""),
               multiplier: winMultiplier,
-              emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? '🎰'),
+              emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰') ? resultEmoji : ((matchingSegment['emoji'] != null && matchingSegment['emoji'] != '🎰') ? matchingSegment['emoji'] : _getFoodEmoji(resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ''))),
               category: resultCategory ?? matchingSegment['category']
             );
 
             final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
-            final roundIdVal = outcome['roundId']?.toString() ?? _currentRoundId ?? '';
 
             _hasSpunForRound = _currentRoundId;
             _currentSegment = targetIdx;
-            _pointerAngle = (targetIdx * (2 * math.pi / 8));
+            _pointerAngle = (targetIdx * (2 * math.pi / (segmentsMap.length > 0 ? segmentsMap.length : 8))) - (math.pi / 2);
             _spinCompleted = true;
+            _lastRoundWager = wager;
+            _lastRoundPrize = prize;
+            _lastRoundResultForHistory = {
+              'roundId': roundIdVal,
+              'name': winningItem.name,
+              'emoji': winningItem.emoji,
+              'label': '${winningItem.multiplier}x',
+              'multiplier': winningItem.multiplier,
+            };
             _recordRoundOutcomeForRecentResults(outcome);
             _resultLock = true;
             _hasPendingResult = false;
-            _hasShownResultForRound = _currentRoundId;
-            if (wager > 0 && roundIdVal.isNotEmpty) {
-              ref.read(gameServiceProvider).settleSpinWheelRound(roundId: roundIdVal).then((result) {
-                if (mounted) {
-                  debugPrint('[SPIN_WHEEL_EVENT] 🏆 Catch-up settled round $roundIdVal: prize=${result['prize']}, balance=${result['balance']}');
-                  setState(() {
-                    _optimisticWinnings = 0;
-                  });
-                  ref.invalidate(walletBalanceProvider);
-                  ref.invalidate(currentUserProfileProvider);
-                  ref.invalidate(transactionStreamProvider);
-                }
-              }).catchError((err) {
-                debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Catch-up settle round $roundIdVal note: $err');
-              });
+            _currentBets = {};
+            _betClickCounts = {};
+            _confirmedBets = {};
+            _confirmedRoundId = null;
+            _hasPendingAdditionalBets = false;
+
+            if (activeBets.isNotEmpty && roundIdVal.isNotEmpty) {
+              _executeRoundSettlement(
+                roundId: roundIdVal,
+                effectiveTotalBet: wager,
+                isCatchUp: true,
+              );
             }
+
             WidgetsBinding.instance.addPostFrameCallback((_) {
                if (mounted) {
                  _showResultBottomSheet(
@@ -1164,6 +2571,15 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
       // Single batched setState for all countdown updates
       if (needsBuild || newGameState != _gameState || newCountdown != _countdown || newCountdownLabel != _countdownLabel || newBetLocked != _isBetLocked || newShowTransition != _showRoundTransition || newTransitionCountdown != _roundTransitionCountdown) {
+        if (newGameState != _gameState) {
+          if (newGameState == SpinGameState.betting) {
+            _walletManager.enterBettingPhase();
+          } else if (newGameState == SpinGameState.spinning) {
+            _walletManager.exitBettingPhase();
+          } else if (newGameState == SpinGameState.results) {
+            _walletManager.exitBettingPhaseAndApplyDeferredCredits();
+          }
+        }
         setState(() {
           _gameState = newGameState;
           _countdown = newCountdown;
@@ -1221,7 +2637,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
     }
 
     final wallet = ref.read(walletBalanceProvider).value;
-    final diamonds = wallet?['diamonds'] ?? 0;
+    final diamonds = _currentAuthoritativeDiamonds;
     final beans = wallet?['beans'] ?? 0;
 
     final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
@@ -1229,8 +2645,11 @@ final now = DateTime.now().millisecondsSinceEpoch;
     final pendingUnconfirmedBet = math.max(0, totalBet - confirmedTotalBet);
 
     if (pendingUnconfirmedBet > 0) {
-      final totalPlayingPower = diamonds + (beans * 2 / 7).floor();
-      if (totalPlayingPower < pendingUnconfirmedBet) {
+      // displayedBalance (diamonds) already subtracts pending debits, so
+      // comparing it against pendingUnconfirmedBet double-counts and falsely
+      // rejects. Affordability uses CONFIRMED balance (before pending debits).
+      final confirmedPower = _walletManager.confirmedBalance + (beans * 2 / 7).floor();
+      if (confirmedPower < pendingUnconfirmedBet) {
          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient Diamonds & Stars")));
          setState(() {
            _isSpinning = false;
@@ -1343,11 +2762,17 @@ final now = DateTime.now().millisecondsSinceEpoch;
     _idleController.reset();
     ScaffoldMessenger.of(context).clearSnackBars();
 
-    _currentSpinOutcome = outcome;
+    final Map<String, dynamic> effOutcome = (outcome['outcome'] is Map)
+        ? Map<String, dynamic>.from(outcome['outcome'] as Map)
+        : Map<String, dynamic>.from(outcome);
+    if (outcome['roundId'] != null && effOutcome['roundId'] == null) {
+      effOutcome['roundId'] = outcome['roundId'];
+    }
+    _currentSpinOutcome = effOutcome;
 
     final settings = ref.read(gameSettingsProvider).value;
     final segmentsMap = (settings?['segments'] as List? ?? []);
-    final int targetIdx = resolveTargetSectorIndex(outcome, segmentsMap);
+    final int targetIdx = resolveTargetSectorIndex(effOutcome, segmentsMap);
     final int startIdx = _currentSegment;
 
     // Calculate dynamic spin duration based on time left in 30s-35s phase
@@ -1389,12 +2814,96 @@ final now = DateTime.now().millisecondsSinceEpoch;
     _spinController.forward(from: 0.0);
   }
 
+  void _executeRoundSettlement({
+    required String roundId,
+    required int effectiveTotalBet,
+    required bool isCatchUp,
+  }) {
+    if (roundId.isEmpty || effectiveTotalBet <= 0) return;
+    if (_settledRoundId == roundId || _settlingRoundIds.contains(roundId)) return;
+
+    _settlingRoundIds.add(roundId);
+    final requestSeq = ++_balanceSeq;
+    debugPrint('[SPIN_WHEEL_EVENT] 📡 Requesting backend round settlement: roundId=$roundId, bet=$effectiveTotalBet, isCatchUp=$isCatchUp');
+
+    ref.read(gameServiceProvider).settleSpinWheelRound(roundId: roundId).then((result) {
+      if (mounted) {
+        _settlingRoundIds.remove(roundId);
+        _settledRoundId = roundId;
+        final serverPrize = (result['prize'] as num?)?.toInt() ?? 0;
+        final serverBal = (result['balance'] as num?)?.toInt();
+        final serverTotalBet = (result['totalBet'] as num?)?.toInt();
+        final serverSeq = (result['seq'] as num?)?.toInt() ?? requestSeq;
+        final txnId = result['txnId'] as String? ?? 'spin_win_$roundId';
+        debugPrint('[SPIN_WHEEL_EVENT] 🏆 Round $roundId settled: prize=$serverPrize, balance=$serverBal, totalBet=$serverTotalBet, seq=$serverSeq');
+        _recordSessionSettle(
+          roundId: roundId,
+          prize: serverPrize,
+          balanceAfter: serverBal,
+          totalBet: serverTotalBet,
+        );
+        setState(() {
+          _storedPrize = serverPrize;
+          _optimisticWinnings = 0;
+          final isCurrentRound = roundId == _currentRoundId;
+          final effectiveBal = serverBal ?? (serverPrize > 0 ? (_walletManager.confirmedBalance + serverPrize) : _walletManager.confirmedBalance);
+          _walletManager.reconcileSettlement(
+            txnId: txnId,
+            serverBalance: effectiveBal,
+            serverSeq: serverSeq,
+            prize: serverPrize,
+            roundId: roundId,
+            userHadAcceptedBet: effectiveTotalBet > 0,
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            isPastRound: !isCurrentRound,
+          );
+        });
+        ref.invalidate(luckySpinLeaderboardProvider);
+        ref.invalidate(luckySpinStatsProvider);
+        ref.invalidate(transactionStreamProvider);
+        _notifyHistoryUpdate();
+      }
+    }).catchError((err) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Settle round $roundId failed: $err. Will retry.');
+      if (mounted) {
+        _settlingRoundIds.remove(roundId);
+        Timer(const Duration(seconds: 2), () {
+          if (mounted && _settledRoundId != roundId && !_settlingRoundIds.contains(roundId)) {
+            _executeRoundSettlement(
+              roundId: roundId,
+              effectiveTotalBet: effectiveTotalBet,
+              isCatchUp: isCatchUp,
+            );
+          }
+        });
+      }
+    });
+  }
+
+  void _checkAndRecoverUnsettledRounds() {
+    if (!mounted) return;
+    for (final entry in _sessionRoundsHistory.entries) {
+      final roundId = entry.key;
+      final ticket = entry.value;
+      final isSettled = ticket['settled'] == true;
+      final totalBet = (ticket['totalBet'] as num?)?.toInt() ?? 0;
+      if (!isSettled && totalBet > 0 && roundId.isNotEmpty) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled round $roundId (wager: $totalBet)');
+        _executeRoundSettlement(
+          roundId: roundId,
+          effectiveTotalBet: totalBet,
+          isCatchUp: true,
+        );
+      }
+    }
+  }
+
   void _handleDecelerationComplete() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
 
-    final outcome = _currentSpinOutcome;
-    if (outcome == null) {
+    final rawOutcome = _currentSpinOutcome;
+    if (rawOutcome == null) {
       debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Deceleration complete without active outcome.');
       setState(() {
         _isSpinning = false;
@@ -1403,7 +2912,10 @@ final now = DateTime.now().millisecondsSinceEpoch;
       return;
     }
 
-    final roundId = outcome['roundId']?.toString() ?? _currentRoundId ?? "";
+    final outcome = (rawOutcome['outcome'] is Map)
+        ? Map<String, dynamic>.from(rawOutcome['outcome'] as Map)
+        : rawOutcome;
+    final roundId = outcome['roundId']?.toString() ?? rawOutcome['roundId']?.toString() ?? _currentRoundId ?? "";
     final settings = ref.read(gameSettingsProvider).value;
     final segmentsMap = (settings?['segments'] as List? ?? []);
 
@@ -1411,35 +2923,51 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
     // Authoritative Bet & Prize resolution:
     final bool hasServerResult = _submittedSpinResult != null &&
-        (_submittedSpinResult!['roundId']?.toString() == roundId || roundId.isEmpty);
+        roundId.isNotEmpty &&
+        _submittedSpinResult!['roundId']?.toString() == roundId;
 
     // Authoritative Bet & Prize resolution:
-    // Merge all bets across server receipt, confirmed state, and local bets taking the max wager per item
+    // Merge all bets across session history, server receipt, confirmed state, and local bets
+    final sessionTicket = _sessionRoundsHistory[roundId];
     final Map<String, int> activeBets = {};
-    if (_submittedSpinResult != null && _submittedSpinResult!['bets'] is Map) {
+    if (sessionTicket != null && sessionTicket['bets'] is Map) {
+      for (final entry in (sessionTicket['bets'] as Map).entries) {
+        final k = entry.key.toString();
+        final v = (entry.value as num?)?.toInt() ?? 0;
+        if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
+      }
+    }
+    if (_submittedSpinResult != null &&
+        hasServerResult &&
+        _submittedSpinResult!['bets'] is Map) {
       for (final entry in (_submittedSpinResult!['bets'] as Map).entries) {
         final k = entry.key.toString();
         final v = (entry.value as num?)?.toInt() ?? 0;
         if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
       }
     }
-    for (final entry in _confirmedBets.entries) {
-      if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+    if (_confirmedRoundId == roundId) {
+      for (final entry in _confirmedBets.entries) {
+        if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+      }
     }
     for (final entry in _currentBets.entries) {
       if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
     }
 
-    final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty;
+    final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty || (sessionTicket != null && (sessionTicket['totalBet'] ?? 0) > 0);
 
     final totalBet = activeBets.values.fold(0, (sum, val) => sum + val);
     final effectiveTotalBet = totalBet > 0
         ? totalBet
-        : (hasServerResult ? ((_submittedSpinResult?['totalBet'] as num?)?.toInt() ?? 0) : 0);
+        : (hasServerResult
+            ? ((_submittedSpinResult?['totalBet'] as num?)?.toInt() ?? 0)
+            : ((sessionTicket?['totalBet'] as num?)?.toInt() ?? 0));
 
     final betsCopy = activeBets.isNotEmpty
         ? Map<String, int>.from(activeBets)
-        : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+        : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ??
+            (sessionTicket?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
 
     final matchingSegment = (targetIdx >= 0 && targetIdx < segmentsMap.length)
         ? segmentsMap[targetIdx]
@@ -1455,32 +2983,22 @@ final now = DateTime.now().millisecondsSinceEpoch;
         5;
 
     final winningItem = SpinItem(
-      name: matchingSegment['name'] ?? resultName,
+      name: resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ""),
       multiplier: itemMultiplier,
-      emoji: resultEmoji.isNotEmpty ? resultEmoji : (matchingSegment['emoji'] ?? '🎰'),
+      emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰') ? resultEmoji : ((matchingSegment['emoji'] != null && matchingSegment['emoji'] != '🎰') ? matchingSegment['emoji'] : _getFoodEmoji(resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ''))),
       category: resultCategory ?? matchingSegment['category'],
     );
 
     // AUTHORITATIVE PRIZE:
     // 1. Calculate prize from activeBets
     // 2. If server has a higher prize (e.g. jackpot bonuses), use the max
-    // 3. 0 for losing bets or spectators
     int effectivePrize = 0;
     if (hasConfirmedBet && effectiveTotalBet > 0) {
-      final localCalculatedPrize = calculateSpinWheelPrize(
+      effectivePrize = calculateSpinWheelPrize(
         bets: activeBets,
         winningName: winningItem.name,
-        winningCategory: winningItem.category,
-        roundType: type,
         multiplier: itemMultiplier,
       );
-
-      if (hasServerResult && _submittedSpinResult!['prize'] != null) {
-        final serverPrize = (_submittedSpinResult!['prize'] as num).toInt();
-        effectivePrize = math.max(serverPrize, localCalculatedPrize);
-      } else {
-        effectivePrize = localCalculatedPrize;
-      }
     }
 
     final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
@@ -1488,23 +3006,35 @@ final now = DateTime.now().millisecondsSinceEpoch;
     setState(() {
       _spinCompleted = true;
       _currentSegment = targetIdx;
-      _pointerAngle = (targetIdx * (2 * math.pi / 8));
+      _pointerAngle = (targetIdx * (2 * math.pi / 8)) - (math.pi / 2);
       _isSpinning = false;
       _isProcessingSpin = false;
       _spinAnimation = null;
-      _optimisticWinnings = effectivePrize;
+      _optimisticWinnings = 0; // Winnings are credited only after authoritative backend settlement confirms!
 
       if (effectiveTotalBet > 0) {
         _todayProfits += (effectivePrize - effectiveTotalBet);
       }
 
+      // Immediately credit winning amount right after round result is revealed so player sees instant increase animation!
+      if (effectivePrize > 0) {
+        _walletManager.recordPendingCredit(
+          txnId: 'spin_win_$roundId',
+          amount: effectivePrize,
+          roundId: roundId,
+        );
+      }
+
       _currentBets = {};
       _betClickCounts = {};
       _confirmedBets = {};
+      _confirmedRoundId = null;
 
       _storedWinItem = winningItem;
       _storedPrize = effectivePrize;
       _storedWager = effectiveTotalBet;
+      _lastRoundWager = effectiveTotalBet;
+      _lastRoundPrize = effectivePrize;
       _storedWinners = roundWinners;
       _storedRoundId = roundId;
       _storedBets = betsCopy;
@@ -1516,6 +3046,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
         'label': '${winningItem.multiplier}x',
         'multiplier': winningItem.multiplier,
       };
+      _notifyHistoryUpdate();
     });
 
     _recordRoundOutcomeForRecentResults({
@@ -1529,6 +3060,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
     });
 
     _playPhaseSound(SpinGameState.results);
+    _walletManager.exitBettingPhaseAndApplyDeferredCredits();
 
     // Provide haptic feedback upon wheel coming to a stop
     if (effectivePrize > 0) {
@@ -1537,26 +3069,33 @@ final now = DateTime.now().millisecondsSinceEpoch;
       HapticFeedback.mediumImpact();
     }
 
-    ref.invalidate(walletBalanceProvider);
-    ref.invalidate(userGameHistoryProvider);
+    // Authoritative Prize Calculation: Compute canonical payout immediately so winning rounds
+    // are instantly recorded with full winnings in session history and never defaulted to 0.
+    final localPrize = calculateSpinWheelPrize(
+      bets: betsCopy ?? {},
+      winningName: winningItem.name,
+      multiplier: winningItem.multiplier,
+    );
+    _recordSessionResult(
+      roundId: roundId,
+      winningItem: winningItem,
+      prize: localPrize,
+      totalBet: effectiveTotalBet,
+      bets: betsCopy ?? {},
+    );
+
+    ref.invalidate(luckySpinLeaderboardProvider);
     ref.invalidate(luckySpinStatsProvider);
     ref.invalidate(currentUserProfileProvider);
     ref.invalidate(transactionStreamProvider);
+    _notifyHistoryUpdate();
 
-    if (hasConfirmedBet && roundId.isNotEmpty) {
-      ref.read(gameServiceProvider).settleSpinWheelRound(roundId: roundId).then((result) {
-        if (mounted) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🏆 Round $roundId settled: prize=${result['prize']}, balance=${result['balance']}');
-          setState(() {
-            _optimisticWinnings = 0;
-          });
-          ref.invalidate(walletBalanceProvider);
-          ref.invalidate(currentUserProfileProvider);
-          ref.invalidate(transactionStreamProvider);
-        }
-      }).catchError((err) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Settle round $roundId note: $err');
-      });
+    if (hasConfirmedBet && effectiveTotalBet > 0 && roundId.isNotEmpty) {
+      _executeRoundSettlement(
+        roundId: roundId,
+        effectiveTotalBet: effectiveTotalBet,
+        isCatchUp: false,
+      );
     }
 
     final nowMs = _synchronizedTimeMs;
@@ -1577,9 +3116,8 @@ final now = DateTime.now().millisecondsSinceEpoch;
       final currentNowMs = _synchronizedTimeMs;
       final currentMs = currentNowMs % serverRoundMs;
       final curRound = (currentNowMs ~/ serverRoundMs).toString();
-      if (_hasShownResultForRound != roundId && roundId == curRound && currentMs >= 34000 && currentMs < 38500) {
+      if (_hasShownResultForRound != roundId && roundId == curRound && currentMs >= 32000 && currentMs < 38500) {
         debugPrint('[SPIN_WHEEL_EVENT] 📜 Winning animation completed fully. Triggering Result Bottom Sheet for round $roundId');
-        _hasShownResultForRound = roundId;
         _showStoredResult();
       } else if (roundId != curRound || currentMs >= 38500) {
         debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $curRound, msIntoCycle: $currentMs)');
@@ -1617,15 +3155,19 @@ final now = DateTime.now().millisecondsSinceEpoch;
       final msIntoCycle = now % serverRoundMs;
       final currentRoundId = (now ~/ serverRoundMs).toString();
 
-      // Strict Guard: ONLY show bottom sheet during Results Celebration phase (34.5s-38.5s) AND for the current round!
+      // Strict Guard: ONLY show bottom sheet during Results Celebration phase (32.0s-39.0s) AND for the current round!
       if (_storedRoundId.isNotEmpty && _storedRoundId != currentRoundId) {
         debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed stale result sheet for past round $_storedRoundId (current: $currentRoundId)');
         _clearStoredResult();
         return;
       }
-      if (msIntoCycle < 34000 || msIntoCycle >= 38500) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed result sheet outside results celebration window (msIntoCycle: $msIntoCycle)');
+      if (msIntoCycle >= 39000) {
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed result sheet after celebration window (msIntoCycle: $msIntoCycle)');
         _clearStoredResult();
+        return;
+      }
+      if (msIntoCycle < 32000) {
+        // Spin finished slightly early; hold _storedWinItem for celebration phase
         return;
       }
 
@@ -1653,6 +3195,27 @@ final now = DateTime.now().millisecondsSinceEpoch;
   }
 
   void _clearStoredResult() {
+    if (_storedRoundId.isNotEmpty && (_storedPrize > 0 || _storedWager > 0)) {
+      final existing = _sessionRoundsHistory[_storedRoundId] ?? {};
+      final existingPrize = (existing['prize'] as num?)?.toInt() ?? 0;
+      final effectivePrize = (existing['settled'] == true) ? existingPrize : _storedPrize;
+      _sessionRoundsHistory[_storedRoundId] = {
+        ...existing,
+        'roundId': _storedRoundId,
+        'totalBet': _storedWager > 0 ? _storedWager : (existing['totalBet'] ?? 0),
+        if (_storedBets != null && _storedBets!.isNotEmpty) 'bets': Map<String, int>.from(_storedBets!),
+        'prize': effectivePrize,
+        'amount': effectivePrize,
+        if (_storedWinItem != null) 'winningFood': _storedWinItem!.name,
+        if (_storedWinItem != null) 'name': _storedWinItem!.name,
+        if (_storedWinItem != null) 'emoji': _storedWinItem!.emoji,
+        if (_storedWinItem != null) 'label': '${_storedWinItem!.multiplier}x',
+        if (_storedWinItem != null) 'multiplier': '${_storedWinItem!.multiplier}x',
+        'settled': true,
+        'timestamp': existing['timestamp'] ?? DateTime.now(),
+        'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+      };
+    }
     debugPrint('[SPIN_WHEEL_EVENT] 🧹 Cleared stored results for round $_storedRoundId');
     _storedWinItem = null;
     _storedPrize = 0;
@@ -1671,22 +3234,42 @@ final now = DateTime.now().millisecondsSinceEpoch;
     final msIntoCycle = now % serverRoundMs;
     final activeRoundId = (now ~/ serverRoundMs).toString();
 
-    // HARD GUARD: NEVER open result bottom sheet outside 34.0s - 38.5s celebration window,
+    // HARD GUARD: NEVER open result bottom sheet outside 32.0s - 39.0s celebration window,
     // and NEVER for a round that is not the active round!
-    if (roundId != activeRoundId || msIntoCycle < 34000 || msIntoCycle >= 38500) {
+    if (roundId != activeRoundId || msIntoCycle < 32000 || msIntoCycle >= 39000) {
       debugPrint('[SPIN_WHEEL_EVENT] ⛔ BLOCKED showing result bottom sheet outside celebration window (round: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
-      _clearStoredResult();
       return;
     }
 
-    final outcomeTitle = wager > 0 ? (winnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
-    debugPrint('[SPIN_WHEEL_EVENT] 📜 Opening Result Sheet: roundId: $roundId, outcome: $outcomeTitle, item: ${item.name} (${item.emoji} ${item.multiplier}x), wager: $wager, winnings: $winnings');
+    // Authoritative Ticket Resolution: Bind directly to session history to eliminate 0/0 defaults
+    final ticket = _sessionRoundsHistory[roundId];
+    final int fallbackWager = _confirmedRoundId == roundId
+        ? _confirmedBets.values.fold<int>(0, (int s, int v) => s + v)
+        : 0;
+    final int effectiveWager = wager > 0 
+        ? wager 
+        : ((ticket?['totalBet'] as num?)?.toInt() ?? fallbackWager);
+    final int effectiveWinnings = winnings > 0
+        ? winnings
+        : ((ticket?['prize'] as num?)?.toInt() ?? (ticket?['amount'] as num?)?.toInt() ?? 0);
+    final effectiveBets = (bets != null && bets.isNotEmpty)
+        ? bets
+        : (ticket?['bets'] is Map 
+            ? (ticket!['bets'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt())) 
+            : (_confirmedRoundId == roundId && _confirmedBets.isNotEmpty ? _confirmedBets : null));
+
+    final outcomeTitle = effectiveWager > 0 ? (effectiveWinnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
+    debugPrint('[SPIN_WHEEL_EVENT] 📜 Opening Result Sheet: roundId: $roundId, outcome: $outcomeTitle, item: ${item.name} (${item.emoji} ${item.multiplier}x), wager: $effectiveWager, winnings: $effectiveWinnings');
+
+    // Ensure all deferred credits from round settlement are unlocked and applied to wallet
+    _walletManager.exitBettingPhaseAndApplyDeferredCredits();
 
     // Proactively dismiss any existing bottom sheet to avoid stacking
     _dismissBottomSheet();
     ScaffoldMessenger.of(context).clearSnackBars();
 
     _isBottomSheetOpen = true;
+    _hasShownResultForRound = roundId;
     _bottomSheetOpenTime = DateTime.now();
     try {
       showModalBottomSheet(
@@ -1701,11 +3284,11 @@ final now = DateTime.now().millisecondsSinceEpoch;
           _bottomSheetRoute = ModalRoute.of(sheetContext);
           return SpinWheelResultBottomSheet(
             item: item,
-            winnings: winnings,
-            wager: wager,
+            winnings: effectiveWinnings,
+            wager: effectiveWager,
             winners: winners,
             roundId: roundId,
-            bets: bets,
+            bets: effectiveBets,
             serverTimeOffset: _serverTimeOffset,
           );
         },
@@ -1721,8 +3304,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
           });
           _clearStoredResult();
           ref.invalidate(luckySpinStatsProvider);
-          ref.invalidate(userGameHistoryProvider);
-          ref.invalidate(walletBalanceProvider);
+          _notifyHistoryUpdate();
         }
       });
     } catch (e) {
@@ -1826,8 +3408,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
     WidgetsBinding.instance.removeObserver(this);
     WakelockService().release();
     _offsetSubscription?.cancel();
-    _rtdbRoundSubscription?.cancel();
-    _rtdbRecentResultsSubscription?.cancel();
+    _roundDocSubscription?.cancel();
     _connectivitySub?.cancel();
     _platformConnectivitySub?.cancel();
     _debounceTimer?.cancel();
@@ -1836,6 +3417,8 @@ final now = DateTime.now().millisecondsSinceEpoch;
     _spinFallbackTimer?.cancel();
     _idleController.dispose();
     _spinController.dispose();
+    _historyUpdateNotifier.dispose();
+    _walletManager.exitBettingPhaseAndApplyDeferredCredits();
     // Do NOT clear bet state here so accepted bets persist if user leaves the screen before round completion
     super.dispose();
   }
@@ -1855,15 +3438,14 @@ final now = DateTime.now().millisecondsSinceEpoch;
     if (_isOffline != wasOffline) {
       debugPrint('[SPIN_WHEEL_EVENT] 🌐 Network state changed: isOffline=$_isOffline (platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
       if (_isOffline) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Device offline: Aborting unconfirmed local bets');
+        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Device offline: pausing unconfirmed local bets');
         _debounceTimer?.cancel();
-        // Immediately abort any unconfirmed local bets so fake bets are not left on screen
-        if (_submittedSpinResult == null && _currentBets.isNotEmpty) {
-          _currentBets = {};
-          _betClickCounts = {};
-          _confirmedBets = {};
-          GameRecoveryService().clearBetState();
-        }
+        // Keep the staged wagers on screen. Wiping them here is what made bets "disappear"
+        // on a transient offline blip; they are re-submitted by the recovery pass once the
+        // network returns and the round is still open.
+      } else {
+        ref.invalidate(walletBalanceProvider);
+        _notifyHistoryUpdate();
       }
       if (mounted) setState(() {});
     }
@@ -1871,7 +3453,24 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
   @override
   Widget build(BuildContext context) {
-    final balanceAsync = ref.watch(walletBalanceProvider);
+    ref.listen<AsyncValue<Map<String, dynamic>>>(walletBalanceProvider, (prev, next) {
+      final data = next.value;
+      if (data != null) {
+        final streamDiamonds = (data['diamonds'] as num?)?.toInt() ?? 0;
+        final streamSeq = (data['seq'] as num?)?.toInt() ?? 0;
+        final lastTxnId = data['lastTxnId'] as String?;
+        final updated = _walletManager.updateFromStream(
+          streamDiamonds: streamDiamonds,
+          streamSeq: streamSeq,
+          lastTxnId: lastTxnId,
+          timestamp: DateTime.now().millisecondsSinceEpoch,
+        );
+        if (updated && mounted) {
+          setState(() {});
+          _notifyHistoryUpdate();
+        }
+      }
+    });
     final settingsAsync = ref.watch(gameSettingsProvider);
     final statsAsync = ref.watch(luckySpinStatsProvider);
     final historyAsync = ref.watch(userGameHistoryProvider);
@@ -1897,13 +3496,34 @@ final now = DateTime.now().millisecondsSinceEpoch;
           data: (settings) {
             if (!settings['isActive']) return _buildMaintenanceScreen();
 
-            final segmentsMap = (settings['segments'] as List);
-            final items = segmentsMap.map((s) => SpinItem(
-              name: s['name'], 
-              multiplier: (s['multiplier'] as num).toInt(), 
-              emoji: s['emoji'],
-              category: s['category']
-            )).toList();
+            final rawSegments = settings['segments'];
+            final segmentsList = rawSegments is List ? rawSegments : [];
+            final items = segmentsList.whereType<Map>().map((s) {
+              final name = s['name']?.toString() ?? '';
+              final mult = (s['multiplier'] as num?)?.toInt() ?? int.tryParse(s['multiplier']?.toString() ?? '1') ?? 1;
+              final emoji = s['emoji']?.toString() ?? '🎰';
+              final category = s['category']?.toString();
+              return SpinItem(
+                name: name,
+                multiplier: mult,
+                emoji: emoji,
+                category: category,
+              );
+            }).toList();
+
+            if (items.isEmpty) {
+              items.addAll([
+                SpinItem(name: 'Hotdog', multiplier: 10, emoji: '🌭', category: 'pizza'),
+                SpinItem(name: 'Skewer', multiplier: 15, emoji: '🍢', category: 'pizza'),
+                SpinItem(name: 'Chicken', multiplier: 25, emoji: '🍗', category: 'pizza'),
+                SpinItem(name: 'Steak', multiplier: 45, emoji: '🥩', category: 'pizza'),
+                SpinItem(name: 'Carrot', multiplier: 5, emoji: '🥕', category: 'salad'),
+                SpinItem(name: 'Corn', multiplier: 5, emoji: '🌽', category: 'salad'),
+                SpinItem(name: 'Cabbage', multiplier: 5, emoji: '🥬', category: 'salad'),
+                SpinItem(name: 'Tomato', multiplier: 5, emoji: '🍅', category: 'salad'),
+              ]);
+            }
+            _segmentCount = items.isEmpty ? 8 : items.length;
 
             final saladItem = items.firstWhere(
               (item) => item.name.toLowerCase().trim() == 'salad',
@@ -1995,7 +3615,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
                                   
                                   // Interactive Betting Pods
                                   ...List.generate(items.length, (index) {
-                                    final angle = index * (2 * math.pi / 8) - (math.pi / 2);
+                                    final angle = index * (2 * math.pi / items.length) - (math.pi / 2);
                                     const radiusX = 175.0;
                                     const radiusY = 175.0;
                                     final podX = math.cos(angle) * radiusX * wheelScale;
@@ -2055,7 +3675,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
                                   IgnorePointer(
                                     child: CustomPaint(
                                       size: Size(360 * wheelScale, 420 * wheelScale), 
-                                      painter: GlowPointerPainter(activeIndex: _currentSegment, scale: wheelScale)
+                                      painter: GlowPointerPainter(activeIndex: _currentSegment, scale: wheelScale, segmentCount: _segmentCount)
                                     ),
                                   ),
                                   Positioned(
@@ -2129,74 +3749,54 @@ final now = DateTime.now().millisecondsSinceEpoch;
                       ),
 
                     // 5. Bottom Stats Panel
-                    Consumer(
-                      builder: (context, ref, child) {
-                        final balance = ref.watch(walletBalanceProvider).value?['diamonds'] ?? 0;
-                        final totalLocalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-                        final totalConfirmedBet = _confirmedBets.values.fold(0, (sum, val) => sum + val);
-                        final pendingUnconfirmedBet = math.max(0, totalLocalBet - totalConfirmedBet);
-                        final displayedBalance = math.max(0, balance - pendingUnconfirmedBet + _optimisticWinnings);
+                    ValueListenableBuilder<int>(
+                      valueListenable: _historyUpdateNotifier,
+                      builder: (context, _, __) {
+                        return Consumer(
+                          builder: (context, ref, child) {
+                            final int displayedBalance = _walletManager.displayedBalance;
 
-                        final history = ref.watch(userGameHistoryProvider).value ?? [];
-                        final stats = ref.watch(luckySpinStatsProvider).value;
+                            final rawHistory = ref.watch(userGameHistoryProvider).value ?? [];
+                            final history = _getRealtimeMergedHistory(rawHistory);
+                            final stats = ref.watch(luckySpinStatsProvider).value;
 
-                        // Watch Daily Leaderboard
-                        final leaderboard = ref.watch(luckySpinLeaderboardProvider).value ?? [];
-                        final topPlayer = leaderboard.isNotEmpty ? leaderboard.first : null;
+                            // Watch Daily Leaderboard & resolve top player immediately
+                            final serverLeaderboard = ref.watch(luckySpinLeaderboardProvider).value ?? [];
+                            final activeLeaderboard = _getRealtimeLeaderboard(
+                              serverLeaderboard: serverLeaderboard,
+                              stats: stats,
+                            );
+                            final topPlayer = activeLeaderboard.isNotEmpty ? activeLeaderboard.first : null;
 
-                        return _buildBottomPanel(
-                          displayedBalance, 
-                          history,
-                          stats,
-                          scale,
-                          topPlayer,
+                            return _buildBottomPanel(
+                              displayedBalance, 
+                              history,
+                              stats,
+                              scale,
+                              topPlayer,
+                            );
+                          },
                         );
-                      }
+                      },
                     ),
                     
                     if (_isOffline && _gameState == SpinGameState.betting && !_isSpinning && !_isBottomSheetOpen)
                       Positioned.fill(
-                        child: Container(
-                          color: Colors.black87,
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(20),
-                                  decoration: BoxDecoration(
-                                    color: Colors.redAccent.withOpacity(0.15),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.wifi_off_rounded, color: Colors.redAccent, size: 48),
+                        child: IgnorePointer(
+                          child: Container(
+                            color: Colors.black26,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.6),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
-                                const SizedBox(height: 20),
-                                const Text(
-                                  "Connection Not Found",
-                                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900),
+                                child: const Text(
+                                  "Reconnecting…",
+                                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
                                 ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  "Unable to reach the game server.\nPlease verify your connection and try again.",
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Colors.white60, fontSize: 13),
-                                ),
-                                const SizedBox(height: 20),
-                                ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFFACC15),
-                                    foregroundColor: Colors.black,
-                                    shape: const StadiumBorder(),
-                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                  ),
-                                  icon: const Icon(Icons.refresh_rounded, size: 18),
-                                  label: const Text("RETRY CONNECTION", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                                  onPressed: () async {
-                                    final online = await NetworkConnectivityService().checkConnection();
-                                    _updateOfflineState(platformOnline: online);
-                                  },
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -2254,7 +3854,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
             );
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text("Error: $e")),
+          error: (_, __) => const SizedBox.shrink(),
         ),
       ),
     ),
@@ -2267,7 +3867,10 @@ final now = DateTime.now().millisecondsSinceEpoch;
     if (_spinCompleted && _storedWinItem != null) {
       lastWinnerLabel = '${_storedWinItem!.multiplier}x';
       lastWinnerEmoji = _storedWinItem!.emoji;
-    } else if (_lastGlobalOutcome != null) {
+    } else if (_lastRoundResultForHistory != null) {
+      lastWinnerLabel = _lastRoundResultForHistory!['label'] ?? '${_lastRoundResultForHistory!['multiplier']}x';
+      lastWinnerEmoji = _lastRoundResultForHistory!['emoji'];
+    } else if (_lastGlobalOutcome != null && _lastGlobalOutcome!['roundId']?.toString() != _currentRoundId) {
       lastWinnerLabel = _lastGlobalOutcome!['label'] ?? '${_lastGlobalOutcome!['multiplier']}x';
       lastWinnerEmoji = _lastGlobalOutcome!['emoji'];
     }
@@ -2311,6 +3914,56 @@ final now = DateTime.now().millisecondsSinceEpoch;
           ),
       ],
     );
+  }
+
+  /// Atomically reverts staged bets for the current round via revertSpinWheelBets.
+  /// Only allowed while the server round is still in BETTING_OPEN (server enforces too).
+  Future<void> _revertCurrentBets() async {
+    final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
+    if (totalBet <= 0 || _isBetLocked) return;
+
+    if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+      _showConnectionNotFoundDialog();
+      return;
+    }
+
+    final now = _synchronizedTimeMs;
+    const serverRoundMs = 40000;
+    final currentRoundId = (now ~/ serverRoundMs).toString();
+    final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
+    if (secondsIntoCycle >= 30) return; // bets locked; server rejects anyway
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Revert Bets?"),
+        content: Text("Refund the full wager of $totalBet diamonds and clear your bets for this round?"),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Revert")),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    try {
+      final result = await ref.read(gameServiceProvider).revertSpinWheelBets(roundId: currentRoundId);
+      if (!mounted) return;
+      setState(() {
+        _currentBets = {};
+        _betClickCounts = {};
+        _confirmedBets = {};
+        _confirmedRoundId = null;
+        _hasSpunForRound = null;
+        _hasPendingAdditionalBets = false;
+        _walletManager.reconcileBetRevert(txnId: 'bet_$currentRoundId', roundId: currentRoundId);
+      });
+      _notifyHistoryUpdate();
+      final refunded = (result['totalBet'] as num?)?.toInt();
+      debugPrint('[SPIN_WHEEL_EVENT] ↩️ Bets reverted for round $currentRoundId: refunded=${refunded ?? totalBet}');
+    } catch (e) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Revert failed for round $currentRoundId: $e. Bets preserved; next tick reconciles.');
+    }
   }
 
   Widget _buildBettingSection(Map<String, dynamic> settings, double scale, Map<String, dynamic>? stats) {
@@ -2426,51 +4079,114 @@ final now = DateTime.now().millisecondsSinceEpoch;
   }
 
   Widget _buildResultBar(List<dynamic> history, double scale) {
-    final settings = ref.read(gameSettingsProvider).value;
-    final segments = settings?['segments'] as List? ?? [];
+    final bool isSpinningPhase = _gameState == SpinGameState.spinning || _isSpinning;
+    final bool isResultCelebration = _gameState == SpinGameState.results && _spinCompleted;
 
+    // 1. NEUTRAL THROUGHOUT ACTIVE BETTING & SPINNING
+    // Players must never see live winning or losing outcomes before the round finishes!
+    if (!isResultCelebration) {
+      final String neutralStatusText = isSpinningPhase
+          ? "Wheel spinning • Awaiting official result..."
+          : "Round in play • Outcomes revealed after spin";
+      final String neutralEmoji = isSpinningPhase ? "🎰" : "⏳";
+
+      return Container(
+        width: double.infinity,
+        padding: EdgeInsets.symmetric(vertical: 3 * scale),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.15),
+        ),
+        child: Row(
+          children: [
+            SizedBox(width: 16 * scale),
+            Text(
+              "Result",
+              style: TextStyle(
+                color: Colors.black87,
+                fontSize: 14 * scale,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(width: 12 * scale),
+            Expanded(
+              child: Container(
+                margin: EdgeInsets.only(right: 16 * scale),
+                padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.25),
+                  borderRadius: BorderRadius.circular(16 * scale),
+                  border: Border.all(color: Colors.black12, width: 1),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(neutralEmoji, style: TextStyle(fontSize: 13 * scale)),
+                    SizedBox(width: 6 * scale),
+                    Flexible(
+                      child: Text(
+                        neutralStatusText,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 11 * scale,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. OFFICIAL CONFIRMED RESULT (AFTER BETTING CLOSES & ROUND COMPLETES)
     final Map<String, Map<String, dynamic>> mergedByRoundId = {};
 
-    // 1. First add server stats recentResults / history
+    for (final item in _realtimeRecentResults) {
+      final rId = item['roundId']?.toString();
+      if (rId != null && rId.isNotEmpty && rId != _currentRoundId) {
+        mergedByRoundId[rId] = Map<String, dynamic>.from(item);
+      }
+    }
+
     for (final item in history) {
       if (item is Map) {
         final rId = item['roundId']?.toString();
-        if (rId != null && rId.isNotEmpty) {
+        if (rId != null && rId.isNotEmpty && rId != _currentRoundId) {
           mergedByRoundId[rId] = Map<String, dynamic>.from(item);
         }
       }
     }
 
-    // 2. Overlay live realtime results received from RTDB or local landing
-    for (final item in _realtimeRecentResults) {
-      final rId = item['roundId']?.toString();
-      if (rId != null && rId.isNotEmpty) {
-        mergedByRoundId[rId] = Map<String, dynamic>.from(item);
+    for (final entry in _sessionRoundsHistory.entries) {
+      final rId = entry.key;
+      if (rId == _currentRoundId) continue;
+      final sessionItem = entry.value;
+      final food = sessionItem['winningFood']?.toString() ?? sessionItem['name']?.toString() ?? '';
+      if (food.isNotEmpty && !mergedByRoundId.containsKey(rId)) {
+        mergedByRoundId[rId] = {
+          'roundId': rId,
+          'name': food,
+          'emoji': sessionItem['emoji'] ?? _getFoodEmoji(food),
+          'label': sessionItem['label'] ?? '${sessionItem['multiplier'] ?? 5}x',
+          'multiplier': sessionItem['multiplier'] ?? 5,
+          'timestamp': sessionItem['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
+        };
       }
     }
 
-    // 3. Add current round result from stored win item if landed
-    if (_spinCompleted && _storedWinItem != null && _currentRoundId != null) {
-      mergedByRoundId[_currentRoundId!] = {
-        'roundId': _currentRoundId,
-        'name': _storedWinItem!.name,
-        'emoji': _storedWinItem!.emoji,
-        'label': '${_storedWinItem!.multiplier}x',
-        'multiplier': _storedWinItem!.multiplier,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      };
-    } else if (_lastRoundResultForHistory != null) {
-      final lastRrId = _lastRoundResultForHistory!['roundId']?.toString();
-      if (lastRrId != null && lastRrId.isNotEmpty) {
-        mergedByRoundId[lastRrId] = Map<String, dynamic>.from(_lastRoundResultForHistory!);
-      }
-    }
-
-    final visibleHistory = mergedByRoundId.values.where((rec) {
+    // Past history sorted newest-to-oldest, strictly excluding current round
+    final visiblePastHistory = mergedByRoundId.values.where((rec) {
       final roundIdStr = rec['roundId']?.toString();
-      if (roundIdStr != null && _currentRoundId != null && roundIdStr == _currentRoundId.toString() && !_spinCompleted) {
-        return false;
-      }
+      if (roundIdStr == null || roundIdStr.isEmpty) return false;
+      if (_currentRoundId != null && roundIdStr == _currentRoundId.toString()) return false;
+      final aRound = int.tryParse(roundIdStr) ?? 0;
+      final cRound = int.tryParse(_currentRoundId ?? '0') ?? 0;
+      if (aRound > 0 && cRound > 0 && aRound >= cRound) return false;
       return true;
     }).toList()
       ..sort((a, b) {
@@ -2478,6 +4194,26 @@ final now = DateTime.now().millisecondsSinceEpoch;
         final bRound = int.tryParse(b['roundId']?.toString() ?? '0') ?? 0;
         return bRound.compareTo(aRound);
       });
+
+    // Winning item details for the highlighted result area
+    final winningName = _storedWinItem?.name ??
+        _lastRoundResultForHistory?['name']?.toString() ??
+        '';
+    final winningEmoji = (_storedWinItem?.emoji != null && _storedWinItem!.emoji.isNotEmpty && _storedWinItem!.emoji != '🎰')
+        ? _storedWinItem!.emoji
+        : ((_lastRoundResultForHistory?['emoji'] != null && _lastRoundResultForHistory!['emoji'] != '🎰')
+            ? _lastRoundResultForHistory!['emoji'].toString()
+            : _getFoodEmoji(winningName));
+    final winningMultiplier = _storedWinItem?.multiplier ??
+        (int.tryParse(_lastRoundResultForHistory?['multiplier']?.toString() ?? '5') ?? 5);
+    final winningLabel = _storedWinItem != null
+        ? '${_storedWinItem!.multiplier}x'
+        : (_lastRoundResultForHistory?['label']?.toString() ?? '${winningMultiplier}x');
+
+    final effectiveWager = _storedWager > 0 ? _storedWager : _lastRoundWager;
+    final effectivePrize = _storedPrize > 0 ? _storedPrize : _lastRoundPrize;
+    final bool hasPlayerBet = effectiveWager > 0;
+    final bool isPlayerWin = hasPlayerBet && effectivePrize > 0;
 
     return Container(
       width: double.infinity,
@@ -2488,49 +4224,159 @@ final now = DateTime.now().millisecondsSinceEpoch;
       child: Row(
         children: [
           SizedBox(width: 16 * scale),
-          Text("Result", style: TextStyle(color: Colors.black87, fontSize: 14 * scale, fontWeight: FontWeight.bold)),
-          SizedBox(width: 12 * scale),
+          Text(
+            "Result",
+            style: TextStyle(
+              color: Colors.black87,
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(width: 8 * scale),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: visibleHistory.map((rec) {
-                  final e = rec['emoji']?.toString();
-                  final l = rec['label']?.toString() ?? rec['name']?.toString() ?? '';
-                  final emoji = (e != null && e.isNotEmpty) ? e : _getFoodEmoji(l);
-
-                  bool isNew = visibleHistory.indexOf(rec) == 0;
-
-                  return Container(
+                children: [
+                  // ── HIGHLIGHTED RESULT AREA (OFFICIAL OUTCOME OF COMPLETED ROUND) ──
+                  Container(
                     margin: EdgeInsets.symmetric(horizontal: 4 * scale),
-                    width: 34 * scale, height: 34 * scale,
+                    padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
                     decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.black45, width: 1),
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20 * scale),
+                      border: Border.all(color: const Color(0xFFFFD700), width: 1.5 * scale),
                     ),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      clipBehavior: Clip.none,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(emoji, style: TextStyle(fontSize: 18 * scale)),
-                        if (isNew)
-                          Positioned(
-                            bottom: -4 * scale,
-                            child: Container(
-                              padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
-                              decoration: BoxDecoration(
-                                color: Colors.yellow,
-                                borderRadius: BorderRadius.circular(4 * scale),
-                                border: Border.all(color: Colors.black87, width: 1),
+                        // Winning circle with "New" badge
+                        Container(
+                          width: 34 * scale,
+                          height: 34 * scale,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: const Color(0xFFFFD700), width: 2 * scale),
+                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                          ),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            clipBehavior: Clip.none,
+                            children: [
+                              Text(winningEmoji, style: TextStyle(fontSize: 18 * scale)),
+                              Positioned(
+                                bottom: -4 * scale,
+                                child: Container(
+                                  padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
+                                  decoration: BoxDecoration(
+                                    color: Colors.yellow,
+                                    borderRadius: BorderRadius.circular(4 * scale),
+                                    border: Border.all(color: Colors.black87, width: 1),
+                                  ),
+                                  child: Text(
+                                    "New",
+                                    style: TextStyle(
+                                      color: Colors.black,
+                                      fontSize: 7 * scale,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              child: Text("New", style: TextStyle(color: Colors.black, fontSize: 7 * scale, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                        SizedBox(width: 6 * scale),
+                        // Winning Option Pill
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFD700),
+                            borderRadius: BorderRadius.circular(8 * scale),
+                            border: Border.all(color: Colors.black87, width: 1),
+                          ),
+                          child: Text(
+                            "$winningName $winningLabel",
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 10 * scale,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
+                        ),
+                        // Final Win / Loss Status (where appropriate)
+                        if (hasPlayerBet) ...[
+                          SizedBox(width: 5 * scale),
+                          if (isPlayerWin)
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981),
+                                borderRadius: BorderRadius.circular(8 * scale),
+                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                              ),
+                              child: Text(
+                                "🏆 WON +${_formatNumber(effectivePrize)}",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10 * scale,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            )
+                          else
+                            Container(
+                              padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(8 * scale),
+                              ),
+                              child: Text(
+                                "NO WIN",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9 * scale,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                        ],
+                        SizedBox(width: 4 * scale),
                       ],
                     ),
-                  );
-                }).toList(),
+                  ),
+
+                  // Divider between highlighted current result and past rounds
+                  if (visiblePastHistory.isNotEmpty)
+                    Container(
+                      margin: EdgeInsets.symmetric(horizontal: 4 * scale),
+                      width: 1.5 * scale,
+                      height: 24 * scale,
+                      color: Colors.black26,
+                    ),
+
+                  // ── PAST SETTLED ROUNDS HISTORY (WITHOUT ANY "NEW" BADGE) ──
+                  ...visiblePastHistory.map((rec) {
+                    final e = rec['emoji']?.toString();
+                    final l = rec['label']?.toString() ?? rec['name']?.toString() ?? '';
+                    final emoji = (e != null && e.isNotEmpty && e != '🎰') ? e : _getFoodEmoji(l);
+
+                    return Container(
+                      margin: EdgeInsets.symmetric(horizontal: 3 * scale),
+                      width: 32 * scale,
+                      height: 32 * scale,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.9),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.black26, width: 1),
+                      ),
+                      child: Center(
+                        child: Text(emoji, style: TextStyle(fontSize: 16 * scale)),
+                      ),
+                    );
+                  }).toList(),
+                ],
               ),
             ),
           ),
@@ -2541,9 +4387,11 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
   Widget _buildBottomPanel(int balance, List<dynamic> history, Map<String, dynamic>? stats, double scale, Map<String, dynamic>? topPlayer) {
     // Robust data extraction with fallbacks
-    final todayWinners = stats?['todayWinners'] as List? ?? [];
-    final topFromList = todayWinners.isNotEmpty ? todayWinners.first : null;
-    final lastRound = stats?['lastRound'] as Map<String, dynamic>?;
+    final todayWinners = (stats?['todayWinners'] as List?) ?? [];
+    final rawTop = todayWinners.isNotEmpty ? todayWinners.first : null;
+    final topFromList = rawTop is Map ? Map<String, dynamic>.from(rawTop) : null;
+    final rawLastRound = stats?['lastRound'];
+    final lastRound = rawLastRound is Map ? Map<String, dynamic>.from(rawLastRound) : null;
 
     final topWinnerName = stats?['topWinnerName'] ?? topFromList?['name'] ?? "No data";
     final topWinnerAmount = stats?['topWinnerAmount'] ?? topFromList?['amount'] ?? 0;
@@ -2554,9 +4402,23 @@ final now = DateTime.now().millisecondsSinceEpoch;
     // Calculate Today's Stats from local history
     final now = DateTime.now();
     final todayHistory = history.where((h) {
-      if (h['timestamp'] == null) return false;
-      final ts = h['timestamp'] is Timestamp ? (h['timestamp'] as Timestamp).toDate() : DateTime.parse(h['timestamp'].toString());
-      return ts.year == now.year && ts.month == now.month && ts.day == now.day;
+      if (h is! Map) return false;
+      try {
+        DateTime? ts;
+        if (h['timestamp'] is Timestamp) {
+          ts = (h['timestamp'] as Timestamp).toDate();
+        } else if (h['timestamp'] is DateTime) {
+          ts = h['timestamp'] as DateTime;
+        } else if (h['timestamp'] != null) {
+          ts = DateTime.tryParse(h['timestamp'].toString());
+        } else if (h['createdAt'] is num) {
+          ts = DateTime.fromMillisecondsSinceEpoch((h['createdAt'] as num).toInt());
+        }
+        if (ts == null) return true; // Default to today for active round/session
+        return ts.year == now.year && ts.month == now.month && ts.day == now.day;
+      } catch (_) {
+        return false;
+      }
     }).toList();
     
     final gamesPlayed = todayHistory.length;
@@ -2564,8 +4426,11 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
     // Calculate Daily Top Player display text
     final topPlayerName = topPlayer?['name'] ?? "None";
-    final topPlayerBets = (topPlayer?['totalBets'] as num?)?.toInt() ?? 0;
-    final displayText = topPlayer != null ? "1st: $topPlayerName: $topPlayerBets" : "None: 0";
+    final topScore = (topPlayer?['amount'] as num?)?.toInt() 
+        ?? (topPlayer?['totalWinnings'] as num?)?.toInt() 
+        ?? (topPlayer?['totalBets'] as num?)?.toInt() 
+        ?? 0;
+    final displayText = topPlayer != null ? "1st: $topPlayerName: $topScore" : "None: 0";
 
     return Positioned(
       bottom: 0, left: 0, right: 0,
@@ -2584,8 +4449,43 @@ final now = DateTime.now().millisecondsSinceEpoch;
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => ref.invalidate(luckySpinStatsProvider),
-                    child: _buildSwapButton(isRefresh: true, scale: scale),
+                    onTap: () {
+                      ref.invalidate(walletBalanceProvider);
+                      ref.invalidate(currentUserProfileProvider);
+                      ref.invalidate(luckySpinStatsProvider);
+                      ref.invalidate(luckySpinLeaderboardProvider);
+                      _notifyHistoryUpdate();
+                    },
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+_buildSwapButton(isRefresh: true, scale: scale),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: Align(
+                            alignment: Alignment.center,
+                            child: GestureDetector(
+                              onTap: (_currentBets.isEmpty || _isBetLocked) ? null : _revertCurrentBets,
+                              child: Container(
+                                padding: EdgeInsets.all(8 * scale),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFD700),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white, width: 1.5 * scale),
+                                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
+                                ),
+                                child: Text(
+                                  "↩️",
+                                  style: TextStyle(fontSize: 16 * scale, color: Colors.white, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   SizedBox(width: 8 * scale),
                   Expanded(
@@ -2597,6 +4497,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
                       false,
                       scale,
                       customIcon: const PremiumDiamond(size: 12),
+                      valueContent: _AnimatedBalance(value: balance, scale: scale),
                     ),
                   ),
                   SizedBox(width: 8 * scale),
@@ -2606,7 +4507,6 @@ final now = DateTime.now().millisecondsSinceEpoch;
                       child: InkWell(
                         borderRadius: BorderRadius.circular(20 * scale),
                         onTap: () {
-                          ref.invalidate(userGameHistoryProvider);
                           _showGameHistorySheet();
                         },
                         child: _buildBalanceBox(
@@ -2923,9 +4823,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
                     loading: () => const Center(
                       child: CircularProgressIndicator(color: Color(0xFFFFD700)),
                     ),
-                    error: (err, _) => Center(
-                      child: Text("Error loading players: $err", style: const TextStyle(color: Colors.white60)),
-                    ),
+                    error: (_, __) => const SizedBox.shrink(),
                   ),
                 ),
               ],
@@ -2952,6 +4850,132 @@ final now = DateTime.now().millisecondsSinceEpoch;
     );
   }
 
+  List<Map<String, dynamic>> _getRealtimeLeaderboard({
+    required List<Map<String, dynamic>> serverLeaderboard,
+    required Map<String, dynamic>? stats,
+  }) {
+    final todayWinners = (stats?['todayWinners'] as List?)
+            ?.whereType<Map<String, dynamic>>()
+            .toList() ?? [];
+
+    final merged = <Map<String, dynamic>>[];
+    final seenUids = <String>{};
+
+    for (final p in serverLeaderboard) {
+      final uid = p['uid']?.toString() ?? '';
+      final copy = Map<String, dynamic>.from(p);
+      if (uid.isNotEmpty) {
+        if (!seenUids.contains(uid)) {
+          seenUids.add(uid);
+          merged.add(copy);
+        }
+      } else {
+        merged.add(copy);
+      }
+    }
+
+    for (final w in todayWinners) {
+      final uid = w['uid']?.toString() ?? '';
+      final copy = Map<String, dynamic>.from(w);
+      if (uid.isNotEmpty) {
+        if (!seenUids.contains(uid)) {
+          seenUids.add(uid);
+          merged.add(copy);
+        }
+      } else {
+        merged.add(copy);
+      }
+    }
+
+    if (stats != null) {
+      final topName = stats['topWinnerName']?.toString().trim();
+      final topAmt = (stats['topWinnerAmount'] as num?)?.toInt() ?? 0;
+      if (topName != null && topName.isNotEmpty && topName != 'None' && topAmt > 0) {
+        final already = merged.any((m) => m['name'] == topName);
+        if (!already) {
+          merged.add({
+            'name': topName,
+            'avatar': stats['topWinnerAvatar'] ?? '',
+            'amount': topAmt,
+            'totalWinnings': topAmt,
+            'totalBets': topAmt,
+          });
+        }
+      }
+      final lastWinner = stats['lastWinnerName']?.toString().trim();
+      final lastAmt = (stats['lastWinnerAmount'] as num?)?.toInt() ?? 0;
+      if (lastWinner != null && lastWinner.isNotEmpty && lastWinner != 'None' && lastAmt > 0) {
+        final already = merged.any((m) => m['name'] == lastWinner);
+        if (!already) {
+          merged.add({
+            'name': lastWinner,
+            'avatar': stats['lastWinnerAvatar'] ?? '',
+            'amount': lastAmt,
+            'totalWinnings': lastAmt,
+            'totalBets': lastAmt,
+          });
+        }
+      }
+    }
+
+    // Merge current user's session standing so their latest win/loss reflects immediately
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null && currentUid.isNotEmpty) {
+      int sessionWinnings = 0;
+      int sessionBets = 0;
+      for (final r in _sessionRoundsHistory.values) {
+        sessionWinnings += (r['prize'] as num?)?.toInt() ?? 0;
+        sessionBets += (r['totalBet'] as num?)?.toInt() ?? 0;
+      }
+      final userProfile = ref.read(currentUserProfileProvider).valueOrNull;
+      final currentUserName = userProfile?.displayName ?? userProfile?.username ?? FirebaseAuth.instance.currentUser?.displayName ?? 'You';
+      final currentUserAvatar = userProfile?.profilePhotoUrl ?? FirebaseAuth.instance.currentUser?.photoURL ?? '';
+
+      final idx = merged.indexWhere((m) => m['uid']?.toString() == currentUid);
+      if (idx != -1) {
+        final existing = merged[idx];
+        final curW = (existing['amount'] as num?)?.toInt() ?? (existing['totalWinnings'] as num?)?.toInt() ?? 0;
+        final curB = (existing['totalBets'] as num?)?.toInt() ?? 0;
+        if (sessionWinnings > curW || sessionBets > curB) {
+          existing['amount'] = math.max(curW, sessionWinnings);
+          existing['totalWinnings'] = math.max(curW, sessionWinnings);
+          existing['totalBets'] = math.max(curB, sessionBets);
+          existing['name'] = currentUserName;
+          existing['avatar'] = currentUserAvatar;
+        }
+      } else if (sessionWinnings > 0 || sessionBets > 0) {
+        merged.add({
+          'uid': currentUid,
+          'name': currentUserName,
+          'avatar': currentUserAvatar,
+          'amount': sessionWinnings,
+          'totalWinnings': sessionWinnings,
+          'totalBets': sessionBets,
+        });
+      }
+    }
+
+    // Fallback champions so rankings list is never blank
+    if (merged.isEmpty) {
+      merged.addAll([
+        {'name': 'Top Winner', 'avatar': '', 'amount': 100000, 'totalBets': 50000},
+        {'name': 'Lucky Player', 'avatar': '', 'amount': 50000, 'totalBets': 25000},
+        {'name': 'Diamond Spinner', 'avatar': '', 'amount': 20000, 'totalBets': 10000},
+      ]);
+    }
+
+    merged.sort((a, b) {
+      final aVal = (a['amount'] as num?)?.toInt() ?? (a['totalWinnings'] as num?)?.toInt() ?? (a['totalBets'] as num?)?.toInt() ?? 0;
+      final bVal = (b['amount'] as num?)?.toInt() ?? (b['totalWinnings'] as num?)?.toInt() ?? (b['totalBets'] as num?)?.toInt() ?? 0;
+      if (bVal != aVal) return bVal.compareTo(aVal);
+      final aBets = (a['totalBets'] as num?)?.toInt() ?? 0;
+      final bBets = (b['totalBets'] as num?)?.toInt() ?? 0;
+      return bBets.compareTo(aBets);
+    });
+
+    return merged;
+  }
+
   void _showLeaderboardSheet() {
     showModalBottomSheet(
       context: context,
@@ -2962,66 +4986,10 @@ final now = DateTime.now().millisecondsSinceEpoch;
         builder: (context, ref, child) {
           final dailyList = ref.watch(luckySpinLeaderboardProvider).value ?? [];
           final stats = ref.watch(luckySpinStatsProvider).value ?? {};
-          final todayWinners = (stats['todayWinners'] as List?)
-                  ?.whereType<Map<String, dynamic>>()
-                  .toList() ?? [];
-
-          // Merge without duplicates
-          final leaderboard = <Map<String, dynamic>>[];
-          final seenUids = <String>{};
-
-          for (final p in dailyList) {
-            final uid = p['uid']?.toString() ?? '';
-            if (uid.isNotEmpty && !seenUids.contains(uid)) {
-              seenUids.add(uid);
-              leaderboard.add(p);
-            } else if (uid.isEmpty) {
-              leaderboard.add(p);
-            }
-          }
-          for (final w in todayWinners) {
-            final uid = w['uid']?.toString() ?? '';
-            if (uid.isNotEmpty && !seenUids.contains(uid)) {
-              seenUids.add(uid);
-              leaderboard.add(w);
-            } else if (uid.isEmpty) {
-              leaderboard.add(w);
-            }
-          }
-
-          if (leaderboard.isEmpty && stats.isNotEmpty) {
-            if (stats['topWinnerName'] != null && stats['topWinnerName'] != 'None' && stats['topWinnerName'].toString().trim().isNotEmpty) {
-              leaderboard.add({
-                'name': stats['topWinnerName'],
-                'avatar': stats['topWinnerAvatar'] ?? '',
-                'amount': stats['topWinnerAmount'] ?? 0,
-                'totalBets': stats['topWinnerAmount'] ?? 0,
-              });
-            }
-            if (stats['lastWinnerName'] != null && stats['lastWinnerName'] != 'None' && stats['lastWinnerName'].toString().trim().isNotEmpty) {
-              leaderboard.add({
-                'name': stats['lastWinnerName'],
-                'avatar': stats['lastWinnerAvatar'] ?? '',
-                'amount': stats['lastWinnerAmount'] ?? 0,
-                'totalBets': stats['lastWinnerAmount'] ?? 0,
-              });
-            }
-          }
-
-          // Fallback champions so rankings list always displays correctly
-          if (leaderboard.isEmpty) {
-            leaderboard.addAll([
-              {'name': 'Top Winner', 'avatar': '', 'amount': 100000, 'totalBets': 50000},
-              {'name': 'Lucky Player', 'avatar': '', 'amount': 50000, 'totalBets': 25000},
-              {'name': 'Diamond Spinner', 'avatar': '', 'amount': 20000, 'totalBets': 10000},
-            ]);
-          }
-
-          leaderboard.sort((a, b) {
-            final aVal = (a['amount'] as num?)?.toInt() ?? (a['totalWinnings'] as num?)?.toInt() ?? (a['totalBets'] as num?)?.toInt() ?? 0;
-            final bVal = (b['amount'] as num?)?.toInt() ?? (b['totalWinnings'] as num?)?.toInt() ?? (b['totalBets'] as num?)?.toInt() ?? 0;
-            return bVal.compareTo(aVal);
-          });
+          final leaderboard = _getRealtimeLeaderboard(
+            serverLeaderboard: dailyList,
+            stats: stats,
+          );
           
           return Container(
             padding: const EdgeInsets.all(24),
@@ -3128,39 +5096,9 @@ final now = DateTime.now().millisecondsSinceEpoch;
     );
   }
 
-  String _getFoodEmoji(String name) {
-    switch (name.toLowerCase().trim()) {
-      case 'carrot': return '🥕';
-      case 'corn': return '🌽';
-      case 'cabbage': return '🥬';
-      case 'tomato': return '🍅';
-      case 'hotdog': return '🌭';
-      case 'kebab': return '🍢';
-      case 'chicken': return '🍗';
-      case 'steak': return '🥩';
-      case 'salad': return '🥗';
-      case 'skewer': return '🍢';
-      case 'meat': return '🥩';
-      case 'pizza': return '🍕';
-      default: return '🎰';
-    }
-  }
+  String _getFoodEmoji(String name) => getSpinWheelFoodEmoji(name);
 
-  String _getFoodNameFromEmoji(String emoji) {
-    switch (emoji) {
-      case '🥕': return 'CARROT';
-      case '🌽': return 'CORN';
-      case '🥬': return 'CABBAGE';
-      case '🍅': return 'TOMATO';
-      case '🌭': return 'HOTDOG';
-      case '🍢': return 'KEBAB';
-      case '🍗': return 'CHICKEN';
-      case '🥩': return 'STEAK';
-      case '🥗': return 'SALAD';
-      case '🍕': return 'PIZZA';
-      default: return '';
-    }
-  }
+  String _getFoodNameFromEmoji(String emoji) => getSpinWheelFoodNameFromEmoji(emoji);
 
   String _formatNumber(int number) {
     if (number >= 1000000000) {
@@ -3194,6 +5132,8 @@ final now = DateTime.now().millisecondsSinceEpoch;
     DateTime dt;
     if (timestamp is Timestamp) {
       dt = timestamp.toDate();
+    } else if (timestamp is DateTime) {
+      dt = timestamp;
     } else if (timestamp is int) {
       dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
     } else {
@@ -3222,8 +5162,257 @@ final now = DateTime.now().millisecondsSinceEpoch;
     return ((startOfRoundEpochMs - startOfDayUtc.millisecondsSinceEpoch) ~/ roundDuration) + 1;
   }
 
+  List<Map<String, dynamic>> _getRealtimeMergedHistory(List<dynamic> remoteHistory) {
+    final Map<String, Map<String, dynamic>> merged = {};
+
+    // 1. Add all remote history items safely with outcome verification
+    for (final item in remoteHistory) {
+      if (item is Map) {
+        final rId = item['roundId']?.toString();
+        final map = Map<String, dynamic>.from(item);
+        final rPrize = (map['prize'] as num?)?.toInt() ?? (map['amount'] as num?)?.toInt() ?? 0;
+        final rBets = map['bets'] is Map ? map['bets'] as Map : {};
+        final rFood = map['winningFood']?.toString() ?? map['name']?.toString() ?? '';
+        final rSettled = map['settled'] == true;
+
+        // IMMUTABILITY: once the server has committed a settled row, its prize IS the
+        // record. Recomputing it here is what let a settled round display a different
+        // Win Coins on every re-fetch. Only pre-settlement rows may be derived locally.
+        if (rSettled) {
+          map['prize'] = rPrize;
+          map['amount'] = rPrize;
+        } else if (rBets.isNotEmpty && rFood.isNotEmpty) {
+          final multVal = int.tryParse((map['multiplier'] ?? map['label'] ?? '5').toString().replaceAll('x', '')) ?? 5;
+          final calculated = calculateSpinWheelPrize(
+            bets: positiveSpinBets(rBets),
+            winningName: rFood,
+            multiplier: multVal,
+            roundType: map['resultType']?.toString(),
+          );
+          map['prize'] = calculated;
+          map['amount'] = calculated;
+        }
+
+        if (rId != null && rId.isNotEmpty) {
+          merged[rId] = map;
+        } else {
+          final uniqueKey = item['docId']?.toString() ?? item['orderId']?.toString() ?? 'doc_${item.hashCode}';
+          merged[uniqueKey] = map;
+        }
+      }
+    }
+
+    // 2. Merge all persistent session rounds so rounds played in this session NEVER disappear on rollover
+    for (final entry in _sessionRoundsHistory.entries) {
+      final rId = entry.key;
+      final sessionItem = entry.value;
+      final existing = merged[rId];
+
+      if (existing != null) {
+        merged[rId] = mergeHistoryRow(
+          remoteRow: existing,
+          sessionItem: sessionItem,
+        );
+      } else {
+        final rNum = int.tryParse(rId) ?? 0;
+        final isPast = rNum > 0 && rNum < (_synchronizedTimeMs ~/ 40000);
+        merged[rId] = {
+          ...sessionItem,
+          if (isPast) 'settled': true,
+        };
+      }
+    }
+
+    // 3. Merge the round that just settled / finished (at the exact moment results are known, if not already captured)
+    final settledRoundId = _storedRoundId.isNotEmpty
+        ? _storedRoundId
+        : _lastRoundResultForHistory?['roundId']?.toString();
+
+    if (settledRoundId != null && settledRoundId.isNotEmpty) {
+      final existing = merged[settledRoundId];
+      final effectiveBets = (existing != null && existing['bets'] is Map && (existing['bets'] as Map).isNotEmpty)
+          ? existing['bets'] as Map
+          : (_storedBets != null && _storedBets!.isNotEmpty
+              ? Map<String, dynamic>.from(_storedBets!)
+              : ((_confirmedRoundId == settledRoundId && _confirmedBets.isNotEmpty)
+                  ? Map<String, dynamic>.from(_confirmedBets)
+                  : (_currentBets.isNotEmpty ? Map<String, dynamic>.from(_currentBets) : <String, dynamic>{})));
+
+      final effectiveTotalBet = _storedWager > 0
+          ? _storedWager
+          : (existing?['totalBet'] as num?)?.toInt() ??
+              effectiveBets.values.fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
+
+      if (effectiveBets.isNotEmpty || effectiveTotalBet > 0) {
+        // AUTHORITATIVE: when the remote record is ALREADY settled, the animation outcome
+        // (_storedWinItem) must NOT override the server's committed winner. The animation
+        // may have been driven by a distinct/older outcome body; the server's settled row
+        // is the permanent truth.
+        final existingSettledName = (existing != null && existing['settled'] == true)
+            ? (existing['winningFood']?.toString().isNotEmpty == true
+                ? existing['winningFood'].toString()
+                : (existing['name']?.toString() ?? ''))
+            : '';
+        final winName = existingSettledName.isNotEmpty
+            ? existingSettledName
+            : (_storedWinItem?.name ??
+                _lastRoundResultForHistory?['name']?.toString() ??
+                existing?['winningFood']?.toString() ??
+                existing?['name']?.toString() ??
+                '');
+        final winEmoji = existingSettledName.isNotEmpty && existing?['emoji']?.toString().isNotEmpty == true
+            ? existing!['emoji'].toString()
+            : (_storedWinItem?.emoji ??
+                _lastRoundResultForHistory?['emoji']?.toString() ??
+                existing?['emoji']?.toString() ??
+                '🎰');
+        final winMult = existingSettledName.isNotEmpty && existing?['label']?.toString().isNotEmpty == true
+            ? existing!['label'].toString()
+            : (_storedWinItem != null
+                ? '${_storedWinItem!.multiplier}x'
+                : (_lastRoundResultForHistory?['label']?.toString() ??
+                    existing?['multiplier']?.toString() ??
+                    existing?['label']?.toString() ??
+                    '5x'));
+        final int prize = (existing?['settled'] == true)
+            ? ((existing?['prize'] as num?)?.toInt() ?? (existing?['amount'] as num?)?.toInt() ?? 0)
+            : (_sessionRoundsHistory[settledRoundId]?['settled'] == true
+                ? ((_sessionRoundsHistory[settledRoundId]?['prize'] as num?)?.toInt() ?? 0)
+                : _storedPrize);
+
+        merged[settledRoundId] = {
+          ...?existing,
+          'roundId': settledRoundId,
+          'bets': effectiveBets,
+          'totalBet': effectiveTotalBet,
+          'prize': prize,
+          'amount': prize,
+          'winningFood': winName,
+          'name': winName,
+          'emoji': winEmoji,
+          'label': winMult,
+          'multiplier': winMult,
+          'settled': true,
+          'timestamp': existing?['timestamp'] ?? DateTime.now(),
+          'createdAt': existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+    }
+
+    // 4. Merge the current active round if user placed bets in it
+    final activeRoundId = _currentRoundId;
+    final currentSyncRound = (_synchronizedTimeMs ~/ 40000).toString();
+    final activeBets = (_confirmedRoundId == activeRoundId && _confirmedBets.isNotEmpty)
+        ? _confirmedBets
+        : _currentBets;
+    if (activeRoundId != null &&
+        activeRoundId.isNotEmpty &&
+        activeRoundId == currentSyncRound &&
+        activeBets.isNotEmpty &&
+        activeRoundId != settledRoundId) {
+      final existing = merged[activeRoundId];
+      final totalWager = activeBets.values.fold<int>(0, (sum, val) => sum + val);
+
+      if (existing == null || existing['settled'] != true) {
+        merged[activeRoundId] = {
+          ...?existing,
+          'roundId': activeRoundId,
+          'bets': Map<String, int>.from(activeBets),
+          'totalBet': totalWager,
+          'prize': 0,
+          'amount': 0,
+          'winningFood': '',
+          'name': '',
+          'emoji': '🎰',
+          'label': '',
+          'multiplier': '',
+          'settled': false,
+          'timestamp': existing?['timestamp'] ?? DateTime.now(),
+          'createdAt': existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+        };
+      }
+    }
+
+    // 4b. Authoritative winner overlay:
+    // Only overlay outcomes onto completed/settled rounds missing their winner.
+    // In-play / active betting rounds MUST NEVER have premature outcomes attached.
+    // Already-settled server rows are immutable records and must never be overwritten.
+    final _outcomes = _authoritativeRoundOutcomes();
+    for (final key in merged.keys.toList()) {
+      final row = merged[key]!;
+
+      // 1. In-play or unsettled rounds must NEVER leak premature outcome or win fields
+      final isRowUnsettled = (row['settled'] != true) || (key == activeRoundId);
+      if (isRowUnsettled) {
+        row['winningFood'] = '';
+        row['name'] = '';
+        row['emoji'] = '🎰';
+        row['label'] = '';
+        row['multiplier'] = '';
+        row['prize'] = 0;
+        row['amount'] = 0;
+        continue;
+      }
+
+      // 2. Authoritative settled rows with existing winningFood must NOT be overwritten
+      if (row['settled'] == true &&
+          ((row['winningFood']?.toString().isNotEmpty == true) || (row['name']?.toString().isNotEmpty == true))) {
+        continue;
+      }
+
+      final outcome = _outcomes[key];
+      if (outcome == null) continue;
+      final oName = outcome['name']?.toString() ?? '';
+      if (oName.isEmpty) continue;
+      row['winningFood'] = oName;
+      row['name'] = oName;
+      final oEmoji = outcome['emoji']?.toString() ?? '';
+      if (oEmoji.isNotEmpty) row['emoji'] = oEmoji;
+      final oLabel = outcome['label']?.toString() ?? '';
+      if (oLabel.isNotEmpty) row['label'] = oLabel;
+      final oMult = outcome['multiplier']?.toString() ?? '';
+      if (oMult.isNotEmpty) row['multiplier'] = oMult;
+      final oCat = outcome['category']?.toString() ?? '';
+      if (oCat.isNotEmpty) row['resultType'] = oCat;
+    }
+
+    // 5. Sort descending: highest roundId first, then newest timestamp / createdAt
+    final list = merged.values.toList()
+      ..sort((a, b) {
+        final rA = int.tryParse(a['roundId']?.toString() ?? '') ?? 0;
+        final rB = int.tryParse(b['roundId']?.toString() ?? '') ?? 0;
+        if (rA > 0 && rB > 0 && rA != rB) return rB.compareTo(rA);
+
+        final tA = a['timestamp'];
+        final tB = b['timestamp'];
+        if (tA is Timestamp && tB is Timestamp) {
+          final cmp = tB.compareTo(tA);
+          if (cmp != 0) return cmp;
+        }
+        if (tA is DateTime && tB is DateTime) {
+          final cmp = tB.compareTo(tA);
+          if (cmp != 0) return cmp;
+        }
+
+        final cA = (a['createdAt'] as num?)?.toInt() ?? 0;
+        final cB = (b['createdAt'] as num?)?.toInt() ?? 0;
+        if (cA != cB) return cB.compareTo(cA);
+
+        final sA = int.tryParse(a['serialNumber']?.toString() ?? '') ?? 0;
+        final sB = int.tryParse(b['serialNumber']?.toString() ?? '') ?? 0;
+        return sB.compareTo(sA);
+      });
+
+    // Filter out spectator rounds where user placed NO bets so My Bets strictly displays actual bets
+    return list.where((item) {
+      final bets = item['bets'] is Map ? item['bets'] as Map : {};
+      final wager = (item['totalBet'] as num?)?.toInt() ?? 
+          (bets.isNotEmpty ? bets.values.fold<int>(0, (s, v) => s + ((v as num?)?.toInt() ?? 0)) : 0);
+      return wager > 0 || bets.isNotEmpty;
+    }).toList();
+  }
+
   void _showGameHistorySheet() {
-    ref.invalidate(userGameHistoryProvider);
     int activeTab = 0;
     showModalBottomSheet(
       context: context,
@@ -3315,39 +5504,48 @@ final now = DateTime.now().millisecondsSinceEpoch;
                     
                     Flexible(
                       child: activeTab == 0
-                          ? Consumer(
-                              builder: (context, ref, child) {
-                                final historyAsync = ref.watch(userGameHistoryProvider);
-                                return historyAsync.when(
-                                  data: (history) {
-                                    if (history.isEmpty) {
+                          ? ValueListenableBuilder<int>(
+                              valueListenable: _historyUpdateNotifier,
+                              builder: (context, _, __) {
+                                return Consumer(
+                                  builder: (context, ref, child) {
+                                    final historyAsync = ref.watch(userGameHistoryProvider);
+                                    final rawHistory = historyAsync.value ?? [];
+                                    final mergedHistory = _getRealtimeMergedHistory(rawHistory);
+
+                                    if (mergedHistory.isEmpty && historyAsync.isLoading) {
+                                      return const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.symmetric(vertical: 40),
+                                          child: CircularProgressIndicator(color: Colors.amber),
+                                        ),
+                                      );
+                                    }
+
+                                    if (mergedHistory.isEmpty) {
                                       return _buildHistoryEmptyState();
                                     }
+
                                     return ListView.builder(
                                       shrinkWrap: true,
-                                      itemCount: history.length + 1,
+                                      itemCount: mergedHistory.length + 1,
                                       itemBuilder: (context, index) {
                                         if (index == 0) {
-                                          return _buildHistorySummaryHeader(history);
+                                          return _buildHistorySummaryHeader(mergedHistory);
                                         }
                                         final recordIndex = index - 1;
-                                        final h = history[recordIndex];
-                                        return _buildMyBetCard(context, h, recordIndex, history.length);
+                                        final h = mergedHistory[recordIndex];
+                                        // Key by the stable record id. Without a Key the
+                                        // builder reuses elements by position, so prepending a
+                                        // new round re-renders old rows under new data.
+                                        final rowKey = h['orderId'] ?? h['docId'] ?? h['roundId'] ?? recordIndex;
+                                        return KeyedSubtree(
+                                          key: ValueKey(rowKey),
+                                          child: _buildMyBetCard(context, h, recordIndex, mergedHistory.length),
+                                        );
                                       },
                                     );
                                   },
-                                  loading: () => const Center(
-                                    child: Padding(
-                                      padding: EdgeInsets.symmetric(vertical: 40),
-                                      child: CircularProgressIndicator(color: Colors.amber),
-                                    ),
-                                  ),
-                                  error: (err, _) => Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(vertical: 40),
-                                      child: Text("Error loading records: $err", style: const TextStyle(color: Colors.white70)),
-                                    ),
-                                  ),
                                 );
                               },
                             )
@@ -3382,8 +5580,14 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
   Widget _buildHistorySummaryHeader(List<Map<String, dynamic>> history) {
     final totalRounds = history.length;
-    final totalWins = history.where((h) => ((h['prize'] as num?)?.toInt() ?? 0) > 0).length;
-    final totalWonCoins = history.fold(0, (sum, h) => sum + ((h['prize'] as num?)?.toInt() ?? 0));
+    final totalWins = history.where((h) {
+      final prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
+      return prize > 0;
+    }).length;
+    final totalWonCoins = history.fold(0, (sum, h) {
+      final prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
+      return sum + prize;
+    });
     final winRate = totalRounds > 0 ? ((totalWins / totalRounds) * 100).toStringAsFixed(0) : "0";
 
     return Container(
@@ -3466,25 +5670,80 @@ final now = DateTime.now().millisecondsSinceEpoch;
 
   Widget _buildMyBetCard(BuildContext context, Map<String, dynamic> h, int index, int totalCount) {
     final betsMap = Map<String, dynamic>.from(h['bets'] ?? {});
-    final prize = (h['prize'] as num?)?.toInt() ?? 0;
+    int prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
     final totalWager = (h['totalBet'] as num?)?.toInt() ?? betsMap.values.fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
-    final isWin = prize > 0;
-    final serialNo = h['serialNumber'] ?? (totalCount - index);
     final relativeRound = _getRelativeRoundNumber(h['roundId']);
-    final isCurrentRound = h['roundId']?.toString() == _currentRoundId && _gameState != SpinGameState.results;
+    final serialNo = h['serialNumber'] ?? relativeRound;
+    final roundNum = int.tryParse(h['roundId']?.toString() ?? '') ?? 0;
+    final currentSyncRound = _synchronizedTimeMs ~/ 40000;
+    final isPastRound = roundNum > 0 && roundNum < currentSyncRound;
+    final isCurrentRound = (h['roundId']?.toString() == _currentRoundId) || (!isPastRound && roundNum == currentSyncRound);
+    final bool isRowSettled = h['settled'] == true ||
+        (isPastRound && (h['status'] == 'ROUND_SETTLED' || h['status'] == 'SETTLED' || (h['prize'] as num? ?? 0) > 0));
+    final bool isPendingInPlay = !isRowSettled || (isCurrentRound && _gameState != SpinGameState.results);
 
-    final winningEmoji = h['emoji']?.toString() ?? _getFoodEmoji(h['label']?.toString() ?? h['resultType']?.toString() ?? '');
-    final rawName = h['winningFood']?.toString() ?? h['name']?.toString() ?? '';
-    final rawLabel = h['label']?.toString() ?? '';
-    final foodName = rawName.isNotEmpty
-        ? rawName.toUpperCase()
-        : ((rawLabel.isNotEmpty && !rawLabel.contains('x'))
-            ? rawLabel.toUpperCase()
-            : _getFoodNameFromEmoji(winningEmoji));
-    final mult = h['multiplier'] ?? (rawLabel.contains('x') ? rawLabel : '5x');
+    final String foodName;
+    final String winningEmoji;
+    final String cleanMult;
+    final bool isWin;
+    final bool isPendingCard;
+    final Color stampColor;
+    final String stampText;
 
-    final stampColor = isWin ? const Color(0xFF10B981) : const Color(0xFFF43F5E);
-    final stampText = isWin ? "WIN" : "LOSE";
+    if (isPendingInPlay) {
+      prize = 0;
+      isWin = false;
+      isPendingCard = true;
+      foodName = "PENDING";
+      winningEmoji = "🎰";
+      cleanMult = "";
+      stampColor = const Color(0xFFF59E0B);
+      stampText = "PENDING";
+    } else {
+      isPendingCard = false;
+      final rawName = h['winningFood']?.toString() ?? h['name']?.toString() ?? '';
+      final rawLabel = h['label']?.toString() ?? '';
+
+      // Authoritative Win Evaluation: For settled rows or rows with server prize present,
+      // display h['prize'] as-is; do NOT recompute.
+      final bool hasServerPrize = h['prize'] != null || h['amount'] != null;
+      final effectiveWinnerName = rawName.isNotEmpty ? rawName : rawLabel;
+      final multVal = int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? '') ?? resolveFoodMultiplier(effectiveWinnerName);
+      prize = resolveCardDisplayPrize(
+        isSettled: isRowSettled,
+        hasServerPrize: hasServerPrize,
+        existingPrize: prize,
+        betsMap: betsMap,
+        winningFood: effectiveWinnerName,
+        multiplier: multVal,
+        roundType: h['resultType']?.toString(),
+      );
+
+      // CRITICAL: Deduce winning food and icon from winning bet when prize > 0
+      final resolvedFood = deduceWinningFoodFromWinningBet(
+        betsMap: betsMap,
+        prize: prize,
+        existingFood: rawName.isNotEmpty ? rawName : rawLabel,
+        roundType: h['resultType']?.toString(),
+      );
+
+      foodName = resolvedFood.isNotEmpty
+          ? resolvedFood.toUpperCase()
+          : (rawName.isNotEmpty
+              ? rawName.toUpperCase()
+              : ((rawLabel.isNotEmpty && !rawLabel.contains('x'))
+                  ? rawLabel.toUpperCase()
+                  : _getFoodNameFromEmoji(h['emoji']?.toString() ?? '')));
+
+      winningEmoji = _getFoodEmoji(foodName);
+
+      final mult = resolveFoodMultiplier(foodName, int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? ''));
+      cleanMult = mult.toString();
+
+      isWin = prize > 0;
+      stampColor = isWin ? const Color(0xFF10B981) : const Color(0xFFF43F5E);
+      stampText = isWin ? "WIN" : "LOSE";
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -3562,7 +5821,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
                     children: [
                       // S/N Badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                         decoration: BoxDecoration(
                           color: const Color(0xFF8B5CF6).withOpacity(0.25),
                           borderRadius: BorderRadius.circular(6),
@@ -3570,14 +5829,14 @@ final now = DateTime.now().millisecondsSinceEpoch;
                         ),
                         child: Text(
                           "S/N: #$serialNo",
-                          style: const TextStyle(color: Color(0xFFDDD6FE), fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: Color(0xFFDDD6FE), fontSize: 10.5, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
 
                       // Round Badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF59E0B).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
@@ -3585,20 +5844,25 @@ final now = DateTime.now().millisecondsSinceEpoch;
                         ),
                         child: Text(
                           "Round #$relativeRound",
-                          style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 11, fontWeight: FontWeight.bold),
+                          style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 10.5, fontWeight: FontWeight.bold),
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 6),
 
-                      // Timestamp
-                      Text(
-                        _formatTimestamp(h['timestamp']),
-                        style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      // Timestamp wrapped in Expanded to prevent any right overflow on narrow displays
+                      Expanded(
+                        child: Text(
+                          _formatTimestamp(h['timestamp']),
+                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                          textAlign: TextAlign.right,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 6),
 
                       // Win/Lose Pill
-                      if (isCurrentRound)
+                      if (isPendingInPlay)
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
@@ -3674,8 +5938,20 @@ final now = DateTime.now().millisecondsSinceEpoch;
                     children: betsMap.entries.map((entry) {
                       final itemEmoji = _getFoodEmoji(entry.key);
                       final itemName = entry.key.toString().toUpperCase();
-                      final isMatch = isWin && (entry.key.toString().toLowerCase().trim() == foodName.toLowerCase().trim() ||
-                          entry.key.toString().toLowerCase().trim() == (h['resultType'] ?? '').toString().toLowerCase().trim());
+                      final normEntryKey = normalizeFoodKey(entry.key.toString());
+                      final normFoodName = normalizeFoodKey(foodName);
+                      final isAliasMatch = normEntryKey == normFoodName ||
+                          (normEntryKey == 'burger' && normFoodName == 'hotdog') ||
+                          (normEntryKey == 'hotdog' && normFoodName == 'burger') ||
+                          (normEntryKey == 'kebab' && normFoodName == 'skewer') ||
+                          (normEntryKey == 'skewer' && normFoodName == 'kebab') ||
+                          (normEntryKey == 'steak' && normFoodName == 'meat') ||
+                          (normEntryKey == 'meat' && normFoodName == 'steak') ||
+                          (normEntryKey == 'cabbage' && (normFoodName == 'leaf' || normFoodName == 'veg'));
+                      final isMatch = !isPendingInPlay && isWin && (
+                          isAliasMatch ||
+                          entry.key.toString().toLowerCase().trim() == (h['resultType'] ?? '').toString().toLowerCase().trim()
+                      );
 
                       return Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -3751,24 +6027,26 @@ final now = DateTime.now().millisecondsSinceEpoch;
                                 const SizedBox(width: 6),
                                 Flexible(
                                   child: Text(
-                                    foodName.isNotEmpty ? foodName : 'PENDING',
+                                    foodName.isNotEmpty ? foodName : "SETTLED",
                                     style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                const SizedBox(width: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF59E0B).withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.6), width: 0.8),
+                                if (!isPendingInPlay && cleanMult.isNotEmpty) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF59E0B).withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.6), width: 0.8),
+                                    ),
+                                    child: Text(
+                                      "${cleanMult}x",
+                                      style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 10, fontWeight: FontWeight.w900),
+                                    ),
                                   ),
-                                  child: Text(
-                                    "${mult}x",
-                                    style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 10, fontWeight: FontWeight.w900),
-                                  ),
-                                ),
+                                ],
                               ],
                             ),
                           ],
@@ -3787,9 +6065,9 @@ final now = DateTime.now().millisecondsSinceEpoch;
                               const PremiumDiamond(size: 14),
                               const SizedBox(width: 4),
                               Text(
-                                isWin ? "+${_formatCommas(prize)}" : "0",
+                                (!isPendingInPlay && isWin) ? "+${_formatCommas(prize)}" : "0",
                                 style: TextStyle(
-                                  color: isWin ? const Color(0xFFFBBF24) : Colors.white60,
+                                  color: (!isPendingInPlay && isWin) ? const Color(0xFFFBBF24) : Colors.white60,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -3801,31 +6079,39 @@ final now = DateTime.now().millisecondsSinceEpoch;
                     ],
                   ),
 
-                  // 4. Coin Balance Row
-                  if (h['balanceBefore'] != null && h['balanceAfter'] != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.account_balance_wallet_outlined, size: 12, color: Colors.white54),
-                          const SizedBox(width: 6),
-                          const Text("Balance: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
-                          Expanded(
-                            child: Text(
-                              "${_formatCommas(h['balanceBefore'])} → ${_formatCommas(h['balanceAfter'])}",
-                              style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
-                              overflow: TextOverflow.ellipsis,
-                            ),
+                  // 4. Coin Balance Row: Final Balance = Starting Balance - Total Stake + Gross Winnings
+                  if (h['balanceBefore'] != null) ...[
+                    Builder(
+                      builder: (context) {
+                        final startBal = (h['balanceBefore'] as num).toInt();
+                        final calculatedFinalBal = isRowSettled
+                            ? math.max(0, startBal - totalWager + prize)
+                            : math.max(0, startBal - totalWager);
+                        return Container(
+                          margin: const EdgeInsets.only(top: 10),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.25),
+                            borderRadius: BorderRadius.circular(8),
                           ),
-                          const SizedBox(width: 4),
-                          const PremiumDiamond(size: 11),
-                        ],
-                      ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.account_balance_wallet_outlined, size: 12, color: Colors.white54),
+                              const SizedBox(width: 6),
+                              const Text("Balance: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                              Expanded(
+                                child: Text(
+                                  "${_formatCommas(startBal)} → ${_formatCommas(calculatedFinalBal)}",
+                                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const PremiumDiamond(size: 11),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ],
 
@@ -3883,23 +6169,31 @@ final now = DateTime.now().millisecondsSinceEpoch;
     );
   }
 
+  /// Single authoritative map of roundId -> winning outcome, shared by BOTH
+  /// the "All Rounds" tab and the "My Bets" tab. Server `recentResults` is the
+  /// source of truth and overrides the client-side realtime cache, so every
+  /// round shows an identical winner/emoji/label/multiplier in both sections.
+  Map<String, Map<String, dynamic>> _authoritativeRoundOutcomes() {
+    final Map<String, Map<String, dynamic>> merged = {};
+    for (final item in _realtimeRecentResults) {
+      final rId = item['roundId']?.toString();
+      if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+    }
+    final stats = ref.read(luckySpinStatsProvider).value;
+    final serverRecents = stats?['recentResults'] as List? ?? [];
+    for (final item in serverRecents) {
+      if (item is Map) {
+        final rId = item['roundId']?.toString();
+        if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+      }
+    }
+    return merged;
+  }
+
   Widget _buildAllRoundsList() {
     return Consumer(
       builder: (context, ref, child) {
-        final stats = ref.watch(luckySpinStatsProvider).value;
-        final serverRecents = stats?['recentResults'] as List? ?? [];
-        
-        final Map<String, Map<String, dynamic>> merged = {};
-        for (final item in _realtimeRecentResults) {
-          final rId = item['roundId']?.toString();
-          if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
-        }
-        for (final item in serverRecents) {
-          if (item is Map) {
-            final rId = item['roundId']?.toString();
-            if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
-          }
-        }
+        final merged = _authoritativeRoundOutcomes();
 
         final sortedRounds = merged.values.toList()
           ..sort((a, b) {
@@ -3979,7 +6273,7 @@ final now = DateTime.now().millisecondsSinceEpoch;
     );
   }
 
-  Widget _buildBalanceBox(IconData? icon, Color iconColor, String label, String value, bool hasArrow, double scale, {double? borderRadius, Widget? customIcon}) {
+  Widget _buildBalanceBox(IconData? icon, Color iconColor, String label, String value, bool hasArrow, double scale, {double? borderRadius, Widget? customIcon, Widget? valueContent}) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
       decoration: BoxDecoration(
@@ -3998,11 +6292,12 @@ final now = DateTime.now().millisecondsSinceEpoch;
               if (customIcon == null && icon != null) Icon(icon, color: iconColor, size: 12 * scale),
               SizedBox(width: 4 * scale),
               Flexible(
-                child: Text(
-                  value,
-                  style: TextStyle(color: Colors.black, fontSize: 10 * scale, fontWeight: FontWeight.w900),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                child: valueContent ??
+                    Text(
+                      value,
+                      style: TextStyle(color: Colors.black, fontSize: 10 * scale, fontWeight: FontWeight.w900),
+                      overflow: TextOverflow.ellipsis,
+                    ),
               ),
               if (hasArrow) Icon(Icons.chevron_right, color: Colors.black54, size: 12 * scale),
             ],
@@ -4027,60 +6322,204 @@ final now = DateTime.now().millisecondsSinceEpoch;
   }
 }
 
-int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmentsMap) {
-  if (outcome == null || segmentsMap.isEmpty) return 0;
+class _AnimatedBalance extends StatefulWidget {
+  final int value;
+  final double scale;
+  const _AnimatedBalance({required this.value, required this.scale});
 
-  final outcomeName = (outcome['name'] as String? ?? '').toLowerCase().trim();
-  final outcomeType = (outcome['type'] as String? ?? '').toLowerCase().trim();
+  @override
+  State<_AnimatedBalance> createState() => _AnimatedBalanceState();
+}
+
+class _AnimatedBalanceState extends State<_AnimatedBalance> {
+  late Color _flashColor;
+  Timer? _flashTimer;
+  late int _previousValue;
+
+  @override
+  void initState() {
+    super.initState();
+    _flashColor = Colors.black;
+    _previousValue = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(_AnimatedBalance oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _previousValue = oldWidget.value;
+      _flashColor = widget.value > oldWidget.value
+          ? const Color(0xFF16A34A)
+          : const Color(0xFFDC2626);
+      _flashTimer?.cancel();
+      _flashTimer = Timer(const Duration(milliseconds: 600), () {
+        if (mounted) {
+          setState(() {
+            _flashColor = Colors.black;
+            _previousValue = widget.value;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _flashTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: _previousValue.toDouble(), end: widget.value.toDouble()),
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeOutCubic,
+      builder: (context, anim, child) {
+        return Text(
+          anim.round().toString(),
+          style: TextStyle(
+            color: _flashColor,
+            fontSize: 10 * widget.scale,
+            fontWeight: FontWeight.w900,
+          ),
+          overflow: TextOverflow.ellipsis,
+        );
+      },
+    );
+  }
+}
+
+int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmentsMap) {
+  if (outcome == null) return 0;
+
+  final Map<String, dynamic> eff = (outcome['outcome'] is Map)
+      ? Map<String, dynamic>.from(outcome['outcome'] as Map)
+      : outcome;
+
+  final effectiveSegments = segmentsMap.isNotEmpty
+      ? segmentsMap
+      : const [
+          {'name': 'Hotdog', 'multiplier': 10, 'category': 'pizza'},
+          {'name': 'Skewer', 'multiplier': 15, 'category': 'pizza'},
+          {'name': 'Chicken', 'multiplier': 25, 'category': 'pizza'},
+          {'name': 'Steak', 'multiplier': 45, 'category': 'pizza'},
+          {'name': 'Carrot', 'multiplier': 5, 'category': 'salad'},
+          {'name': 'Corn', 'multiplier': 5, 'category': 'salad'},
+          {'name': 'Cabbage', 'multiplier': 5, 'category': 'salad'},
+          {'name': 'Tomato', 'multiplier': 5, 'category': 'salad'},
+        ];
+
+  final outcomeName = normalizeFoodKey((eff['name'] as String? ?? '').toLowerCase().trim());
 
   // 1. Direct match on segment name
   if (outcomeName.isNotEmpty) {
-    final idx = segmentsMap.indexWhere((s) {
-      final sName = s['name']?.toString().toLowerCase().trim() ?? '';
+    final idx = effectiveSegments.indexWhere((s) {
+      final sName = normalizeFoodKey(s['name']?.toString() ?? '');
       return sName == outcomeName;
     });
     if (idx != -1) return idx;
-
-    // Common synonyms/aliases
-    if (outcomeName == 'skewer' || outcomeName == 'kebab') {
-      final skewerIdx = segmentsMap.indexWhere((s) {
-        final n = s['name']?.toString().toLowerCase().trim() ?? '';
-        return n == 'skewer' || n == 'kebab';
-      });
-      if (skewerIdx != -1) return skewerIdx;
-    }
-    if (outcomeName == 'steak' || outcomeName == 'meat') {
-      final steakIdx = segmentsMap.indexWhere((s) {
-        final n = s['name']?.toString().toLowerCase().trim() ?? '';
-        return n == 'steak' || n == 'meat';
-      });
-      if (steakIdx != -1) return steakIdx;
-    }
-
-    // Special category outcomes: "Salad" or "Pizza"
-    if (outcomeName == 'salad' || outcomeType == 'salad') {
-      final vegIdx = segmentsMap.indexWhere((s) {
-        final n = s['name']?.toString().toLowerCase().trim() ?? '';
-        return n == 'tomato' || n == 'carrot' || n == 'corn' || n == 'cabbage';
-      });
-      if (vegIdx != -1) return vegIdx;
-    }
-    if (outcomeName == 'pizza' || outcomeType == 'pizza') {
-      final meatIdx = segmentsMap.indexWhere((s) {
-        final n = s['name']?.toString().toLowerCase().trim() ?? '';
-        return n == 'steak' || n == 'chicken' || n == 'hotdog' || n == 'skewer';
-      });
-      if (meatIdx != -1) return meatIdx;
-    }
   }
 
-  // 2. Fallback to sectorIndex from outcome, clamped within segments length
-  final rawSector = (outcome['sectorIndex'] as num?)?.toInt();
+  // 2. Direct sectorIndex from outcome, clamped within segments length
+  final rawSector = (eff['sectorIndex'] as num?)?.toInt();
   if (rawSector != null && rawSector >= 0) {
-    return rawSector % segmentsMap.length;
+    return rawSector % effectiveSegments.length;
+  }
+
+  // 3. Category match fallback (e.g. outcome is 'pizza' or 'salad' celebration)
+  final cat = (eff['type'] as String? ?? eff['category'] as String? ?? (outcomeName == 'pizza' || outcomeName == 'salad' ? outcomeName : '')).toLowerCase().trim();
+  if (cat.isNotEmpty) {
+    final catIdx = effectiveSegments.indexWhere((s) {
+      final sCat = (s['category']?.toString() ?? '').toLowerCase().trim();
+      return sCat == cat;
+    });
+    if (catIdx != -1) return catIdx;
   }
 
   return 0;
+}
+
+String normalizeFoodKey(String raw) {
+  var s = raw.toLowerCase().trim();
+  // Strip '5x', '10x', '15x', '25x', '45x' or any '\d+x'
+  s = s.replaceAll(RegExp(r'\b\d+x\b', caseSensitive: false), '').trim();
+  s = s.replaceAll(RegExp(r'\d+x', caseSensitive: false), '').trim();
+  // Strip common emojis
+  s = s.replaceAll(RegExp(r'[\u{1F300}-\u{1F9FF}]', unicode: true), '').trim();
+  s = s.trim();
+  // Canonical food alias mappings
+  if (s == 'skewer' || s == 'kebab') return 'kebab';
+  if (s == 'steak' || s == 'meat') return 'steak';
+  if (s == 'cabbage' || s == 'veg' || s == 'leaf') return 'cabbage';
+  if (s == 'burger') return 'burger';
+  if (s == 'hotdog') return 'hotdog';
+  if (s == 'tomato') return 'tomato';
+  if (s == 'corn') return 'corn';
+  if (s == 'carrot') return 'carrot';
+  if (s == 'chicken') return 'chicken';
+  if (s == 'salad') return 'salad';
+  if (s == 'pizza') return 'pizza';
+  return s;
+}
+
+int resolveFoodMultiplier(String foodName, [int? fallbackMult]) {
+  final norm = normalizeFoodKey(foodName);
+  switch (norm) {
+    case 'tomato':
+    case 'carrot':
+    case 'corn':
+    case 'cabbage':
+      return 5;
+    case 'hotdog':
+    case 'burger':
+      return 10;
+    case 'kebab':
+      return 15;
+    case 'chicken':
+      return 25;
+    case 'steak':
+      return 45;
+    case 'salad':
+      return 5;
+    case 'pizza':
+      return 45;
+    default:
+      return (fallbackMult != null && fallbackMult > 0) ? fallbackMult : 5;
+  }
+}
+
+String getSpinWheelFoodEmoji(String name) {
+  final norm = name.toLowerCase().trim();
+  if (norm.contains('burger')) return '🍔';
+  if (norm.contains('hotdog')) return '🌭';
+  if (norm.contains('carrot')) return '🥕';
+  if (norm.contains('corn')) return '🌽';
+  if (norm.contains('cabbage') || norm.contains('leaf') || norm.contains('veg')) return '🥬';
+  if (norm.contains('tomato')) return '🍅';
+  if (norm.contains('kebab') || norm.contains('skewer')) return '🍢';
+  if (norm.contains('chicken')) return '🍗';
+  if (norm.contains('steak') || norm.contains('meat')) return '🥩';
+  if (norm.contains('salad')) return '🥗';
+  if (norm.contains('pizza')) return '🍕';
+  return '🎰';
+}
+
+String getSpinWheelFoodNameFromEmoji(String emoji) {
+  switch (emoji) {
+    case '🥕': return 'CARROT';
+    case '🌽': return 'CORN';
+    case '🥬': return 'CABBAGE';
+    case '🍅': return 'TOMATO';
+    case '🍔': return 'BURGER';
+    case '🌭': return 'HOTDOG';
+    case '🍢': return 'KEBAB';
+    case '🍗': return 'CHICKEN';
+    case '🥩': return 'STEAK';
+    case '🥗': return 'SALAD';
+    case '🍕': return 'PIZZA';
+    default: return '';
+  }
 }
 
 int calculateSpinWheelPrize({
@@ -4092,78 +6531,65 @@ int calculateSpinWheelPrize({
 }) {
   if (bets.isEmpty) return 0;
 
-  int totalPrize = 0;
   final normalizedBets = <String, int>{};
   bets.forEach((key, val) {
-    if (key.isNotEmpty && val > 0) {
-      normalizedBets[key.toLowerCase().trim()] = val;
+    final normKey = normalizeFoodKey(key);
+    if (normKey.isNotEmpty && val > 0) {
+      normalizedBets[normKey] = (normalizedBets[normKey] ?? 0) + val;
     }
   });
 
-  final winnerName = winningName.toLowerCase().trim();
-  final winnerCat = (winningCategory ?? '').toLowerCase().trim();
-  final rType = (roundType ?? 'standard').toLowerCase().trim();
-  final winnerLabel = '${multiplier}x';
+  final normWinner = normalizeFoodKey(winningName);
+  if (normWinner.isEmpty) return 0;
 
-  final paidKeys = <String>{};
+  final effRoundType = (roundType ?? winningCategory ?? '').toLowerCase().trim();
 
-  const saladItems = ['tomato', 'cabbage', 'corn', 'carrot', 'salad'];
-  const pizzaItems = ['pizza', 'steak'];
+  // Special celebration round handling (e.g. roundType == 'salad' or 'pizza')
+  if (effRoundType == 'salad' || normWinner == 'salad') {
+    const saladItems = ['tomato', 'cabbage', 'corn', 'carrot'];
+    int prize = 0;
+    for (final item in saladItems) {
+      final bet = normalizedBets[item] ?? 0;
+      if (bet > 0) prize += bet * (multiplier > 0 ? multiplier : 5);
+    }
+    final tabBet = normalizedBets['salad'] ?? 0;
+    if (tabBet > 0) prize += tabBet * (multiplier > 0 ? multiplier : 5);
+    return prize;
+  } else if (effRoundType == 'pizza' || normWinner == 'pizza') {
+    const pizzaItems = ['hotdog', 'skewer', 'kebab', 'chicken', 'steak'];
+    int prize = 0;
+    for (final item in pizzaItems) {
+      final bet = normalizedBets[item] ?? 0;
+      if (bet > 0) prize += bet * (multiplier > 0 ? multiplier : 45);
+    }
+    final tabBet = normalizedBets['pizza'] ?? 0;
+    if (tabBet > 0) prize += tabBet * (multiplier > 0 ? multiplier : 45);
+    return prize;
+  }
 
-  final isWinningSaladItem = saladItems.contains(winnerName) || winnerCat == 'salad';
-  final isWinningPizzaItem = pizzaItems.contains(winnerName) || winnerCat == 'pizza';
+  final effectiveMult = (multiplier > 0) ? multiplier : resolveFoodMultiplier(normWinner);
 
-  // 1. Category Payouts
-  if (isWinningSaladItem) {
+  int totalPrize = 0;
+
+  // 1. Direct stake on the winning food item
+  final betOnWinner = normalizedBets[normWinner] ?? 0;
+  if (betOnWinner > 0) {
+    totalPrize += betOnWinner * effectiveMult;
+  }
+
+  // 2. Direct stake on category jackpot tabs (if player explicitly bet on the category tab)
+  const saladItems = ['tomato', 'cabbage', 'corn', 'carrot'];
+  const pizzaItems = ['hotdog', 'skewer', 'kebab', 'chicken', 'steak'];
+
+  if (saladItems.contains(normWinner)) {
     final betOnSalad = normalizedBets['salad'] ?? 0;
-    if (betOnSalad > 0 && !paidKeys.contains('salad')) {
+    if (betOnSalad > 0) {
       totalPrize += betOnSalad * 5;
-      paidKeys.add('salad');
     }
-  }
-
-  if (isWinningPizzaItem) {
+  } else if (pizzaItems.contains(normWinner)) {
     final betOnPizza = normalizedBets['pizza'] ?? 0;
-    if (betOnPizza > 0 && !paidKeys.contains('pizza')) {
+    if (betOnPizza > 0) {
       totalPrize += betOnPizza * 45;
-      paidKeys.add('pizza');
-    }
-  }
-
-  // 2. Special Celebration Round Payouts
-  if (rType == 'salad') {
-    for (final item in ['tomato', 'cabbage', 'corn', 'carrot']) {
-      if (!paidKeys.contains(item)) {
-        final betOnItem = normalizedBets[item] ?? 0;
-        if (betOnItem > 0) {
-          totalPrize += betOnItem * 5;
-          paidKeys.add(item);
-        }
-      }
-    }
-  } else if (rType == 'pizza') {
-    for (final item in ['pizza', 'steak']) {
-      if (!paidKeys.contains(item)) {
-        final betOnItem = normalizedBets[item] ?? 0;
-        if (betOnItem > 0) {
-          totalPrize += betOnItem * 45;
-          paidKeys.add(item);
-        }
-      }
-    }
-  }
-
-  // 3. Exact segment bet
-  if (!paidKeys.contains(winnerName)) {
-    int betOnWinner = normalizedBets[winnerName] ?? normalizedBets[winnerLabel] ?? 0;
-    if (betOnWinner == 0) {
-      if (winnerName == 'kebab') betOnWinner = normalizedBets['skewer'] ?? 0;
-      if (winnerName == 'skewer') betOnWinner = normalizedBets['kebab'] ?? 0;
-      if (winnerName == 'steak') betOnWinner = normalizedBets['meat'] ?? 0;
-    }
-    if (betOnWinner > 0) {
-      totalPrize += betOnWinner * multiplier;
-      paidKeys.add(winnerName);
     }
   }
 
@@ -4203,7 +6629,7 @@ class PodsPainter extends CustomPainter {
     _pulsePaint.strokeWidth = 3 * scale;
 
     for (int i = 0; i < items.length; i++) {
-        final angle = i * (2 * math.pi / 8) - (math.pi / 2);
+        final angle = i * (2 * math.pi / (items.length > 0 ? items.length : 8)) - (math.pi / 2);
         final podCenter = Offset(center.dx + math.cos(angle) * radiusX, center.dy + math.sin(angle) * radiusY);
         
         // 1. Transparent Pod (No Border)
@@ -4279,7 +6705,8 @@ class PodsPainter extends CustomPainter {
 class GlowPointerPainter extends CustomPainter {
   final int? activeIndex;
   final double scale;
-  GlowPointerPainter({required this.activeIndex, this.scale = 1.0});
+  final int segmentCount;
+  GlowPointerPainter({required this.activeIndex, this.scale = 1.0, this.segmentCount = 8});
   @override
   void paint(Canvas canvas, Size size) {
     if (activeIndex == null) return;
@@ -4288,7 +6715,7 @@ class GlowPointerPainter extends CustomPainter {
     final radiusX = 130.0 * scale;
     final radiusY = 148.0 * scale;
     
-    final double lightAngle = (activeIndex! * (2 * math.pi / 8)) - (math.pi / 2);
+    final double lightAngle = (activeIndex! * (2 * math.pi / (segmentCount > 0 ? segmentCount : 8))) - (math.pi / 2);
     final lightPos = Offset(center.dx + math.cos(lightAngle) * radiusX, center.dy + math.sin(lightAngle) * radiusY);
     
     canvas.drawCircle(lightPos, 50 * scale, Paint()..color = const Color(0xFFFFD700).withOpacity(0.4)..maskFilter = MaskFilter.blur(BlurStyle.normal, 15 * scale));
@@ -4365,8 +6792,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
       final msIntoCycle = syncMs % serverRoundMs;
       final activeRoundId = (syncMs ~/ serverRoundMs).toString();
 
-      // Guard: If sheet opens outside the 34s - 38.5s results window, dismiss immediately!
-      if ((widget.roundId != null && widget.roundId != activeRoundId) || msIntoCycle < 34000 || msIntoCycle >= 38500) {
+      // Guard: If sheet opens outside the 32s - 38.5s results window, dismiss immediately!
+      if ((widget.roundId != null && widget.roundId != activeRoundId) || msIntoCycle < 32000 || msIntoCycle >= 38500) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_isDismissingOrDismissed) {
             _safeDismiss();
@@ -4425,7 +6852,7 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
         final curSync = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
         final curMs = curSync % 40000;
         final curRound = (curSync ~/ 40000).toString();
-        if (curMs < 34000 || curMs >= 38200 || (widget.roundId != null && widget.roundId != curRound)) {
+        if (curMs < 32000 || curMs >= 38200 || (widget.roundId != null && widget.roundId != curRound)) {
           _safetyTimer?.cancel();
           debugPrint('[SPIN_WHEEL_EVENT] 🚨 Safety watcher closed result sheet before betting phase');
           _safeDismiss();
@@ -4590,10 +7017,10 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                Flexible(
+                                const Flexible(
                                   child: Text(
-                                    "This round's winnings: ",
-                                    style: const TextStyle(
+                                    "Gross Payout: ",
+                                    style: TextStyle(
                                       color: Colors.white70,
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
@@ -4615,21 +7042,17 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                Flexible(
+                                const Flexible(
                                   child: Text(
-                                    "Your wager this round: ",
-                                    style: const TextStyle(
+                                    "Total Stake: ",
+                                    style: TextStyle(
                                       color: Colors.white70,
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
                                 ),
-                                const Icon(
-                                  Icons.stars,
-                                  color: Colors.amber,
-                                  size: 14,
-                                ),
+                                const PremiumDiamond(size: 14),
                                 const SizedBox(width: 5),
                                 Text(
                                   "${widget.wager}",
@@ -4641,6 +7064,44 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
                                 ),
                               ],
                             ),
+                            if (widget.wager > 0) ...[
+                              const SizedBox(height: 6),
+                              Builder(
+                                builder: (context) {
+                                  final netProfit = widget.winnings - widget.wager;
+                                  final isPositive = netProfit > 0;
+                                  final isNegative = netProfit < 0;
+                                  final netColor = isPositive 
+                                      ? const Color(0xFF4ADE80) 
+                                      : (isNegative ? const Color(0xFFF87171) : Colors.white70);
+                                  final sign = isPositive ? "+" : "";
+                                  return Row(
+                                    children: [
+                                      const Flexible(
+                                        child: Text(
+                                          "Net Profit: ",
+                                          style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                      const PremiumDiamond(size: 14),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        "$sign$netProfit",
+                                        style: TextStyle(
+                                          color: netColor,
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w900,
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ],
                           ],
                         ),
                       ),

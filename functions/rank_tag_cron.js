@@ -25,14 +25,20 @@ async function calculateTopRoomRankTags(periodDays, periodLabel) {
 
     snapshot.forEach(doc => {
       const data = doc.data();
-      const roomId = data.roomId;
+      const rawRoomId = data.roomId;
       const amount = data.amount || 0;
       const ts = data.timestamp || now;
 
-      if (!roomId) return;
-      roomTotals[roomId] = (roomTotals[roomId] || 0) + amount;
-      if (!roomEarliestAchieved[roomId] || ts < roomEarliestAchieved[roomId]) {
-        roomEarliestAchieved[roomId] = ts;
+      if (!rawRoomId) return;
+      let canonicalId = rawRoomId;
+      if (data.ownerUid) {
+        canonicalId = `room_${data.ownerUid}`;
+      } else if (rawRoomId.startsWith('room_')) {
+        canonicalId = rawRoomId;
+      }
+      roomTotals[canonicalId] = (roomTotals[canonicalId] || 0) + amount;
+      if (!roomEarliestAchieved[canonicalId] || ts < roomEarliestAchieved[canonicalId]) {
+        roomEarliestAchieved[canonicalId] = ts;
       }
     });
 
@@ -54,7 +60,7 @@ async function calculateTopRoomRankTags(periodDays, periodLabel) {
 
     const batch = db.batch();
     oldTaggedRooms.forEach(doc => {
-      batch.update(doc.ref, { [tagField]: FieldValue.delete() });
+      batch.update(doc.ref, { [tagField]: admin.firestore.FieldValue.delete() });
     });
 
     // Assign new Top 1-10 tags

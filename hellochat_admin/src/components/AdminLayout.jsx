@@ -29,12 +29,14 @@ import {
   Layers,
   Rocket,
   Sparkles,
+  Activity,
+  Wallet,
 } from 'lucide-react';
 import logo from '../assets/logo.webp';
 
 
 const Sidebar = () => {
-  const { logout, isAdmin, isAgencyOwner, isOwner, isSuperAdmin, isAdminRole, role } = useAdmin();
+  const { logout, isAdmin, isAgencyOwner, isOwner, isSuperAdmin, isAdminRole } = useAdmin();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -46,16 +48,23 @@ const Sidebar = () => {
   let menu = [];
 
   if (isAgencyOwner && !isAdmin && !isSuperAdmin && !isOwner) {
-    menu = [{ name: 'Agency Portal', icon: Building2, path: '/agencies' }];
+    menu = [
+      { name: 'Agency Portal', icon: Building2, path: '/agencies' },
+      { name: 'Host Metrics', icon: Activity, path: '/hosts' },
+      { name: 'Commission Wallet', icon: Wallet, path: '/commission-wallet' },
+    ];
   } else if (isSuperAdmin && !isOwner) {
-    // Super Admin: Branch sandboxed view (no company financial policies, no global settings, no audit logs)
+    // Super Admin: Branch sandboxed view (no company financial policies, no global settings, no audit logs).
+    // No Withdrawal Approvals: commission payout approval is Owner-only in both
+    // firestore.rules (`allow list: if isOwner()`) and reviewCommissionWithdrawal.
+    // Super Admin is strictly EXCLUDED from commission wallet & salary system.
     menu = [
       { name: 'Branch Dashboard', icon: LayoutDashboard, path: '/' },
       { name: 'Branch Hierarchy', icon: Shield, path: '/hierarchy' },
       { name: 'Branch Users', icon: Users, path: '/users' },
       { name: 'Branch Agencies', icon: Building2, path: '/agencies' },
+      { name: 'Host Metrics', icon: Activity, path: '/hosts' },
       { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
-      { name: 'Withdrawal Approvals', icon: ArrowRightLeft, path: '/withdrawals' },
       { name: 'Reports', icon: ShieldAlert, path: '/reports' },
     ];
   } else if (isAdminRole && !isSuperAdmin && !isOwner) {
@@ -64,6 +73,8 @@ const Sidebar = () => {
       { name: 'Admin Dashboard', icon: LayoutDashboard, path: '/' },
       { name: 'My Agencies', icon: Building2, path: '/agencies' },
       { name: 'My Hosts', icon: Users, path: '/users' },
+      { name: 'Host Metrics', icon: Activity, path: '/hosts' },
+      { name: 'Commission Wallet', icon: Wallet, path: '/commission-wallet' },
       { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
       { name: 'Reports', icon: ShieldAlert, path: '/reports' },
     ];
@@ -83,7 +94,9 @@ const Sidebar = () => {
       { name: 'Elite Boutique', icon: ShoppingBag, path: '/boutique' },
       { name: 'Resellers', icon: Store, path: '/resellers' },
       { name: 'Agencies', icon: Building2, path: '/agencies' },
+      { name: 'Host Metrics', icon: Activity, path: '/hosts' },
       { name: 'Families', icon: UsersRound, path: '/families' },
+      { name: 'Commission Wallet', icon: Wallet, path: '/commission-wallet' },
       { name: 'Financials & Policies', icon: Coins, path: '/financials' },
       { name: 'Reports', icon: ShieldAlert, path: '/reports' },
       { name: 'Moments', icon: Image, path: '/moments' },
@@ -158,25 +171,32 @@ const Sidebar = () => {
 };
 
 const TopBar = () => {
-  const { user } = useAdmin();
+  const { user, userData, role } = useAdmin();
   const location = useLocation();
   const pageTitle = location.pathname === '/' ? 'Overview' : location.pathname.substring(1).replace('-', ' ');
+
+  // Phone auth means `email` is always undefined, so the old avatar initial and
+  // handle were blank for every real account, and the greeting was hardcoded
+  // "Super Admin" regardless of tier.
+  const name = userData?.displayName || user?.displayName || user?.phoneNumber || 'Administrator';
+  const initial = (name.replace(/[^A-Za-z0-9]/g, '')[0] || '#').toUpperCase();
+  const roleTitle = (role || 'host').toUpperCase();
 
   return (
     <header className="h-20 border-b border-white/[0.03] bg-[#0A0A0B]/80 backdrop-blur-xl flex items-center justify-between px-10 sticky top-0 z-40">
       <div>
         <h2 className="text-xl font-black text-white capitalize tracking-tight">{pageTitle}</h2>
-        <p className="text-[11px] font-medium text-gray-500">Welcome back, Super Admin</p>
+        <p className="text-[11px] font-medium text-gray-500">Welcome back, {name}</p>
       </div>
 
         <div className="flex items-center gap-6">
         <div className="flex items-center gap-3 bg-[#18181B] border border-white/[0.05] pl-2 pr-5 py-2 rounded-full">
           <div className="w-9 h-9 rounded-full bg-[#B4E0A2] flex items-center justify-center font-black text-[#0C0C0C] text-xs">
-            {user?.email?.substring(0, 1).toUpperCase()}
+            {initial}
           </div>
           <div>
-            <p className="text-xs font-black text-white leading-none">{user?.email?.split('@')[0]}</p>
-            <p className="text-[10px] text-gray-500 font-bold mt-1">Administrator</p>
+            <p className="text-xs font-black text-white leading-none">{name}</p>
+            <p className="text-[10px] text-gray-500 font-bold mt-1">{roleTitle}</p>
           </div>
         </div>
       </div>

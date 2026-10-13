@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/agency_model.dart';
 import '../models/user_model.dart';
@@ -102,20 +103,20 @@ class AgencyService {
     final query = targetQuery.trim();
     if (query.isEmpty) throw Exception("Please enter a valid User ID");
 
+    // `users` is hierarchy-locked; search the public projection instead.
     QuerySnapshot snap;
     final numericId = int.tryParse(query);
     if (numericId != null) {
-      snap = await _db.collection('users').where('helloId', isEqualTo: numericId).limit(1).get();
+      snap = await _db.collection('publicUsers').where('helloId', isEqualTo: numericId).limit(1).get();
     } else {
-      snap = await _db.collection('users').where('username', isEqualTo: query).limit(1).get();
+      snap = await _db.collection('publicUsers').where('username', isEqualTo: query).limit(1).get();
       if (snap.docs.isEmpty) {
-        final doc = await _db.collection('users').doc(query).get();
+        final doc = await _db.collection('publicUsers').doc(query).get();
         if (doc.exists) {
-          final userRef = _db.collection('users').doc(query);
+          await _assignHost(query);
           await _db.collection('agencies').doc(agencyId).update({
             'hostUids': FieldValue.arrayUnion([query]),
           });
-          await userRef.update({'agencyId': agencyId, 'isAgencyOwner': false});
           return;
         }
       }
@@ -124,10 +125,19 @@ class AgencyService {
     if (snap.docs.isEmpty) throw Exception("User not found");
     final targetUid = snap.docs.first.id;
 
+    // `agencyId`/`isAgencyOwner` are PROTECTED_FIELDS: the linkage itself must
+    // be validated server-side (scope + unclaimed-host check), same path the
+    // admin panel uses.
+    await _assignHost(targetUid);
     await _db.collection('agencies').doc(agencyId).update({
       'hostUids': FieldValue.arrayUnion([targetUid]),
     });
-    await _db.collection('users').doc(targetUid).update({'agencyId': agencyId, 'isAgencyOwner': false});
+  }
+
+  Future<void> _assignHost(String targetUid) async {
+    await FirebaseFunctions.instance
+        .httpsCallable('assignHierarchyRole')
+        .call({'targetUid': targetUid, 'newRole': 'host'});
   }
 
   // 8. Set Host Monthly Target

@@ -17,6 +17,7 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
 import '../widgets/gift_panel.dart';
+import 'package:hello_chat/core/models/gift_model.dart';
 import 'mixer_sheet.dart';
 
 class RoomUserOptionsSheet extends ConsumerStatefulWidget {
@@ -25,6 +26,13 @@ class RoomUserOptionsSheet extends ConsumerStatefulWidget {
   final bool isHost;
   final bool isAdmin;
   final bool isModerator;
+  final void Function(
+    GiftModel gift,
+    String targetUid,
+    String targetName,
+    String targetPhotoUrl, {
+    int startCount,
+  })? onQuickSendActivated;
 
   const RoomUserOptionsSheet({
     super.key,
@@ -33,6 +41,7 @@ class RoomUserOptionsSheet extends ConsumerStatefulWidget {
     required this.isHost,
     required this.isAdmin,
     this.isModerator = false,
+    this.onQuickSendActivated,
   });
 
   @override
@@ -45,8 +54,13 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(userProfileProvider(widget.participant.uid));
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    final followingAsync = ref.watch(followingStreamProvider(currentUid ?? ''));
+    String currentUid = '';
+    try {
+      currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    } catch (_) {
+      currentUid = '';
+    }
+    final followingAsync = ref.watch(followingStreamProvider(currentUid));
 
     final fetchedUser = userAsync.valueOrNull;
     final u = fetchedUser ?? UserModel(
@@ -63,7 +77,11 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
       badges: widget.participant.tags,
       helloId: widget.participant.helloId,
       lastActive: widget.participant.lastActive,
-      role: widget.participant.role,
+      // Room roles (owner/host/admin/audience) are room-scoped. Never leak them
+      // into UserModel.role — its isAdmin getter treats 'owner'/'admin' as
+      // PLATFORM roles and would render a false Admin badge while the real
+      // profile is still loading. The Owner/Admin pill comes from roomData.
+      role: 'user',
     );
 
     final isFollowing = followingAsync.value?.contains(u.uid) ?? false;
@@ -108,7 +126,8 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     builder: (context) {
                       final roomData = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
                       final isRoomOwner = roomData?.ownerUid == u.uid;
-                      final isRoomAdmin = (roomData?.admins.contains(u.uid) ?? false) || widget.isAdmin;
+                      // Display "Admin" badge ONLY if target user is explicitly in room.admins and not the room owner
+                      final isRoomAdmin = roomData?.isUserAdmin(u.uid) ?? false;
 
                       return Row(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -194,18 +213,17 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                       context.push(AppRoutes.userProfile, extra: u.uid);
                     },
                     onLongPress: () {
-                      if (u.helloId != null) {
-                        Clipboard.setData(ClipboardData(text: u.helloId.toString()));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text("ID ${u.helloId} copied"), behavior: SnackBarBehavior.floating),
-                        );
-                      }
+                      final idToCopy = u.displayId;
+                      Clipboard.setData(ClipboardData(text: idToCopy));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("ID $idToCopy copied"), behavior: SnackBarBehavior.floating),
+                      );
                     },
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          "ID:${u.helloId ?? '...'}", 
+                          "ID:${u.displayId}", 
                           style: TextStyle(
                             color: subTextColor, 
                             fontSize: 12, 
@@ -269,7 +287,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                           Expanded(
                             flex: 3,
                             child: GestureDetector(
-                              onTap: (currentUid == null || _isFollowingLoading) ? null : () async {
+                              onTap: (currentUid.isEmpty || _isFollowingLoading) ? null : () async {
                                 setState(() => _isFollowingLoading = true);
                                 try {
                                   await ref.read(profileServiceProvider).toggleFollow(currentUid, u.uid);
@@ -304,7 +322,15 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                 context: context,
                                 backgroundColor: Colors.transparent,
                                 isScrollControlled: true,
-                                builder: (context) => GiftPanel(roomId: widget.roomId, targetUid: u.uid),
+                                sheetAnimationStyle: const AnimationStyle(
+                                  duration: Duration.zero,
+                                  reverseDuration: Duration.zero,
+                                ),
+                                builder: (context) => GiftPanel(
+                                  roomId: widget.roomId,
+                                  targetUid: u.uid,
+                                  onQuickSendActivated: widget.onQuickSendActivated,
+                                ),
                               );
                             },
                             child: Container(
@@ -324,7 +350,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                           Expanded(
                             flex: 3,
                             child: GestureDetector(
-                              onTap: currentUid == null ? null : () {
+                              onTap: currentUid.isEmpty ? null : () {
                                   Navigator.pop(context);
                                   final cid = currentUid.compareTo(u.uid) < 0 ? '${currentUid}_${u.uid}' : '${u.uid}_$currentUid';
                                   context.push(AppRoutes.chatDetail, extra: {'chatId': cid, 'otherUid': u.uid});
@@ -383,16 +409,29 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                   ],
 
                   // Admin Control Bar (Optional)
-                  if ((widget.isAdmin || widget.isHost || widget.isModerator) && u.uid != currentUid) ...[
-                    const Gap(16),
-                    const Divider(height: 1, color: Color(0xFFF3F4F6), thickness: 1),
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                          children: [
+                  Builder(
+                    builder: (context) {                      final roomData = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
+                      final viewerUid = currentUid;
+                      final viewerIsOwner = roomData?.ownerUid == viewerUid || widget.isHost;
+                      final viewerIsAdmin = (roomData?.admins.contains(viewerUid) ?? false) || widget.isAdmin;
+                      final viewerIsModerator = (roomData?.moderators.contains(viewerUid) ?? false) || widget.isModerator;
+                      final canManageRoom = (viewerIsOwner || viewerIsAdmin || viewerIsModerator) && u.uid != viewerUid;
+                      final targetIsAdmin = roomData?.isUserAdmin(u.uid) ?? false;
+
+                      if (!canManageRoom) return const SizedBox.shrink();
+
+                      return Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Gap(16),
+                          const Divider(height: 1, color: Color(0xFFF3F4F6), thickness: 1),
+                          Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
                             _buildControlBtn(
                               icon: widget.participant.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
                               label: "Mute",
@@ -424,10 +463,57 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.participant.isSinger ? "Singer role removed." : "Singer role granted.")));
                               }
                             ),
+                            if (viewerIsOwner && u.uid != roomData?.ownerUid) ...[
+                              const Gap(16),
+                              _buildControlBtn(
+                                icon: targetIsAdmin ? Icons.remove_moderator_rounded : Icons.admin_panel_settings_rounded,
+                                label: targetIsAdmin ? "Remove Admin" : "Set Admin",
+                                color: targetIsAdmin ? Colors.redAccent : const Color(0xFF00E5FF),
+                                labelColor: subTextColor,
+                                onTap: () async {
+                                  Navigator.pop(context);
+                                  try {
+                                    if (targetIsAdmin) {
+                                      await ref.read(roomServiceProvider).removeAdmin(widget.roomId, u.uid);
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text("Room Admin removed successfully.")),
+                                        );
+                                      }
+                                    } else {
+                                      final adminCount = roomData?.admins.where((id) => id != roomData.ownerUid).length ?? 0;
+                                      if (adminCount >= 12) {
+                                        if (context.mounted) {
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            const SnackBar(
+                                              content: Text("Maximum limit of 12 Room Admins reached."),
+                                              backgroundColor: Colors.redAccent,
+                                            ),
+                                          );
+                                        }
+                                        return;
+                                      }
+                                      await ref.read(roomServiceProvider).addAdmin(widget.roomId, u.uid);
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text("User assigned as Room Admin successfully.")),
+                                        );
+                                      }
+                                    }
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text("Failed to update Admin: $e"), backgroundColor: Colors.redAccent),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
                             const Gap(16),
                             _buildControlBtn(icon: Icons.headset_mic_rounded, label: "Invite to Call", color: iconColor, labelColor: subTextColor, onTap: () async {
-                              Navigator.pop(context);
-                              await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'invite');
+                                Navigator.pop(context);
+                                await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'invite');
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(content: Text("Audio call invitation sent!"), behavior: SnackBarBehavior.floating),
@@ -488,10 +574,13 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                       ),
                     ),
                   ],
-                  ],
-                ),
-              ),
+                );
+              },
             ),
+          ],
+        ),
+      ),
+    ),
 
             // Floating Centered Avatar (floats halfway over the sheet top edge, matching reference images 2, 4, 7)
             Positioned(

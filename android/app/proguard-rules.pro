@@ -41,6 +41,12 @@
 -keep class com.github.penfeizhou.android.animation.** { *; }
 -dontwarn com.github.penfeizhou.android.animation.**
 
+# ── Tencent VAP (alpha video player) ─────────────────────────────────────────
+-keep class com.tencent.vap.** { *; }
+-dontwarn com.tencent.vap.**
+-keep class com.example.tancent_vap.** { *; }
+-dontwarn com.example.tancent_vap.**
+
 # ── Image loading (cached_network_image / flutter_cache_manager) ──────────────
 -keep class com.bumptech.glide.** { *; }
 -dontwarn com.bumptech.glide.**

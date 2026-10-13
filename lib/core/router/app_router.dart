@@ -59,8 +59,8 @@ import '../../features/leaderboards/presentation/screens/room_gift_leaderboard_s
 import '../../features/profile/presentation/screens/user_contribution_ranking_screen.dart';
 import '../../features/moments/presentation/screens/moment_detail_screen.dart';
 import '../../features/games/presentation/screens/spin_wheel_screen.dart';
-import '../../features/games/presentation/screens/yummy_bingo_screen.dart';
-import '../../features/games/presentation/screens/teen_patti_screen.dart';
+// import '../../features/games/presentation/screens/yummy_bingo_screen.dart';
+// import '../../features/games/presentation/screens/teen_patti_screen.dart';
 import '../../features/rooms/presentation/screens/create_room_screen.dart';
 import '../../features/rooms/presentation/screens/live_room_screen.dart';
 import '../../features/rooms/presentation/screens/active_pk_battle_screen.dart';
@@ -511,8 +511,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.roomSupport,
         builder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>?;
-          return RoomSupportScreen(roomId: extra?['roomId'] as String?);
+          String? roomId;
+          final extra = state.extra;
+          if (extra is Map) {
+            roomId = extra['roomId']?.toString();
+          } else if (extra is String) {
+            roomId = extra;
+          }
+          return RoomSupportScreen(roomId: roomId);
         },
       ),
       GoRoute(
@@ -553,6 +559,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           return GiftEventScreen(eventId: eventId);
         },
       ),
+      /*
       GoRoute(
         path: AppRoutes.yummyBingo,
         builder: (context, state) => YummyBingoScreen(roomId: state.extra as String?),
@@ -561,6 +568,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: AppRoutes.teenPatti,
         builder: (context, state) => TeenPattiScreen(roomId: (state.extra as String?) ?? ''),
       ),
+      */
       GoRoute(
         path: AppRoutes.friendList,
         builder: (context, state) => const FriendListScreen(),

@@ -4,11 +4,47 @@ import '../../../../core/models/user_model.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
-import '../../../../core/models/emoji_reaction.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_reactions_provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import '../../../../core/models/svip_level_model.dart';
+import '../../../../core/widgets/svga_player.dart';
+
+/// Registry of GlobalKeys for occupied seat cells so the gift overlay can
+/// resolve a receiver's on-screen rect (Layer 1 seat-anchored effects).
+///
+/// Keys are scoped `$roomId|$uid`: two rooms can be mounted at once
+/// (minimized-room overlay) and a GlobalKey may only appear once per tree.
+class SeatAnchors {
+  SeatAnchors._();
+
+  static final Map<String, GlobalKey> _keys = {};
+
+  static GlobalKey keyFor(String roomId, String uid) {
+    final id = '$roomId|$uid';
+    // First registration wins the rectFor slot. Later callers (host seat,
+    // minimized-room overlay) get a private key so GlobalKeys never collide.
+    final existing = _keys[id];
+    if (existing != null) {
+      return GlobalKey(debugLabel: 'seat_${id}_${existing.hashCode}');
+    }
+    final key = GlobalKey(debugLabel: 'seat_$id');
+    _keys[id] = key;
+    return key;
+  }
+
+  /// Global rect of the seat cell, or null when the seat isn't laid out
+  /// (empty seat, first frames after mount, recipient offline).
+  static Rect? rectFor(String roomId, String uid) {
+    if (uid.isEmpty) return null;
+    final ctx = _keys['$roomId|$uid']?.currentContext;
+    if (ctx == null) return null;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+}
 
 class SeatGrid extends ConsumerWidget {
   final String roomId;
@@ -135,17 +171,26 @@ class SeatGrid extends ConsumerWidget {
           if (isOccupied) {
             final effectiveProfile = profiles[effectiveParticipant.uid] ??
                 (effectiveParticipant.uid == currentUid ? myProfile : null);
-            return OccupiedSeatWidget(
-              key: ValueKey('occupied_${index}_${effectiveParticipant.uid}_${effectiveParticipant.diamondsReceived}'),
-              participant: effectiveParticipant,
-              index: index,
-              radius: avatarRadius,
-              iconSize: iconSize,
-              fontSize: fontSize,
-              currentUid: currentUid,
-              onSeatTap: onSeatTap,
-              onSeatLongPress: onSeatLongPress,
-              userProfile: effectiveProfile,
+            // In non-YouTube mode the owner also renders in the separate global
+            // host widget (which registers its own anchor). One uid may only
+            // hold one GlobalKey per tree, so the grid cell steps aside.
+            final anchorUid =
+                (!isYoutubeActive && effectiveParticipant.uid == ownerUid) ? null : effectiveParticipant.uid;
+            return KeyedSubtree(
+              key: anchorUid != null ? SeatAnchors.keyFor(roomId, anchorUid) : null,
+              child: OccupiedSeatWidget(
+                key: ValueKey('occupied_${index}_${effectiveParticipant.uid}_${effectiveParticipant.diamondsReceived}'),
+                participant: effectiveParticipant,
+                roomId: roomId,
+                index: index,
+                radius: avatarRadius,
+                iconSize: iconSize,
+                fontSize: fontSize,
+                currentUid: currentUid,
+                onSeatTap: onSeatTap,
+                onSeatLongPress: onSeatLongPress,
+                userProfile: effectiveProfile,
+              ),
             );
           }
 
@@ -171,6 +216,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
   final double iconSize;
   final double fontSize;
   final String? currentUid;
+  final String roomId;
   final Function(int) onSeatTap;
   final Function(int) onSeatLongPress;
   final UserModel? userProfile;
@@ -178,6 +224,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
   const OccupiedSeatWidget({
     super.key,
     required this.participant,
+    required this.roomId,
     required this.index,
     required this.radius,
     required this.iconSize,
@@ -192,6 +239,8 @@ class OccupiedSeatWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final liveUserAsync = ref.watch(userProfileProvider(participant.uid));
     final liveUser = liveUserAsync.valueOrNull ?? userProfile;
+    final roomData = ref.watch(currentRoomStreamProvider(roomId)).value;
+    final isParticipantAdmin = roomData?.isUserAdmin(participant.uid) ?? false;
 
     final user = liveUser ?? UserModel(
       uid: participant.uid,
@@ -276,7 +325,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 5),
-          if (participant.isAdmin || participant.role == 'admin') ...[
+          if (isParticipantAdmin) ...[
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
@@ -303,7 +352,7 @@ class OccupiedSeatWidget extends ConsumerWidget {
                 height: fontSize + 4,
                 child: Center(
                   child: Text(
-                    user?.displayName ?? participant.displayName,
+                    user.displayName.isNotEmpty ? user.displayName : participant.displayName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -338,6 +387,43 @@ class OccupiedSeatWidget extends ConsumerWidget {
               ],
             ),
           ),
+          // ⚡ QUICK SEND COMBO BADGE
+          // Stamped by sendGiftWithCombo on rooms/{roomId}/participants/{uid}.
+          // Mirrors the live xN on the sender's combo bar so the receiver's seat
+          // shows the current streak level.
+          if (participant.comboCount > 1)
+            AnimatedScale(
+              scale: 1.0,
+              duration: const Duration(milliseconds: 220),
+              child: Container(
+                margin: const EdgeInsets.only(top: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFFFD700), Color(0xFFFF6A00)],
+                  ),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(color: const Color(0xFFFF9100).withOpacity(0.5), blurRadius: 6),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.bolt_rounded, color: Colors.black, size: 9),
+                    const SizedBox(width: 1),
+                    Text(
+                      'x${participant.comboCount}',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: fontSize - 1,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     ),
@@ -360,12 +446,43 @@ class SpeakingBorderWidget extends ConsumerWidget {
     final speakingUids = ref.watch(speakingUidsProvider).value ?? [];
     final int agoraUid = user.uid.hashCode & 0xFFFFFFFF;
     final bool isSpeaking = speakingUids.contains(agoraUid);
-    final hasFrame = user.profileFrame.isNotEmpty;
+    final hasFrame = user.profileFrame.isNotEmpty && user.profileFrame.toLowerCase() != 'none';
 
     if (!isSpeaking) return const SizedBox.shrink();
 
-    // Use lightweight native Flutter ripple border for all speaking users to eliminate
-    // multi-speaker raster thread crashes and prevent concurrent 60fps SVGA animation loops.
+    // Check equipped mic wave (aperture decoration)
+    final micWave = user.equippedMicWave;
+    final isExplicitNone = micWave.toLowerCase() == 'none';
+    String? waveAsset;
+    if (!isExplicitNone && micWave.isNotEmpty) {
+      waveAsset = micWave;
+    } else if (!isExplicitNone) {
+      final svip = user.svipLevel ?? 0;
+      if (svip > 0) {
+        waveAsset = SVIPLevelModel.getLevelByTier(svip).micWaveAsset;
+      } else if (user.isVipActive) {
+        waveAsset = getVipMicWavesPath(user.vipTier);
+      }
+    }
+
+    if (waveAsset != null && waveAsset.isNotEmpty) {
+      final double waveSize = hasFrame ? radius * 5.2 : radius * 3.2;
+      return RepaintBoundary(
+        child: SizedBox(
+          width: waveSize,
+          height: waveSize,
+          child: IgnorePointer(
+            child: SvgaPlayer(
+              key: ValueKey('mic_wave_${user.uid}_$waveAsset'),
+              assetPath: waveAsset,
+              fit: BoxFit.contain,
+              loop: true,
+            ),
+          ),
+        ),
+      );
+    }
+
     final borderChild = _buildDefaultSpeakingBorder(radius, hasFrame);
 
     return RepaintBoundary(child: borderChild);

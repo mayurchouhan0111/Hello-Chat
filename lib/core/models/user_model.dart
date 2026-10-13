@@ -712,7 +712,12 @@ this.verificationStatus = 'unverified',
     return UserModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});
   }
 
-  String get displayId => helloId != null 
-    ? helloId.toString().padLeft(10, '0') 
-    : "Pending...";
+  String get displayId {
+    if (prettyId.isNotEmpty && prettyId.toLowerCase() != 'none') {
+      return prettyId;
+    }
+    return helloId != null 
+      ? helloId.toString().padLeft(10, '0') 
+      : "Pending...";
+  }
 }

@@ -140,7 +140,7 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
   Widget _buildReferredFriendsSection(String uid) {
     return StreamBuilder<dynamic>(
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('publicUsers')
           .where('referredBy', isEqualTo: uid)
           .snapshots(),
       builder: (context, snapshot) {

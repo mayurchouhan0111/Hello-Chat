@@ -14,6 +14,8 @@ import 'package:gap/gap.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../services/gift_service.dart';
+import 'gift_combo_overlay.dart';
 
 class ChatWidget extends ConsumerStatefulWidget {
   final List<RoomMessage> messages;
@@ -33,6 +35,10 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   final List<RoomMessage> _incomingQueue = [];
   List<RoomMessage> _prevMessages = [];
   Timer? _queueTimer;
+
+  /// Newest arrival per combo stream, used to tell a continuing combo apart
+  /// from a brand new one to the same receiver with the same gift.
+  final Map<String, DateTime> _lastGiftAt = {};
 
   void _startTimerIfNeeded() {
     if (_queueTimer != null && _queueTimer!.isActive) return;
@@ -71,6 +77,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
           _visibleMessages.clear();
           _incomingQueue.clear();
           _prevMessages.clear();
+          _lastGiftAt.clear();
           _listKey = GlobalKey<AnimatedListState>();
         });
       }
@@ -80,36 +87,82 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
     final isFirstRun = _prevMessages.isEmpty;
 
     if (isFirstRun) {
-      // Seed queue with the 3 most recent allowed messages
-      final initialMsgs = currentMessages
-          .where((m) => !blocked.contains(m.uid))
-          .take(3)
-          .toList()
-          .reversed
-          .toList();
-
-      _incomingQueue.addAll(initialMsgs);
+      // Seed queue with the 3 most recent allowed messages.
+      //
+      // Walking oldest-first and folding as we go does two things: it stops a
+      // room opened mid-combo from stacking a row per tap, and it primes
+      // `_lastGiftAt` so the fold rule below has a baseline from the very first
+      // new message instead of starting empty.
+      for (final m in currentMessages.reversed) {
+        if (blocked.contains(m.uid)) continue;
+        // Added straight to the queue so the fold rule can see the row that the
+        // previous message of the same stream just established.
+        if (_foldsIntoLiveComboRow(m)) continue;
+        _incomingQueue.add(m);
+      }
+      if (_incomingQueue.length > 3) {
+        _incomingQueue.removeRange(0, _incomingQueue.length - 3);
+      }
       _prevMessages = List.from(currentMessages);
       return;
     }
 
-    // Identify and filter new messages
-    final newMsgs = currentMessages.where((m) {
-      final isNew = !_prevMessages.any((pm) => pm.msgId == m.msgId);
-      final isNotBlocked = !blocked.contains(m.uid);
-      return isNew && isNotBlocked;
-    }).toList();
+    // Identify and filter new messages.
+    //
+    // Gift messages are additionally folded into the row already on screen for
+    // the same combo stream: `sendGiftWithCombo` writes one document per tap, so
+    // without this a 52-tap combo would queue 52 rows behind the live one.
+    final newMsgs = <RoomMessage>[];
+    for (final m in currentMessages) {
+      if (_prevMessages.any((pm) => pm.msgId == m.msgId)) continue;
+      if (blocked.contains(m.uid)) continue;
+      newMsgs.add(m);
+    }
 
     // Chronological ordering (oldest new message to newest new message)
     final newMsgsSorted = newMsgs.reversed.toList();
 
-    _incomingQueue.addAll(newMsgsSorted);
+    // Fold in arrival order, appending as we go - the same shape as the seed
+    // path above. Two taps of one combo routinely land in a single snapshot, and
+    // `_foldsIntoLiveComboRow` only looks at the visible list and the queue, so a
+    // message has to be queued *before* the next one is judged or every message
+    // in the batch becomes its own row.
+    for (final m in newMsgsSorted) {
+      if (_foldsIntoLiveComboRow(m)) continue;
+      _incomingQueue.add(m);
+    }
+
     _shedAndMergeQueue();
 
     _prevMessages = List.from(currentMessages);
     if (_incomingQueue.isNotEmpty) {
       _startTimerIfNeeded();
     }
+  }
+
+  /// True when this gift message belongs to a combo row that is already on
+  /// screen (or about to be), so it must not become a row of its own.
+  ///
+  /// The row's "xN" is kept moving by [GiftComboController], which the tile
+  /// watches - so folding here loses no information.
+  bool _foldsIntoLiveComboRow(RoomMessage m) {
+    final key = m.giftComboKey;
+    if (key == null) return false;
+
+    final rowIsLive = _visibleMessages.any((v) => v.giftComboKey == key) ||
+        _incomingQueue.any((q) => q.giftComboKey == key);
+
+    final prevAt = _lastGiftAt[key];
+    // Chained against the previous arrival, not the row's first message, so a
+    // combo the user keeps extending past the banner window still folds.
+    final continues =
+        rowIsLive && prevAt != null && m.createdAt.difference(prevAt) <= kComboBannerTimeout;
+
+    if (prevAt == null || m.createdAt.isAfter(prevAt)) {
+      if (_lastGiftAt.length > 300) _lastGiftAt.clear();
+      _lastGiftAt[key] = m.createdAt;
+    }
+    return continues;
   }
 
   void _shedAndMergeQueue() {
@@ -291,7 +344,7 @@ class RoomMessageTile extends ConsumerWidget {
         onTap: () {
           if (msg.uid.isNotEmpty) onUserTap?.call(msg.uid);
         },
-        child: _buildRichGiftMessage(msg),
+        child: _buildRichGiftMessage(msg, ref),
       );
     }
     if (msg.type == 'system') {
@@ -334,7 +387,7 @@ class RoomMessageTile extends ConsumerWidget {
           final allBadges = getBadgesForUser(u);
 
           final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
-          final isRoomAdmin = roomData?.admins.contains(u.uid) ?? false;
+          final isRoomAdmin = roomData?.isUserAdmin(u.uid) ?? false;
 
           final filteredBadges = allBadges.where((b) {
             if (b is UserBadge) {
@@ -351,20 +404,37 @@ class RoomMessageTile extends ConsumerWidget {
             ));
           }
 
-          final level = _getVipLevel(u.vipTier);
-          final String? bubbleAsset = (level >= 1 && level <= 8) 
-              ? (level == 1 ? 'assets/VIP/VIP 1/Chat Bubble.png' : 'assets/VIP/VIP $level/VIP $level/Chat Bubble.png')
-              : null;
+          final String userBubble = u.chatBubble.trim();
+          final bool isExplicitNoneBubble = userBubble.toLowerCase() == 'none';
+          String? bubbleAsset;
+          if (!isExplicitNoneBubble) {
+            if (userBubble.isNotEmpty) {
+              bubbleAsset = userBubble;
+            } else {
+              final level = _getVipLevel(u.vipTier);
+              if (level >= 1 && level <= 8 && u.isVipActive) {
+                bubbleAsset = level == 1 
+                    ? 'assets/VIP/VIP 1/Chat Bubble.png' 
+                    : 'assets/VIP/VIP $level/VIP $level/Chat Bubble.png';
+              }
+            }
+          }
+
+          DecorationImage? bubbleImage;
+          if (bubbleAsset != null && bubbleAsset.isNotEmpty) {
+            final ImageProvider imgProvider = bubbleAsset.startsWith('assets/')
+                ? AssetImage(bubbleAsset)
+                : CachedNetworkImageProvider(bubbleAsset) as ImageProvider;
+            bubbleImage = DecorationImage(image: imgProvider, fit: BoxFit.fill);
+          }
+
           return Align(
             alignment: Alignment.centerLeft,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              decoration: bubbleAsset != null 
+              decoration: bubbleImage != null 
                 ? BoxDecoration(
-                    image: DecorationImage(
-                      image: AssetImage(bubbleAsset),
-                      fit: BoxFit.fill,
-                    ),
+                    image: bubbleImage,
                   )
                 : BoxDecoration(
                     color: Colors.black.withOpacity(0.35),
@@ -420,7 +490,7 @@ class RoomMessageTile extends ConsumerWidget {
                               builder: (context) {
                                 final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
                                 final isRoomOwner = roomData?.ownerUid == u.uid;
-                                final isRoomAdmin = roomData?.admins.contains(u.uid) ?? false;
+                                final isRoomAdmin = roomData?.isUserAdmin(u.uid) ?? false;
 
                                 return Flexible(
                                   child: Row(
@@ -643,15 +713,96 @@ class RoomMessageTile extends ConsumerWidget {
     );
   }
 
-  Widget _buildRichGiftMessage(RoomMessage msg) {
-    String text = msg.text;
+  Widget _buildRichGiftMessage(RoomMessage msg, WidgetRef ref) {
+    String text = msg.text.trim();
     String name = text;
     String multiplier = "1";
-    
+
     int lastXIndex = text.lastIndexOf(" x");
     if (lastXIndex != -1) {
-      name = text.substring(0, lastXIndex);
-      multiplier = text.substring(lastXIndex + 2);
+      name = text.substring(0, lastXIndex).trim();
+      final afterX = text.substring(lastXIndex + 2).trim();
+      // Clean multiplier from combo or lucky annotations
+      final spaceIdx = afterX.indexOf(" ");
+      multiplier = spaceIdx != -1 ? afterX.substring(0, spaceIdx) : afterX;
+    }
+
+    // Ensure format matches "Sent to [Receiver]"
+    if (!name.toLowerCase().startsWith("sent to") && !name.toLowerCase().startsWith("send to")) {
+      String targetName = "";
+      if (msg.targetUid.isNotEmpty) {
+        final targetProfile = ref.watch(cachedUserProfileProvider(msg.targetUid)).value;
+        if (targetProfile != null && targetProfile.displayName.trim().isNotEmpty) {
+          targetName = targetProfile.displayName.trim();
+        }
+      }
+      if (targetName.isNotEmpty) {
+        name = "Sent to $targetName";
+      } else if (name.isNotEmpty) {
+        name = "Sent to $name";
+      } else {
+        name = "Sent gift";
+      }
+    }
+
+    // The row holds the combo's FIRST message, whose text freezes at x1.
+    // Live combo stream gives the animated live count.
+    if (roomId != null) {
+      final combos = ref.watch(giftComboControllerProvider(roomId!));
+      final key = msg.giftComboKey;
+      final count = combos[key]?.count ?? combos.settledCount(key);
+      if (count != null) multiplier = '$count';
+    }
+
+    // Resolve authoritative gift icon image (cover icon, not SVGA/JSON animation file)
+    String? resolvedGiftImageUrl = (msg.imageUrl != null && msg.imageUrl!.trim().isNotEmpty)
+        ? msg.imageUrl!.trim()
+        : null;
+
+    if (resolvedGiftImageUrl == null && msg.giftId != null && msg.giftId!.trim().isNotEmpty) {
+      final giftsList = ref.watch(giftsStreamProvider).value;
+      if (giftsList != null) {
+        for (final g in giftsList) {
+          if (g.giftId == msg.giftId && g.imageUrl.trim().isNotEmpty) {
+            resolvedGiftImageUrl = g.imageUrl.trim();
+            break;
+          }
+        }
+      }
+    }
+
+    // Fallback: check if animationUrl happens to be a static image (png, webp, jpg, gif)
+    if (resolvedGiftImageUrl == null && msg.animationUrl != null && msg.animationUrl!.trim().isNotEmpty) {
+      final lowerAnim = msg.animationUrl!.toLowerCase();
+      if (lowerAnim.contains('.png') || lowerAnim.contains('.jpg') || lowerAnim.contains('.webp') || lowerAnim.contains('.gif')) {
+        resolvedGiftImageUrl = msg.animationUrl!.trim();
+      }
+    }
+
+    Widget giftIconWidget;
+    if (resolvedGiftImageUrl != null && resolvedGiftImageUrl.isNotEmpty) {
+      if (resolvedGiftImageUrl.startsWith('http://') || resolvedGiftImageUrl.startsWith('https://')) {
+        giftIconWidget = CachedNetworkImage(
+          imageUrl: resolvedGiftImageUrl,
+          width: 24,
+          height: 24,
+          fit: BoxFit.contain,
+          placeholder: (_, __) => const SizedBox(width: 24, height: 24),
+          errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+        );
+      } else if (resolvedGiftImageUrl.startsWith('assets/')) {
+        giftIconWidget = Image.asset(
+          resolvedGiftImageUrl,
+          width: 24,
+          height: 24,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+        );
+      } else {
+        giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 20);
+      }
+    } else {
+      giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 20);
     }
 
     return Container(
@@ -660,14 +811,14 @@ class RoomMessageTile extends ConsumerWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            const Color(0xFF7B1FA2).withOpacity(0.5),
-            const Color(0xFFAB47BC).withOpacity(0.25),
+            const Color(0xFF7B1FA2).withOpacity(0.55),
+            const Color(0xFFAB47BC).withOpacity(0.30),
             Colors.transparent,
           ],
-          stops: const [0.0, 0.6, 1.0],
+          stops: const [0.0, 0.65, 1.0],
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.purpleAccent.withOpacity(0.25), width: 0.8),
+        border: Border.all(color: Colors.purpleAccent.withOpacity(0.35), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -677,27 +828,23 @@ class RoomMessageTile extends ConsumerWidget {
           Flexible(
             child: Text(
               name,
-              style: const TextStyle(color: Color(0xFF00E5FF), fontSize: 12, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                color: Color(0xFF00E5FF),
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           const SizedBox(width: 6),
-          if (msg.animationUrl != null && msg.animationUrl!.isNotEmpty)
-            CachedNetworkImage(
-              imageUrl: msg.animationUrl!,
-              width: 22,
-              height: 22,
-              errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 18),
-            )
-          else
-            const Icon(Icons.card_giftcard, color: Colors.amber, size: 18),
-          const SizedBox(width: 3),
+          giftIconWidget,
+          const SizedBox(width: 4),
           Text(
             "x$multiplier",
             style: const TextStyle(
-              color: Colors.yellowAccent,
-              fontSize: 13,
-              fontWeight: FontWeight.bold,
+              color: Color(0xFFFFD700),
+              fontSize: 14,
+              fontWeight: FontWeight.w900,
               fontStyle: FontStyle.italic,
             ),
           ),

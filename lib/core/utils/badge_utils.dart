@@ -28,10 +28,9 @@ List<Widget> getBadgesForUser(UserModel user) {
     icon: Icons.shield_rounded,
   ));
 
-  // 3.5 Room Admin Badge (Cyan)
-  if (user.isAdmin) {
-    badges.add(const UserBadge(label: "Admin", type: BadgeType.admin, icon: Icons.admin_panel_settings_rounded));
-  }
+  // 3.5 Room Admin badge is intentionally NOT derived from platform `user.isAdmin`.
+  //     A Room Admin badge may only come from room membership (`room.isUserAdmin`),
+  //     rendered by the room surfaces themselves (chat bubbles, seat labels, profile sheet).
 
   if (user.vipTier != 'none') {
     String? customBadge;
@@ -70,8 +69,8 @@ List<Widget> getBadgesForUser(UserModel user) {
     ));
   }
 
-  // 4.5 Room / System Admin Badge
-  if (user.role == 'admin' || user.tags.contains('admin')) {
+  // 4.5 Platform / System Admin Badge (never a Room Admin badge)
+  if (user.isAdmin) {
     badges.add(const UserBadge(label: "Admin", type: BadgeType.role, icon: Icons.admin_panel_settings_rounded));
   }
 

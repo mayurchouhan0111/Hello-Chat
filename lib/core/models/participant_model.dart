@@ -20,6 +20,8 @@ class Participant {
   final bool isSinger;
   final int diamondsSent;
   final int diamondsReceived;
+  final int comboCount;
+  final String comboSenderUid;
   final int? helloId;
 
   Participant({
@@ -42,6 +44,8 @@ class Participant {
     this.isSinger = false,
     this.diamondsSent = 0,
     this.diamondsReceived = 0,
+    this.comboCount = 0,
+    this.comboSenderUid = '',
     this.helloId,
   });
 
@@ -66,6 +70,8 @@ class Participant {
       'isSinger': isSinger,
       'diamondsSent': diamondsSent,
       'diamondsReceived': diamondsReceived,
+      'comboCount': comboCount,
+      'comboSenderUid': comboSenderUid,
       'helloId': helloId,
     };
   }
@@ -102,6 +108,8 @@ class Participant {
       isSinger: map['isSinger'] == true,
       diamondsSent: (map['diamondsSent'] as num?)?.toInt() ?? 0,
       diamondsReceived: (map['diamondsReceived'] as num?)?.toInt() ?? 0,
+      comboCount: (map['comboCount'] as num?)?.toInt() ?? 0,
+      comboSenderUid: (map['comboSenderUid'] as String?) ?? '',
       helloId: (map['helloId'] as num?)?.toInt(),
     );
   }

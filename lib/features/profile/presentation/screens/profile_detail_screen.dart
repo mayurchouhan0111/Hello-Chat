@@ -26,7 +26,6 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../chats/presentation/screens/private_chat_screen.dart';
 import '../../../../core/services/report_service.dart';
-import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/providers/vip_provider.dart';
 import '../../../../core/providers/chat_provider.dart';
 import '../../../../core/widgets/user_badge.dart';
@@ -202,43 +201,40 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   Widget _buildCoverPhoto(BuildContext context, UserModel userData) {
     return Stack(
       children: [
+        // Clean Profile Photo Display - Zero Outer Frame, Zero Decorative Borders
         Container(
           width: double.infinity,
           height: 260,
           color: const Color(0xFF1E1B4B),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (userData.profilePhotoUrl.isNotEmpty)
-                (userData.profilePhotoUrl.startsWith('assets/')
-                    ? Image.asset(userData.profilePhotoUrl, fit: BoxFit.cover, width: double.infinity, height: double.infinity)
-                    : CachedNetworkImage(
-                        imageUrl: userData.profilePhotoUrl,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        height: double.infinity,
-                        memCacheWidth: 720,
-                        memCacheHeight: 520,
-                        errorWidget: (_, __, ___) => const SizedBox.shrink(),
-                      )),
-              Container(
-                color: Colors.black.withOpacity(0.35),
-                child: Center(
-                  child: AppAvatar(
-                    imageUrl: userData.profilePhotoUrl,
-                    radius: 50,
-                    vipTier: userData.vipTier,
-                    frameUrl: userData.profileFrame,
-                    userLevel: userData.level,
-                    frameMultiplier: 2.0,
-                    staticFrame: false,
-                    maxFps: 24.0,
-                    maxRenderSize: const Size(200, 200),
+          child: userData.profilePhotoUrl.isNotEmpty
+              ? (userData.profilePhotoUrl.startsWith('assets/')
+                  ? Image.asset(
+                      userData.profilePhotoUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                    )
+                  : CachedNetworkImage(
+                      imageUrl: userData.profilePhotoUrl,
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      height: double.infinity,
+                      memCacheWidth: 720,
+                      memCacheHeight: 520,
+                      placeholder: (_, __) => Container(color: const Color(0xFF1E1B4B)),
+                      errorWidget: (_, __, ___) => Container(
+                        color: const Color(0xFF1E1B4B),
+                        child: const Center(
+                          child: Icon(Icons.person, size: 72, color: Colors.white24),
+                        ),
+                      ),
+                    ))
+              : Container(
+                  color: const Color(0xFF1E1B4B),
+                  child: const Center(
+                    child: Icon(Icons.person, size: 72, color: Colors.white24),
                   ),
                 ),
-              ),
-            ],
-          ),
         ),
         // Gradient overlay for readability
         Positioned.fill(

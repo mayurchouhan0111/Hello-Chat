@@ -110,6 +110,8 @@ class _InviteUserTileState extends ConsumerState<_InviteUserTile> {
             style: ElevatedButton.styleFrom(
               backgroundColor: _invited ? Colors.white10 : AppColors.primary,
               foregroundColor: Colors.white,
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               padding: const EdgeInsets.symmetric(horizontal: 16),
             ),

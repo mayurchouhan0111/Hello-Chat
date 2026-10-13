@@ -14,14 +14,15 @@ final searchUsersProvider = StreamProvider<List<UserModel>>((ref) {
   
   Stream<List<UserModel>> idStream;
   if (isNumeric) {
+    // SECURITY: searches read other users; `users` is self/hierarchy only -> publicUsers.
     idStream = FirebaseFirestore.instance
-        .collection('users')
+        .collection('publicUsers')
         .where('helloId', isEqualTo: int.parse(query))
         .snapshots()
         .map((snap) => snap.docs.map((doc) => UserModel.fromFirestore(doc)).toList());
   } else {
     idStream = FirebaseFirestore.instance
-        .collection('users')
+        .collection('publicUsers')
         .doc(query)
         .snapshots()
         .map((doc) => doc.exists ? [UserModel.fromFirestore(doc)] : <UserModel>[]);
@@ -29,7 +30,7 @@ final searchUsersProvider = StreamProvider<List<UserModel>>((ref) {
 
   // 2. Name Search (Prefix)
   final nameStream = FirebaseFirestore.instance
-      .collection('users')
+      .collection('publicUsers')
       .where('displayName_lowercase', isGreaterThanOrEqualTo: query)
       .where('displayName_lowercase', isLessThanOrEqualTo: '$query\uf8ff')
       .limit(20)

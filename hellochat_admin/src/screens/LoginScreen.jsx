@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, Smartphone, Key, ChevronRight, Zap, CheckCircle2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import logo from '../assets/logo.webp';
+import { TIER_RANK, tierOf } from '../lib/tier';
 
 export const LoginScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -46,8 +47,11 @@ export const LoginScreen = () => {
     try {
       const result = await confirmationResult.confirm(otp);
       const userDoc = await getDoc(doc(db, "users", result.user.uid));
-      const tags = userDoc.data()?.tags || [];
-      if (tags.includes("Admin") || tags.includes("SuperAdmin")) {
+      // Same tier derivation as the route guards. The old check only accepted the
+      // 'Admin'/'SuperAdmin' tags, which locked out an Owner identified solely by
+      // tags:['Owner'] and every Agency - the two tiers the panel menu serves.
+      const tier = tierOf(userDoc.data());
+      if (TIER_RANK[tier] >= TIER_RANK.agency) {
         navigate('/');
       } else {
         await auth.signOut();
@@ -115,8 +119,9 @@ export const LoginScreen = () => {
             {!confirmationResult ? (
               <form onSubmit={handleSendOtp} className="space-y-6">
                 <div className="space-y-3">
-                  <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest ml-2">Phone Identifier</label>
+                  <label htmlFor="hc-phone" className="text-[9px] font-black text-slate-600 uppercase tracking-widest ml-2">Phone Identifier</label>
                   <input
+                    id="hc-phone"
                     type="tel"
                     placeholder="+91 0000 0000 00"
                     className="w-full bg-black/40 border border-white/[0.05] rounded-2xl px-6 py-4 text-lg font-bold tracking-tight text-white focus:ring-2 focus:ring-[#B4E0A2] focus:border-transparent outline-none transition-all placeholder:text-zinc-800"
@@ -136,10 +141,11 @@ export const LoginScreen = () => {
               <form onSubmit={handleVerifyOtp} className="space-y-6">
                 <div className="space-y-3">
                   <div className="flex justify-between items-center px-2">
-                    <label className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Entry Key</label>
+                    <label htmlFor="hc-otp" className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Entry Key</label>
                     <button type="button" onClick={() => setConfirmationResult(null)} className="text-[9px] font-black text-[#B4E0A2] uppercase tracking-widest">Reset</button>
                   </div>
                   <input
+                    id="hc-otp"
                     type="text"
                     maxLength="6"
                     placeholder="......"

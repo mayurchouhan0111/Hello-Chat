@@ -1,5 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+/// Single source of truth for selectable room capacities.
+///
+/// Every capacity picker MUST render this list, and RoomService must validate
+/// against it. Four different lists had drifted apart:
+///   * create room screen offered 6/9/12/16 (6 Pod, 9 Stage, 12 Lounge, 16 Arena)
+///   * room settings sheet offered 10/12/16
+///   * RoomService.setRoomCapacity accepted only 8/12/16
+///   * createRoom on the server validates nothing and defaults to 10
+/// So a host who picked "10" in the settings sheet, or who owned a 6/9-seat room,
+/// hit a thrown exception instead of a resize.
+///
+/// This is the union of the create screen's options and the capacities actually
+/// in production, because 10 must stay selectable: 280 of 364 live rooms are
+/// cap-10 (createRoom's server-side default), so dropping it would have blocked
+/// a resize for 77% of hosts.
+const kRoomCapacityOptions = <int>[6, 9, 10, 12, 16];
+
 class RoomModel {
   final String roomId;
   final String createdBy;
@@ -7,6 +24,7 @@ class RoomModel {
   final String name;
   final String theme;
   final String coverUrl;
+  final String backgroundUrl;
   final bool isPrivate;
   final String? passwordHash;
   final int capacity;
@@ -62,6 +80,7 @@ class RoomModel {
     required this.name,
     required this.theme,
     required this.coverUrl,
+    this.backgroundUrl = '',
     required this.isPrivate,
     this.passwordHash,
     required this.capacity,
@@ -111,6 +130,11 @@ class RoomModel {
     this.lastRocketResults,
   });
 
+  List<String> get adminIds => admins;
+  // Single source of truth for "is this uid a designated Room Admin".
+  bool isUserAdmin(String uid) => uid.isNotEmpty && uid != ownerUid && admins.contains(uid);
+  bool isUserOwner(String uid) => uid == ownerUid;
+
   Map<String, dynamic> toMap() {
     return {
       'roomId': roomId,
@@ -119,6 +143,7 @@ class RoomModel {
       'name': name,
       'theme': theme,
       'coverUrl': coverUrl,
+      'backgroundUrl': backgroundUrl,
       'isPrivate': isPrivate,
       'passwordHash': passwordHash,
       'capacity': capacity,
@@ -193,15 +218,19 @@ class RoomModel {
                                   : (map['photoUrl'] as String?)?.trim().isNotEmpty == true
                                       ? map['photoUrl']
                                       : '')?.toString() ?? '',
+      backgroundUrl: map['backgroundUrl']?.toString() ?? map['themeUrl']?.toString() ?? '',
       isPrivate: map['isPrivate'] == true,
       passwordHash: map['passwordHash']?.toString(),
       capacity: (map['capacity'] as num?)?.toInt() ?? 10,
-      currentUsersCount: (map['currentUsersCount'] as num?)?.toInt() ?? 0,
+      // Clamp: leave/join are FieldValue.increment(-1) and can race past zero when a
+      // room is left twice (app restart, overlay minimize, cron reaping), which rendered
+      // "-2 users" on room cards. Never show a negative count.
+      currentUsersCount: ((map['currentUsersCount'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30).toInt(),
       backgroundMusic: map['backgroundMusic'] == true,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       endedAt: (map['endedAt'] as Timestamp?)?.toDate(),
       status: map['status']?.toString() ?? 'active',
-      admins: (map['admins'] as Iterable?)?.map((e) => e.toString()).toList() ?? [],
+      admins: _parseAdminIds(map),
       moderators: (map['moderators'] as Iterable?)?.map((e) => e.toString()).toList() ?? [],
       bannedUids: (map['bannedUids'] as Iterable?)?.map((e) => e.toString()).toList() ?? [],
       banExpiries: map['banExpiries'] != null ? Map<String, dynamic>.from(map['banExpiries']) : null,
@@ -253,4 +282,22 @@ class RoomModel {
     if (!doc.exists) throw Exception("Room not found");
     return RoomModel.fromMap(doc.data() as Map<String, dynamic>? ?? {});
   }
+}
+
+/// Designated room admins live in `admins` (and legacy `admin_ids`/`adminIds`).
+/// Union the keys instead of `admins ?? admin_ids` so an empty `admins: []`
+/// can never shadow a populated legacy list, and drop blank/null entries.
+List<String> _parseAdminIds(Map<String, dynamic> map) {
+  final ids = <String>{};
+  for (final key in ['admins', 'admin_ids', 'adminIds']) {
+    final list = map[key];
+    if (list is Iterable) {
+      for (final e in list) {
+        if (e == null) continue;
+        final s = e.toString();
+        if (s.isNotEmpty) ids.add(s);
+      }
+    }
+  }
+  return ids.toList();
 }

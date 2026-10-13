@@ -9,9 +9,12 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:hello_chat/core/services/wakelock_service.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/models/room_model.dart';
+import '../../../../core/models/room_theme_model.dart';
+import '../../../../core/models/gift_model.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/message_model.dart';
 import '../../../../core/models/user_model.dart';
+import '../../../../core/models/svip_level_model.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/overlay_provider.dart';
@@ -21,6 +24,7 @@ import '../../../../core/router/app_router.dart';
 import '../widgets/seat_grid.dart';
 import '../widgets/chat_widget.dart';
 import '../widgets/gift_panel.dart';
+import '../widgets/quick_send_combo_bar.dart';
 import '../widgets/pk_matching_bottom_sheet.dart';
 import '../widgets/gift_animation_overlay.dart';
 import '../widgets/pk_battle_widget.dart';
@@ -63,6 +67,8 @@ import '../widgets/rocket_winner_popup_overlay.dart';
 import '../widgets/audio_call_invite_dialog.dart';
 import '../../../../providers/wallet_provider.dart';
 import '../../../../core/models/room_banner_model.dart';
+import '../../../../services/room_support_service.dart';
+import '../../../../core/providers/room_support_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class _OverlappingAvatarItem extends ConsumerStatefulWidget {
@@ -149,6 +155,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   final TextEditingController _chatController = TextEditingController();
   bool _isSpeakerOn = true;
   bool _isCameraOn = false;
+
+  // ── Quick Send / Repeat Combo (docked bar, see quick_send_combo_bar.dart) ──
+  // Non-null while a combo is live. The gift picker pops and this bar takes
+  // over, so repeating a send never requires re-opening the picker.
+  GiftModel? _quickSendGift;
+  String _quickSendTargetUid = '';
+  String _quickSendTargetName = '';
+  String _quickSendTargetPhoto = '';
+  int _quickSendStartCount = 1;
   Participant? _entryParticipant;
   Timer? _presenceTimer;
   bool _isLeavingRoom = false;
@@ -211,6 +226,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         isHost: isHost,
         isAdmin: isAdmin,
         isModerator: isModerator,
+        onQuickSendActivated: _onQuickSendActivated,
       ),
     );
   }
@@ -381,6 +397,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             TextButton(
               onPressed: () => Navigator.pop(context, 'cancel'),
               child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'leave'),
+              child: const Text("LEAVE", style: TextStyle(color: Colors.amberAccent)),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -759,13 +779,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     children: [
                       Positioned.fill(
                         child: RepaintBoundary(
-                          child: CachedNetworkImage(
-                            imageUrl: room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/600/1200" : room.coverUrl,
-                            fit: BoxFit.cover,
-                            memCacheWidth: 600,
-                            memCacheHeight: 1200,
-                            errorWidget: (_, __, ___) => Container(color: Colors.black),
-                          ),
+                          child: _buildRoomBackground(room),
                         ),
                       ),
                       Positioned.fill(child: Container(color: Colors.black.withOpacity(0.4))),
@@ -867,13 +881,48 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         ),
                       ),
                       // ═══════════════════════════════════════════════════════════
-                      // LAYER 3: INTERACTIVE ROOM BOTTOM BAR (Chat input, Gift, Mute, PK, YouTube)
+                      // LAYER 3: INTERACTIVE ROOM BOTTOM BAR (Chat input or Morphing Combo Bar)
+                      // When a gift is sent, this bar smoothly transforms into the Combo Bar
+                      // and smoothly returns when the combo finishes, eliminating overlaps.
                       // ═══════════════════════════════════════════════════════════
                       Positioned(
                         bottom: MediaQuery.of(context).padding.bottom + 4,
                         left: 0,
                         right: 0,
-                        child: _buildBottomBar(room),
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 260),
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.2),
+                                  end: Offset.zero,
+                                ).animate(animation),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: _quickSendGift != null
+                              ? KeyedSubtree(
+                                  key: const ValueKey('combo_bottom_bar'),
+                                  child: QuickSendComboBar(
+                                    roomId: widget.roomId,
+                                    gift: _quickSendGift!,
+                                    targetUid: _quickSendTargetUid,
+                                    targetName: _quickSendTargetName,
+                                    targetPhotoUrl: _quickSendTargetPhoto,
+                                    startCount: _quickSendStartCount,
+                                    onDismiss: _dismissQuickSend,
+                                  ),
+                                )
+                              : KeyedSubtree(
+                                  key: const ValueKey('normal_bottom_bar'),
+                                  child: _buildBottomBar(room),
+                                ),
+                        ),
                       ),
 
                       // ═══════════════════════════════════════════════════════════
@@ -885,66 +934,75 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            GestureDetector(
-                              onTap: () {
-                                context.push('/room-support', extra: {'roomId': widget.roomId});
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.55),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: const Color(0xFFFF9D00).withOpacity(0.8),
-                                    width: 1.2,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFFFF6D00).withOpacity(0.35),
-                                      blurRadius: 8,
-                                      spreadRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 28,
-                                      height: 28,
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          colors: [Color(0xFFFFB700), Color(0xFFFF3D00)],
-                                          begin: Alignment.topLeft,
-                                          end: Alignment.bottomRight,
+                            Consumer(
+                              builder: (context, ref, _) {
+                                final cycle = ref.watch(roomSupportCycleProvider(widget.roomId)).valueOrNull;
+                                final totalCoins = (cycle?['totalCoins'] as num?)?.toInt() ?? room.weeklyEarnings;
+                                final lvl = RoomSupportService.calculateLevel(totalCoins);
+                                final badgeText = lvl > 0 ? "LVL $lvl" : "SUPPORT";
+
+                                return GestureDetector(
+                                  onTap: () {
+                                    context.push('/room-support', extra: {'roomId': widget.roomId});
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.55),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(
+                                        color: const Color(0xFFFF9D00).withOpacity(0.8),
+                                        width: 1.2,
+                                      ),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: const Color(0xFFFF6D00).withOpacity(0.35),
+                                          blurRadius: 8,
+                                          spreadRadius: 1,
                                         ),
-                                        shape: BoxShape.circle,
-                                        boxShadow: [
-                                          BoxShadow(
-                                            color: Color(0xFFFF5500),
-                                            blurRadius: 4,
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                          width: 28,
+                                          height: 28,
+                                          decoration: const BoxDecoration(
+                                            gradient: LinearGradient(
+                                              colors: [Color(0xFFFFB700), Color(0xFFFF3D00)],
+                                              begin: Alignment.topLeft,
+                                              end: Alignment.bottomRight,
+                                            ),
+                                            shape: BoxShape.circle,
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Color(0xFFFF5500),
+                                                blurRadius: 4,
+                                              ),
+                                            ],
                                           ),
-                                        ],
-                                      ),
-                                      child: const Icon(Icons.shield_rounded, color: Colors.white, size: 16),
+                                          child: const Icon(Icons.shield_rounded, color: Colors.white, size: 16),
+                                        ),
+                                        const Gap(3),
+                                        Text(
+                                          badgeText,
+                                          style: const TextStyle(
+                                            color: Color(0xFFFFD700),
+                                            fontSize: 7.5,
+                                            fontWeight: FontWeight.w900,
+                                            letterSpacing: 0.6,
+                                            shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const Gap(3),
-                                    const Text(
-                                      "SUPPORT",
-                                      style: TextStyle(
-                                        color: Color(0xFFFFD700),
-                                        fontSize: 7.5,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 0.6,
-                                        shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(
-                                duration: 3.seconds,
-                                color: Colors.amber.withOpacity(0.3),
-                              ),
+                                  ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(
+                                    duration: 3.seconds,
+                                    color: Colors.amber.withOpacity(0.3),
+                                  ),
+                                );
+                              },
                             ),
                             const SizedBox(height: 6),
                             RocketProgressWidget(room: room),
@@ -1017,6 +1075,60 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
+  Widget _buildRoomBackground(RoomModel room) {
+    // Background is driven strictly by Room Theme (or custom backgroundUrl), NEVER coverUrl!
+    if (room.backgroundUrl.isNotEmpty) {
+      if (room.backgroundUrl.startsWith('assets/')) {
+        return Image.asset(
+          room.backgroundUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildFallbackTheme(room.theme),
+        );
+      }
+      return CachedNetworkImage(
+        imageUrl: room.backgroundUrl,
+        fit: BoxFit.cover,
+        errorWidget: (_, __, ___) => _buildFallbackTheme(room.theme),
+      );
+    }
+
+    final theme = RoomThemeCatalog.getTheme(room.theme);
+    if (theme.assetPath != null && theme.assetPath!.isNotEmpty) {
+      return Image.asset(
+        theme.assetPath!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _buildGradientBackground(theme.gradient),
+      );
+    }
+
+    if (theme.imageUrl != null && theme.imageUrl!.isNotEmpty) {
+      return CachedNetworkImage(
+        imageUrl: theme.imageUrl!,
+        fit: BoxFit.cover,
+        errorWidget: (_, __, ___) => _buildGradientBackground(theme.gradient),
+      );
+    }
+
+    return _buildGradientBackground(theme.gradient);
+  }
+
+  Widget _buildGradientBackground(List<Color> gradient) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: gradient,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallbackTheme(String themeId) {
+    final theme = RoomThemeCatalog.getTheme(themeId);
+    return _buildGradientBackground(theme.gradient);
+  }
+
   Widget _buildGlassOverlay({required Widget child, bool isBottom = false}) {
     return ClipRRect(
       child: BackdropFilter(
@@ -1049,8 +1161,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     final ownerDisplayName = (u?.displayName.isNotEmpty == true && u!.displayName != 'Host' && u.displayName != 'Guest')
         ? u.displayName
         : (room.name.isNotEmpty ? room.name : (u?.username.isNotEmpty == true ? u!.username : 'Host'));
-    final rawOwnerId = (u?.displayId ?? u?.helloId ?? room.ownerUid).toString();
-    final ownerIdString = rawOwnerId.length > 8 ? rawOwnerId.substring(0, 8) : rawOwnerId;
+    final explicitId = u?.displayId ?? u?.helloId;
+    final rawOwnerId = (explicitId ?? room.ownerUid).toString();
+    // Public IDs are ~10 chars and must render in full: abbreviating to 8 chars with no
+    // ellipsis let two different hosts display an identical "ID:30196666".
+    // Only the raw Firebase UID fallback is shortened, and always with an ellipsis.
+    final ownerIdString = explicitId != null || rawOwnerId.length <= 8
+        ? rawOwnerId
+        : '${rawOwnerId.substring(0, 8)}…';
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1122,6 +1240,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildRoomAppBar(RoomModel room) {
     final currentUid = ref.watch(authStateProvider).value?.uid;
     final ownerAsync = ref.watch(cachedUserProfileProvider(room.ownerUid));
+    final isOwner = currentUid != null && currentUid == room.ownerUid;
+    final isAdmin = currentUid != null && (room.isUserAdmin(currentUid) || room.admins.contains(currentUid));
+    final canManageSettings = isOwner || isAdmin;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
@@ -1140,11 +1261,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 child: Builder(
                   builder: (context) {
                     final myUid = ref.watch(authStateProvider).value?.uid;
-                    final isAdmin = room.ownerUid == myUid || room.admins.contains(myUid);
-                    final isOwner = room.ownerUid == myUid;
+                    final isUserAdmin = myUid != null && (room.ownerUid == myUid || room.admins.contains(myUid) || room.isUserAdmin(myUid));
+                    final isOwnerUser = myUid != null && room.ownerUid == myUid;
                     
                     return GestureDetector(
-                      onTap: isAdmin ? () => _showRoomSettings(room) : () => _showUserProfile(room.ownerUid),
+                      onTap: isUserAdmin ? () => _showRoomSettings(room) : () => _showUserProfile(room.ownerUid),
                       behavior: HitTestBehavior.opaque,
                       child: Align(
                         alignment: Alignment.centerLeft,
@@ -1166,7 +1287,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                 ),
                               ),
                               // Spark Follow Button (Only for Non-Owners)
-                              if (!isOwner)
+                              if (!isOwnerUser)
                                 GestureDetector(
                                   onTap: () async {
                                     final myUid = ref.read(authStateProvider).value?.uid;
@@ -1214,8 +1335,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _buildCircleActionBtn(Icons.settings_outlined, onTap: () => _showRoomSettings(room)),
-                  const Gap(6),
+                  if (canManageSettings) ...[
+                    _buildCircleActionBtn(Icons.settings_outlined, onTap: () => _showRoomSettings(room)),
+                    const Gap(6),
+                  ],
                   _buildCircleActionBtn(Icons.share_rounded, onTap: () {
                     showModalBottomSheet(
                       context: context,
@@ -1363,6 +1486,11 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   void _showRoomSettings(RoomModel room) {
+    final currentUid = ref.read(authStateProvider).value?.uid;
+    final isOwner = currentUid != null && currentUid == room.ownerUid;
+    final isAdmin = currentUid != null && (room.isUserAdmin(currentUid) || room.admins.contains(currentUid));
+    if (!isOwner && !isAdmin) return;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1878,7 +2006,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             const SizedBox(width: 3),
 
             // Rightmost glowing gift button
-            GestureDetector(
+            Semantics(
+              button: true,
+              label: 'gift-button',
+              child: GestureDetector(
               onTap: _showGiftPanel,
               child: Container(
                 width: 32, height: 32,
@@ -1893,6 +2024,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
               ),
             ),
+            ),
           ],
         ),
       );
@@ -1903,7 +2035,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Icon(icon, color: color, size: 21),
+      child: Semantics(button: true, label: 'room-action', child: Icon(icon, color: color, size: 21)),
     );
   }
 
@@ -1924,7 +2056,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     final userAsync = ref.watch(cachedUserProfileProvider(room.ownerUid));
 
-    return GestureDetector(
+    // Layer 1 seat anchor: gift overlay resolves host seat via SeatAnchors
+    // only from the seat grid. Host widget must NOT claim the same GlobalKey
+    // (double-mount / host+grid collision). Host gifts fall back to overlay center.
+    final hostAnchor = null;
+
+    final hostSeat = GestureDetector(
+      key: hostAnchor,
       onTap: () {
         if (activeHost.uid.isNotEmpty) {
           _showUserOptions(activeHost);
@@ -2100,6 +2238,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         ],
       ),
     );
+
+    return hostAnchor == null
+        ? hostSeat
+        : KeyedSubtree(key: hostAnchor, child: hostSeat);
   }
 
 
@@ -2209,7 +2351,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             ListTile(
               leading: const Icon(Icons.grid_view_rounded, color: Colors.blueAccent),
               title: const Text("Manage Room Capacity", style: TextStyle(color: Colors.white)),
-              subtitle: const Text("Expand to 8, 12, or 16 seats", style: TextStyle(color: Colors.white38, fontSize: 11)),
+              subtitle: Text("Expand to ${kRoomCapacityOptions.join(', ')} seats", style: const TextStyle(color: Colors.white38, fontSize: 11)),
               onTap: () {
                 Navigator.pop(context);
                 _showCapacitySettings();
@@ -2249,7 +2391,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             const Gap(20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [8, 12, 16].map((cap) => GestureDetector(
+              children: kRoomCapacityOptions.map((cap) => GestureDetector(
                 onTap: () async {
                   Navigator.pop(context);
                   await ref.read(roomServiceProvider).setRoomCapacity(widget.roomId, cap);
@@ -2308,8 +2450,39 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         duration: Duration.zero,
         reverseDuration: Duration.zero,
       ),
-      builder: (context) => GiftPanel(roomId: widget.roomId),
+      builder: (context) => GiftPanel(
+        roomId: widget.roomId,
+        onQuickSendActivated: _onQuickSendActivated,
+      ),
     );
+  }
+
+  void _onQuickSendActivated(
+    GiftModel gift,
+    String targetUid,
+    String targetName,
+    String targetPhotoUrl, {
+    int startCount = 1,
+  }) {
+    debugPrint('QC activated: gift=${gift.name} target=$targetUid name=$targetName start=$startCount');
+    setState(() {
+      _quickSendGift = gift;
+      _quickSendTargetUid = targetUid;
+      _quickSendTargetName = targetName;
+      _quickSendTargetPhoto = targetPhotoUrl;
+      _quickSendStartCount = startCount;
+    });
+  }
+
+  void _dismissQuickSend() {
+    if (!mounted) return;
+    setState(() {
+      _quickSendGift = null;
+      _quickSendTargetUid = '';
+      _quickSendTargetName = '';
+      _quickSendTargetPhoto = '';
+      _quickSendStartCount = 1;
+    });
   }
 
   void _onSeatTap(int index, List<Participant> participants, RoomModel room) async {
@@ -3198,7 +3371,42 @@ class _HostRippleWidgetState extends ConsumerState<HostRippleWidget> with Single
 
     if (!isSpeaking) return const SizedBox.shrink();
 
-    final frameMult = widget.user.profileFrame.isNotEmpty ? 2.3 : 1.0;
+    final hasFrame = widget.user.profileFrame.isNotEmpty && widget.user.profileFrame.toLowerCase() != 'none';
+
+    // Check equipped mic wave
+    final micWave = widget.user.equippedMicWave;
+    final isExplicitNone = micWave.toLowerCase() == 'none';
+    String? waveAsset;
+    if (!isExplicitNone && micWave.isNotEmpty) {
+      waveAsset = micWave;
+    } else if (!isExplicitNone) {
+      final svip = widget.user.svipLevel ?? 0;
+      if (svip > 0) {
+        waveAsset = SVIPLevelModel.getLevelByTier(svip).micWaveAsset;
+      } else if (widget.user.isVipActive) {
+        waveAsset = getVipMicWavesPath(widget.user.vipTier);
+      }
+    }
+
+    if (waveAsset != null && waveAsset.isNotEmpty) {
+      final double waveSize = hasFrame ? 28 * 5.2 : 28 * 3.2;
+      return RepaintBoundary(
+        child: SizedBox(
+          width: waveSize,
+          height: waveSize,
+          child: IgnorePointer(
+            child: SvgaPlayer(
+              key: ValueKey('host_wave_${widget.user.uid}_$waveAsset'),
+              assetPath: waveAsset,
+              fit: BoxFit.contain,
+              loop: true,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final frameMult = hasFrame ? 2.3 : 1.0;
     final double baseRippleSize = 28 * 2 * frameMult;
 
     return AnimatedBuilder(

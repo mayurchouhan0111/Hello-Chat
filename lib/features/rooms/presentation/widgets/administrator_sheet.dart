@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/models/room_model.dart';
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../screens/admin_search_screen.dart';
@@ -32,9 +33,14 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
   @override
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.room.roomId));
+    final currentUid = ref.watch(authStateProvider).value?.uid;
+
     return roomAsync.when(
       data: (room) {
         if (room == null) return const SizedBox.shrink();
+        final adminList = room.admins.where((id) => id != room.ownerUid).toList();
+        final isOwner = room.ownerUid == currentUid;
+
         return Container(
           height: MediaQuery.of(context).size.height * 0.7,
           decoration: const BoxDecoration(
@@ -53,7 +59,7 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
                 unselectedLabelColor: Colors.black38,
                 indicatorColor: Colors.lightBlueAccent,
                 tabs: [
-                  Tab(text: "Admins (${room.admins.length}/12)"),
+                  Tab(text: "Admins (${adminList.length}/12)"),
                   Tab(text: "Moderators (${room.moderators.length})"),
                 ],
               ),
@@ -64,7 +70,7 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
                   _tabController.index == 0
                     ? "Full rights: mute, kick, ban, invite, play music"
                     : "Limited: kick only",
-                  style: TextStyle(color: Colors.black54, fontSize: 12),
+                  style: const TextStyle(color: Colors.black54, fontSize: 12),
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -73,34 +79,35 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
                 child: TabBarView(
                   controller: _tabController,
                   children: [
-                    _buildAdminList(room),
+                    _buildAdminList(room, adminList, isOwner),
                     _buildModeratorList(room),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
-                child: InkWell(
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => AdminSearchScreen(room: room, initialRole: _tabController.index == 0 ? 'admin' : 'moderator')));
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.lightBlueAccent, Colors.purpleAccent],
-                        begin: Alignment.centerLeft,
-                        end: Alignment.centerRight,
+              if (isOwner)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 30),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => AdminSearchScreen(room: room, initialRole: _tabController.index == 0 ? 'admin' : 'moderator')));
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Colors.lightBlueAccent, Colors.purpleAccent],
+                          begin: Alignment.centerLeft,
+                          end: Alignment.centerRight,
+                        ),
+                        borderRadius: BorderRadius.circular(24),
                       ),
-                      borderRadius: BorderRadius.circular(24),
+                      alignment: Alignment.center,
+                      child: Text(_tabController.index == 0 ? "Add Admin" : "Add Moderator", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
-                    alignment: Alignment.center,
-                    child: Text(_tabController.index == 0 ? "Add Admin" : "Add Moderator", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                 ),
-              ),
             ],
           ),
         );
@@ -110,12 +117,12 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
     );
   }
 
-  Widget _buildAdminList(RoomModel room) {
-    if (room.admins.isEmpty) return _buildEmptyState(Icons.support_agent, "No administrators");
+  Widget _buildAdminList(RoomModel room, List<String> adminList, bool isOwner) {
+    if (adminList.isEmpty) return _buildEmptyState(Icons.support_agent, "No administrators");
     return ListView.builder(
-      itemCount: room.admins.length,
+      itemCount: adminList.length,
       itemBuilder: (context, index) {
-        final uid = room.admins[index];
+        final uid = adminList[index];
         return Consumer(
           builder: (context, ref, child) {
             final userAsync = ref.watch(userProfileProvider(uid));
@@ -126,14 +133,20 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
                   leading: CircleAvatar(backgroundImage: NetworkImage(user.profilePhotoUrl.isNotEmpty ? user.profilePhotoUrl : 'https://picsum.photos/200')),
                   title: Text(user.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text("ID: ${user.displayId}", style: const TextStyle(fontSize: 12)),
-                  trailing: room.ownerUid == uid
-                    ? const Text("Owner", style: TextStyle(fontSize: 12, color: Colors.black54))
-                    : IconButton(
+                  trailing: isOwner
+                    ? IconButton(
                         icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                        tooltip: "Remove Admin",
                         onPressed: () async {
-                          await ref.read(roomServiceProvider).removeModerator(room.roomId, uid);
+                          await ref.read(roomServiceProvider).removeAdmin(room.roomId, uid);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text("Administrator role revoked"), behavior: SnackBarBehavior.floating),
+                            );
+                          }
                         },
-                      ),
+                      )
+                    : null,
                 );
               },
               loading: () => const ListTile(title: Text("Loading...")),

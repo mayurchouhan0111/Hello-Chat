@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import 'package:hello_chat/core/widgets/app_avatar.dart';
+import 'package:hello_chat/core/utils/room_navigation_helper.dart';
 import 'top_list_podium.dart';
 
 class MonthlyHistoryModal extends ConsumerStatefulWidget {
@@ -25,7 +26,7 @@ class MonthlyHistoryModal extends ConsumerStatefulWidget {
 
 class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
   int _selectedMonthIndex = 0; // 0: Month 1, 1: Month 2, 2: Month 3
-  bool _isSending = true; // true = Contribution (Senders), false = Charm (Receivers)
+  String _listMode = 'senders'; // senders | receivers | rooms
 
   static const List<String> _monthNames = [
     "January", "February", "March", "April", "May", "June",
@@ -223,73 +224,56 @@ class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
     );
   }
 
-  /// Toggle between Contribution (Top Senders) & Charm (Top Receivers)
+  /// Toggle between Contribution (Top Senders), Charm (Top Receivers)
+  /// and Room Ranking (Top Rooms) — all three live in the archived month doc.
   Widget _buildCategoryPills() {
+    const items = [
+      ('senders', '💎', 'Top Senders'),
+      ('receivers', '🫘', 'Top Receivers'),
+      ('rooms', '🎙', 'Top Rooms'),
+    ];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),
       child: Row(
         children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _isSending = true),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: _isSending ? const Color(0xFF2C1A3E) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: _isSending ? const Color(0xFFFFD700) : Colors.white12,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("💎 ", style: TextStyle(fontSize: 12)),
-                    Text(
-                      "Top Senders",
-                      style: TextStyle(
-                        color: _isSending ? const Color(0xFFFFD700) : Colors.white54,
-                        fontWeight: _isSending ? FontWeight.w900 : FontWeight.w600,
-                        fontSize: 12,
-                      ),
+          for (final (i, item) in items.indexed) ...[
+            if (i > 0) const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () => setState(() => _listMode = item.$1),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: _listMode == item.$1 ? const Color(0xFF2C1A3E) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _listMode == item.$1 ? const Color(0xFFFFD700) : Colors.white12,
                     ),
-                  ],
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(item.$2, style: const TextStyle(fontSize: 12)),
+                      const SizedBox(width: 3),
+                      Flexible(
+                        child: Text(
+                          item.$3,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: _listMode == item.$1 ? const Color(0xFFFFD700) : Colors.white54,
+                            fontWeight: _listMode == item.$1 ? FontWeight.w900 : FontWeight.w600,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => setState(() => _isSending = false),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: !_isSending ? const Color(0xFF2C1A3E) : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: !_isSending ? const Color(0xFFFFD700) : Colors.white12,
-                  ),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text("🫘 ", style: TextStyle(fontSize: 12)),
-                    Text(
-                      "Top Receivers",
-                      style: TextStyle(
-                        color: !_isSending ? const Color(0xFFFFD700) : Colors.white54,
-                        fontWeight: !_isSending ? FontWeight.w900 : FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          ],
         ],
       ),
     );
@@ -308,33 +292,47 @@ class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
         }
 
         final docData = snapshot.data?.data();
-        List<dynamic> rawList = [];
-        if (docData != null) {
-          rawList = _isSending
-              ? (docData['topSenders'] as List? ?? [])
-              : (docData['topReceivers'] as List? ?? []);
-        }
 
-        if (rawList.isEmpty) {
-          // Fallback: If snapshot hasn't completed or is current month, query user documents directly
+        // Doc missing = month not archived yet (current month) -> live fallback.
+        // An existing doc (even a placeholder with empty lists) is authoritative.
+        if (docData == null) {
           return _buildFallbackLiveQuery(monthName);
         }
 
         final podiumUsers = <PodiumUserData>[];
-        for (final item in rawList) {
-          if (item is Map) {
-            final score = (item['score'] as num?) ?? 0;
-            if (score <= 0) continue;
-            podiumUsers.add(PodiumUserData(
-              uid: (item['uid'] as String?) ?? '',
-              displayName: (item['displayName'] as String?) ?? 'User',
-              photoUrl: (item['photoUrl'] as String?) ?? '',
-              score: score,
-              countryCode: item['countryCode'] as String?,
-              vipTier: item['vipTier'] as String?,
-              level: (item['level'] as num?)?.toInt(),
-              profileFrame: item['profileFrame'] as String?,
-            ));
+        if (_listMode == 'rooms') {
+          for (final item in (docData['topRooms'] as List? ?? [])) {
+            if (item is Map) {
+              final score = (item['score'] as num?) ?? 0;
+              if (score <= 0) continue;
+              podiumUsers.add(PodiumUserData(
+                uid: (item['roomId'] as String?) ?? '',
+                displayName: (item['name'] as String?) ?? 'Live Room',
+                photoUrl: (item['coverUrl'] as String?) ?? '',
+                score: score,
+                isRoom: true,
+              ));
+            }
+          }
+        } else {
+          final List<dynamic> rawList = _listMode == 'receivers'
+              ? (docData['topReceivers'] as List? ?? [])
+              : (docData['topSenders'] as List? ?? []);
+          for (final item in rawList) {
+            if (item is Map) {
+              final score = (item['score'] as num?) ?? 0;
+              if (score <= 0) continue;
+              podiumUsers.add(PodiumUserData(
+                uid: (item['uid'] as String?) ?? '',
+                displayName: (item['displayName'] as String?) ?? 'User',
+                photoUrl: (item['photoUrl'] as String?) ?? '',
+                score: score,
+                countryCode: item['countryCode'] as String?,
+                vipTier: item['vipTier'] as String?,
+                level: (item['level'] as num?)?.toInt(),
+                profileFrame: item['profileFrame'] as String?,
+              ));
+            }
           }
         }
 
@@ -351,10 +349,47 @@ class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
 
   /// Fallback query if history snapshot doc is pending
   Widget _buildFallbackLiveQuery(String monthName) {
-    final queryField = _isSending ? "monthlyDiamondsSent" : "monthlyBeansReceived";
+    if (_listMode == 'rooms') {
+      return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('rooms')
+            .orderBy('monthlyDiamondsSent', descending: true)
+            .limit(50)
+            .snapshots(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+            return const Center(child: CircularProgressIndicator(color: Color(0xFFFFD700)));
+          }
+
+          final podiumUsers = <PodiumUserData>[];
+          for (final d in snap.data?.docs ?? []) {
+            final data = d.data();
+            final num score = (data['monthlyDiamondsSent'] as num?) ?? 0;
+            if (score <= 0) continue;
+            podiumUsers.add(PodiumUserData(
+              uid: d.id,
+              displayName: (data['name'] as String?) ?? 'Live Room',
+              photoUrl: (data['coverUrl'] as String?) ?? '',
+              score: score,
+              isRoom: true,
+            ));
+          }
+
+          podiumUsers.sort((a, b) => b.score.compareTo(a.score));
+
+          if (podiumUsers.isEmpty) {
+            return _buildEmptyState(monthName);
+          }
+
+          return _buildRankingList(podiumUsers);
+        },
+      );
+    }
+
+    final queryField = _listMode == 'receivers' ? "monthlyBeansReceived" : "monthlyDiamondsSent";
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('publicUsers')
           .orderBy(queryField, descending: true)
           .limit(50)
           .snapshots(),
@@ -402,8 +437,8 @@ class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
         SliverToBoxAdapter(
           child: TopListPodium(
             topUsers: top3,
-            isSendingTab: _isSending,
-            isRoomTab: false,
+            isSendingTab: _listMode != 'receivers',
+            isRoomTab: _listMode == 'rooms',
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 12)),
@@ -418,7 +453,11 @@ class _MonthlyHistoryModalState extends ConsumerState<MonthlyHistoryModal> {
 
                 return InkWell(
                   onTap: () {
-                    context.push(AppRoutes.userProfile, extra: user.uid);
+                    if (user.isRoom) {
+                      RoomNavigationHelper.joinRoom(context, ref, user.uid);
+                    } else {
+                      context.push(AppRoutes.userProfile, extra: user.uid);
+                    }
                   },
                   child: Container(
                     margin: const EdgeInsets.only(bottom: 8),

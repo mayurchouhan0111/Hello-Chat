@@ -4,17 +4,30 @@ import { doc, getDoc, setDoc, collection, query, orderBy, onSnapshot, addDoc, up
 import { RefreshCw, Save, Server, Image, Layers, Plus, Trash2, ToggleLeft, ToggleRight, ExternalLink, Navigation, GripVertical } from 'lucide-react';
 
 const DEFAULT_LEVELS = [
-  { level: 1, coinsTarget: 10000000, partnerSlots: 4, ownerReward: 1000000, partnerReward: 250000, totalReward: 2000000 },
-  { level: 2, coinsTarget: 20000000, partnerSlots: 4, ownerReward: 2000000, partnerReward: 500000, totalReward: 4000000 },
-  { level: 3, coinsTarget: 30000000, partnerSlots: 4, ownerReward: 3000000, partnerReward: 750000, totalReward: 6000000 },
-  { level: 4, coinsTarget: 50000000, partnerSlots: 5, ownerReward: 6000000, partnerReward: 1200000, totalReward: 12000000 },
-  { level: 5, coinsTarget: 100000000, partnerSlots: 6, ownerReward: 11000000, partnerReward: 2000000, totalReward: 23000000 },
-  { level: 6, coinsTarget: 200000000, partnerSlots: 7, ownerReward: 21000000, partnerReward: 3500000, totalReward: 45500000 },
-  { level: 7, coinsTarget: 300000000, partnerSlots: 7, ownerReward: 31000000, partnerReward: 5000000, totalReward: 66000000 },
+  { level: 1, coinsTarget: 100000, partnerSlots: 4, ownerReward: 11250, partnerReward: 1875, totalReward: 18750 },
+  { level: 2, coinsTarget: 300000, partnerSlots: 4, ownerReward: 32850, partnerReward: 4050, totalReward: 49050 },
+  { level: 3, coinsTarget: 500000, partnerSlots: 4, ownerReward: 49700, partnerReward: 5075, totalReward: 70000 },
+  { level: 4, coinsTarget: 1000000, partnerSlots: 5, ownerReward: 96600, partnerReward: 8680, totalReward: 140000 },
+  { level: 5, coinsTarget: 2000000, partnerSlots: 5, ownerReward: 200000, partnerReward: 18000, totalReward: 290000 },
+  { level: 6, coinsTarget: 3500000, partnerSlots: 6, ownerReward: 360000, partnerReward: 30000, totalReward: 540000 },
+  { level: 7, coinsTarget: 5000000, partnerSlots: 6, ownerReward: 525000, partnerReward: 45000, totalReward: 795000 },
+  { level: 8, coinsTarget: 8000000, partnerSlots: 7, ownerReward: 840000, partnerReward: 70000, totalReward: 1330000 },
+  { level: 9, coinsTarget: 12000000, partnerSlots: 7, ownerReward: 1280000, partnerReward: 100000, totalReward: 1980000 },
+  { level: 10, coinsTarget: 18000000, partnerSlots: 8, ownerReward: 1950000, partnerReward: 150000, totalReward: 3150000 },
+  { level: 11, coinsTarget: 25000000, partnerSlots: 8, ownerReward: 2750000, partnerReward: 200000, totalReward: 4350000 },
+  { level: 12, coinsTarget: 35000000, partnerSlots: 9, ownerReward: 3900000, partnerReward: 280000, totalReward: 6420000 },
+  { level: 13, coinsTarget: 50000000, partnerSlots: 9, ownerReward: 5600000, partnerReward: 400000, totalReward: 9200000 },
+  { level: 14, coinsTarget: 75000000, partnerSlots: 10, ownerReward: 8500000, partnerReward: 600000, totalReward: 14500000 },
+  { level: 15, coinsTarget: 100000000, partnerSlots: 10, ownerReward: 11500000, partnerReward: 850000, totalReward: 20000000 },
+  { level: 16, coinsTarget: 150000000, partnerSlots: 11, ownerReward: 17500000, partnerReward: 1250000, totalReward: 31250000 },
+  { level: 17, coinsTarget: 200000000, partnerSlots: 11, ownerReward: 23500000, partnerReward: 1700000, totalReward: 42200000 },
+  { level: 18, coinsTarget: 300000000, partnerSlots: 12, ownerReward: 35500000, partnerReward: 2500000, totalReward: 65500000 },
+  { level: 19, coinsTarget: 450000000, partnerSlots: 12, ownerReward: 54000000, partnerReward: 3800000, totalReward: 99600000 },
+  { level: 20, coinsTarget: 600000000, partnerSlots: 12, ownerReward: 72000000, partnerReward: 5000000, totalReward: 132000000 },
 ];
 
 const TABS = [
-  { id: 'levels', label: 'Levels Config (7 Targets)', icon: Layers },
+  { id: 'levels', label: 'Levels Config (20 Targets)', icon: Layers },
   { id: 'banners', label: 'Room Banners', icon: Image },
 ];
 
@@ -367,19 +380,15 @@ export function RoomSupportManagement() {
       const snap = await getDoc(doc(db, 'room_support_configs', 'settings'));
       if (snap.exists() && snap.data().levels && snap.data().levels.length > 0) {
         const loaded = snap.data().levels;
-        const merged = DEFAULT_LEVELS.map((defLvl, idx) => {
-          return loaded[idx] ? { ...defLvl, ...loaded[idx] } : defLvl;
-        });
-        if (loaded.length > DEFAULT_LEVELS.length) {
-          for (let i = DEFAULT_LEVELS.length; i < loaded.length; i++) {
-            merged.push(loaded[i]);
-          }
-        }
-        setLevels(merged);
+        const sorted = [...loaded].sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0));
+        setLevels(sorted);
       } else {
         setLevels([...DEFAULT_LEVELS]);
       }
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setMessage('❌ Failed to load config: ' + e.message);
+    }
     setLoading(false);
   }
 
@@ -387,9 +396,32 @@ export function RoomSupportManagement() {
     setSaving(true);
     setMessage('');
     try {
-      await setDoc(doc(db, 'room_support_configs', 'settings'), { levels, updatedAt: new Date() }, { merge: true });
-      setMessage('✅ Config saved to Firestore');
-    } catch (e) { setMessage('❌ Error: ' + e.message); }
+      if (!levels || levels.length === 0) {
+        throw new Error('Levels list cannot be empty.');
+      }
+      const sorted = [...levels].sort((a, b) => (Number(a.level) || 0) - (Number(b.level) || 0));
+      let prevTarget = 0;
+      for (let i = 0; i < sorted.length; i++) {
+        const lvl = sorted[i];
+        const levelNum = Number(lvl.level) || (i + 1);
+        const target = Number(lvl.coinsTarget) || 0;
+        if (target <= 0) {
+          throw new Error(`Level ${levelNum} has invalid coins target (${target}). Target must be greater than 0.`);
+        }
+        if (target <= prevTarget) {
+          throw new Error(
+            `Target sequence error: Level ${levelNum} target (${target.toLocaleString()}) must be strictly greater than Level ${sorted[i - 1]?.level || i} target (${prevTarget.toLocaleString()}). Higher levels cannot have lower or equal targets.`
+          );
+        }
+        prevTarget = target;
+      }
+
+      await setDoc(doc(db, 'room_support_configs', 'settings'), { levels: sorted, updatedAt: new Date() }, { merge: true });
+      setLevels(sorted);
+      setMessage('✅ Config saved to Firestore with strictly validated sequential progression');
+    } catch (e) {
+      setMessage('❌ Error: ' + e.message);
+    }
     setSaving(false);
   }
 

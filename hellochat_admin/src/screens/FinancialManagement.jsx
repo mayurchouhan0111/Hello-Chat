@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { auth, db, functions } from '../firebase';
-import { collection, query, getDocs, doc, updateDoc, where, orderBy, limit, addDoc, serverTimestamp, increment } from 'firebase/firestore';
+import { db, functions } from '../firebase';
+import { collection, query, getDocs, where, orderBy, limit } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { 
   Coins, 
@@ -44,10 +44,12 @@ export const FinancialManagement = () => {
 
   useEffect(() => {
     if (isAdmin) {
+      // isOwner can settle a tick after isAdmin; refetch so the Owner-only
+      // withdrawal queue appears once ownership is known.
       fetchFinancialData();
       fetchPolicies();
     }
-  }, [isAdmin]);
+  }, [isAdmin, isOwner]);
 
   const fetchPolicies = async () => {
     try {
@@ -57,6 +59,9 @@ export const FinancialManagement = () => {
         if (res.data.agencyCommissionRate !== undefined) setAgencyRate(res.data.agencyCommissionRate);
         if (res.data.adminCommissionRate !== undefined) setAdminRate(res.data.adminCommissionRate);
         if (res.data.usdToDiamondRate !== undefined) setConversionRate(res.data.usdToDiamondRate);
+        if (Array.isArray(res.data.supportedGateways)) {
+          setGateways(res.data.supportedGateways);
+        }
       }
     } catch (e) {
       console.error("Error fetching financial policies:", e);
@@ -91,10 +96,15 @@ export const FinancialManagement = () => {
       const rSnap = await getDocs(rq);
       setRecharges(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
 
-      // 2. Fetch pending USD commission withdrawals
-      const wq = query(collection(db, "commission_withdrawals"), orderBy("createdAt", "desc"), limit(50));
-      const wSnap = await getDocs(wq);
-      setWithdrawals(wSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      // 2. Fetch USD commission withdrawals - rules only allow Owner (or the
+      // requester) to list these rows, and reviewCommissionWithdrawal is
+      // Owner-only anyway, so non-Owner admins get an empty queue instead of
+      // a permission error that would abort the whole fetch.
+      if (isOwner) {
+        const wq = query(collection(db, "commission_withdrawals"), orderBy("createdAt", "desc"), limit(50));
+        const wSnap = await getDocs(wq);
+        setWithdrawals(wSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }
 
       // 3. Fetch global transactions
       const tq = query(collection(db, "admin_logs"), where("action", "==", "ADJUST_BALANCE"), orderBy("timestamp", "desc"), limit(20));
@@ -109,10 +119,14 @@ export const FinancialManagement = () => {
         rev += data.price || (data.amount / 100); 
       });
 
-      const usersSnap = await getDocs(collection(db, "users"));
+      // SECURITY: an unfiltered getDocs(collection(db,'users')) is denied by
+      // rules for every non-Owner tier. getScopedUsers returns exactly the
+      // rows this caller is allowed to see.
+      const scoped = httpsCallable(functions, 'getScopedUsers');
+      const usersRes = await scoped({ limit: 1000 });
       let circulation = 0;
-      usersSnap.docs.forEach(d => {
-        circulation += (d.data().diamondBalance || 0);
+      (usersRes.data.users || []).forEach(u => {
+        circulation += (u.diamondBalance || 0);
       });
 
       setFinanceStats({
@@ -130,18 +144,25 @@ export const FinancialManagement = () => {
   };
 
   const handleReviewWithdrawal = async (reqId, action) => {
+    // Lifecycle: pending -> processing -> approved -> paid (money moves on
+    // 'pay' / 'reject' only). Confirm each Owner decision explicitly.
+    const confirmTexts = {
+      process: 'Mark this withdrawal as PROCESSING? No funds move yet.',
+      approve: 'APPROVE this withdrawal? Funds still stay locked until you mark it paid.',
+      pay: 'MARK AS PAID? This moves the funds out of the pending balance permanently.',
+      reject: 'REJECT this withdrawal? The locked amount returns to the requester\'s balance.'
+    };
+    if (!window.confirm(confirmTexts[action] || 'Confirm?')) return;
     let notes = '';
     if (action === 'reject') {
       notes = prompt('Enter rejection reason for this withdrawal:');
-      if (!notes) return;
-    } else {
-      if (!window.confirm(`Approve and mark withdrawal request as PAID?`)) return;
+      if (notes === null) return; // cancelled
     }
 
     try {
       const reviewFn = httpsCallable(functions, 'reviewCommissionWithdrawal');
       await reviewFn({ requestId: reqId, action, notes });
-      alert(`Withdrawal successfully ${action}d!`);
+      alert(`Withdrawal ${action} successful.`);
       fetchFinancialData();
     } catch (e) {
       alert("Withdrawal Review Error: " + e.message);
@@ -151,21 +172,70 @@ export const FinancialManagement = () => {
   const handleApproveRecharge = async (recharge) => {
     if (!window.confirm("Approve this recharge? Diamonds will be added immediately.")) return;
     try {
-      const userRef = doc(db, "users", recharge.uid);
-      await updateDoc(userRef, { diamondBalance: increment(recharge.amount) });
-      await updateDoc(doc(db, "recharges", recharge.id), { status: 'approved', processedAt: serverTimestamp() });
-      
-      await addDoc(collection(db, "admin_logs"), {
-        action: "RECHARGE_APPROVED",
-        targetId: recharge.uid,
-        amount: recharge.amount,
-        rechargeId: recharge.id,
-        timestamp: serverTimestamp()
-      });
-      
+      // SECURITY: this used to run `updateDoc(users/{uid}, { diamondBalance:
+      // increment(amount) })` straight from the browser - a client-side diamond
+      // mint. `diamondBalance` is now in PROTECTED_FIELDS, so that write is
+      // denied. approveRecharge does it atomically, once (idempotent on the
+      // recharge's own status), logs the audit, and propagates agency/admin
+      // commission in the same transaction.
+      const approve = httpsCallable(functions, 'approveRecharge');
+      const res = await approve({ rechargeId: recharge.id });
+
+      const c = res.data.commission;
+      const commissionNote = c && !c.skipped
+        ? ` Commission: $${c.agencyCommissionUSD} agency / $${c.adminCommissionUSD} admin.`
+        : '';
+      alert(`Recharge approved: ${res.data.amount} diamonds credited.${commissionNote}`);
+
       fetchFinancialData();
     } catch (err) {
-      alert("Error: " + err.message);
+      alert("Error: " + (err.message || err));
+    }
+  };
+
+  /**
+   * Record a confirmed gateway payment so the receiving user can redeem it.
+   * Until a payment provider is connected this is the only way a recharge can
+   * become real: `rechargeDiamonds` refuses any request without a paid order.
+   */
+  const [orderForm, setOrderForm] = useState({
+    targetUid: '',
+    diamonds: '',
+    usd: '',
+    gateway: '',
+    paymentRef: ''
+  });
+  const [orderBusy, setOrderBusy] = useState(false);
+  const [gateways, setGateways] = useState([]);
+
+  const handleIssueOrder = async (e) => {
+    e.preventDefault();
+    if (!orderForm.targetUid || !orderForm.diamonds || !orderForm.usd || !orderForm.paymentRef) {
+      alert('Recipient, diamonds, USD and payment reference are all required.');
+      return;
+    }
+    if (!orderForm.gateway) {
+      alert('Select the gateway the payment actually arrived on.');
+      return;
+    }
+    if (!window.confirm(`Issue a paid order for ${orderForm.diamonds} diamonds ($${orderForm.usd}) to ${orderForm.targetUid}?`)) return;
+
+    setOrderBusy(true);
+    try {
+      const issue = httpsCallable(functions, 'issueRechargeOrder');
+      const res = await issue({
+        targetUid: orderForm.targetUid.trim(),
+        diamonds: Number(orderForm.diamonds),
+        usd: Number(orderForm.usd),
+        gateway: orderForm.gateway,
+        paymentRef: orderForm.paymentRef.trim()
+      });
+      alert(`Order issued: ${res.data.orderId}\n\nGive this ID to the user, or redeem it for them.`);
+      setOrderForm({ targetUid: '', diamonds: '', usd: '', gateway: '', paymentRef: '' });
+    } catch (err) {
+      alert('Could not issue order: ' + (err.message || err));
+    } finally {
+      setOrderBusy(false);
     }
   };
 
@@ -275,6 +345,91 @@ export const FinancialManagement = () => {
         </form>
       </div>
 
+      {/* SECTION: Issue a verified recharge order */}
+      <div className="p-8 bg-slate-900/60 border border-white/10 rounded-[32px] shadow-2xl">
+        <div className="flex items-center gap-3 mb-2">
+          <Smartphone className="text-cyan-400" size={24} />
+          <div>
+            <h3 className="text-xl font-black uppercase tracking-wider">Issue Verified Recharge</h3>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">
+              Records a payment the platform actually received; the user redeems it for diamonds
+            </p>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-amber-400/80 font-bold bg-amber-500/10 border border-amber-500/20 rounded-2xl px-4 py-3 mb-6">
+          Until a payment provider is connected, this admin flow is the only path to a recharge.
+          Direct wallet edits are blocked by security rules.
+        </p>
+
+        <form onSubmit={handleIssueOrder} className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Recipient UID</label>
+            <input
+              required
+              value={orderForm.targetUid}
+              onChange={e => setOrderForm(f => ({ ...f, targetUid: e.target.value }))}
+              placeholder="Firebase UID of the user"
+              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-white font-bold text-sm outline-none focus:border-cyan-500/50"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Payment Gateway</label>
+            <select
+              required
+              value={orderForm.gateway}
+              onChange={e => setOrderForm(f => ({ ...f, gateway: e.target.value }))}
+              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-white font-bold text-sm outline-none focus:border-cyan-500/50"
+            >
+              <option value="">Select gateway...</option>
+              {gateways.map(g => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Diamonds</label>
+            <input
+              required type="number" min="1"
+              value={orderForm.diamonds}
+              onChange={e => setOrderForm(f => ({ ...f, diamonds: e.target.value }))}
+              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-white font-black text-lg outline-none focus:border-cyan-500/50"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Amount Paid (USD)</label>
+            <input
+              required type="number" min="0" step="0.01"
+              value={orderForm.usd}
+              onChange={e => setOrderForm(f => ({ ...f, usd: e.target.value }))}
+              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-white font-black text-lg outline-none focus:border-cyan-500/50"
+            />
+          </div>
+
+          <div className="space-y-2 md:col-span-2">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2">Gateway Payment Reference</label>
+            <input
+              required
+              value={orderForm.paymentRef}
+              onChange={e => setOrderForm(f => ({ ...f, paymentRef: e.target.value }))}
+              placeholder="Transaction / receipt ID from the provider"
+              className="w-full bg-black border border-white/10 rounded-2xl px-4 py-3 text-white font-bold text-sm outline-none focus:border-cyan-500/50"
+            />
+          </div>
+
+          <div className="md:col-span-2 flex justify-end">
+            <button
+              type="submit"
+              disabled={!isOwner || orderBusy}
+              className="px-8 py-4 bg-cyan-500 hover:bg-cyan-600 text-black font-black uppercase text-xs tracking-widest rounded-2xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {orderBusy ? 'Issuing...' : isOwner ? 'Issue Recharge Order' : 'Locked (Owner Access Only)'}
+            </button>
+          </div>
+        </form>
+      </div>
+
       {/* SECTION: Commission Withdrawals Approval Queue */}
       <div className="card-glass bg-slate-900/40 p-0 border-white/5 overflow-hidden">
         <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/5">
@@ -288,7 +443,11 @@ export const FinancialManagement = () => {
         </div>
 
         <div className="divide-y divide-white/[0.03]">
-          {loading ? (
+          {!isOwner ? (
+            <div className="p-10 text-center text-slate-600 font-bold uppercase tracking-widest flex items-center justify-center gap-3">
+              <Lock size={16} /> Withdrawal review is Owner-only
+            </div>
+          ) : loading ? (
             <div className="p-20 text-center animate-pulse">Loading Withdrawal Queue...</div>
           ) : withdrawals.length === 0 ? (
             <div className="p-20 text-center text-slate-600 font-bold uppercase tracking-widest">No withdrawal requests found</div>
@@ -318,20 +477,63 @@ export const FinancialManagement = () => {
                 <div className="flex items-center gap-4">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${
                     req.status === 'paid' ? 'bg-emerald-500/20 text-emerald-400' :
-                    req.status === 'rejected' ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/20 text-amber-400'
+                    req.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                    req.status === 'processing' ? 'bg-blue-500/20 text-blue-400' :
+                    req.status === 'approved' ? 'bg-cyan-500/20 text-cyan-400' :
+                    'bg-amber-500/20 text-amber-400'
                   }`}>
                     {req.status}
                   </span>
 
                   {req.status === 'pending' && (
                     <div className="flex items-center gap-2">
-                      <button 
+                      <button
+                        title="Start processing"
+                        onClick={() => handleReviewWithdrawal(req.id, 'process')}
+                        className="p-3 bg-blue-500/10 hover:bg-blue-500 text-blue-500 hover:text-white rounded-xl border border-blue-500/20 transition-all"
+                      >
+                        <Clock size={18} />
+                      </button>
+                      <button
+                        title="Reject"
+                        onClick={() => handleReviewWithdrawal(req.id, 'reject')}
+                        className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all"
+                      >
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
+
+                  {req.status === 'processing' && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        title="Approve (funds stay locked)"
                         onClick={() => handleReviewWithdrawal(req.id, 'approve')}
                         className="p-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-xl border border-emerald-500/20 transition-all"
                       >
                         <CheckCircle size={18} />
                       </button>
-                      <button 
+                      <button
+                        title="Reject"
+                        onClick={() => handleReviewWithdrawal(req.id, 'reject')}
+                        className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all"
+                      >
+                        <XCircle size={18} />
+                      </button>
+                    </div>
+                  )}
+
+                  {req.status === 'approved' && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        title="Mark as paid (moves funds)"
+                        onClick={() => handleReviewWithdrawal(req.id, 'pay')}
+                        className="p-3 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-xl border border-emerald-500/20 transition-all"
+                      >
+                        <DollarSign size={18} />
+                      </button>
+                      <button
+                        title="Reject"
                         onClick={() => handleReviewWithdrawal(req.id, 'reject')}
                         className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all"
                       >

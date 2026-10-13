@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -57,16 +58,28 @@ class MyProfileScreen extends ConsumerWidget {
         top: MediaQuery.of(context).padding.top + 6,
         bottom: 12,
       ),
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFFE0F7FA), // Light cyan
-            Color(0xFFF3E5F5), // Light purple
-            Colors.white,
-          ],
-        ),
+      decoration: BoxDecoration(
+        gradient: (userData.profileTheme.isNotEmpty && userData.profileTheme != 'none')
+            ? (userData.profileTheme == 'mock_theme_1'
+                ? const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFF0F2027), Color(0xFF203A43), Colors.white],
+                  )
+                : const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFF7971E), Color(0xFFFFD200), Colors.white],
+                  ))
+            : const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFE0F7FA), // Light cyan
+                  Color(0xFFF3E5F5), // Light purple
+                  Colors.white,
+                ],
+              ),
       ),
       child: Column(
         children: [
@@ -150,6 +163,45 @@ class MyProfileScreen extends ConsumerWidget {
                     ),
                   ),
                 ],
+              ],
+            ),
+          ),
+          const Gap(4),
+          GestureDetector(
+            onTap: () {
+              Clipboard.setData(ClipboardData(text: userData.displayId));
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text("ID ${userData.displayId} copied"), behavior: SnackBarBehavior.floating),
+              );
+            },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (userData.prettyId.isNotEmpty && userData.prettyId != 'none') ...[
+                  Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFFEC4899)]),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      "ELITE ID",
+                      style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
+                    ),
+                  ),
+                ],
+                Text(
+                  "ID: ${userData.displayId}",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black54,
+                  ),
+                ),
+                const Gap(4),
+                const Icon(Icons.copy_rounded, size: 12, color: Colors.black45),
               ],
             ),
           ),

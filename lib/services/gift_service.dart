@@ -39,7 +39,7 @@ class GiftService extends BaseFirebaseService {
       {'id': 'balloon', 'name': 'Balloon', 'price': 0, 'cat': 'Gift', 'img': '🎈', 'file': 'balloon.json'},
       {'id': 'cake', 'name': 'Celebration Cake', 'price': 300, 'cat': 'Gift', 'img': '🎂', 'file': 'pink cake.json'},
       {'id': 'lucky_star', 'name': 'Lucky Star', 'price': 200, 'cat': 'Lucky', 'img': '⭐', 'file': 'Celebration.json'},
-      {'id': 'lucky_bell', 'name': 'Lucky Bell', 'price': 1000, 'cat': 'Lucky', 'img': '🔔', 'file': 'Celebration.json'},
+      {'id': 'lucky_bell', 'name': 'Lucky Dates', 'price': 1000, 'cat': 'Lucky', 'img': 'assets/lucky gift dates/icon.png', 'file': 'assets/lucky gift dates/video.mp4', 'format': 'mp4'},
       {'id': 'lucky_chest', 'name': 'Lucky Chest', 'price': 100000, 'cat': 'Lucky', 'img': '🧰', 'file': 'Celebration.json'},
       {'id': 'lucky_fruit', 'name': 'Lucky Fruit', 'price': 500, 'cat': 'Lucky fruit', 'img': '🍉', 'file': 'Celebration.json'},
       {'id': 'car_king', 'name': 'Car King', 'price': 400000, 'cat': 'Luxury', 'img': '🏎️', 'file': 'Red Car.json'},
@@ -63,14 +63,31 @@ class GiftService extends BaseFirebaseService {
     int order = 1;
     for (var g in localGifts) {
       // 1. Load from assets
-      final isSvga = g['file'].endsWith('.svga');
-      final assetPath = isSvga ? 'assets/svga/${g['file']}' : 'assets/animations/lottie/${g['file']}';
+      final fileStr = g['file'] as String;
+      final isSvga = fileStr.endsWith('.svga');
+      final isMp4 = fileStr.endsWith('.mp4');
+      final assetPath = fileStr.contains('/')
+          ? fileStr
+          : (isSvga ? 'assets/svga/$fileStr' : 'assets/animations/lottie/$fileStr');
       final byteData = await rootBundle.load(assetPath);
-      final file = File('${tempDir.path}/${g['file']}');
+      final fileName = fileStr.split('/').last;
+      final file = File('${tempDir.path}/$fileName');
       await file.writeAsBytes(byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes));
 
       // 2. Upload to Cloudinary
-      final url = await _cloudinary.uploadRaw(file.path, folder: "gifts/animations");
+      final animUrl = await _cloudinary.uploadRaw(file.path, folder: "gifts/animations");
+
+      // Handle image upload if local asset
+      String imageUrl = g['img'] as String;
+      if (imageUrl.startsWith('assets/')) {
+        try {
+          final imgData = await rootBundle.load(imageUrl);
+          final imgName = imageUrl.split('/').last;
+          final imgFile = File('${tempDir.path}/$imgName');
+          await imgFile.writeAsBytes(imgData.buffer.asUint8List(imgData.offsetInBytes, imgData.lengthInBytes));
+          imageUrl = await _cloudinary.uploadImage(imgFile.path, folder: "gifts/icons");
+        } catch (_) {}
+      }
 
       // 3. Create Model
       final gift = GiftModel(
@@ -78,8 +95,9 @@ class GiftService extends BaseFirebaseService {
         name: g['name'],
         priceInDiamonds: g['price'],
         category: g['cat'],
-        imageUrl: g['img'],
-        lottieAssetPath: url,
+        imageUrl: imageUrl,
+        lottieAssetPath: animUrl,
+        animationFormat: (g['format'] as String?) ?? (isMp4 ? 'mp4' : isSvga ? 'svga' : 'json'),
         sortOrder: order++,
         isActive: true,
         createdAt: DateTime.now(),
@@ -104,6 +122,7 @@ class GiftService extends BaseFirebaseService {
     required List<String> targetUids,
     int quantity = 1,
     bool isMoment = false,
+    int comboCount = 0,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception("User not authenticated.");
@@ -111,20 +130,26 @@ class GiftService extends BaseFirebaseService {
     // Retrieve cached token instantly instead of forcing slow network refresh
     await user.getIdToken(false);
 
-    // Call Cloud Function concurrently for all targets
-    final rawResults = await Future.wait(targetUids.map((targetUid) => 
-      callFunction('sendGiftWithCombo', {
-        'roomId': roomId,
-        'giftId': gift.giftId,
-        'targetUid': targetUid,
-        'quantity': quantity,
-        'isMoment': isMoment,
-      })
-    ));
+    // 🛑 ONE call for every receiver. Fanning out with a call per target made N
+    // transactions contend on the sender's balance document, so the room stalled
+    // and a timeout could charge some receivers but not others. The server now
+    // bills and credits the whole set in a single atomic transaction.
+    final raw = await callFunction('sendGiftWithCombo', {
+      'roomId': roomId,
+      'giftId': gift.giftId,
+      'targetUids': targetUids,
+      'quantity': quantity,
+      'isMoment': isMoment,
+      'comboCount': comboCount,
+    });
 
-    final results = rawResults.map((r) => Map<String, dynamic>.from(r as Map? ?? {})).toList();
-
-
+    final envelope = Map<String, dynamic>.from(raw as Map? ?? {});
+    final perTarget = (envelope['perTarget'] as List? ?? const [])
+        .map((r) => Map<String, dynamic>.from(r as Map))
+        .toList();
+    // Older deployed shapes have no perTarget array; treat the whole payload as
+    // the single result so a stale client can't swallow a real send.
+    final results = perTarget.isNotEmpty ? perTarget : [envelope];
 
     // PK Battle Integration: Update scores if target is on a PK team
     if (!isMoment) {

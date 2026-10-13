@@ -87,14 +87,14 @@ final gameSettingsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((r
     'bettingDurationSeconds': 10,
     'revealDurationSeconds': 5,
     'segments': [
-      {'id': '1', 'name': 'Tomato', 'multiplier': 5, 'weight': 250, 'emoji': '🍅', 'category': 'salad'},
-      {'id': '2', 'name': 'Hotdog', 'multiplier': 10, 'weight': 100, 'emoji': '🌭', 'category': 'pizza'},
-      {'id': '3', 'name': 'Skewer', 'multiplier': 15, 'weight': 50, 'emoji': '🍢', 'category': 'pizza'},
-      {'id': '4', 'name': 'Chicken', 'multiplier': 25, 'weight': 30, 'emoji': '🍗', 'category': 'pizza'},
-      {'id': '5', 'name': 'Steak', 'multiplier': 45, 'weight': 20, 'emoji': '🥩', 'category': 'pizza'},
-      {'id': '6', 'name': 'Carrot', 'multiplier': 5, 'weight': 250, 'emoji': '🥕', 'category': 'salad'},
-      {'id': '7', 'name': 'Corn', 'multiplier': 5, 'weight': 250, 'emoji': '🌽', 'category': 'salad'},
-      {'id': '8', 'name': 'Cabbage', 'multiplier': 5, 'weight': 150, 'emoji': '🥬', 'category': 'salad'},
+      {'id': '1', 'name': 'Hotdog', 'multiplier': 10, 'weight': 100, 'emoji': '🌭', 'category': 'pizza'},
+      {'id': '2', 'name': 'Skewer', 'multiplier': 15, 'weight': 50, 'emoji': '🍢', 'category': 'pizza'},
+      {'id': '3', 'name': 'Chicken', 'multiplier': 25, 'weight': 30, 'emoji': '🍗', 'category': 'pizza'},
+      {'id': '4', 'name': 'Steak', 'multiplier': 45, 'weight': 20, 'emoji': '🥩', 'category': 'pizza'},
+      {'id': '5', 'name': 'Carrot', 'multiplier': 5, 'weight': 250, 'emoji': '🥕', 'category': 'salad'},
+      {'id': '6', 'name': 'Corn', 'multiplier': 5, 'weight': 250, 'emoji': '🌽', 'category': 'salad'},
+      {'id': '7', 'name': 'Cabbage', 'multiplier': 5, 'weight': 150, 'emoji': '🥬', 'category': 'salad'},
+      {'id': '8', 'name': 'Tomato', 'multiplier': 5, 'weight': 250, 'emoji': '🍅', 'category': 'salad'},
     ]
   };
 
@@ -145,6 +145,9 @@ final luckySpinStatsProvider = StreamProvider.autoDispose<Map<String, dynamic>>(
 
 // 📜 User's private game history
 final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+  // Keep alive so active stream isn't destroyed when sub-widgets toggle or rebuild
+  ref.keepAlive();
+
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return Stream.value([]);
   
@@ -152,7 +155,7 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
       .collection('users')
       .doc(user.uid)
       .collection('game_history')
-      .orderBy('timestamp', descending: true)
+      .orderBy('createdAt', descending: true)
       .limit(100)
       .snapshots()
       .map((snap) {
@@ -166,7 +169,7 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
         rawDocs.sort((a, b) {
           final rA = int.tryParse(a['roundId']?.toString() ?? '') ?? 0;
           final rB = int.tryParse(b['roundId']?.toString() ?? '') ?? 0;
-          if (rA != rB && rA > 0 && rB > 0) return rB.compareTo(rA);
+          if (rA > 0 && rB > 0 && rA != rB) return rB.compareTo(rA);
 
           final tA = a['timestamp'];
           final tB = b['timestamp'];
@@ -184,13 +187,22 @@ final userGameHistoryProvider = StreamProvider.autoDispose<List<Map<String, dyna
           return sB.compareTo(sA);
         });
 
-        // Deduplicate by roundId so multiple bet events in the same round never double-count winnings or render duplicate cards
+        // Deduplicate by roundId so multiple bet events in the same round never double-count winnings or render duplicate cards.
+        // Prefer the settled record over a staged (unsettled) record for the same round, so the realtime ledger
+        // only surfaces ROUND_SETTLED (or REVERTED) outcomes and never a mid-round pending bet.
         final seenRounds = <String>{};
         final deduplicated = <Map<String, dynamic>>[];
         for (final item in rawDocs) {
           final roundId = item['roundId']?.toString();
           if (roundId != null && roundId.isNotEmpty) {
             if (seenRounds.contains(roundId)) {
+              final existingIndex = deduplicated.indexWhere((e) => e['roundId']?.toString() == roundId);
+              final isSettled = item['settled'] == true ||
+                  item['status'] == 'ROUND_SETTLED' ||
+                  item['status'] == 'REVERTED';
+              if (existingIndex >= 0 && isSettled) {
+                deduplicated[existingIndex] = item;
+              }
               continue;
             }
             seenRounds.add(roundId);

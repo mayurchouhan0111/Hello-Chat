@@ -92,14 +92,14 @@ class _RankingList extends ConsumerWidget {
 
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance
-          .collection('users')
+          .collection('publicUsers')
           .orderBy(field, descending: true)
           .limit(50)
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.hasError || (snapshot.hasData && snapshot.data!.docs.isEmpty)) {
           return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('users').limit(50).snapshots(),
+            stream: FirebaseFirestore.instance.collection('publicUsers').limit(50).snapshots(),
             builder: (ctx, fallbackSnap) {
               if (fallbackSnap.hasError || !fallbackSnap.hasData) {
                 return const Center(child: Text("No rankings found yet", style: TextStyle(color: Colors.grey)));
@@ -121,9 +121,9 @@ class _RankingList extends ConsumerWidget {
       final user = UserModel.fromMap({...data, 'uid': doc.id});
       num score = (data[field] as num?) ?? 0;
       if (score == 0) {
-        score = (data['totalDiamondsSent'] as num?) ??
-                (data['diamondBalance'] as num?) ??
-                (data['diamonds'] as num?) ?? 0;
+        // Metric-only fallback: money fields (diamondBalance/diamonds) are not
+        // in the publicUsers projection and must never be.
+        score = (data['totalDiamondsSent'] as num?) ?? 0;
       }
       return {'user': user, 'score': score};
     }).toList();

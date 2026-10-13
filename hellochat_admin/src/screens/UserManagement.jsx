@@ -2,19 +2,15 @@ import { useState, useEffect } from 'react';
 import { db, functions } from '../firebase';
 import { 
   collection, 
-  query, 
   getDocs, 
-  where, 
   doc, 
-  limit, 
-  orderBy,
   writeBatch, 
   serverTimestamp, 
-  deleteDoc,
   getDoc,
   updateDoc
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
+import { listScopedUsers, asDocList } from '../lib/scopedUsers';
 import { 
   Search, 
   Ban, 
@@ -660,22 +656,13 @@ export const UserManagement = () => {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      // Fetch more users and order by newest first
-      const q = query(
-        collection(db, "users"), 
-        orderBy("createdAt", "desc"), 
-        limit(200)
-      );
-      const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Scoped read: `allow list: if isOwner()` means the old `getDocs(collection(
+      // db,'users'), orderBy('createdAt'))` returned nothing for Admin/Agency
+      // tiers. The server now derives the scope; display ordering happens here.
+      const list = asDocList(await listScopedUsers(500));
       setUsers(list);
     } catch (err) {
-      console.error("Fetching with order failed, falling back:", err);
-      // Fallback query in case the index is still building
-      const q = query(collection(db, "users"), limit(200));
-      const snap = await getDocs(q);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setUsers(list);
+      console.error("Fetching users failed:", err);
     } finally {
       setLoading(false);
     }
@@ -932,47 +919,19 @@ export const UserManagement = () => {
 
     setLoading(true);
     try {
-      // 1. Try exact UID match
-      const userRef = doc(db, "users", term);
-      const userSnap = await getDoc(userRef);
-
-      if (userSnap.exists()) {
-        setUsers([{ id: userSnap.id, ...userSnap.data() }]);
-      } else {
-        // 2. Try numeric Hello ID match
-        const numericId = parseInt(term);
-        if (!isNaN(numericId)) {
-          const qId = query(collection(db, "users"), where("helloId", "==", numericId), limit(1));
-          const snapId = await getDocs(qId);
-          if (!snapId.empty) {
-            setUsers(snapId.docs.map(d => ({ id: d.id, ...d.data() })));
-            return;
-          }
-        }
-
-        // 3. Try username match (Exact or Lowercase)
-        const qUsername = query(
-          collection(db, "users"), 
-          where("username_lowercase", "==", term.toLowerCase()),
-          limit(1)
-        );
-        const snapUsername = await getDocs(qUsername);
-        
-        if (!snapUsername.empty) {
-          setUsers(snapUsername.docs.map(d => ({ id: d.id, ...d.data() })));
-        } else {
-          // 4. Try displayName match (StartWith pattern)
-          const qName = query(
-            collection(db, "users"),
-            orderBy("displayName"),
-            where("displayName", ">=", term),
-            where("displayName", "<=", term + '\uf8ff'),
-            limit(20)
-          );
-          const snapName = await getDocs(qName);
-          setUsers(snapName.docs.map(d => ({ id: d.id, ...d.data() })));
-        }
-      }
+      // One scoped read, matched locally across every key the old code queried
+      // separately (uid, helloId, username, username_lowercase, displayName).
+      // All four old queries hit the root `users` collection, which `allow list:
+      // if isOwner()` denies for every non-Owner tier.
+      const termLower = term.toLowerCase();
+      const matches = asDocList(await listScopedUsers(500)).filter((u) =>
+        u.uid === term ||
+        String(u.helloId ?? '') === term ||
+        (u.username || '').toLowerCase() === termLower ||
+        (u.username_lowercase || '') === termLower ||
+        (u.displayName || '').toLowerCase().includes(termLower)
+      );
+      setUsers(matches.slice(0, 20));
     } catch (err) {
       console.error("Search failed:", err);
     } finally {
