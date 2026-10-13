@@ -293,3 +293,34 @@ final payoutHistoryProvider = StreamProvider.family<List<SalaryPayout>, String>(
 final weeklyTargetStatusProvider = StreamProvider.family<Map<String, dynamic>, String>((ref, uid) {
   return ref.watch(salaryServiceProvider).getWeeklyTargetStatus(uid);
 });
+
+final hostMetricsProvider = StreamProvider.family<Map<String, dynamic>, String>((ref, uid) {
+  return FirebaseFirestore.instance.collection('host_metrics').doc(uid).snapshots().map((doc) {
+    if (!doc.exists) {
+      return {
+        'liveMinutesTotal': 0,
+        'liveHoursTotal': 0.0,
+        'liveDayCount': 0,
+        'liveSessionsTotal': 0,
+      };
+    }
+    final data = doc.data()!;
+    final minutes = (data['liveMinutesTotal'] as num?)?.toInt() ?? 0;
+    final byDay = data['liveMinutesByDay'] as Map<String, dynamic>? ?? {};
+    final sessions = (data['liveSessionsTotal'] as num?)?.toInt() ?? 0;
+    return {
+      'liveMinutesTotal': minutes,
+      'liveHoursTotal': (minutes / 60.0),
+      'liveDayCount': byDay.keys.length,
+      'liveSessionsTotal': sessions,
+    };
+  }).handleError((_) {
+    return {
+      'liveMinutesTotal': 0,
+      'liveHoursTotal': 0.0,
+      'liveDayCount': 0,
+      'liveSessionsTotal': 0,
+    };
+  });
+});
+

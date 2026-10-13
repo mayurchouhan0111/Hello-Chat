@@ -11,6 +11,28 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-13 (Host Broadcast Metrics & Agency Portal Integration in Flutter Mobile App)
+- **What Client Asked / Problem**:
+  - The client shared the system specification document (`DOC-20260722-W...`) and asked to verify if sections 2.3 (Admin Monitoring), 2.4 (Agency Monitoring), and 2.5 (Host Personal Dashboard: Live Time, Live Days, Beans Target Progress, Salary Status) were fully completed.
+  - The user approved adding the Live Time and Live Days metrics into the mobile app's Host Personal Dashboard.
+- **What We Did**:
+  1. Verified that sections 2.3 and 2.4 are fully implemented on the backend and in the Web Admin Panel (`/hosts` and `/agencies`) with strict server-side boundary scoping.
+  2. Integrated real-time **Host Broadcast Metrics** into the Flutter Mobile App:
+     - In `lib/core/services/salary_service.dart`, created `hostMetricsProvider` streaming real-time metrics from `host_metrics/{uid}` (`liveMinutesTotal`, `liveHoursTotal`, `liveDayCount`, `liveSessionsTotal`).
+     - In `lib/features/profile/presentation/screens/salary_history_screen.dart`, added a high-contrast, modern Host Broadcast Metrics dashboard card showing:
+       - ⏱️ **Live Time** (`X.X hrs`, total minutes)
+       - 📅 **Live Days** (active broadcast days)
+       - 🎙️ **Sessions** (total completed broadcast sessions)
+       - Renamed the screen title to **Host Center & Salary** so hosts immediately recognize their management center.
+     - In `lib/features/profile/presentation/screens/my_profile_screen.dart`, added the **Agency Portal** menu shortcut for Agencies, and updated the host menu tile to **Host Center & Salary**.
+  3. Ran `dart analyze` across all touched files; passed with 0 issues.
+- **Files Touched**:
+  - `lib/core/services/salary_service.dart`
+  - `lib/features/profile/presentation/screens/salary_history_screen.dart`
+  - `lib/features/profile/presentation/screens/my_profile_screen.dart`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Completed & Verified.
+
 ### Date: 2026-10-13 (Fix All Admin Panel Pages, Full SuperAdmin Navigation & Hierarchy Permissions)
 - **What Client Asked / Problem**:
   - The client reported: "all pages are not wokring find the isssue an resolve this fast" and "I still don’t have access to the Super Admin features. How am I supposed to appoint Admins if these options are not available in my account? The Super Admin account should have the necessary permissions to appoint Admins and manage the role hierarchy. However, none of these options are showing up. Please check and fix this issue so we can properly test the entire Role Management and Host Management system."

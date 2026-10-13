@@ -447,6 +447,22 @@ class MyProfileScreen extends ConsumerWidget {
             onTap: () => context.push(AppRoutes.resellerCenter),
           ),
         ],
+        if (userData.isAgencyOwner || userData.role == 'agency' || userData.tags.contains('Agency')) ...[
+          _buildMenuTile(
+            icon: Icons.business_center_rounded,
+            label: "Agency Portal",
+            iconColor: const Color(0xFFF59E0B),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF59E0B).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text("Portal", style: TextStyle(color: Color(0xFFF59E0B), fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+            onTap: () => context.push(AppRoutes.agencyPortal),
+          ),
+        ],
         _buildMenuTile(
           icon: Icons.add_card_rounded,
           label: "Recharge",
@@ -490,8 +506,8 @@ class MyProfileScreen extends ConsumerWidget {
           onTap: () => context.push(AppRoutes.propWarehouse),
         ),
         _buildMenuTile(
-          icon: Icons.account_balance_wallet_rounded,
-          label: "Salary History",
+          icon: Icons.mic_external_on_rounded,
+          label: "Host Center & Salary",
           iconColor: Colors.amber[700]!,
           onTap: () => context.push(AppRoutes.salaryHistory),
         ),

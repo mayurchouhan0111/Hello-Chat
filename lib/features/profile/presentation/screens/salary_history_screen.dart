@@ -21,7 +21,7 @@ class SalaryHistoryScreen extends ConsumerWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
-        title: const Text("Salary & Rewards", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+        title: const Text("Host Center & Salary", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
@@ -32,18 +32,24 @@ class SalaryHistoryScreen extends ConsumerWidget {
           // Trigger a refresh of the providers
           ref.invalidate(salaryStatusProvider(uid));
           ref.invalidate(payoutHistoryProvider(uid));
+          ref.invalidate(hostMetricsProvider(uid));
           await Future.delayed(const Duration(milliseconds: 500));
         },
         color: const Color(0xFF6366F1),
         child: CustomScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            // 1. Current Progress Header
+            // 1. Current Progress Header (Beans Target & Level)
             SliverToBoxAdapter(
               child: _buildProgressHeader(ref, uid),
             ),
 
-            // 2. Salary Milestone Tiers Matrix (10 Levels)
+            // 2. Host Broadcast & Activity Metrics (Live Time, Live Days, Sessions)
+            SliverToBoxAdapter(
+              child: _buildLiveStatsCard(ref, uid),
+            ),
+
+            // 3. Salary Milestone Tiers Matrix (10 Levels)
             SliverToBoxAdapter(
               child: _buildMilestonesMatrix(ref, uid),
             ),
@@ -189,6 +195,163 @@ class SalaryHistoryScreen extends ConsumerWidget {
         child: const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
       ),
       error: (_, __) => const SizedBox.shrink(),
+    );
+  }
+
+  Widget _buildLiveStatsCard(WidgetRef ref, String uid) {
+    final metricsAsync = ref.watch(hostMetricsProvider(uid));
+    final metrics = metricsAsync.valueOrNull ?? {
+      'liveHoursTotal': 0.0,
+      'liveMinutesTotal': 0,
+      'liveDayCount': 0,
+      'liveSessionsTotal': 0,
+    };
+
+    final double hours = (metrics['liveHoursTotal'] as num?)?.toDouble() ?? 0.0;
+    final int days = (metrics['liveDayCount'] as num?)?.toInt() ?? 0;
+    final int sessions = (metrics['liveSessionsTotal'] as num?)?.toInt() ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.podcasts_rounded, color: Color(0xFF6366F1), size: 20),
+                  Gap(8),
+                  Text(
+                    "HOST BROADCAST METRICS",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF1F2937),
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  "Active Host",
+                  style: TextStyle(
+                    color: Color(0xFF10B981),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(16),
+          Row(
+            children: [
+              Expanded(
+                child: _buildMetricTile(
+                  icon: Icons.timer_outlined,
+                  iconColor: const Color(0xFF6366F1),
+                  label: "Live Time",
+                  value: "${hours.toStringAsFixed(1)}h",
+                  subtitle: "${metrics['liveMinutesTotal'] ?? 0} mins",
+                ),
+              ),
+              const Gap(10),
+              Expanded(
+                child: _buildMetricTile(
+                  icon: Icons.calendar_month_outlined,
+                  iconColor: const Color(0xFFEC4899),
+                  label: "Live Days",
+                  value: "$days",
+                  subtitle: "Active days",
+                ),
+              ),
+              const Gap(10),
+              Expanded(
+                child: _buildMetricTile(
+                  icon: Icons.mic_none_rounded,
+                  iconColor: const Color(0xFFF59E0B),
+                  label: "Sessions",
+                  value: "$sessions",
+                  subtitle: "Broadcasts",
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricTile({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+    required String subtitle,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFF3F4F6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: iconColor, size: 18),
+          const Gap(6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF111827),
+              ),
+            ),
+          ),
+          const Gap(2),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 8,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF9CA3AF),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
