@@ -122,7 +122,7 @@ export const HierarchyManagement = () => {
   // Determine assignable options per role
   const getAssignableRoles = () => {
     if (isOwner) return ['host', 'agency', 'admin', 'superadmin', 'owner'];
-    if (isSuperAdmin) return ['host', 'admin'];
+    if (isSuperAdmin) return ['host', 'agency', 'admin'];
     if (isAdminRole) return ['host', 'agency'];
     return ['host'];
   };

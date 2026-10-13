@@ -7,7 +7,8 @@ import {
   writeBatch, 
   serverTimestamp, 
   getDoc,
-  updateDoc
+  updateDoc,
+  setDoc
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { listScopedUsers, asDocList } from '../lib/scopedUsers';

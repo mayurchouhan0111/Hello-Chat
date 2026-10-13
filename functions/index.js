@@ -4340,6 +4340,11 @@ exports.syncSpinWheelRound = functions.region("us-central1").https.onCall(async 
     const isBettingWindow = isCurrentRound && cycleMs <= 27000;
 
     let outcome = null;
+    const privateStatsRef = db.collection("games_meta_private").doc(`spin_${requestedRoundId}`);
+    let privateDoc = null;
+    if (!isBettingWindow) {
+        privateDoc = await privateStatsRef.get();
+    }
     if (isBettingWindow) {
         outcome = null;
     } else if (privateDoc.exists) {
@@ -11324,14 +11329,14 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         if (targetAdminId !== undefined) updates.adminId = targetAdminId;
         if (targetAgencyId !== undefined) updates.agencyId = targetAgencyId;
     } else if (callerRole === "superadmin") {
-        if (newRole !== "admin" && newRole !== "host") {
-            throw new functions.https.HttpsError("permission-denied", "Super Admins can only assign Admin or Host roles.");
+        if (newRole !== "admin" && newRole !== "agency" && newRole !== "host") {
+            throw new functions.https.HttpsError("permission-denied", "Super Admins can only assign Admin, Agency, or Host roles.");
         }
-        if (!cData.branchId) {
-            throw new functions.https.HttpsError("failed-precondition", "Super Admin has no assigned branch.");
-        }
-        updates.branchId = cData.branchId;
+        updates.branchId = cData.branchId || `branch_${callerUid}`;
         updates.superAdminId = callerUid;
+        if (newRole === "agency") {
+            updates.isAgencyOwner = true;
+        }
     } else if (callerRole === "admin") {
         if (newRole !== "agency" && newRole !== "host") {
             throw new functions.https.HttpsError("permission-denied", "Admins can only assign Agency or Host roles.");

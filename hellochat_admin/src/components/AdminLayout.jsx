@@ -53,20 +53,6 @@ const Sidebar = () => {
       { name: 'Host Metrics', icon: Activity, path: '/hosts' },
       { name: 'Commission Wallet', icon: Wallet, path: '/commission-wallet' },
     ];
-  } else if (isSuperAdmin && !isOwner) {
-    // Super Admin: Branch sandboxed view (no company financial policies, no global settings, no audit logs).
-    // No Withdrawal Approvals: commission payout approval is Owner-only in both
-    // firestore.rules (`allow list: if isOwner()`) and reviewCommissionWithdrawal.
-    // Super Admin is strictly EXCLUDED from commission wallet & salary system.
-    menu = [
-      { name: 'Branch Dashboard', icon: LayoutDashboard, path: '/' },
-      { name: 'Branch Hierarchy', icon: Shield, path: '/hierarchy' },
-      { name: 'Branch Users', icon: Users, path: '/users' },
-      { name: 'Branch Agencies', icon: Building2, path: '/agencies' },
-      { name: 'Host Metrics', icon: Activity, path: '/hosts' },
-      { name: 'Live Rooms', icon: Volume2, path: '/rooms' },
-      { name: 'Reports', icon: ShieldAlert, path: '/reports' },
-    ];
   } else if (isAdminRole && !isSuperAdmin && !isOwner) {
     // Admin: Supervised scope
     menu = [

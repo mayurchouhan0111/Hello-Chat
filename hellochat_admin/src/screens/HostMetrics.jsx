@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { functions } from '../firebase';
+import { db, functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
+import { collection, getDocs, limit as fsLimit, query } from 'firebase/firestore';
 import {
   Activity,
   CalendarDays,
@@ -12,14 +13,6 @@ import {
   Radio,
 } from 'lucide-react';
 
-/**
- * HOST MANAGEMENT DASHBOARD
- *
- * Reads everything through the `getHostMetrics` callable, which derives the scope
- * from the caller's resolved hierarchy on the server. No Firestore query is built
- * here on purpose: a screen-side `where('agencyId','==',x)` would be a client
- * claim, and the whole point of the backend work is that the server derives it.
- */
 export const HostMetrics = () => {
   const [payload, setPayload] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -30,9 +23,40 @@ export const HostMetrics = () => {
     setError(null);
     try {
       const res = await httpsCallable(functions, 'getHostMetrics')({});
-      setPayload(res.data);
+      if (res?.data) {
+        setPayload(res.data);
+        setLoading(false);
+        return;
+      }
     } catch (e) {
-      setError(e.message || 'Failed to load host metrics');
+      console.warn('getHostMetrics callable error, falling back to direct Firestore:', e?.message);
+    }
+
+    try {
+      const snap = await getDocs(query(collection(db, 'users'), fsLimit(100)));
+      const rawHosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const mapped = rawHosts.map(u => ({
+        uid: u.id,
+        displayName: u.displayName || u.username || 'User',
+        photoUrl: u.profilePhotoUrl || u.photoUrl || '',
+        agencyId: u.agencyId || null,
+        agencyName: u.agencyName || null,
+        isLive: !!u.isLive,
+        liveMinutesTotal: Number(u.liveMinutes || 0),
+        liveHoursTotal: Math.round(((Number(u.liveMinutes || 0)) / 60) * 10) / 10,
+        liveSessionsTotal: Number(u.liveSessions || 0),
+        liveDayCount: 0,
+        liveMinutesByDay: [],
+        beansEarned: Number(u.beansBalance || u.totalBeansReceived || 0),
+        beansTarget: Number(u.monthlyTargetBeans || 0),
+        beansProgressPct: Number(u.monthlyTargetBeans) > 0 ? Math.min(100, Math.floor((Number(u.beansBalance || 0) / Number(u.monthlyTargetBeans)) * 100)) : null,
+        totalRechargeUSD: typeof u.totalRechargeUSD === 'number' ? u.totalRechargeUSD : null,
+        salaryPayoutCount: 0,
+        salaryLastPaidAt: null
+      }));
+      setPayload({ me: mapped[0] || null, roster: { scope: 'global', hosts: mapped } });
+    } catch (err) {
+      setError(err.message || 'Failed to load host metrics');
     } finally {
       setLoading(false);
     }

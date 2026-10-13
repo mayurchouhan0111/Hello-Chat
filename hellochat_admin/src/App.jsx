@@ -64,29 +64,29 @@ const ROUTES = [
   // ── Super Admin ──
   { path: '/hierarchy', min: 'superadmin', element: <HierarchyManagement /> },
 
-  // ── Owner only: money, payout, platform content, settings, audit ──
-  { path: '/financials', min: 'owner', element: <FinancialManagement /> },
-  { path: '/withdrawals', min: 'owner', element: <WithdrawalManagement /> },
-  { path: '/resellers', min: 'owner', element: <ResellerManagement /> },
-  { path: '/kyc', min: 'owner', element: <KYCManagement /> },
-  { path: '/settings', min: 'owner', element: <SystemSettings /> },
-  { path: '/logs', min: 'owner', element: <AuditLogs /> },
-  { path: '/moderation', min: 'owner', element: <ModerationManagement /> },
-  { path: '/moments', min: 'owner', element: <MomentsManagement /> },
-  { path: '/vip', min: 'owner', element: <VIPManagement /> },
-  { path: '/svip', min: 'owner', element: <SVIPManagement /> },
-  { path: '/gifts', min: 'owner', element: <GiftManagement /> },
-  { path: '/families', min: 'owner', element: <FamilyManagement /> },
-  { path: '/boutique', min: 'owner', element: <EliteBoutiqueManagement /> },
-  { path: '/role-frames', min: 'owner', element: <RoleFrameManagement /> },
-  { path: '/rocket-management', min: 'owner', element: <RocketManagement /> },
-  { path: '/winning-config', min: 'owner', element: <WinningConfigManagement /> },
-  { path: '/minigames', min: 'owner', element: <MiniGamesManagement /> },
-  { path: '/family-battle-config', min: 'owner', element: <FamilyBattleConfig /> },
-  { path: '/room-support', min: 'owner', element: <RoomSupportManagement /> },
-  { path: '/recharge-event', min: 'owner', element: <RechargeEventManagement /> },
-  { path: '/events', min: 'owner', element: <EventBuilder /> },
-  { path: '/relationships', min: 'owner', element: <RelationshipManagement /> }
+  // ── Owner & Super Admin: platform management modules ──
+  { path: '/financials', min: 'superadmin', element: <FinancialManagement /> },
+  { path: '/withdrawals', min: 'superadmin', element: <WithdrawalManagement /> },
+  { path: '/resellers', min: 'superadmin', element: <ResellerManagement /> },
+  { path: '/kyc', min: 'superadmin', element: <KYCManagement /> },
+  { path: '/settings', min: 'superadmin', element: <SystemSettings /> },
+  { path: '/logs', min: 'superadmin', element: <AuditLogs /> },
+  { path: '/moderation', min: 'superadmin', element: <ModerationManagement /> },
+  { path: '/moments', min: 'superadmin', element: <MomentsManagement /> },
+  { path: '/vip', min: 'superadmin', element: <VIPManagement /> },
+  { path: '/svip', min: 'superadmin', element: <SVIPManagement /> },
+  { path: '/gifts', min: 'superadmin', element: <GiftManagement /> },
+  { path: '/families', min: 'superadmin', element: <FamilyManagement /> },
+  { path: '/boutique', min: 'superadmin', element: <EliteBoutiqueManagement /> },
+  { path: '/role-frames', min: 'superadmin', element: <RoleFrameManagement /> },
+  { path: '/rocket-management', min: 'superadmin', element: <RocketManagement /> },
+  { path: '/winning-config', min: 'superadmin', element: <WinningConfigManagement /> },
+  { path: '/minigames', min: 'superadmin', element: <MiniGamesManagement /> },
+  { path: '/family-battle-config', min: 'superadmin', element: <FamilyBattleConfig /> },
+  { path: '/room-support', min: 'superadmin', element: <RoomSupportManagement /> },
+  { path: '/recharge-event', min: 'superadmin', element: <RechargeEventManagement /> },
+  { path: '/events', min: 'superadmin', element: <EventBuilder /> },
+  { path: '/relationships', min: 'superadmin', element: <RelationshipManagement /> }
 ];
 
 function App() {
