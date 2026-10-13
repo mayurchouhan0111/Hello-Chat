@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'base_firebase_service.dart';
 import '../models/salary_model.dart';
 import '../models/user_model.dart';
-import '../models/agency_model.dart';
 
 class SalaryService extends BaseFirebaseService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
