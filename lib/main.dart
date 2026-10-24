@@ -1,4 +1,3 @@
-import 'dart:ui' show PlatformDispatcher;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -26,7 +25,6 @@ import 'core/widgets/global_rocket_launch_overlay.dart';
 import 'core/widgets/app_toast.dart';
 
 import 'services/gift_service.dart';
-import 'features/rooms/presentation/widgets/gift_animation_overlay.dart';
 import 'core/utils/svga_parser_util.dart';
 
 
@@ -67,11 +65,18 @@ void main() async {
     return true; 
   };
 
-  // 🛡️ Completely suppress the "Something Went Wrong" error card screen globally across all devices.
-  // Instead of displaying a red error card or diagnostic sheet, log the error silently and return an imperceptible layout fallback.
+  // 🛡️ Global widget-build error handler.
+  // Instead of displaying a red error card or diagnostic sheet to end users, log the error with full stack trace so build failures are completely visible in testing.
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    debugPrint('🛡️ [Widget Build Exception Suppressed] ${details.exception}');
-    debugPrint('🛡️ [StackTrace] ${details.stack}');
+    debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Exception: ${details.exception}');
+    if (details.context != null) {
+      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Context: ${details.context}');
+    }
+    if (details.library != null) {
+      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Library: ${details.library}');
+    }
+    debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Full Stack Trace:\n${details.stack}');
+    FlutterError.dumpErrorToConsole(details, forceReport: true);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -321,24 +326,9 @@ void _preloadGiftsOnStartup(WidgetRef ref) async {
   });
 
   try {
-    final gifts = await ref.read(giftServiceProvider).getGiftsFuture();
-    for (final gift in gifts) {
-      final url = gift.lottieAssetPath.trim();
-      if (url.isNotEmpty) {
-        if (url.toLowerCase().contains('.svga')) {
-          final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url);
-          if (localPath != null) {
-            SvgaParserUtil.decodeSafeFromAssets(localPath);
-          }
-        } else {
-          final localLottie = SvgaParserUtil.getLocalLottiePath(url);
-          if (localLottie != null) {
-            LottieCache.preloadLocal(localLottie);
-          }
-        }
-      }
-    }
+    await ref.read(giftServiceProvider).getGiftsFuture();
+    SvgaParserUtil.warmupVapDurations();
   } catch (e) {
-    debugPrint("[AppPreload] Error preloading local gift assets: $e");
+    debugPrint("[AppPreload] Error prefetching gift catalog on startup: $e");
   }
 }
