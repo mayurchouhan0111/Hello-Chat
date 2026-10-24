@@ -303,13 +303,18 @@ class _GiftAudioPool {
   }
 }
 
-class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
+class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
+    with WidgetsBindingObserver {
   /// Anchor for resolving seat rects relative to this overlay's coordinate
   /// space (Layer 1 seat-anchored effects).
   final GlobalKey _overlayKey = GlobalKey(debugLabel: 'gift_overlay_stack');
   final Set<String> _processedMessageIds = {};
   final Set<String> _processedEventIds = {};
   bool _initialHistorySeeded = false;
+
+  /// True while the app is backgrounded: gift queues are cleared and new
+  /// gifts are dropped (already marked processed, so nothing replays).
+  bool _isAppPaused = false;
 
   // Seat queues for small/normal gifts (SVGA, Lottie, Seat flight)
   final Map<String, List<_ActiveGiftAnimation>> _seatQueues = {};
@@ -341,6 +346,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
 
   void _enqueueSeatAnimation(String targetUid, _ActiveGiftAnimation animation) {
     if (!mounted) return;
+    if (_isAppPaused) return;
     final key = targetUid.isNotEmpty ? targetUid : '_unseated_';
     final queue = _seatQueues.putIfAbsent(key, () => []);
     if (queue.length < 50) {
@@ -407,6 +413,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Configure global audio context once so individual players never incur platform latency
     try {
       AudioPlayer.global.setAudioContext(
@@ -454,6 +461,38 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
       });
     } catch (e) {
       debugPrint("[GiftCache] Error fetching gift catalog: $e");
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.paused) {
+      _isAppPaused = true;
+      debugPrint('[GiftOverlay] App paused: stopping VAP and clearing gift queues');
+      _fullScreenWatchdogTimer?.cancel();
+      _transitionTimer?.cancel();
+      for (final sg in _currentSeatGifts.values) {
+        sg.expiryTimer.cancel();
+      }
+      _currentSeatGifts.clear();
+      _seatQueues.clear();
+      _luxuryQueue.clear();
+      _mediumQueue.clear();
+      _currentFullScreenAnim = null;
+      _isFullScreenPlaying = false;
+      _vapStartTime = null;
+      try {
+        _persistentVapController?.stop();
+      } catch (e) {
+        debugPrint('[GiftOverlay] Error stopping VAP on pause: $e');
+      }
+      if (mounted) setState(() {});
+    } else if (state == AppLifecycleState.resumed) {
+      // Accept new gifts only; anything dropped while paused stays marked
+      // processed and is never replayed.
+      _isAppPaused = false;
+      debugPrint('[GiftOverlay] App resumed: accepting new gifts only');
     }
   }
 
@@ -836,6 +875,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
     if (_processedEventIds.length > 500) {
       _processedEventIds.removeAll(_processedEventIds.take(_processedEventIds.length - 250).toList());
     }
+    if (_isAppPaused) return;
 
     if (anim.tier == 'LUXURY') {
       // Combo merging per sender+gift
@@ -994,6 +1034,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
     for (final sg in _currentSeatGifts.values) {
