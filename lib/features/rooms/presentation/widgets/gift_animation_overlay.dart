@@ -307,6 +307,8 @@ Iterable<(String, int, int)> _mp4Boxes(Uint8List bytes, int start, int end) sync
 class _GiftAudioPool {
   static AudioPlayer? _player;
   static Future<void> _lock = Future.value();
+  static int _lastPlayMs = 0;
+  static const int kMinAudioIntervalMs = 150;
 
   static AudioPlayer get player {
     _player ??= AudioPlayer();
@@ -314,6 +316,12 @@ class _GiftAudioPool {
   }
 
   static Future<void> playFile(String path, {double volume = 1.0}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastPlayMs < kMinAudioIntervalMs) {
+      return Future.value();
+    }
+    _lastPlayMs = now;
+
     return _lock = _lock.then((_) async {
       try {
         final p = player;
@@ -327,6 +335,12 @@ class _GiftAudioPool {
   }
 
   static Future<void> playUrl(String url, {double volume = 1.0}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastPlayMs < kMinAudioIntervalMs) {
+      return Future.value();
+    }
+    _lastPlayMs = now;
+
     return _lock = _lock.then((_) async {
       try {
         final p = player;
@@ -340,6 +354,12 @@ class _GiftAudioPool {
   }
 
   static Future<void> playAsset(String assetPath, {double volume = 1.0}) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastPlayMs < kMinAudioIntervalMs) {
+      return Future.value();
+    }
+    _lastPlayMs = now;
+
     return _lock = _lock.then((_) async {
       try {
         final p = player;
@@ -2344,18 +2364,16 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
 
   void _playPreparedAudios(List<PreparedSvgaAudio> preparedAudios) {
     if (widget.hasCustomSound || preparedAudios.isEmpty) return;
-    debugPrint("[SVGAPlayer] Playing ${preparedAudios.length} embedded audio track(s) for ${widget.assetPath}");
-    for (final audio in preparedAudios) {
-      if (audio.delayMs > 0) {
-        final timer = Timer(Duration(milliseconds: audio.delayMs), () async {
-          if (!_isDisposed && mounted) {
-            await _GiftAudioPool.playFile(audio.file.path);
-          }
-        });
-        _audioTimers.add(timer);
-      } else {
-        _GiftAudioPool.playFile(audio.file.path);
-      }
+    final audio = preparedAudios.first;
+    if (audio.delayMs > 0) {
+      final timer = Timer(Duration(milliseconds: audio.delayMs), () async {
+        if (!_isDisposed && mounted) {
+          await _GiftAudioPool.playFile(audio.file.path);
+        }
+      });
+      _audioTimers.add(timer);
+    } else {
+      _GiftAudioPool.playFile(audio.file.path);
     }
   }
 
@@ -2669,18 +2687,16 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
 
   void _playPreparedAudios(List<PreparedSvgaAudio> preparedAudios) {
     if (widget.hasCustomSound || preparedAudios.isEmpty) return;
-    debugPrint("[SVGAPlayer] Playing ${preparedAudios.length} embedded audio track(s) for network SVGA: ${widget.url}");
-    for (final audio in preparedAudios) {
-      if (audio.delayMs > 0) {
-        final timer = Timer(Duration(milliseconds: audio.delayMs), () async {
-          if (!_isDisposed && mounted) {
-            await _GiftAudioPool.playFile(audio.file.path);
-          }
-        });
-        _audioTimers.add(timer);
-      } else {
-        _GiftAudioPool.playFile(audio.file.path);
-      }
+    final audio = preparedAudios.first;
+    if (audio.delayMs > 0) {
+      final timer = Timer(Duration(milliseconds: audio.delayMs), () async {
+        if (!_isDisposed && mounted) {
+          await _GiftAudioPool.playFile(audio.file.path);
+        }
+      });
+      _audioTimers.add(timer);
+    } else {
+      _GiftAudioPool.playFile(audio.file.path);
     }
   }
 
