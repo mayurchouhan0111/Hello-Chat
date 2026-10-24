@@ -140,6 +140,7 @@ class VapView(
     private var detectedDurationMs = 0L
     @Volatile private var hasCompleted = false
     @Volatile private var isDisposed = false
+    @Volatile private var isPlayingActive = false
     private var currentPlayId: String? = null
     private var currentTicket: Int = 0
     private var ticketCounter: Int = 0
@@ -203,6 +204,7 @@ class VapView(
 
             override fun onFailed(errorType: Int, errorMsg: String?) {
                 cancelWatchdog()
+                isPlayingActive = false
                 val ticket = currentTicket
                 val currentId = currentPlayId
                 val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
@@ -237,6 +239,7 @@ class VapView(
 
             override fun onVideoStart() {
                 hasCompleted = false
+                isPlayingActive = true
                 cancelWatchdog()
                 val currentId = currentPlayId
                 val ticket = currentTicket
@@ -284,6 +287,7 @@ class VapView(
     private fun dispatchVideoComplete() {
         if (hasCompleted || isDisposed) return
         hasCompleted = true
+        isPlayingActive = false
         cancelWatchdog()
         val completedId = currentPlayId
         val ticket = currentTicket
@@ -309,6 +313,7 @@ class VapView(
     override fun dispose() {
         if (isDisposed) return
         isDisposed = true
+        isPlayingActive = false
         cancelPendingStart()
         cancelWatchdog()
         mainHandler.removeCallbacksAndMessages(null)
@@ -342,6 +347,7 @@ class VapView(
             "playAsset" -> playAsset(call.argument<String>("assetName"), frameLayout.context, result)
             "stop" -> { 
                 cancelPendingStart()
+                isPlayingActive = false
                 animView.stopPlay()
                 animView.alpha = 0f
                 result.success(null) 
@@ -356,6 +362,14 @@ class VapView(
     private fun playFile(filePath: String?, id: String?, ticket: Int?, result: MethodChannel.Result?) {
         val playId = id ?: "req_${System.currentTimeMillis()}"
         val playTicket = ticket ?: ++ticketCounter
+
+        // Idempotency: if this is a retry for the active clip that is already running, ignore it
+        if (ticket != null && ticket == currentTicket && currentPlayId == playId && isPlayingActive && animView.isRunning()) {
+            Log.i("VAP_TRACE", "playFile idempotent retry: id=$playId, ticket=$playTicket is already actively running, ignoring duplicate start")
+            result?.success(null)
+            return
+        }
+
         currentTicket = playTicket
         if (filePath == null) {
             Log.w("VAP_TRACE", "playFile REFUSED: id=$playId, ticket=$playTicket, reason=filePath is null")
