@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -34,31 +35,59 @@ class VapAnimation extends StatefulWidget {
   static final Map<String, String> _extractedCache = {};
   // De-duplicates concurrent downloads/extractions of the same asset.
   static final Map<String, Future<String?>> _inFlight = {};
+  static String? _cachedTempDirPath;
 
   static Future<String?> preCache(String assetPath) {
     final cached = _extractedCache[assetPath];
     if (cached != null && File(cached).existsSync()) return Future.value(cached);
-    return _inFlight[assetPath] ??=
-        _load(assetPath).whenComplete(() => _inFlight.remove(assetPath));
+
+    if (_inFlight.containsKey(assetPath)) {
+      return _inFlight[assetPath]!;
+    }
+
+    const loadTimeout = Duration(seconds: 8);
+    final future = _load(assetPath).timeout(
+      loadTimeout,
+      onTimeout: () {
+        debugPrint('[VAP_TRACE] preCache TIMEOUT: asset="$assetPath" after ${loadTimeout.inSeconds}s');
+        _inFlight.remove(assetPath);
+        return null;
+      },
+    ).catchError((e, st) {
+      debugPrint('[VAP_TRACE] preCache error: asset="$assetPath", error=$e\n$st');
+      _inFlight.remove(assetPath);
+      return null;
+    }).whenComplete(() {
+      _inFlight.remove(assetPath);
+    });
+
+    _inFlight[assetPath] = future;
+    return future;
   }
 
   static Future<String?> _load(String assetPath) async {
     try {
-      debugPrint('[VAP] _load start $assetPath');
-      final tempDir = await getTemporaryDirectory();
+      debugPrint('[VAP_TRACE] _load start: asset="$assetPath"');
+      if (_cachedTempDirPath == null) {
+        final tempDir = await getTemporaryDirectory();
+        _cachedTempDirPath = tempDir.path;
+      }
+      final tempDirPath = _cachedTempDirPath!;
       final safeName = assetPath.replaceAll(RegExp(r'[^\w.]'), '_');
-      final target = File('${tempDir.path}/$safeName');
+      final target = File('$tempDirPath/$safeName');
 
       if (await target.exists() && await target.length() > 0) {
-        debugPrint('[VAP] _load cache hit $assetPath');
+        debugPrint('[VAP_TRACE] _load cache hit: asset="$assetPath", path="${target.path}"');
         return _extractedCache[assetPath] = target.path;
       }
-      debugPrint('[VAP] _load cache miss, copying $assetPath');
+      debugPrint('[VAP_TRACE] _load cache miss, extracting off UI thread: asset="$assetPath"');
 
       // Write to a .part file and rename, so a crash never leaves a truncated "valid" file.
       final part = File('${target.path}.part');
-      if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
-        final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+      final bool isRemote = assetPath.startsWith('http://') || assetPath.startsWith('https://');
+
+      if (isRemote) {
+        final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
         try {
           final request = await client.getUrl(Uri.parse(assetPath));
           final response = await request.close();
@@ -69,20 +98,38 @@ class VapAnimation extends StatefulWidget {
         } finally {
           client.close(force: true);
         }
+        if (await part.exists() && await part.length() > 0) {
+          if (await target.exists()) await target.delete();
+          await part.rename(target.path);
+          debugPrint('[VAP_TRACE] _load download complete: asset="$assetPath", path="${target.path}"');
+          return _extractedCache[assetPath] = target.path;
+        }
       } else {
         final data = await rootBundle.load(assetPath);
-        await part.writeAsBytes(
-          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
-          flush: true,
-        );
-      }
+        final bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 
-      if (await part.exists() && await part.length() > 0) {
-        await part.rename(target.path);
-        return _extractedCache[assetPath] = target.path;
+        // File extraction/copy off the UI thread in a background worker isolate
+        final partPath = part.path;
+        final targetPath = target.path;
+        final bool written = await Isolate.run(() {
+          final p = File(partPath);
+          p.writeAsBytesSync(bytes, flush: true);
+          if (p.existsSync() && p.lengthSync() > 0) {
+            final t = File(targetPath);
+            if (t.existsSync()) t.deleteSync();
+            p.renameSync(targetPath);
+            return true;
+          }
+          return false;
+        });
+
+        if (written && await target.exists() && await target.length() > 0) {
+          debugPrint('[VAP_TRACE] _load asset extraction complete: asset="$assetPath", path="${target.path}", size=${await target.length()}');
+          return _extractedCache[assetPath] = target.path;
+        }
       }
-    } catch (e) {
-      debugPrint('VapAnimation.preCache error for $assetPath: $e');
+    } catch (e, st) {
+      debugPrint('[VAP_TRACE] _load exception: asset="$assetPath", error=$e\n$st');
     }
     return null;
   }
