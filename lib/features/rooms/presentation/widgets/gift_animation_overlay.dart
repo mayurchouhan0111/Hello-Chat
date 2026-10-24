@@ -23,6 +23,11 @@ import '../../../../services/gift_service.dart';
 import 'gift_combo_overlay.dart';
 import 'seat_grid.dart';
 
+/// Debug-only kill-switch for the persistent VAP player's embedded AAC
+/// audio. Flip to true to diagnose audio glitches without touching
+/// SafeHardDecoder. Not read from config — recompile to toggle.
+const bool kMuteVapAudio = false;
+
 /// Representation of an immediate local gift animation event.
 class GiftAnimationEvent {
   final String id;
@@ -1152,6 +1157,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
               child: VapView(
                 scaleType: ScaleType.fitCenter,
                 repeat: 0,
+                mute: kMuteVapAudio,
                 onViewCreated: _setupPersistentVapController,
               ),
             ),
