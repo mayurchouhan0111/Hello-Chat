@@ -408,7 +408,45 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (!mounted) return;
     if (_isAppPaused) return;
     final key = targetUid.isNotEmpty ? targetUid : '_unseated_';
+
+    // 1. If this seat is currently playing an animation of the same sender + gift, absorb it!
+    final active = _currentSeatGifts[key];
+    if (active != null &&
+        active.animation.senderUid == animation.senderUid &&
+        active.animation.giftId == animation.giftId) {
+      final int delta = animation.comboCount > active.animation.comboCount
+          ? (animation.comboCount - active.animation.comboCount)
+          : (animation.comboCount > 0 ? animation.comboCount : 1);
+      final int newCombo = active.animation.comboCount + delta;
+      _currentSeatGifts[key] = active.copyWith(
+        animation: active.animation.copyWith(
+          comboCount: newCombo,
+          text: '${animation.giftName} x$newCombo',
+        ),
+      );
+      debugPrint("[SeatGift] Absorbed combo into active seat gift: ${animation.giftName} x$newCombo on $key");
+      return;
+    }
+
+    // 2. If the queue for this seat already has a pending item of the same sender + gift, merge it!
     final queue = _seatQueues.putIfAbsent(key, () => []);
+    final existingIdx = queue.indexWhere(
+      (item) => item.senderUid == animation.senderUid && item.giftId == animation.giftId,
+    );
+    if (existingIdx != -1) {
+      final existing = queue[existingIdx];
+      final int delta = animation.comboCount > existing.comboCount
+          ? (animation.comboCount - existing.comboCount)
+          : (animation.comboCount > 0 ? animation.comboCount : 1);
+      final int newCombo = existing.comboCount + delta;
+      queue[existingIdx] = existing.copyWith(
+        comboCount: newCombo,
+        text: '${animation.giftName} x$newCombo',
+      );
+      debugPrint("[SeatGift] Merged into queued seat gift: ${animation.giftName} x$newCombo on $key");
+      return;
+    }
+
     if (queue.length < 50) {
       queue.add(animation);
     }
@@ -608,25 +646,24 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       }
 
       if (resolvedTier == 'NORMAL' && !isNativePlatformAnim) {
-        final count = math.min(math.max(ev.quantity, 1), 25);
-        for (int i = 0; i < count; i++) {
-          final anim = _ActiveGiftAnimation(
-            id: '${ev.id}_$i',
-            giftId: ev.giftId,
-            url: resolvedUrl,
-            senderUid: ev.senderUid,
-            text: ev.text,
-            imageUrl: ev.imageUrl,
-            soundUrl: ev.soundUrl,
-            format: resolvedFormat,
-            giftCategory: ev.category,
-            giftName: ev.giftName,
-            tier: resolvedTier,
-            durationMs: resolvedDuration,
-            targetUid: targetUid.isNotEmpty ? targetUid : null,
-          );
-          _enqueueSeatAnimation(targetUid, anim);
-        }
+        final count = math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
+        final anim = _ActiveGiftAnimation(
+          id: ev.id,
+          giftId: ev.giftId,
+          url: resolvedUrl,
+          senderUid: ev.senderUid,
+          text: '${ev.giftName} x$count',
+          imageUrl: ev.imageUrl,
+          soundUrl: ev.soundUrl,
+          format: resolvedFormat,
+          giftCategory: ev.category,
+          giftName: ev.giftName,
+          tier: resolvedTier,
+          durationMs: resolvedDuration,
+          targetUid: targetUid.isNotEmpty ? targetUid : null,
+          comboCount: count,
+        );
+        _enqueueSeatAnimation(targetUid, anim);
       } else {
         final anim = _ActiveGiftAnimation(
           id: ev.id,
@@ -839,26 +876,24 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           format == 'svga');
 
       if (tier == 'NORMAL' && !isNativePlatformAnim) {
-        final count = math.min(math.max(msg.quantity, 1), 25);
-        for (int i = 0; i < count; i++) {
-          final animId = "${msg.msgId}_${targetUid}_$i";
-          final anim = _ActiveGiftAnimation(
-            id: animId,
-            giftId: effectiveGiftId,
-            url: giftUrl,
-            senderUid: msg.uid,
-            text: msg.text,
-            imageUrl: imageUrl,
-            soundUrl: soundUrl,
-            format: format,
-            giftCategory: category,
-            giftName: giftName,
-            tier: tier,
-            durationMs: durationMs,
-            targetUid: targetUid.isNotEmpty ? targetUid : null,
-          );
-          _enqueueSeatAnimation(targetUid, anim);
-        }
+        final count = math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
+        final anim = _ActiveGiftAnimation(
+          id: "${msg.msgId}_$targetUid",
+          giftId: effectiveGiftId,
+          url: giftUrl,
+          senderUid: msg.uid,
+          text: '${giftName.isNotEmpty ? giftName : 'Gift'} x$count',
+          imageUrl: imageUrl,
+          soundUrl: soundUrl,
+          format: format,
+          giftCategory: category,
+          giftName: giftName,
+          tier: tier,
+          durationMs: durationMs,
+          targetUid: targetUid.isNotEmpty ? targetUid : null,
+          comboCount: count,
+        );
+        _enqueueSeatAnimation(targetUid, anim);
       } else {
         final anim = _ActiveGiftAnimation(
           id: msg.msgId,
@@ -937,19 +972,44 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
     if (_isAppPaused) return;
 
+    // 1. If an animation is actively PLAYING for the same sender + gift, absorb it!
+    if (_isFullScreenPlaying &&
+        _currentFullScreenAnim != null &&
+        _currentFullScreenAnim!.senderUid == anim.senderUid &&
+        _currentFullScreenAnim!.giftId == anim.giftId) {
+      final int delta = anim.comboCount > _currentFullScreenAnim!.comboCount
+          ? (anim.comboCount - _currentFullScreenAnim!.comboCount)
+          : (anim.comboCount > 0 ? anim.comboCount : 1);
+      final int newCombo = _currentFullScreenAnim!.comboCount + delta;
+      _currentFullScreenAnim = _currentFullScreenAnim!.copyWith(
+        comboCount: newCombo,
+        text: '${anim.giftName} x$newCombo',
+      );
+      debugPrint("[GiftQueue] Absorbed combo into active playing gift: ${anim.giftName} x$newCombo for sender ${anim.senderUid}");
+      // Optional short extend of the hold/safety timer with a cap
+      if (_currentFullScreenAnim!.durationMs > 0) {
+        final int maxCap = _currentFullScreenAnim!.durationMs + 6000;
+        _armFullScreenSafetyTimer(maxCap, _currentFullScreenTicket);
+      }
+      return;
+    }
+
     if (anim.tier == 'LUXURY') {
-      // Combo merging per sender+gift
+      // Combo merging per sender+gift in waiting queue
       final existingIdx = _luxuryQueue.indexWhere(
         (item) => item.senderUid == anim.senderUid && item.giftId == anim.giftId,
       );
       if (existingIdx != -1) {
         final existing = _luxuryQueue[existingIdx];
-        final mergedCount = existing.comboCount + anim.comboCount;
+        final int delta = anim.comboCount > existing.comboCount
+            ? (anim.comboCount - existing.comboCount)
+            : (anim.comboCount > 0 ? anim.comboCount : 1);
+        final mergedCount = existing.comboCount + delta;
         _luxuryQueue[existingIdx] = existing.copyWith(
           comboCount: mergedCount,
           text: '${anim.giftName} x$mergedCount',
         );
-        debugPrint("[GiftQueue] Merged luxury combo: ${anim.giftName} x$mergedCount for sender ${anim.senderUid}");
+        debugPrint("[GiftQueue] Merged luxury combo in queue: ${anim.giftName} x$mergedCount for sender ${anim.senderUid}");
       } else {
         // Max 5 queued luxury gifts (drops oldest if exceeded)
         if (_luxuryQueue.length >= 5) {
@@ -965,7 +1025,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       );
       if (existingIdx != -1) {
         final existing = _mediumQueue[existingIdx];
-        final mergedCount = existing.comboCount + anim.comboCount;
+        final int delta = anim.comboCount > existing.comboCount
+            ? (anim.comboCount - existing.comboCount)
+            : (anim.comboCount > 0 ? anim.comboCount : 1);
+        final mergedCount = existing.comboCount + delta;
         _mediumQueue[existingIdx] = existing.copyWith(
           comboCount: mergedCount,
           text: '${anim.giftName} x$mergedCount',
@@ -1531,6 +1594,22 @@ class _ActiveSeatGift {
     required this.expiryTimer,
     this.hasFlown = false,
   });
+
+  _ActiveSeatGift copyWith({
+    String? id,
+    String? targetUid,
+    _ActiveGiftAnimation? animation,
+    Timer? expiryTimer,
+    bool? hasFlown,
+  }) {
+    return _ActiveSeatGift(
+      id: id ?? this.id,
+      targetUid: targetUid ?? this.targetUid,
+      animation: animation ?? this.animation,
+      expiryTimer: expiryTimer ?? this.expiryTimer,
+      hasFlown: hasFlown ?? this.hasFlown,
+    );
+  }
 }
 
 /// Seat-anchored NORMAL gift player: golden aura + elastic bounce + minimum
