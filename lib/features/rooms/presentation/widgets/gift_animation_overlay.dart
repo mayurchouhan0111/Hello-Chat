@@ -400,6 +400,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final Completer<VapController> _vapControllerCompleter = Completer<VapController>();
   DateTime? _vapStartTime;
   String _currentDeviceModel = 'Android';
+  int _currentFullScreenTicket = 0;
 
   List<GiftModel> _gifts = [];
 
@@ -905,22 +906,22 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
       },
       onVideoComplete: () {
-        debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel");
-        _onFullScreenAnimationFinished();
+        debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onFailed: (code, errorType, msg) {
-        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel");
-        _onFullScreenAnimationFinished();
+        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onFailedWithDevice: (code, errorType, msg, device) {
         if (device != null && device.isNotEmpty) {
           _currentDeviceModel = device;
         }
-        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel");
-        _onFullScreenAnimationFinished();
+        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onVideoDestroy: () {
-        debugPrint("[VAP_TRACE] onVideoDestroy: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel");
+        debugPrint("[VAP_TRACE] onVideoDestroy: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
       },
     );
   }
@@ -1000,6 +1001,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (!mounted) return;
 
     final isVap = anim.format == 'vap';
+    final int ticket = ++_currentFullScreenTicket;
 
     setState(() {
       _isFullScreenPlaying = true;
@@ -1016,8 +1018,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
       // Duration safety cap
       final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
-      _armFullScreenSafetyTimer(duration + 2000);
-      debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} url=${anim.url}");
+      _armFullScreenSafetyTimer(duration + 2000, ticket);
+      debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       Future<VapController?> getController() async {
         if (_persistentVapController != null) return _persistentVapController;
@@ -1028,27 +1030,29 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       }
 
       getController().then((ctrl) {
-        if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, reason=ctrl guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
+        if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
+          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=ctrl guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
           return;
         }
         if (ctrl == null) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, reason=Controller not ready within timeout");
-          _onFullScreenAnimationFinished();
+          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Controller not ready within timeout");
+          _onFullScreenAnimationFinished(ticket);
           return;
         }
 
         // Call playFile with pre-cached path
         VapAnimation.preCache(anim.url).then((filePath) {
-          if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id) {
-            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, reason=preCache guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
+          if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
+            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
             return;
           }
           if (filePath != null && File(filePath).existsSync()) {
-            debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, path=$filePath, durationMs=$duration");
-            ctrl.playFile(filePath, anim.id).catchError((e) {
-              debugPrint("[VAP_TRACE] onFail: id=${anim.id}, error=$e");
-              _onFullScreenAnimationFinished();
+            debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$duration");
+            ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
+              debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
+              if (_currentFullScreenTicket == ticket) {
+                _onFullScreenAnimationFinished(ticket);
+              }
             });
             // soundUrl fallback: only when this .vap carries no audio track.
             // Runs after playFile so the TTFF path never waits on a file read.
@@ -1056,7 +1060,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             if (soundUrl.isNotEmpty) {
               mp4HasAudioTrack(filePath).then((hasAudio) {
                 if (hasAudio || !mounted || !_isFullScreenPlaying ||
-                    _currentFullScreenAnim?.id != anim.id) {
+                    _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
                   return;
                 }
                 debugPrint("[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
@@ -1068,32 +1072,44 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
               });
             }
           } else {
-            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, reason=Cache failed / file missing for ${anim.url}");
-            _onFullScreenAnimationFinished();
+            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Cache failed / file missing for ${anim.url}");
+            if (_currentFullScreenTicket == ticket) {
+              _onFullScreenAnimationFinished(ticket);
+            }
           }
         }).catchError((e) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, reason=preCache error: $e");
-          _onFullScreenAnimationFinished();
+          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache error: $e");
+          if (_currentFullScreenTicket == ticket) {
+            _onFullScreenAnimationFinished(ticket);
+          }
         });
       });
     } else {
       final int duration = anim.durationMs > 0 ? anim.durationMs : 5000;
-      _armFullScreenSafetyTimer(duration + 1500);
+      _armFullScreenSafetyTimer(duration + 1500, ticket);
     }
   }
 
-  void _armFullScreenSafetyTimer(int ms) {
+  void _armFullScreenSafetyTimer(int ms, [int? ticket]) {
     _fullScreenWatchdogTimer?.cancel();
     _fullScreenWatchdogTimer = Timer(Duration(milliseconds: ms), () {
       if (mounted && _isFullScreenPlaying) {
-        debugPrint("[VAP_TRACE] watchdog fired: id=${_currentFullScreenAnim?.id}, safety timeout ${ms}ms elapsed");
-        _onFullScreenAnimationFinished();
+        if (ticket != null && ticket < _currentFullScreenTicket) {
+          debugPrint("[VAP_TRACE] watchdog dropped: stale ticket $ticket < current $_currentFullScreenTicket");
+          return;
+        }
+        debugPrint("[VAP_TRACE] watchdog fired: id=${_currentFullScreenAnim?.id}, ticket=$ticket, safety timeout ${ms}ms elapsed");
+        _onFullScreenAnimationFinished(ticket);
       }
     });
   }
 
-  void _onFullScreenAnimationFinished() {
+  void _onFullScreenAnimationFinished([int? ticket]) {
     if (!mounted) return;
+    if (ticket != null && ticket < _currentFullScreenTicket) {
+      debugPrint("[VAP_TRACE] _onFullScreenAnimationFinished dropped: ticket $ticket < current $_currentFullScreenTicket");
+      return;
+    }
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
 

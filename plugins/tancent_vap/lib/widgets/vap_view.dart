@@ -260,11 +260,23 @@ class VapController {
     _onVideoConfigReady = onVideoConfigReady;
   }
 
+  int _currentTicket = 0;
+
+  /// The ticket of the currently active or most recent play request.
+  int get currentTicket => _currentTicket;
+
   /// Internal method to handle events from native platforms.
   Future<void> _handleNativeEvent(MethodCall call) async {
+    final rawArgs = call.arguments is Map ? Map<String, dynamic>.from(call.arguments as Map) : null;
+    final callbackTicket = rawArgs?['ticket'] as int?;
+    if (callbackTicket != null && callbackTicket < _currentTicket) {
+      debugPrint('[VAP_TRACE] VapController dropping stale callback ${call.method}: ticket=$callbackTicket < current=$_currentTicket');
+      return;
+    }
+
     switch (call.method) {
       case 'onFailed':
-        final args = call.arguments is Map ? Map<String, dynamic>.from(call.arguments as Map) : {};
+        final args = rawArgs ?? {};
         final code = args['errorCode'] as int? ?? -1;
         final type = args['errorType'] as String? ?? 'ERROR';
         final msg = args['errorMsg'] as String?;
@@ -288,8 +300,7 @@ class VapController {
         }
         break;
       case 'onVideoStart':
-        final args = call.arguments is Map ? Map<String, dynamic>.from(call.arguments as Map) : null;
-        final device = args?['device'] as String?;
+        final device = rawArgs?['device'] as String?;
         _onVideoStart?.call();
         _onVideoStartWithDevice?.call(device);
         break;
@@ -319,10 +330,13 @@ class VapController {
   /// ```dart
   /// await controller.playFile('/path/to/animation.mp4');
   /// ```
-  Future<void> playFile(String filePath, [String? id]) async {
+  Future<void> playFile(String filePath, [String? id, int? ticket]) async {
+    final effectiveTicket = ticket ?? ++_currentTicket;
+    _currentTicket = effectiveTicket;
     await __channel.invokeMethod('playFile', {
       'filePath': filePath,
       if (id != null) 'id': id,
+      'ticket': effectiveTicket,
     });
   }
 
