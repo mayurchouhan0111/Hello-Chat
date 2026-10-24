@@ -513,9 +513,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _gifts = gifts;
         });
       }
-      // Pre-cache top bundled VAP gifts in background so first playback has zero disk I/O latency
+      // Pre-cache all bundled VAP gifts in background so first playback has zero disk I/O latency
       Future.delayed(const Duration(milliseconds: 600), () {
-        for (final spec in GiftVapCatalog.all.take(5)) {
+        for (final spec in GiftVapCatalog.all) {
           VapAnimation.preCache(spec.assetPath);
         }
       });

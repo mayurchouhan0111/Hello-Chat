@@ -101,6 +101,22 @@ class SafeAnimView(context: Context) : AnimView(context) {
     // Detach must not destroy the decoder; safeDestroy() owns teardown.
     override fun onDetachedFromWindow() {}
 
+    override fun removeAllViews() {
+        if (isDestroying) {
+            super.removeAllViews()
+        } else {
+            Log.d(TAG, "removeAllViews ignored to keep warm InnerTextureView surface alive")
+        }
+    }
+
+    override fun removeView(view: View?) {
+        if (isDestroying) {
+            super.removeView(view)
+        } else {
+            Log.d(TAG, "removeView ignored to keep warm InnerTextureView surface alive")
+        }
+    }
+
     fun safeDestroy() {
         isDestroying = true
         surfaceCallbacks.clear()
@@ -134,7 +150,6 @@ class VapView(
     private val channel = MethodChannel(messenger, "vap_view_$id")
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private var playResult: MethodChannel.Result? = null
     private val vapTagContents = mutableMapOf<String, Map<String, String>>()
     private var completionWatchdog: Runnable? = null
     private var detectedDurationMs = 0L
@@ -212,8 +227,6 @@ class VapView(
                 mainHandler.post {
                     if (isDisposed) return@post
                     animView.alpha = 0f
-                    playResult?.error(errorType.toString(), errorMsg, "$errorType: VIDEO_PLAYBACK_ERROR")
-                    playResult = null
                     channel.invokeMethod(
                         "onFailed",
                         mapOf(
@@ -295,8 +308,6 @@ class VapView(
         mainHandler.post {
             if (isDisposed) return@post
             animView.alpha = 0f
-            playResult?.success(null)
-            playResult = null
             channel.invokeMethod("onVideoComplete", mapOf("ticket" to ticket, "id" to completedId))
 
             // Trigger gated start if waiting for codec release
@@ -319,7 +330,6 @@ class VapView(
         mainHandler.removeCallbacksAndMessages(null)
         channel.setMethodCallHandler(null)
         vapTagContents.clear()
-        playResult = null
         runCatching { animView.stopPlay() }.onFailure { Log.e("VapView", "stopPlay: $it") }
         runCatching {
             animView.safeDestroy()
@@ -387,6 +397,9 @@ class VapView(
             return
         }
 
+        // Return immediately at request time to unblock Flutter caller
+        result?.success(null)
+
         // Cancel any pending start from an earlier request
         cancelPendingStart()
 
@@ -397,7 +410,6 @@ class VapView(
                 return@Runnable
             }
             currentPlayId = playId
-            playResult = result
             hasCompleted = false
             cancelWatchdog()
 
@@ -449,7 +461,7 @@ class VapView(
 
     private fun playAsset(assetName: String?, context: Context, result: MethodChannel.Result?) {
         if (assetName == null) { result?.error("INVALID_ASSET", "Asset name cannot be null", null); return }
-        playResult = result
+        result?.success(null)
         hasCompleted = false
         cancelWatchdog()
         Log.i("VapView", "playAsset: $assetName")

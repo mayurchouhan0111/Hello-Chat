@@ -392,13 +392,13 @@ class VapController {
   Future<void> playFile(String filePath, [String? id, int? ticket]) async {
     final effectiveTicket = ticket ?? ++_currentTicket;
     _currentTicket = effectiveTicket;
+    _armStartVerification(filePath, id, effectiveTicket);
     try {
       await __channel.invokeMethod('playFile', {
         'filePath': filePath,
         if (id != null) 'id': id,
         'ticket': effectiveTicket,
       });
-      _armStartVerification(filePath, id, effectiveTicket);
     } catch (e) {
       _cancelStartVerification();
       rethrow;
