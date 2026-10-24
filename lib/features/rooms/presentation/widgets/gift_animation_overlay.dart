@@ -151,6 +151,15 @@ class GiftAnimationController extends ChangeNotifier {
           resolvedTier = spec.tier;
         }
       }
+      if (localVap != null) {
+        if (resolvedDuration <= 0) {
+          resolvedDuration = SvgaParserUtil.getLocalVapDurationMs(localVap);
+        }
+        final vt = SvgaParserUtil.getLocalVapTier(localVap);
+        if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
+          resolvedTier = vt;
+        }
+      }
     }
 
     final event = GiftAnimationEvent(
@@ -670,6 +679,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             resolvedTier = spec.tier;
           }
         }
+        if (localVap != null) {
+          if (resolvedDuration <= 0) {
+            resolvedDuration = SvgaParserUtil.getLocalVapDurationMs(localVap);
+          }
+          final vt = SvgaParserUtil.getLocalVapTier(localVap);
+          if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
+            resolvedTier = vt;
+          }
+        }
       }
 
       if (resolvedTier == 'NORMAL' && !isNativePlatformAnim) {
@@ -860,6 +878,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             tier = spec.tier;
           }
         }
+        if (localVap != null) {
+          if (durationMs <= 0) {
+            durationMs = SvgaParserUtil.getLocalVapDurationMs(localVap);
+          }
+          final vt = SvgaParserUtil.getLocalVapTier(localVap);
+          if (vt != null && (tier.isEmpty || tier == 'NORMAL')) {
+            tier = vt;
+          }
+        }
       }
 
       // 4. Fallback URL
@@ -1013,8 +1040,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         text: '${anim.giftName} x$newCombo',
       );
       debugPrint("[GiftQueue] Absorbed combo into active playing gift: ${anim.giftName} x$newCombo for sender ${anim.senderUid}");
-      // Optional short extend of the hold/safety timer with a cap
-      if (_currentFullScreenAnim!.durationMs > 0) {
+      // Optional short extend of the hold/safety timer with a cap (non-VAP only; VAP runs full video)
+      if (_currentFullScreenAnim!.durationMs > 0 && _currentFullScreenAnim!.format != 'vap') {
         final int maxCap = _currentFullScreenAnim!.durationMs + 6000;
         _armFullScreenSafetyTimer(maxCap, _currentFullScreenTicket);
       }
@@ -1107,8 +1134,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
 
       // Duration safety cap
-      final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
-      _armFullScreenSafetyTimer(duration + 2000, ticket);
+      final int duration = anim.durationMs > 0
+          ? anim.durationMs
+          : (anim.tier == 'LUXURY' ? 16000 : 10000);
+      _armFullScreenSafetyTimer(math.max(duration + 6000, 25000), ticket);
       debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       Future<VapController?> getController() async {
@@ -1345,12 +1374,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         if (_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format != 'vap')
           _buildNonVapAnimationItem(_currentFullScreenAnim!),
 
-        // Layer 4: Combo Overlay banner (isolated in RepaintBoundary, rendered above VAP player)
-        IgnorePointer(
-          child: RepaintBoundary(
-            child: GiftComboOverlay(roomId: widget.roomId),
-          ),
-        ),
+        // Layer 4: Combo Overlay banner (rendered above VAP player, internally self-isolated in RepaintBoundary)
+        GiftComboOverlay(roomId: widget.roomId),
       ],
     );
   }

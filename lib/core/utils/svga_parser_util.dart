@@ -416,6 +416,94 @@ class SvgaParserUtil {
     return null;
   }
 
+  /// Returns exact encoded duration in ms for local bundled MP4/VAP files.
+  static int getLocalVapDurationMs(String path) {
+    final lower = path.toLowerCase();
+    if (lower.contains('219667')) {
+      return 14667;
+    }
+    if (lower.contains('169522')) {
+      return 10600;
+    }
+    if (lower.contains('gift_8.vap')) {
+      return 15574;
+    }
+    if (lower.contains('gift_9.vap')) {
+      return 11904;
+    }
+    if (lower.contains('gift_1.vap') ||
+        lower.contains('gift_3.vap') ||
+        lower.contains('gift_4.vap') ||
+        lower.contains('gift_5.vap') ||
+        lower.contains('gift_6.vap') ||
+        lower.contains('gift_7.vap')) {
+      return 10027;
+    }
+    if (lower.contains('gift_2.vap')) {
+      return 8150;
+    }
+    if (lower.contains('gift_10.vap')) {
+      return 6667;
+    }
+    if (lower.contains('gift_11.vap')) {
+      return 6038;
+    }
+    if (lower.contains('gift_12.vap')) {
+      return 5355;
+    }
+    if (lower.contains('256006')) {
+      return 5042;
+    }
+    if (lower.contains('tencent-vap-music')) {
+      return 5091;
+    }
+    if (lower.contains('251779')) {
+      return 5000;
+    }
+    if (lower.contains('2529')) {
+      return 3067;
+    }
+    if (lower.contains('lucky gifts bell vap')) {
+      return 3080;
+    }
+    if (lower.contains('lucky gift dates')) {
+      return 1250;
+    }
+    return 0;
+  }
+
+  /// Returns the overlay tier for local bundled MP4/VAP files.
+  static String? getLocalVapTier(String path) {
+    final lower = path.toLowerCase();
+    if (lower.contains('219667') ||
+        lower.contains('169522') ||
+        lower.contains('gift_8.vap') ||
+        lower.contains('gift_9.vap')) {
+      return 'LUXURY';
+    }
+    if (lower.contains('gift_1.vap') ||
+        lower.contains('gift_2.vap') ||
+        lower.contains('gift_3.vap') ||
+        lower.contains('gift_4.vap') ||
+        lower.contains('gift_5.vap') ||
+        lower.contains('gift_6.vap') ||
+        lower.contains('gift_7.vap') ||
+        lower.contains('256006') ||
+        lower.contains('tencent-vap-music') ||
+        lower.contains('251779')) {
+      return 'MEDIUM';
+    }
+    if (lower.contains('gift_10.vap') ||
+        lower.contains('gift_11.vap') ||
+        lower.contains('gift_12.vap') ||
+        lower.contains('2529') ||
+        lower.contains('lucky gifts bell vap') ||
+        lower.contains('lucky gift dates')) {
+      return 'NORMAL';
+    }
+    return null;
+  }
+
   /// Returns in-memory pre-decoded MovieEntity if available, allowing instant frame-0 rendering.
   static MovieEntity? getCachedMovie(String assetPath) {
     return _movieCache[assetPath.trim()];
