@@ -955,15 +955,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (isVap) {
       _vapStartTime = DateTime.now();
 
-      // Synchronous gift audio if available
-      if (anim.soundUrl?.trim().isNotEmpty == true) {
-        final sUrl = anim.soundUrl!.trim();
-        if (sUrl.startsWith('http')) {
-          _GiftAudioPool.playUrl(sUrl);
-        } else if (sUrl.startsWith('assets/')) {
-          _GiftAudioPool.playAsset(sUrl);
-        }
-      }
+      // No _GiftAudioPool here: VAP files carry their own embedded AAC track
+      // (verified on all bundled .vap assets) which stays in sync with the
+      // animation. A remote gift that ships both a .vap and a soundUrl would
+      // otherwise double-play.
 
       // Duration safety cap
       final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
@@ -1664,6 +1659,16 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
   void _playSound() async {
     final soundUrl = widget.animation.soundUrl?.trim() ?? '';
     if (soundUrl.isNotEmpty) {
+      // VAP-family animations play their own embedded AAC — never layer
+      // the catalog/message soundUrl on top of them. Match the URL too:
+      // the format tag can be stale while the player keys off the extension.
+      final fmt = widget.animation.format.toLowerCase();
+      final urlLc = widget.animation.url.toLowerCase();
+      if (fmt == 'vap' || fmt == 'vpa' || fmt == 'mp4' || fmt == 'pag' ||
+          urlLc.contains('.vap') || urlLc.contains('.vpa') ||
+          urlLc.contains('.mp4') || urlLc.contains('.pag')) {
+        return;
+      }
       try {
         if (_isDisposed) return;
         if (soundUrl.startsWith('http')) {
