@@ -362,11 +362,11 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
                 color: const Color(0xFFA78BFA).withValues(alpha: 0.45),
                 width: 0.8,
               ),
-              boxShadow: [
+              boxShadow: const [
                 BoxShadow(
-                  color: const Color(0x666D28D9),
+                  color: Color(0x666D28D9),
                   blurRadius: 6,
-                  offset: const Offset(0, 2),
+                  offset: Offset(0, 2),
                 ),
               ],
             ),

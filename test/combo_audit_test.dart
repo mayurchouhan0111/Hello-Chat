@@ -1,5 +1,5 @@
+// ignore_for_file: avoid_print
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/core/models/message_model.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/gift_combo_overlay.dart';
 
