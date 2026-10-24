@@ -46,6 +46,12 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
   4. **Fix 4 (Branch `fix/gift-off-isolate-svga`, commit `d9545f5`)**:
      - In `svga_parser_util.dart`, offloaded audio extraction and file writing from the UI thread to a background isolate via `Isolate.run`.
      - In `gift_animation_overlay.dart`, pre-decodes and caches room SVGA gifts in background on room entry.
+  5. **Fix 5 (Branch `fix/gift-watchdog-and-combo-overlay`, commit `304dba1`)**:
+     - Diagnosed log exception from device run:
+       - `Exception: type 'ParentData' is not a subtype of type 'StackParentData' in type cast`: In Fix 2, `GiftComboOverlay` was wrapped inside `IgnorePointer(child: RepaintBoundary(...))`. Because `GiftComboOverlay` returns `Positioned(...)`, its parent widget must be a `Stack`. Wrapping it in `RepaintBoundary` caused Flutter's layout engine to crash on every combo mount, suppressing the banner. Removed outer wrapper so `GiftComboOverlay` is an immediate child of `Stack` (it already has internal `RepaintBoundary`).
+       - `watchdog fired: ... safety timeout 10000ms elapsed` in the middle of 14.67s Crystal Princess VAP video: Bundled MP4 gifts (such as `219667/video.mp4`) were missing duration metadata in `GiftVapCatalog`, falling back to 8000ms and arming a 10000ms safety watchdog. At second 10, the watchdog fired in the middle of playback, triggering a premature state reset and widget rebuild.
+       - Added `SvgaParserUtil.getLocalVapDurationMs` and `getLocalVapTier` with verified durations for all bundled local VAP/MP4 clips (e.g., 14667ms for 219667, 15574ms for gift_8).
+       - Relaxed safety watchdog timer to `math.max(duration + 6000, 25000)` so the watchdog serves purely as a crash backstop and never cuts off or freezes healthy playback.
 - **Files Touched**:
   - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
   - `lib/features/rooms/presentation/screens/live_room_screen.dart`
