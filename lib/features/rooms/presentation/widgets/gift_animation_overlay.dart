@@ -571,10 +571,17 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _gifts = gifts;
         });
       }
-      // Pre-cache all bundled VAP gifts in background so first playback has zero disk I/O latency
+      // Pre-cache all bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
       Future.delayed(const Duration(milliseconds: 600), () {
         for (final spec in GiftVapCatalog.all) {
           VapAnimation.preCache(spec.assetPath);
+        }
+        for (final g in _gifts) {
+          final raw = g.lottieAssetPath.isNotEmpty ? g.lottieAssetPath : g.imageUrl;
+          final svga = SvgaParserUtil.getLocalGiftSvgaPath(raw, giftId: g.giftId, giftName: g.name);
+          if (svga != null) {
+            SvgaParserUtil.decodeSafeFromAssets(svga);
+          }
         }
       });
     } catch (e) {

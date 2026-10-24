@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
+import '../constants/gift_vap_catalog.dart';
 import 'app_persistent_cache.dart';
 
 class PreparedSvgaAudio {
@@ -82,7 +84,11 @@ class SvgaParserUtil {
 
               final tempFile = File('${tempDir.path}/svga_audio_${assetHash}_$audioKey.$ext');
               if (!await tempFile.exists() || (await tempFile.length()) != bytes.length) {
-                await tempFile.writeAsBytes(bytes, flush: true);
+                final filePath = tempFile.path;
+                final bytesCopy = Uint8List.fromList(bytes);
+                await Isolate.run(() {
+                  File(filePath).writeAsBytesSync(bytesCopy, flush: false);
+                });
               }
 
               final int delayMs = (audio.startFrame / effectiveFps * 1000).toInt();
@@ -333,6 +339,14 @@ class SvgaParserUtil {
 
     if (urlOrFile.startsWith('assets/') && (lower.endsWith('.mp4') || lower.endsWith('.vap'))) {
       return urlOrFile;
+    }
+
+    if (lowerId.contains('vap_gift_') || lower.contains('vap_gift_')) {
+      final raw = lowerId.contains('vap_gift_') ? lowerId : lower;
+      final match = RegExp(r'vap_gift_(\d+)').firstMatch(raw);
+      final key = match != null ? 'vap_gift_${match.group(1)}' : lowerId;
+      final spec = GiftVapCatalog.byId(key);
+      if (spec != null) return spec.assetPath;
     }
 
     if (lower.contains('1790956334312') ||
