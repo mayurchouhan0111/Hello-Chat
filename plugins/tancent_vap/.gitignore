@@ -1,0 +1,9 @@
+android/.gradle/
+android/build/
+android/local.properties
+example/build/
+example/android/.gradle/
+example/android/local.properties
+example/ios/Pods/
+example/ios/.symlinks/
+*.iml
