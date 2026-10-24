@@ -1,8 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle, MissingPluginException;
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:tancent_vap/tancent_vap.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -10,6 +11,7 @@ class VapAnimation extends StatefulWidget {
   final String assetPath;
   final String? profileImageUrl;
   final Uint8List? profileImageBytes;
+  final String? fallbackImageUrl;
   final BoxFit fit;
   final bool loop;
   final VoidCallback? onComplete;
@@ -21,12 +23,69 @@ class VapAnimation extends StatefulWidget {
     required this.assetPath,
     this.profileImageUrl,
     this.profileImageBytes,
+    this.fallbackImageUrl,
     this.fit = BoxFit.contain,
     this.loop = false,
     this.onComplete,
     this.onError,
     this.onStart,
   });
+
+  static final Map<String, String> _extractedCache = {};
+  // De-duplicates concurrent downloads/extractions of the same asset.
+  static final Map<String, Future<String?>> _inFlight = {};
+
+  static Future<String?> preCache(String assetPath) {
+    final cached = _extractedCache[assetPath];
+    if (cached != null && File(cached).existsSync()) return Future.value(cached);
+    return _inFlight[assetPath] ??=
+        _load(assetPath).whenComplete(() => _inFlight.remove(assetPath));
+  }
+
+  static Future<String?> _load(String assetPath) async {
+    try {
+      debugPrint('[VAP] _load start $assetPath');
+      final tempDir = await getTemporaryDirectory();
+      final safeName = assetPath.replaceAll(RegExp(r'[^\w.]'), '_');
+      final target = File('${tempDir.path}/$safeName');
+
+      if (await target.exists() && await target.length() > 0) {
+        debugPrint('[VAP] _load cache hit $assetPath');
+        return _extractedCache[assetPath] = target.path;
+      }
+      debugPrint('[VAP] _load cache miss, copying $assetPath');
+
+      // Write to a .part file and rename, so a crash never leaves a truncated "valid" file.
+      final part = File('${target.path}.part');
+      if (assetPath.startsWith('http://') || assetPath.startsWith('https://')) {
+        final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+        try {
+          final request = await client.getUrl(Uri.parse(assetPath));
+          final response = await request.close();
+          if (response.statusCode != 200) {
+            throw HttpException('HTTP ${response.statusCode}', uri: Uri.parse(assetPath));
+          }
+          await response.pipe(part.openWrite());
+        } finally {
+          client.close(force: true);
+        }
+      } else {
+        final data = await rootBundle.load(assetPath);
+        await part.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+          flush: true,
+        );
+      }
+
+      if (await part.exists() && await part.length() > 0) {
+        await part.rename(target.path);
+        return _extractedCache[assetPath] = target.path;
+      }
+    } catch (e) {
+      debugPrint('VapAnimation.preCache error for $assetPath: $e');
+    }
+    return null;
+  }
 
   @override
   State<VapAnimation> createState() => _VapAnimationState();
@@ -35,26 +94,27 @@ class VapAnimation extends StatefulWidget {
 class _VapAnimationState extends State<VapAnimation> {
   VapController? _controller;
   bool _hasError = false;
-  String? _tempFilePath;
+  bool _completed = false;
 
   @override
   void didUpdateWidget(VapAnimation oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.assetPath != widget.assetPath) {
-      _hasError = false;
-    }
     if (oldWidget.profileImageUrl != widget.profileImageUrl ||
         oldWidget.profileImageBytes != widget.profileImageBytes) {
       _setProfileTag();
-    }
-    if (oldWidget.key != widget.key && _controller != null && _tempFilePath != null) {
-      _controller!.playFile(_tempFilePath!);
     }
   }
 
   @override
   void dispose() {
-    _controller?.dispose();
+    final c = _controller;
+    _controller = null;
+    if (c != null) {
+      try {
+        c.setAnimListener(onVideoComplete: null, onFailed: null);
+      } catch (_) {}
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -72,106 +132,80 @@ class _VapAnimationState extends State<VapAnimation> {
     }
   }
 
-  ScaleType _mapFit(BoxFit fit) {
-    return switch (fit) {
-      BoxFit.cover => ScaleType.centerCrop,
-      BoxFit.fill => ScaleType.fitXY,
-      _ => ScaleType.fitCenter,
-    };
-  }
-
-  Future<String> _ensureTempFile() async {
-    final tempDir = await getTemporaryDirectory();
-    final safeName = widget.assetPath.replaceAll(RegExp(r'[^\w.]'), '_');
-    final tempFile = File('${tempDir.path}/$safeName');
-    if (!tempFile.existsSync()) {
-      final isRemote = widget.assetPath.startsWith('http://') || widget.assetPath.startsWith('https://');
-      debugPrint('VapAnimation: ensureTemp remote=$isRemote sizeBefore=${tempFile.existsSync() ? tempFile.lengthSync() : -1}');
-      if (isRemote) {
-        final client = HttpClient();
-        final request = await client.getUrl(Uri.parse(widget.assetPath));
-        final response = await request.close();
-        await response.pipe(tempFile.openWrite());
-        client.close(force: true);
-        if (!tempFile.existsSync() || tempFile.lengthSync() == 0) {
-          throw StateError('download produced no bytes for ${widget.assetPath}');
-        }
-      } else {
-        final data = await rootBundle.load(widget.assetPath);
-        await tempFile.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes));
-      }
-    }
-    _tempFilePath = tempFile.path;
-    return _tempFilePath!;
-  }
+  ScaleType _mapFit(BoxFit fit) => switch (fit) {
+        BoxFit.cover => ScaleType.centerCrop,
+        BoxFit.fill => ScaleType.fitXY,
+        _ => ScaleType.fitCenter,
+      };
 
   @override
   Widget build(BuildContext context) {
     if (_hasError) return const SizedBox.shrink();
 
-    return VapView(
-      // Stable key: UniqueKey() recreated the native view on every parent
-      // rebuild (opacity animations), blanking the gift mid-play.
-      key: ValueKey('vap_${widget.assetPath}'),
-      scaleType: _mapFit(widget.fit),
-      repeat: widget.loop ? 99999 : 0,
-      onViewCreated: _onViewCreated,
+    // Audio is enabled (mute: false). RepaintBoundary isolates the
+    // PlatformView layer from the parent's repaints.
+    return RepaintBoundary(
+      child: VapView(
+        key: widget.key ?? ValueKey('vap_${widget.assetPath}'),
+        scaleType: _mapFit(widget.fit),
+        repeat: widget.loop ? 99999 : 0,
+        mute: false,
+        onViewCreated: _onViewCreated,
+      ),
     );
+  }
+
+  void _fail([String? reason]) {
+    debugPrint('[VAP_TRACE] [VapPlayer] onFail: asset="${widget.assetPath}", reason=${reason ?? "unknown error"}');
+    if (!mounted || _hasError) return;
+    setState(() => _hasError = true);
+    widget.onError?.call();
   }
 
   Future<void> _onViewCreated(VapController controller) async {
     _controller = controller;
 
     controller.setAnimListener(
-      onVideoComplete: () => widget.onComplete?.call(),
+      onVideoStart: () {
+        debugPrint('[VAP_TRACE] [VapPlayer] onStart: asset="${widget.assetPath}"');
+        if (mounted) widget.onStart?.call();
+      },
+      onVideoComplete: () {
+        debugPrint('[VAP_TRACE] [VapPlayer] onComplete: asset="${widget.assetPath}"');
+        // Native fires complete from both decoder and watchdog; report once.
+        if (!mounted || _completed) return;
+        _completed = true;
+        widget.onComplete?.call();
+      },
       onFailed: (code, type, msg) {
-        debugPrint('VapAnimation failed: [$code] $type - $msg');
-        if (mounted) setState(() => _hasError = true);
-        widget.onError?.call();
+        debugPrint('[VAP_TRACE] [VapPlayer] onFail: asset="${widget.assetPath}", code=$code, type=$type, msg=$msg');
+        _fail('native error code $code ($msg)');
       },
     );
 
     try {
       await _setProfileTag();
     } catch (e) {
-      debugPrint('VapAnimation: profile tag skipped - $e');
+      debugPrint('⚠️ [VapPlayer] Error setting profile tag: $e');
     }
 
-    if (!mounted) return;
     try {
-      final path = await _ensureTempFile();
-      // The native handler on channel `vap_view_$id` registers a beat after
-      // Dart's onPlatformViewCreated, so the first invoke intermittently lands
-      // on a channel nobody handles yet. Retry with short backoff instead of
-      // failing the whole gift animation.
-      await _retryOnMissingPlugin(() async {
-        if (widget.loop) {
-          await controller.setLoop(99999);
-        }
-        await controller.playFile(path);
-      }, attempts: 6, delay: const Duration(milliseconds: 250));
-      widget.onStart?.call();
-      debugPrint('VapAnimation: Playing ${widget.assetPath} from $path${widget.loop ? ' (looping)' : ''}');
-    } catch (e) {
-      debugPrint('VapAnimation: Failed to start ${widget.assetPath} - $e');
-      if (mounted) setState(() => _hasError = true);
-      widget.onError?.call();
-    }
-  }
-
-  Future<void> _retryOnMissingPlugin(
-    Future<void> Function() op, {
-    required int attempts,
-    required Duration delay,
-  }) async {
-    for (var i = 0; i < attempts; i++) {
-      try {
-        await op();
-        return;
-      } on MissingPluginException {
-        if (i == attempts - 1) rethrow;
-        await Future<void>.delayed(delay);
+      final path = await VapAnimation.preCache(widget.assetPath);
+      if (path == null) {
+        debugPrint('[VAP_TRACE] [VapPlayer] playFile REFUSED: asset="${widget.assetPath}", reason=preCache returned null');
+        throw StateError('Failed to prepare ${widget.assetPath}');
       }
+      if (!mounted || _controller != controller) {
+        debugPrint('[VAP_TRACE] [VapPlayer] playFile REFUSED: asset="${widget.assetPath}", reason=controller unmounted or changed');
+        return;
+      }
+
+      if (widget.loop) await controller.setLoop(99999);
+      debugPrint('[VAP_TRACE] [VapPlayer] playFile requested: asset="${widget.assetPath}", path="$path"');
+      await controller.playFile(path, widget.key?.toString() ?? widget.assetPath);
+    } catch (e, st) {
+      debugPrint('[VAP_TRACE] [VapPlayer] playFile exception: asset="${widget.assetPath}", error=$e\n$st');
+      _fail('exception: $e');
     }
   }
 }

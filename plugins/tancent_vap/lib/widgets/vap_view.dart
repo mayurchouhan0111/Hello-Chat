@@ -319,8 +319,11 @@ class VapController {
   /// ```dart
   /// await controller.playFile('/path/to/animation.mp4');
   /// ```
-  Future<void> playFile(String filePath) async {
-    await __channel.invokeMethod('playFile', {'filePath': filePath});
+  Future<void> playFile(String filePath, [String? id]) async {
+    await __channel.invokeMethod('playFile', {
+      'filePath': filePath,
+      if (id != null) 'id': id,
+    });
   }
 
   /// Plays a VAP animation from a Flutter asset.

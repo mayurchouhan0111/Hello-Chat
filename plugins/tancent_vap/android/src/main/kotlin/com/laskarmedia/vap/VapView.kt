@@ -140,6 +140,7 @@ class VapView(
     private var detectedDurationMs = 0L
     @Volatile private var hasCompleted = false
     @Volatile private var isDisposed = false
+    private var currentPlayId: String? = null
 
     init {
         applyScaleType(params?.get("scaleType") as? String)
@@ -201,7 +202,7 @@ class VapView(
             override fun onFailed(errorType: Int, errorMsg: String?) {
                 cancelWatchdog()
                 val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
-                Log.e("VapView", "onFailed: code=$errorType msg=$errorMsg device=$deviceModel")
+                Log.e("VAP_TRACE", "onFail: id=$currentPlayId, code=$errorType, msg=$errorMsg, device=$deviceModel")
                 mainHandler.post {
                     if (isDisposed) return@post
                     animView.alpha = 0f
@@ -231,13 +232,17 @@ class VapView(
             override fun onVideoStart() {
                 hasCompleted = false
                 cancelWatchdog()
+                val currentId = currentPlayId
                 if (detectedDurationMs > 0) {
-                    val r = Runnable { dispatchVideoComplete() }
+                    val r = Runnable {
+                        Log.w("VAP_TRACE", "watchdog firing: id=$currentId, duration=${detectedDurationMs}ms elapsed, forcing completion")
+                        dispatchVideoComplete()
+                    }
                     completionWatchdog = r
                     mainHandler.postDelayed(r, detectedDurationMs + 350L)
                 }
                 val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
-                Log.i("VapView", "onVideoStart device=$deviceModel")
+                Log.i("VAP_TRACE", "onStart: id=$currentId, device=$deviceModel")
                 invoke("onVideoStart", mapOf("device" to deviceModel))
             }
         })
@@ -247,7 +252,7 @@ class VapView(
         animView.visibility = View.VISIBLE
 
         // Start playback only after listeners/resources are registered
-        (params?.get("filePath") as? String)?.let { playFile(it, null) }
+        (params?.get("filePath") as? String)?.let { playFile(it, params?.get("id") as? String, null) }
         (params?.get("assetName") as? String)?.let { playAsset(it, context, null) }
     }
 
@@ -264,7 +269,7 @@ class VapView(
         if (hasCompleted || isDisposed) return
         hasCompleted = true
         cancelWatchdog()
-        Log.i("VapView", "dispatchVideoComplete")
+        Log.i("VAP_TRACE", "onComplete: id=$currentPlayId")
         mainHandler.post {
             if (isDisposed) return@post
             animView.alpha = 0f
@@ -302,7 +307,7 @@ class VapView(
                 }
                 result.success(ready)
             }
-            "playFile" -> playFile(call.argument<String>("filePath"), result)
+            "playFile" -> playFile(call.argument<String>("filePath"), call.argument<String>("id"), result)
             "playAsset" -> playAsset(call.argument<String>("assetName"), frameLayout.context, result)
             "stop" -> { 
                 animView.stopPlay()
@@ -316,25 +321,47 @@ class VapView(
         }
     }
 
-    private fun playFile(filePath: String?, result: MethodChannel.Result?) {
-        if (filePath == null) { result?.error("INVALID_PATH", "File path cannot be null", null); return }
+    private fun playFile(filePath: String?, id: String?, result: MethodChannel.Result?) {
+        val playId = id ?: "req_${System.currentTimeMillis()}"
+        currentPlayId = playId
+        if (filePath == null) {
+            Log.w("VAP_TRACE", "playFile REFUSED: id=$playId, reason=filePath is null")
+            result?.error("INVALID_PATH", "File path cannot be null", null)
+            return
+        }
         playResult = result
         hasCompleted = false
         cancelWatchdog()
         val file = File(filePath)
-        Log.i("VapView", "playFile: $filePath (exists=${file.exists()} size=${file.length()})")
+        val exists = file.exists()
+        val size = if (exists) file.length() else -1L
+        Log.i("VAP_TRACE", "playFile request: id=$playId, path=$filePath, exists=$exists, size=$size, surfaceAvailable=${animView.isSurfaceAvailable}, isRunning=${animView.isRunning()}, visibility=${animView.visibility}")
+
+        if (animView.visibility != View.VISIBLE) {
+            Log.w("VAP_TRACE", "startPlay REFUSED: id=$playId, reason=visibility != VISIBLE (${animView.visibility})")
+        }
+        if (animView.isRunning()) {
+            Log.w("VAP_TRACE", "startPlay REFUSED: id=$playId, reason=animView is already running")
+        }
+
         animView.visibility = View.VISIBLE
         animView.alpha = 1f
         if (animView.isSurfaceAvailable) {
             animView.startPlay(file)
         } else {
-            Log.i("VapView", "playFile: surface not available yet, preparing texture view and waiting...")
+            Log.i("VAP_TRACE", "playFile waiting for surface: id=$playId")
             animView.prepareTextureView()
             animView.addOnSurfaceAvailableCallback {
                 mainHandler.post {
                     if (!isDisposed) {
                         animView.visibility = View.VISIBLE
                         animView.alpha = 1f
+                        if (animView.visibility != View.VISIBLE) {
+                            Log.w("VAP_TRACE", "startPlay (deferred) REFUSED: id=$playId, reason=visibility != VISIBLE (${animView.visibility})")
+                        }
+                        if (animView.isRunning()) {
+                            Log.w("VAP_TRACE", "startPlay (deferred) REFUSED: id=$playId, reason=animView is already running")
+                        }
                         animView.startPlay(file)
                     }
                 }
