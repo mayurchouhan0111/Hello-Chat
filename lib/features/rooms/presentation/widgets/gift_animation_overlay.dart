@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -250,6 +251,59 @@ class GiftAnimationOverlay extends ConsumerStatefulWidget {
 /// Shared audio player pool for room gift playback.
 /// Reusing a single player prevents Android native MediaPlayer handle exhaustion
 /// (which causes silent gift playback and UI thread lockups).
+/// Best-effort detection of an embedded audio track in an MP4/VAP container:
+/// walks top-level boxes to `moov`, then `moov > trak > mdia > hdlr` and
+/// checks for the `soun` handler type. Returns false when the file can't be
+/// read or parsed — callers then fall back to playing their own soundUrl.
+Future<bool> mp4HasAudioTrack(String path) async {
+  try {
+    final Uint8List bytes = await File(path).readAsBytes();
+    for (final (type, start, end) in _mp4Boxes(bytes, 0, bytes.length)) {
+      if (type != 'moov') continue;
+      for (final (t1, s1, e1) in _mp4Boxes(bytes, start, end)) {
+        if (t1 != 'trak') continue;
+        for (final (t2, s2, e2) in _mp4Boxes(bytes, s1, e1)) {
+          if (t2 != 'mdia') continue;
+          for (final (t3, s3, e3) in _mp4Boxes(bytes, s2, e2)) {
+            if (t3 == 'hdlr' &&
+                e3 - s3 >= 12 &&
+                String.fromCharCodes(bytes, s3 + 8, s3 + 12) == 'soun') {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Yields `(type, payloadStart, payloadEnd)` for each box in `[start, end)`.
+/// Handles 64-bit largesize (`size == 1`) and to-EOF (`size == 0`) boxes;
+/// stops on malformed sizes instead of throwing.
+Iterable<(String, int, int)> _mp4Boxes(Uint8List bytes, int start, int end) sync* {
+  int pos = start;
+  while (pos + 8 <= end) {
+    int size = (bytes[pos] << 24) | (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3];
+    int header = 8;
+    if (size == 1) {
+      if (pos + 16 > end) return;
+      size = 0;
+      for (int i = 0; i < 8; i++) {
+        size = (size << 8) | bytes[pos + 8 + i];
+      }
+      header = 16;
+    } else if (size == 0) {
+      size = end - pos;
+    }
+    if (size < header || pos + size > end) return;
+    yield (String.fromCharCodes(bytes, pos + 4, pos + 8), pos + header, pos + size);
+    pos += size;
+  }
+}
+
 class _GiftAudioPool {
   static AudioPlayer? _player;
   static Future<void> _lock = Future.value();
@@ -955,10 +1009,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (isVap) {
       _vapStartTime = DateTime.now();
 
-      // No _GiftAudioPool here: VAP files carry their own embedded AAC track
-      // (verified on all bundled .vap assets) which stays in sync with the
-      // animation. A remote gift that ships both a .vap and a soundUrl would
-      // otherwise double-play.
+      // soundUrl is layered on top of a VAP only when the file itself has no
+      // audio track (mp4HasAudioTrack below). Bundled .vap assets all carry
+      // embedded AAC, so their empty catalog soundUrl never even triggers the
+      // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
 
       // Duration safety cap
       final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
@@ -989,6 +1043,23 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
               debugPrint("[VAP] playFile error: $e");
               _onFullScreenAnimationFinished();
             });
+            // soundUrl fallback: only when this .vap carries no audio track.
+            // Runs after playFile so the TTFF path never waits on a file read.
+            final String soundUrl = anim.soundUrl?.trim() ?? '';
+            if (soundUrl.isNotEmpty) {
+              mp4HasAudioTrack(filePath).then((hasAudio) {
+                if (hasAudio || !mounted || !_isFullScreenPlaying ||
+                    _currentFullScreenAnim?.id != anim.id) {
+                  return;
+                }
+                debugPrint("[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
+                if (soundUrl.startsWith('http')) {
+                  _GiftAudioPool.playUrl(soundUrl);
+                } else if (soundUrl.startsWith('assets/')) {
+                  _GiftAudioPool.playAsset(soundUrl);
+                }
+              });
+            }
           } else {
             debugPrint("[VAP] Cache failed for ${anim.url}, finishing animation");
             _onFullScreenAnimationFinished();
@@ -1659,15 +1730,29 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
   void _playSound() async {
     final soundUrl = widget.animation.soundUrl?.trim() ?? '';
     if (soundUrl.isNotEmpty) {
-      // VAP-family animations play their own embedded AAC — never layer
-      // the catalog/message soundUrl on top of them. Match the URL too:
-      // the format tag can be stale while the player keys off the extension.
+      // VAP-family animations may play their own embedded AAC — skip
+      // soundUrl only when the resolved file actually carries an audio
+      // track. Match the URL too: the format tag can be stale while the
+      // player keys off the extension.
       final fmt = widget.animation.format.toLowerCase();
       final urlLc = widget.animation.url.toLowerCase();
       if (fmt == 'vap' || fmt == 'vpa' || fmt == 'mp4' || fmt == 'pag' ||
           urlLc.contains('.vap') || urlLc.contains('.vpa') ||
           urlLc.contains('.mp4') || urlLc.contains('.pag')) {
-        return;
+        if (_isDisposed) return;
+        // Resolve exactly what _VapNetworkPlayer will play (local asset
+        // override first), then verify its audio track.
+        final String url = widget.animation.url.trim();
+        final String effectiveGId = widget.animation.giftId.isNotEmpty
+            ? widget.animation.giftId
+            : widget.animation.id;
+        final localVap = SvgaParserUtil.getLocalVapPath(url,
+            giftId: effectiveGId, giftName: widget.animation.giftName);
+        final local = await VapAnimation.preCache(localVap ?? url);
+        if (_isDisposed) return;
+        if (local != null && await mp4HasAudioTrack(local)) return;
+        // File has no audio track (or couldn't be read): fall through and
+        // play soundUrl so the gift isn't silent.
       }
       try {
         if (_isDisposed) return;
