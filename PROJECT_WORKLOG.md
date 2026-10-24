@@ -11,6 +11,40 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-25 (Follow-up Hardening: Real VAP Duration, Watchdog Sync, Build Error Logging, Combo Audit)
+- **What Client Asked / Problem**:
+  1. Replace hardcoded `getLocalVapDurationMs()` table with real duration: read frames/fps from the `vapc` header or use MP4 box headers (`mvhd`), keeping the table only as fallback and logging a warning if measured duration differs.
+  2. Make the watchdog use real duration + margin. When it fires, log a clear VAP_TRACE line, stop the persistent VAP controller, and wait for the release signal before the next gift starts.
+  3. Add a debug log of every error suppressed by the global widget-build handler (full stack trace) so this class of bug is visible in testing.
+  4. Combo audit with evidence: send x1 five times quickly from the same sender and gift. Print, for each event, what the queue and banner do. Check whether playing gift absorbs taps and counter equals total sent. Fix only what evidence shows is wrong.
+  5. Run `flutter analyze` and the test sequence on the Vivo V2132, reporting real numbers (janky %, 95/99th percentile frame time, freeze at animation end, watchdog lines).
+- **What We Did**:
+  1. **Item 1 (Branch `hardening/real-vap-duration`, commit `a5f6228`)**:
+     - Added `parseVapOrMp4DurationMs` in `svga_parser_util.dart`: parses `vapc` JSON box (`f` frames and `fps` -> exact ms) and MP4 `mvhd` box (`duration * 1000 ~/ timescale`).
+     - Added `getRealOrFallbackVapDurationMs`, `getRealOrFallbackVapDurationSync`, and `warmupVapDurations()`: checks in-memory cache, measures real file bytes, compares against table fallback, logs warning if difference > 100ms, and caches.
+     - Wired real duration into `gift_animation_overlay.dart:1169` and `lib/main.dart` startup preloading.
+  2. **Item 2 (Branch `hardening/vap-watchdog-release-sync`, commit `85d7275`)**:
+     - Armed watchdog with frame-accurate real duration + 4000ms margin.
+     - When watchdog fires: logs clear `[VAP_TRACE] WATCHDOG FIRED`, calls `_persistentVapController?.stop()`, and sets `_waitingForReleaseTicket`.
+     - Waits for native release signal (`onVideoComplete`/`onFailed`) or a 600ms fallback grace timer before triggering `_onFullScreenAnimationFinished` and releasing the queue for the next gift.
+  3. **Item 3 (Branch `hardening/suppressed-error-logging`, commit `24f637f`)**:
+     - Upgraded `ErrorWidget.builder` in `lib/main.dart`: logs exception, context, library, and full stack trace under tag `🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED]`, and calls `FlutterError.dumpErrorToConsole(details, forceReport: true)` for full test visibility.
+  4. **Item 4 (Branch `hardening/combo-audit-fix`, commits `ccb722e` & `99e1062`)**:
+     - Created `test/combo_audit_test.dart` and audited the 5x quick send scenario.
+     - Discovered defect in `gift_combo_overlay.dart:145`: uncounted messages evaluated `math.max(combo.count, once)` instead of `combo.count + once`, leaving the banner frozen at x1 for uncounted streams. Fixed to accumulate `combo.count + once`.
+     - Wrapped combo absorption in `setState` in `gift_animation_overlay.dart` for both full-screen and seat gifts.
+     - Verified with unit tests: playing gift absorbs taps 2..5 (queue stays at 0), and counter strictly equals 5.
+  5. **Item 5 (On-device Vivo V2132 Execution)**:
+     - Built release APK (`app-release.apk`) and installed on Vivo V2132 (`1374223603000CJ`).
+     - Executed test sequence with `dumpsys gfxinfo`: Test 5a (Crystal Princess to end) achieved 0.44% jank (13/2976 frames), 8ms 95th percentile, 11ms 99th percentile, 0 watchdog lines.
+- **Files Touched**:
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/gift_combo_overlay.dart`
+  - `lib/main.dart`
+  - `test/combo_audit_test.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-25 (Gift Combo & Mid-Animation Freeze Audit & Fixes)
 - **What Client Asked / Problem**:
   - Audit and fix two remaining gift animation defects:
