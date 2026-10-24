@@ -142,8 +142,8 @@ class GiftComboController extends ChangeNotifier {
       combo.serverCount = math.max(combo.serverCount, math.max(settledFloor, msg.comboCount));
     } else if (combo.countedIds.add(msg.msgId)) {
       final once = math.max(1, msg.quantity);
-      combo.count = math.max(combo.count, math.max(settledFloor, once));
-      combo.serverCount = math.max(combo.serverCount, math.max(settledFloor, once));
+      combo.count = math.max(combo.count + once, settledFloor);
+      combo.serverCount = math.max(combo.serverCount + once, settledFloor);
     }
     combo.giftIconUrl = giftIconUrl;
     if (msg.createdAt.isAfter(combo.lastSeenAt) || isHigherCombo) {

@@ -449,12 +449,14 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           ? (animation.comboCount - active.animation.comboCount)
           : (animation.comboCount > 0 ? animation.comboCount : 1);
       final int newCombo = active.animation.comboCount + delta;
-      _currentSeatGifts[key] = active.copyWith(
-        animation: active.animation.copyWith(
-          comboCount: newCombo,
-          text: '${animation.giftName} x$newCombo',
-        ),
-      );
+      setState(() {
+        _currentSeatGifts[key] = active.copyWith(
+          animation: active.animation.copyWith(
+            comboCount: newCombo,
+            text: '${animation.giftName} x$newCombo',
+          ),
+        );
+      });
       debugPrint("[SeatGift] Absorbed combo into active seat gift: ${animation.giftName} x$newCombo on $key");
       return;
     }
@@ -1052,10 +1054,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           ? (anim.comboCount - _currentFullScreenAnim!.comboCount)
           : (anim.comboCount > 0 ? anim.comboCount : 1);
       final int newCombo = _currentFullScreenAnim!.comboCount + delta;
-      _currentFullScreenAnim = _currentFullScreenAnim!.copyWith(
-        comboCount: newCombo,
-        text: '${anim.giftName} x$newCombo',
-      );
+      setState(() {
+        _currentFullScreenAnim = _currentFullScreenAnim!.copyWith(
+          comboCount: newCombo,
+          text: '${anim.giftName} x$newCombo',
+        );
+      });
       debugPrint("[GiftQueue] Absorbed combo into active playing gift: ${anim.giftName} x$newCombo for sender ${anim.senderUid}");
       // Optional short extend of the hold/safety timer with a cap (non-VAP only; VAP runs full video)
       if (_currentFullScreenAnim!.durationMs > 0 && _currentFullScreenAnim!.format != 'vap') {
