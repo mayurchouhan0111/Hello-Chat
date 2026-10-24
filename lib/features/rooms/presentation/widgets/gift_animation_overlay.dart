@@ -1299,8 +1299,6 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         widget.child,
         // Layer 1 - NORMAL: Sequential queued seat gift animations (isolated in RepaintBoundary)
         ...seatWidgets,
-        // Separate layer: Combo Overlay banner
-        GiftComboOverlay(roomId: widget.roomId),
 
         // Layer 2: Persistent VAP Player (created on room enter, warm and persistent, released on room exit)
         Positioned.fill(
@@ -1319,6 +1317,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         // Layer 3: Non-VAP Medium & Luxury room animations (SVGA / Lottie / Image)
         if (_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format != 'vap')
           _buildNonVapAnimationItem(_currentFullScreenAnim!),
+
+        // Layer 4: Combo Overlay banner (isolated in RepaintBoundary, rendered above VAP player)
+        IgnorePointer(
+          child: RepaintBoundary(
+            child: GiftComboOverlay(roomId: widget.roomId),
+          ),
+        ),
       ],
     );
   }
