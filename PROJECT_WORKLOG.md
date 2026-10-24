@@ -11,6 +11,47 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-25 (Gift Combo & Mid-Animation Freeze Audit & Fixes)
+- **What Client Asked / Problem**:
+  - Audit and fix two remaining gift animation defects:
+    1. Gift combo does not work correctly (counter numbers corrupt or don't advance while playing; gifts queue up instead of merging into the active animation; normal gifts split into 25 separate 5-second animations).
+    2. A small freeze happens in the middle of a gift animation (specifically at 5.5s into a 15.6s VAP luxury clip).
+  - Strict Acceptance Criteria:
+    - Never modify `SafeHardDecoder.kt`, the 50ms release grace, or `SafeAnimView` detach handling.
+    - Audit first with measured facts, marking every claim VERIFIED (file:line / command) or NOT VERIFIED.
+    - Commit each change separately on its own branch.
+    - Ensure combo taps absorb into playing gifts and count matches total sent.
+    - Isolate rebuilds so combo bar and bottom bar do not rebuild the live room or VAP player.
+    - Rate limit audio calls (>=150ms) and limit to 1 track per animation.
+    - Offload audio extraction to background isolate and pre-decode SVGA gifts.
+- **Root Cause Diagnosed**:
+  1. **Combo Ignored Playing Gift (Queue Only Check)**: In `gift_animation_overlay.dart:942-978`, `_enqueueRoomAnimation` only searched `_luxuryQueue`. But active playing clips are removed from `_luxuryQueue` into `_currentFullScreenAnim`. Incoming combo taps found `existingIdx == -1` and queued a new animation instead of updating the playing gift.
+  2. **Corrupted Streak Sum Arithmetic**: Line 947 ran `mergedCount = existing.comboCount + anim.comboCount`. Because taps transmit running streaks (1, 2, 3, 4, 5), adding them caused inflated counts (1 + 2 = 3, 3 + 3 = 6, 6 + 4 = 10, 10 + 5 = 15).
+  3. **Visual Occlusion (Layer Order)**: `GiftComboOverlay` was placed at Layer 1.5, UNDER `VapView` (Layer 2). When a full-screen luxury clip played, the VAP `TextureView` covered the combo banner.
+  4. **Normal Gift 25-Loop Splitting**: In lines 611-629 and 842-861, sending quantity 10 looped 10 times queuing 10 separate 5-second animations (50s playback) instead of 1 animation with a badge showing "x10".
+  5. **Root Cause of Mid-Animation Freeze**: When `QuickSendComboBar` timed out after 5.5 seconds (`kQuickSendComboWindow`), `_dismissQuickSend()` called `setState()` on `_LiveRoomScreenState` (`live_room_screen.dart:2514`). This triggered a full rebuild of the ENTIRE `LiveRoomScreen` (Agora RTC video/audio views, seat grid, message list, and overlays) right at t=5.5s during hardware video decoding.
+  6. **Audio Platform Channel Churn**: In `_GiftAudioPool`, rapid combo taps fired unthrottled `stop()` and `play()` calls across the Android MethodChannel.
+- **What We Did**:
+  1. **Fix 1 (Branch `fix/gift-combo-absorb`, commit `f8fbef5`)**:
+     - In `gift_animation_overlay.dart`, updated `_enqueueRoomAnimation` to check `_currentFullScreenAnim`. When active, new combo taps absorb directly into the playing animation and update `comboCount` with the exact delta.
+     - Fixed queue merging math: computes `delta = anim.comboCount - existing.comboCount` so count reflects total sent.
+     - Added combo absorption and merging to `_enqueueSeatAnimation` and `_ActiveSeatGift`.
+     - In lines 648 and 878, eliminated the 25-loop; emits a single animation with the full combo count.
+  2. **Fix 2 (Branch `fix/gift-rebuild-isolation`, commit `52cd307`)**:
+     - Moved `GiftComboOverlay` above `VapView` into Layer 4 inside a `RepaintBoundary` so combo banners remain visible and never invalidate the video surface.
+     - In `live_room_screen.dart`, replaced `setState()` on `_quickSendGift` with `final ValueNotifier<_QuickSendState?> _quickSendNotifier` and wrapped the bottom bar in `ValueListenableBuilder`. When combo bar dismisses or mounts, ONLY the bottom bar rebuilds; the live room, Agora RTC, and VAP player never rebuild.
+  3. **Fix 3 (Branch `fix/gift-audio-rate-limit`, commit `99f207a`)**:
+     - Added 150ms minimum interval rate-limiting (`kMinAudioIntervalMs = 150`) to `_GiftAudioPool.playFile`, `playUrl`, and `playAsset`.
+     - Enforced at most one audio track per animation in `_playPreparedAudios`.
+  4. **Fix 4 (Branch `fix/gift-off-isolate-svga`, commit `d9545f5`)**:
+     - In `svga_parser_util.dart`, offloaded audio extraction and file writing from the UI thread to a background isolate via `Isolate.run`.
+     - In `gift_animation_overlay.dart`, pre-decodes and caches room SVGA gifts in background on room entry.
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-25 (VAP Gift Hardening: Start Gate, Immediate MethodChannel Return, Warm Surface Retention, All-Gift Pre-caching & Verification)
 - **What Client Asked / Problem**:
   - Fix VAP animations stalling, freezing, or cutting off early on physical device (Vivo V2132, MediaTek Dimensity 900) while Agora RTC audio runs concurrently in live rooms.
