@@ -265,17 +265,34 @@ class VapView(
         completionWatchdog = null
     }
 
+    private var pendingStartRunnable: Runnable? = null
+    private var onReleaseCallback: (() -> Unit)? = null
+
+    private fun cancelPendingStart() {
+        pendingStartRunnable?.let(mainHandler::removeCallbacks)
+        pendingStartRunnable = null
+        onReleaseCallback = null
+    }
+
     private fun dispatchVideoComplete() {
         if (hasCompleted || isDisposed) return
         hasCompleted = true
         cancelWatchdog()
-        Log.i("VAP_TRACE", "onComplete: id=$currentPlayId")
+        val completedId = currentPlayId
+        Log.i("VAP_TRACE", "onComplete: id=$completedId")
         mainHandler.post {
             if (isDisposed) return@post
             animView.alpha = 0f
             playResult?.success(null)
             playResult = null
             channel.invokeMethod("onVideoComplete", null)
+
+            // Trigger gated start if waiting for codec release
+            val cb = onReleaseCallback
+            if (cb != null) {
+                cancelPendingStart()
+                cb()
+            }
         }
     }
 
@@ -284,6 +301,7 @@ class VapView(
     override fun dispose() {
         if (isDisposed) return
         isDisposed = true
+        cancelPendingStart()
         cancelWatchdog()
         mainHandler.removeCallbacksAndMessages(null)
         channel.setMethodCallHandler(null)
@@ -310,6 +328,7 @@ class VapView(
             "playFile" -> playFile(call.argument<String>("filePath"), call.argument<String>("id"), result)
             "playAsset" -> playAsset(call.argument<String>("assetName"), frameLayout.context, result)
             "stop" -> { 
+                cancelPendingStart()
                 animView.stopPlay()
                 animView.alpha = 0f
                 result.success(null) 
@@ -323,49 +342,76 @@ class VapView(
 
     private fun playFile(filePath: String?, id: String?, result: MethodChannel.Result?) {
         val playId = id ?: "req_${System.currentTimeMillis()}"
-        currentPlayId = playId
         if (filePath == null) {
             Log.w("VAP_TRACE", "playFile REFUSED: id=$playId, reason=filePath is null")
             result?.error("INVALID_PATH", "File path cannot be null", null)
             return
         }
-        playResult = result
-        hasCompleted = false
-        cancelWatchdog()
         val file = File(filePath)
         val exists = file.exists()
         val size = if (exists) file.length() else -1L
         Log.i("VAP_TRACE", "playFile request: id=$playId, path=$filePath, exists=$exists, size=$size, surfaceAvailable=${animView.isSurfaceAvailable}, isRunning=${animView.isRunning()}, visibility=${animView.visibility}")
 
-        if (animView.visibility != View.VISIBLE) {
-            Log.w("VAP_TRACE", "startPlay REFUSED: id=$playId, reason=visibility != VISIBLE (${animView.visibility})")
-        }
-        if (animView.isRunning()) {
-            Log.w("VAP_TRACE", "startPlay REFUSED: id=$playId, reason=animView is already running")
+        if (!exists || size <= 0) {
+            Log.w("VAP_TRACE", "playFile REFUSED: id=$playId, reason=file does not exist or empty (size=$size)")
+            result?.error("FILE_NOT_FOUND", "File does not exist or empty: $filePath", null)
+            return
         }
 
-        animView.visibility = View.VISIBLE
-        animView.alpha = 1f
-        if (animView.isSurfaceAvailable) {
-            animView.startPlay(file)
-        } else {
-            Log.i("VAP_TRACE", "playFile waiting for surface: id=$playId")
-            animView.prepareTextureView()
-            animView.addOnSurfaceAvailableCallback {
-                mainHandler.post {
-                    if (!isDisposed) {
-                        animView.visibility = View.VISIBLE
-                        animView.alpha = 1f
-                        if (animView.visibility != View.VISIBLE) {
-                            Log.w("VAP_TRACE", "startPlay (deferred) REFUSED: id=$playId, reason=visibility != VISIBLE (${animView.visibility})")
+        // Cancel any pending start from an earlier request
+        cancelPendingStart()
+
+        val startAction = Runnable {
+            cancelPendingStart()
+            if (isDisposed) return@Runnable
+            currentPlayId = playId
+            playResult = result
+            hasCompleted = false
+            cancelWatchdog()
+
+            animView.visibility = View.VISIBLE
+            animView.alpha = 1f
+
+            if (animView.isSurfaceAvailable) {
+                Log.i("VAP_TRACE", "startGate: starting play for id=$playId")
+                animView.startPlay(file)
+            } else {
+                Log.i("VAP_TRACE", "startGate: waiting for surface for id=$playId")
+                animView.prepareTextureView()
+                animView.addOnSurfaceAvailableCallback {
+                    mainHandler.post {
+                        if (!isDisposed && currentPlayId == playId) {
+                            animView.visibility = View.VISIBLE
+                            animView.alpha = 1f
+                            Log.i("VAP_TRACE", "startGate (deferred): surface ready, starting play for id=$playId")
+                            animView.startPlay(file)
                         }
-                        if (animView.isRunning()) {
-                            Log.w("VAP_TRACE", "startPlay (deferred) REFUSED: id=$playId, reason=animView is already running")
-                        }
-                        animView.startPlay(file)
                     }
                 }
             }
+        }
+
+        if (animView.isRunning()) {
+            Log.i("VAP_TRACE", "startGate: clip is currently running, stopping active playback and waiting for release signal for id=$playId")
+            animView.stopPlay()
+
+            // Wait for the real release signal (dispatchVideoComplete)
+            onReleaseCallback = {
+                Log.i("VAP_TRACE", "startGate: real release signal fired for id=$playId")
+                startAction.run()
+            }
+
+            // Upper bound timer (150ms): grace delay to avoid stalling if release signal is delayed
+            val timeoutRunnable = Runnable {
+                Log.w("VAP_TRACE", "startGate: upper-bound timer (150ms) reached, forcing start for id=$playId")
+                val cb = onReleaseCallback
+                cancelPendingStart()
+                cb?.invoke()
+            }
+            pendingStartRunnable = timeoutRunnable
+            mainHandler.postDelayed(timeoutRunnable, 150L)
+        } else {
+            startAction.run()
         }
     }
 
