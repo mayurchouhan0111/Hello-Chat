@@ -153,7 +153,7 @@ class GiftAnimationController extends ChangeNotifier {
       }
       if (localVap != null) {
         if (resolvedDuration <= 0) {
-          resolvedDuration = SvgaParserUtil.getLocalVapDurationMs(localVap);
+          resolvedDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
         }
         final vt = SvgaParserUtil.getLocalVapTier(localVap);
         if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
@@ -420,6 +420,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   bool _isFullScreenPlaying = false;
   Timer? _fullScreenWatchdogTimer;
   Timer? _transitionTimer;
+  int? _waitingForReleaseTicket;
+  Timer? _releaseFallbackTimer;
 
   // Persistent VAP Player in the room overlay:
   // - Created on room enter, released ONLY on room exit
@@ -681,7 +683,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         }
         if (localVap != null) {
           if (resolvedDuration <= 0) {
-            resolvedDuration = SvgaParserUtil.getLocalVapDurationMs(localVap);
+            resolvedDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
           }
           final vt = SvgaParserUtil.getLocalVapTier(localVap);
           if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
@@ -880,7 +882,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         }
         if (localVap != null) {
           if (durationMs <= 0) {
-            durationMs = SvgaParserUtil.getLocalVapDurationMs(localVap);
+            durationMs = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
           }
           final vt = SvgaParserUtil.getLocalVapTier(localVap);
           if (vt != null && (tier.isEmpty || tier == 'NORMAL')) {
@@ -996,10 +998,20 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       },
       onVideoComplete: () {
         debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
+          debugPrint("[VAP_TRACE] release signal received after watchdog for ticket ${controller.currentTicket}");
+          _releaseFallbackTimer?.cancel();
+          _waitingForReleaseTicket = null;
+        }
         _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onFailed: (code, errorType, msg) {
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
+          debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
+          _releaseFallbackTimer?.cancel();
+          _waitingForReleaseTicket = null;
+        }
         _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onFailedWithDevice: (code, errorType, msg, device) {
@@ -1007,6 +1019,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _currentDeviceModel = device;
         }
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
+          debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
+          _releaseFallbackTimer?.cancel();
+          _waitingForReleaseTicket = null;
+        }
         _onFullScreenAnimationFinished(controller.currentTicket);
       },
       onVideoDestroy: () {
@@ -1166,7 +1183,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             return;
           }
           if (filePath != null && File(filePath).existsSync()) {
-            debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$duration");
+            final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
+            final effectiveDuration = realDuration > 0 ? realDuration : duration;
+            _armFullScreenSafetyTimer(effectiveDuration + 4000, ticket);
+            debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
             ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
               debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
               if (_currentFullScreenTicket == ticket) {
@@ -1217,7 +1237,35 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           debugPrint("[VAP_TRACE] watchdog dropped: stale ticket $ticket < current $_currentFullScreenTicket");
           return;
         }
-        debugPrint("[VAP_TRACE] watchdog fired: id=${_currentFullScreenAnim?.id}, ticket=$ticket, safety timeout ${ms}ms elapsed");
+        debugPrint("[VAP_TRACE] WATCHDOG FIRED: id=${_currentFullScreenAnim?.id}, ticket=$ticket, safety timeout ${ms}ms elapsed - stopping persistent VAP controller and awaiting release signal");
+        _handleWatchdogTimeout(ticket);
+      }
+    });
+  }
+
+  void _handleWatchdogTimeout([int? ticket]) {
+    if (!mounted) return;
+    if (ticket != null && ticket < _currentFullScreenTicket) {
+      return;
+    }
+
+    setState(() {
+      _currentFullScreenAnim = null;
+    });
+
+    try {
+      _persistentVapController?.stop();
+    } catch (e) {
+      debugPrint("[VAP_TRACE] Error calling stop on persistent VAP controller: $e");
+    }
+
+    // Wait for the release signal before the next gift starts
+    _waitingForReleaseTicket = ticket;
+    _releaseFallbackTimer?.cancel();
+    _releaseFallbackTimer = Timer(const Duration(milliseconds: 600), () {
+      if (mounted && _waitingForReleaseTicket == ticket) {
+        debugPrint("[VAP_TRACE] release signal fallback timeout (600ms) reached after watchdog for ticket $ticket");
+        _waitingForReleaseTicket = null;
         _onFullScreenAnimationFinished(ticket);
       }
     });
@@ -1231,6 +1279,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
+    _releaseFallbackTimer?.cancel();
+    _waitingForReleaseTicket = null;
 
     setState(() {
       _currentFullScreenAnim = null;
@@ -1250,6 +1300,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     WidgetsBinding.instance.removeObserver(this);
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
+    _releaseFallbackTimer?.cancel();
+    _waitingForReleaseTicket = null;
     for (final sg in _currentSeatGifts.values) {
       sg.expiryTimer.cancel();
     }
