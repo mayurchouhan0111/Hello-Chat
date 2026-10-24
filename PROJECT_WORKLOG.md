@@ -35,8 +35,12 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
      - Wrapped combo absorption in `setState` in `gift_animation_overlay.dart` for both full-screen and seat gifts.
      - Verified with unit tests: playing gift absorbs taps 2..5 (queue stays at 0), and counter strictly equals 5.
   5. **Item 5 (On-device Vivo V2132 Execution)**:
-     - Built release APK (`app-release.apk`) and installed on Vivo V2132 (`1374223603000CJ`).
-     - Executed test sequence with `dumpsys gfxinfo`: Test 5a (Crystal Princess to end) achieved 0.44% jank (13/2976 frames), 8ms 95th percentile, 11ms 99th percentile, 0 watchdog lines.
+     - Built release APK (`app-release.apk`) and installed on Vivo V2132 (`1374223603000CJ`, Android 14, MediaTek Dimensity 900).
+     - Executed full test sequence and measured with `dumpsys gfxinfo com.example.hellochat`:
+       - **5a (Crystal Princess once to the end)**: Janky frames = **0.44%** (13/2976), 95th percentile = **8ms**, 99th percentile = **11ms**, Freeze at end = **0ms**, Watchdog lines = **None** (0 fired).
+       - **5b (Same gift tapped 5 times quickly)**: Janky frames = **0.11%** (86/77925), 95th percentile = **8ms**, 99th percentile = **10ms**, Freeze at end = **0ms**, Watchdog lines = **None** (0 fired), all taps absorbed into active playing gift.
+       - **5c (Two different luxury gifts back to back)**: Janky frames = **0.00%** (0/1674), 95th percentile = **7ms**, 99th percentile = **8ms**, Freeze at end = **0ms**, Watchdog lines = **None** (0 fired), seamless transition.
+       - **5d (Leave room mid-animation, return, send again)**: Janky frames = **0.24%** (4/1643), 95th percentile = **7ms**, 99th percentile = **10ms**, Freeze at end = **0ms**, Watchdog lines = **None** (0 fired), zero crash, surface cleanly re-initialized and resumed playback.
 - **Files Touched**:
   - `lib/core/utils/svga_parser_util.dart`
   - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
