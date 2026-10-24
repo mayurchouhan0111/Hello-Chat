@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
@@ -416,7 +418,198 @@ class SvgaParserUtil {
     return null;
   }
 
-  /// Returns exact encoded duration in ms for local bundled MP4/VAP files.
+  static final Map<String, int> _vapDurationCache = {};
+  static final Uint8List _kVapcBytes = Uint8List.fromList([0x76, 0x61, 0x70, 0x63]); // 'vapc'
+  static final Uint8List _kMvhdBytes = Uint8List.fromList([0x6D, 0x76, 0x68, 0x64]); // 'mvhd'
+
+  static int _findBytesPattern(Uint8List bytes, Uint8List pattern) {
+    if (bytes.length < pattern.length) return -1;
+    final limit = bytes.length - pattern.length;
+    for (int i = 0; i <= limit; i++) {
+      bool match = true;
+      for (int j = 0; j < pattern.length; j++) {
+        if (bytes[i + j] != pattern[j]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return i;
+    }
+    return -1;
+  }
+
+  /// Parses exact encoded duration in ms from the 'vapc' JSON header (f / fps)
+  /// or 'mvhd' box (duration / timescale) of a VAP or MP4 container.
+  static int parseVapOrMp4DurationMs(Uint8List bytes) {
+    // 1. Try 'vapc' header first (Tencent VAP specification)
+    final vapcIdx = _findBytesPattern(bytes, _kVapcBytes);
+    if (vapcIdx != -1) {
+      try {
+        final searchEnd = math.min(vapcIdx + 400, bytes.length);
+        int jsonStart = -1;
+        for (int i = vapcIdx; i < searchEnd; i++) {
+          if (bytes[i] == 0x7B) {
+            jsonStart = i;
+            break;
+          }
+        }
+        if (jsonStart != -1) {
+          int jsonEnd = -1;
+          for (int i = searchEnd - 1; i >= jsonStart; i--) {
+            if (bytes[i] == 0x7D) {
+              jsonEnd = i;
+              break;
+            }
+          }
+          if (jsonEnd != -1) {
+            final jsonStr = utf8.decode(bytes.sublist(jsonStart, jsonEnd + 1), allowMalformed: true);
+            final data = json.decode(jsonStr) as Map<String, dynamic>;
+            final info = data['info'] as Map<String, dynamic>?;
+            if (info != null) {
+              final frames = (info['f'] as num?)?.toInt() ?? 0;
+              final fps = (info['fps'] as num?)?.toInt() ?? 0;
+              if (frames > 0 && fps > 0) {
+                return (frames * 1000) ~/ fps;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Try 'mvhd' standard MP4 movie header box
+    final mvhdIdx = _findBytesPattern(bytes, _kMvhdBytes);
+    if (mvhdIdx != -1 && mvhdIdx + 36 <= bytes.length) {
+      try {
+        final version = bytes[mvhdIdx + 4];
+        if (version == 0) {
+          final timescale = (bytes[mvhdIdx + 16] << 24) |
+              (bytes[mvhdIdx + 17] << 16) |
+              (bytes[mvhdIdx + 18] << 8) |
+              bytes[mvhdIdx + 19];
+          final duration = (bytes[mvhdIdx + 20] << 24) |
+              (bytes[mvhdIdx + 21] << 16) |
+              (bytes[mvhdIdx + 22] << 8) |
+              bytes[mvhdIdx + 23];
+          if (timescale > 0) {
+            return (duration * 1000) ~/ timescale;
+          }
+        } else if (version == 1 && mvhdIdx + 40 <= bytes.length) {
+          final timescale = (bytes[mvhdIdx + 24] << 24) |
+              (bytes[mvhdIdx + 25] << 16) |
+              (bytes[mvhdIdx + 26] << 8) |
+              bytes[mvhdIdx + 27];
+          int duration = 0;
+          for (int i = 0; i < 8; i++) {
+            duration = (duration << 8) | bytes[mvhdIdx + 28 + i];
+          }
+          if (timescale > 0) {
+            return (duration * 1000) ~/ timescale;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return 0;
+  }
+
+  /// Returns real measured duration in ms, using the hardcoded table as a fallback.
+  /// Logs a warning if the measured duration differs from the table.
+  static Future<int> getRealOrFallbackVapDurationMs(String path, [Uint8List? directBytes]) async {
+    final cleanPath = path.trim();
+    if (_vapDurationCache.containsKey(cleanPath)) {
+      return _vapDurationCache[cleanPath]!;
+    }
+
+    int measured = 0;
+    try {
+      Uint8List? bytes = directBytes;
+      if (bytes == null) {
+        final file = File(cleanPath);
+        if (file.existsSync()) {
+          bytes = await file.readAsBytes();
+        } else if (cleanPath.startsWith('assets/')) {
+          final data = await rootBundle.load(cleanPath);
+          bytes = data.buffer.asUint8List();
+        }
+      }
+      if (bytes != null && bytes.isNotEmpty) {
+        measured = parseVapOrMp4DurationMs(bytes);
+      }
+    } catch (e) {
+      debugPrint("[VAP_TRACE] Failed to read real duration for $path: $e");
+    }
+
+    final table = getLocalVapDurationMs(cleanPath);
+    if (measured > 0 && table > 0 && (measured - table).abs() > 100) {
+      debugPrint("[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
+    }
+
+    final resolved = measured > 0 ? measured : table;
+    if (resolved > 0) {
+      _vapDurationCache[cleanPath] = resolved;
+    }
+    return resolved;
+  }
+
+  /// Synchronous variant: checks in-memory cache, attempts sync file read if available,
+  /// otherwise falls back to the hardcoded table.
+  static int getRealOrFallbackVapDurationSync(String path) {
+    final cleanPath = path.trim();
+    if (_vapDurationCache.containsKey(cleanPath)) {
+      return _vapDurationCache[cleanPath]!;
+    }
+    try {
+      final file = File(cleanPath);
+      if (file.existsSync()) {
+        final bytes = file.readAsBytesSync();
+        final measured = parseVapOrMp4DurationMs(bytes);
+        final table = getLocalVapDurationMs(cleanPath);
+        if (measured > 0 && table > 0 && (measured - table).abs() > 100) {
+          debugPrint("[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
+        }
+        final resolved = measured > 0 ? measured : table;
+        if (resolved > 0) {
+          _vapDurationCache[cleanPath] = resolved;
+          return resolved;
+        }
+      }
+    } catch (_) {}
+    return getLocalVapDurationMs(cleanPath);
+  }
+
+  /// Pre-parses all known local VAP / MP4 assets asynchronously and warms up the cache.
+  static Future<void> warmupVapDurations() async {
+    const known = [
+      'assets/animations/gifts/219667/video.mp4',
+      'assets/animations/gifts/251779/video.mp4',
+      'assets/animations/gifts/256006/video.mp4',
+      'assets/animations/gifts/2529/video.mp4',
+      'assets/animations/gifts/169522/video.mp4',
+      'assets/animations/gifts/tencent-VAP-music/video.mp4',
+      'assets/animations/gifts/lucky gifts bell vap/lucky gifts bell vap/video.mp4',
+      'assets/animations/gifts/normal gift/lucky gift dates/video.mp4',
+      'assets/gifts-vap/vap_gift_1.vap',
+      'assets/gifts-vap/vap_gift_2.vap',
+      'assets/gifts-vap/vap_gift_3.vap',
+      'assets/gifts-vap/vap_gift_4.vap',
+      'assets/gifts-vap/vap_gift_5.vap',
+      'assets/gifts-vap/vap_gift_6.vap',
+      'assets/gifts-vap/vap_gift_7.vap',
+      'assets/gifts-vap/vap_gift_8.vap',
+      'assets/gifts-vap/vap_gift_9.vap',
+      'assets/gifts-vap/vap_gift_10.vap',
+      'assets/gifts-vap/vap_gift_11.vap',
+      'assets/gifts-vap/vap_gift_12.vap',
+    ];
+    for (final p in known) {
+      try {
+        await getRealOrFallbackVapDurationMs(p);
+      } catch (_) {}
+    }
+  }
+
+  /// Returns exact encoded duration in ms for local bundled MP4/VAP files (table fallback).
   static int getLocalVapDurationMs(String path) {
     final lower = path.toLowerCase();
     if (lower.contains('219667')) {
