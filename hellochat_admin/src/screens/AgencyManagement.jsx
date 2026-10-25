@@ -43,6 +43,7 @@ export const AgencyManagement = () => {
   const [showAppointModal, setShowAppointModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showRecruitModal, setShowRecruitModal] = useState(false);
+  const [modalError, setModalError] = useState('');
 
   // Form states
   const [appointForm, setAppointForm] = useState({
@@ -123,6 +124,7 @@ export const AgencyManagement = () => {
       return;
     }
 
+    setModalError('');
     setActionLoading(true);
     try {
       const createFn = httpsCallable(functions, 'createAgency');
@@ -151,7 +153,7 @@ export const AgencyManagement = () => {
       }
     } catch (err) {
       console.error('Failed to appoint agency:', err);
-      alert('Appoint Agency Failed: ' + (err.message || err));
+      setModalError(err.message || String(err));
     } finally {
       setActionLoading(false);
     }
@@ -702,6 +704,13 @@ export const AgencyManagement = () => {
               </div>
 
               <form onSubmit={handleAppointAgency} className="p-6 space-y-4">
+                {modalError && (
+                  <div className="p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-xl text-rose-300 text-xs font-semibold flex items-start gap-2.5 shadow-lg shadow-rose-900/20">
+                    <span className="text-base leading-none">⚠️</span>
+                    <span className="flex-1">{modalError}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
                     Owner Identifier (Hello ID or UID) *
