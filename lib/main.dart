@@ -65,18 +65,26 @@ void main() async {
     return true; 
   };
 
+  DateTime? lastWidgetErrorLogTime;
+  int suppressedWidgetErrorCount = 0;
+
   // 🛡️ Global widget-build error handler.
-  // Instead of displaying a red error card or diagnostic sheet to end users, log the error with full stack trace so build failures are completely visible in testing.
+  // Rate-limited to max once per 10 seconds with count to prevent logcat flooding and UI freeze.
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Exception: ${details.exception}');
-    if (details.context != null) {
-      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Context: ${details.context}');
+    suppressedWidgetErrorCount++;
+    final now = DateTime.now();
+    if (lastWidgetErrorLogTime == null || now.difference(lastWidgetErrorLogTime!).inSeconds >= 10) {
+      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] (Occurrences: $suppressedWidgetErrorCount) Exception: ${details.exception}');
+      if (details.context != null) {
+        debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Context: ${details.context}');
+      }
+      if (details.library != null) {
+        debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Library: ${details.library}');
+      }
+      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Stack Trace:\n${details.stack}');
+      lastWidgetErrorLogTime = now;
+      suppressedWidgetErrorCount = 0;
     }
-    if (details.library != null) {
-      debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Library: ${details.library}');
-    }
-    debugPrint('🚨 [GLOBAL_WIDGET_BUILD_SUPPRESSED] Full Stack Trace:\n${details.stack}');
-    FlutterError.dumpErrorToConsole(details, forceReport: true);
 
     return LayoutBuilder(
       builder: (context, constraints) {
