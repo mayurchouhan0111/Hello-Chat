@@ -22,6 +22,9 @@ class SvgaParserUtil {
   static final List<String> _preparedAudioKeys = [];
   static const int _maxPreparedAudioCacheSize = 20;
 
+  static int get movieCacheCount => _movieCache.length;
+  static int get preparedAudioCacheCount => _preparedAudioCache.length;
+
   /// Extracts and verifies embedded audio tracks in [videoItem] into temp storage.
   /// Pre-extracting audio before starting animation playback guarantees that audio
   /// and visual frames start in 100% lockstep synchronization with zero startup delay.
