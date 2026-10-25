@@ -11,6 +11,39 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-25 (Sequential Combo Plays & Running Counter Sync)
+- **What Client Asked / Problem**:
+  - Replace the earlier "absorb" design with sequential combo playback:
+    1. A combo of N must play the gift animation N times, one after another (quantity x5 in one tap = 5 plays; 5 separate taps = 5 plays).
+    2. The combo banner shows the running count (x1...x5) and stays in sync with plays.
+    3. The same rule applies to normal, medium, and luxury gifts (normal gifts play on seat anchors without breaking).
+    4. Remove the "absorb into currently playing gift" behavior so extra taps or quantity units are expanded into real plays.
+    5. Set combo cap at at most 10 plays per combo entry by default (`kMaxComboPlays = 10`), logging when excess plays are dropped while the banner still reflects the total sent count.
+    6. Luxury queue cap of 5 must count queue entries, not plays.
+    7. Between plays of the same gift: wait for real `onComplete` or release signal before starting the next one with watchdog & ticket synchronization.
+    8. Late joiners must not replay old gifts; leaving room or pausing clears queues.
+    9. Update `test/combo_audit_test.dart` and perform full on-device tests on the Vivo V2132.
+- **What We Did**:
+  1. **Removed Combo Absorption**:
+     - Removed the active-gift absorption block in both full-screen gifts (`gift_animation_overlay.dart:1049-1070`) and seat gifts (`gift_animation_overlay.dart:443-462`).
+  2. **Expanded Combos into Sequential Plays**:
+     - Enhanced `_ActiveGiftAnimation` with `totalPlays`, `remainingPlays`, and `currentPlayIndex`.
+     - In `_onFullScreenAnimationFinished`, if `remainingPlays > 1`, decrements `remainingPlays`, increments `currentPlayIndex`, updates text label (`${anim.giftName} x$nextPlayIndex`), and triggers the next play after a 100ms surface reset grace window using fresh ticket & watchdog synchronization.
+     - In `_onSeatAnimationFinished`, similarly repeats plays on the seat anchor with `hasFlown: true` so the gift remains pinned to the target seat across cycles.
+  3. **Combo Cap (10 Plays)**:
+     - Defined `kMaxComboPlays = 10`. Coordinated active and queued plays so total plays never exceed 10. Logged when excess plays are dropped without clipping the combo banner counter.
+  4. **Queue Entry Cap Accounting**:
+     - Ensured `_luxuryQueue` (max 5) and `_mediumQueue` (max 20) count queue entries rather than individual plays, preventing combo plays from triggering "drop oldest".
+  5. **Banner Synchronization**:
+     - Added `touch(comboKey)` to `GiftComboController` in `gift_combo_overlay.dart` to extend banner lifetime during playback so the banner stays visible across all N animation cycles.
+  6. **Unit Test Verification**:
+     - Updated `test/combo_audit_test.dart` covering 5x single sender taps, quantity x5 single send, two senders without clobbering, and combo cap enforcement. All 8 tests passed.
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/gift_combo_overlay.dart`
+  - `test/combo_audit_test.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-25 (Follow-up Hardening: Real VAP Duration, Watchdog Sync, Build Error Logging, Combo Audit)
 - **What Client Asked / Problem**:
   1. Replace hardcoded `getLocalVapDurationMs()` table with real duration: read frames/fps from the `vapc` header or use MP4 box headers (`mvhd`), keeping the table only as fallback and logging a warning if measured duration differs.

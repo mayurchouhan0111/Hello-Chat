@@ -29,6 +29,10 @@ import 'seat_grid.dart';
 /// SafeHardDecoder. Not read from config — recompile to toggle.
 const bool kMuteVapAudio = false;
 
+/// Maximum number of sequential animation plays permitted per combo entry.
+/// Beyond this cap, extra plays are dropped while the banner still reflects the total sent count.
+const int kMaxComboPlays = 10;
+
 /// Representation of an immediate local gift animation event.
 class GiftAnimationEvent {
   final String id;
@@ -440,48 +444,59 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (_isAppPaused) return;
     final key = targetUid.isNotEmpty ? targetUid : '_unseated_';
 
-    // 1. If this seat is currently playing an animation of the same sender + gift, absorb it!
-    final active = _currentSeatGifts[key];
-    if (active != null &&
-        active.animation.senderUid == animation.senderUid &&
-        active.animation.giftId == animation.giftId) {
-      final int delta = animation.comboCount > active.animation.comboCount
-          ? (animation.comboCount - active.animation.comboCount)
-          : (animation.comboCount > 0 ? animation.comboCount : 1);
-      final int newCombo = active.animation.comboCount + delta;
-      setState(() {
-        _currentSeatGifts[key] = active.copyWith(
-          animation: active.animation.copyWith(
-            comboCount: newCombo,
-            text: '${animation.giftName} x$newCombo',
-          ),
-        );
-      });
-      debugPrint("[SeatGift] Absorbed combo into active seat gift: ${animation.giftName} x$newCombo on $key");
-      return;
-    }
-
-    // 2. If the queue for this seat already has a pending item of the same sender + gift, merge it!
     final queue = _seatQueues.putIfAbsent(key, () => []);
     final existingIdx = queue.indexWhere(
       (item) => item.senderUid == animation.senderUid && item.giftId == animation.giftId,
     );
+    final int activePlays = (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
+            _currentSeatGifts[key]?.animation.giftId == animation.giftId)
+        ? _currentSeatGifts[key]!.animation.totalPlays
+        : 0;
+    final int maxAllowedInQueue = math.max(0, kMaxComboPlays - activePlays);
+
     if (existingIdx != -1) {
       final existing = queue[existingIdx];
-      final int delta = animation.comboCount > existing.comboCount
-          ? (animation.comboCount - existing.comboCount)
-          : (animation.comboCount > 0 ? animation.comboCount : 1);
-      final int newCombo = existing.comboCount + delta;
+      final int lastComboCount = existing.comboCount;
+      final int deltaPlays = (animation.comboCount > 0 && lastComboCount > 0)
+          ? math.max(animation.comboCount - lastComboCount, 1)
+          : math.max(animation.totalPlays > 0 ? animation.totalPlays : (animation.comboCount > 0 ? animation.comboCount : 1), 1);
+      final int newTotal = existing.totalPlays + deltaPlays;
+      final int newRemaining = existing.remainingPlays + deltaPlays;
+      final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
+      final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
+      if (newTotal > maxAllowedInQueue) {
+        debugPrint("[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${newTotal - maxAllowedInQueue} excess plays on $key");
+      }
+      final int displayCombo = math.max(existing.comboCount, animation.comboCount);
       queue[existingIdx] = existing.copyWith(
-        comboCount: newCombo,
-        text: '${animation.giftName} x$newCombo',
+        comboCount: displayCombo,
+        totalPlays: cappedTotal,
+        remainingPlays: cappedRemaining,
+        text: '${animation.giftName} x$displayCombo',
       );
-      debugPrint("[SeatGift] Merged into queued seat gift: ${animation.giftName} x$newCombo on $key");
+      debugPrint("[SeatGift] Merged into queued seat gift: ${animation.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) on $key");
       return;
     }
 
+    final int lastPlayingCombo = (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
+            _currentSeatGifts[key]?.animation.giftId == animation.giftId)
+        ? _currentSeatGifts[key]!.animation.comboCount
+        : 0;
+    final int deltaPlays = (animation.comboCount > 0 && lastPlayingCombo > 0)
+        ? math.max(animation.comboCount - lastPlayingCombo, 1)
+        : math.max(animation.totalPlays > 0 ? animation.totalPlays : (animation.comboCount > 0 ? animation.comboCount : 1), 1);
+    final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
+    if (deltaPlays > maxAllowedInQueue) {
+      debugPrint("[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${deltaPlays - maxAllowedInQueue} excess plays on $key");
+    }
+    final animWithPlays = animation.copyWith(
+      totalPlays: cappedPlays,
+      remainingPlays: cappedPlays,
+      currentPlayIndex: 1,
+    );
+
     if (queue.length < 50) {
-      queue.add(animation);
+      queue.add(animWithPlays);
     }
     _checkNextSeatAnimation(key);
   }
@@ -494,6 +509,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (queue == null || queue.isEmpty) return;
 
     final nextAnim = queue.removeAt(0);
+    final comboKey = nextAnim.targetUid != null && nextAnim.targetUid!.isNotEmpty && nextAnim.giftId.isNotEmpty
+        ? comboKeyFor(nextAnim.senderUid, nextAnim.targetUid!, nextAnim.giftId)
+        : null;
+    if (comboKey != null) {
+      ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
+    }
+
     // Backstop only — the player's own onComplete normally advances the queue.
     // Kept above the inner players' watchdogs so it never cuts a live clip.
     final int safeMs = math.max(nextAnim.durationMs + 4000, 20000);
@@ -517,9 +539,50 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     final active = _currentSeatGifts[targetKey];
     if (active?.id == animId) {
       active?.expiryTimer.cancel();
+
+      if (active != null && active.animation.remainingPlays > 1) {
+        final current = active.animation;
+        final nextPlayIndex = current.currentPlayIndex + 1;
+        final nextRemaining = current.remainingPlays - 1;
+        debugPrint("[SeatGift] Repeating combo play on $targetKey: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining)");
+
+        final nextAnim = current.copyWith(
+          remainingPlays: nextRemaining,
+          currentPlayIndex: nextPlayIndex,
+          text: '${current.giftName} x$nextPlayIndex',
+        );
+        final comboKey = current.targetUid != null && current.targetUid!.isNotEmpty && current.giftId.isNotEmpty
+            ? comboKeyFor(current.senderUid, current.targetUid!, current.giftId)
+            : null;
+        if (comboKey != null) {
+          ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
+        }
+        final int safeMs = math.max(nextAnim.durationMs + 4000, 20000);
+        final nextAnimId = "${current.id}_p$nextPlayIndex";
+        final timer = Timer(Duration(milliseconds: safeMs), () {
+          _onSeatAnimationFinished(targetKey, nextAnimId);
+        });
+        setState(() {
+          _currentSeatGifts[targetKey] = _ActiveSeatGift(
+            id: nextAnimId,
+            targetUid: targetKey == '_unseated_' ? '' : targetKey,
+            animation: nextAnim,
+            expiryTimer: timer,
+            hasFlown: true, // Already flew to the seat on play 1, keep it anchored
+          );
+        });
+        return;
+      }
+
       final queue = _seatQueues[targetKey];
       if (queue != null && queue.isNotEmpty) {
         final nextAnim = queue.removeAt(0);
+        final comboKey = nextAnim.targetUid != null && nextAnim.targetUid!.isNotEmpty && nextAnim.giftId.isNotEmpty
+            ? comboKeyFor(nextAnim.senderUid, nextAnim.targetUid!, nextAnim.giftId)
+            : null;
+        if (comboKey != null) {
+          ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
+        }
         final int safeMs = math.max(nextAnim.durationMs + 4000, 20000);
         final timer = Timer(Duration(milliseconds: safeMs), () {
           _onSeatAnimationFinished(targetKey, nextAnim.id);
@@ -711,15 +774,19 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           durationMs: resolvedDuration,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
+          totalPlays: count,
+          remainingPlays: count,
+          currentPlayIndex: 1,
         );
         _enqueueSeatAnimation(targetUid, anim);
       } else {
+        final count = math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: ev.id,
           giftId: ev.giftId,
           url: resolvedUrl,
           senderUid: ev.senderUid,
-          text: ev.text,
+          text: ev.text.isNotEmpty ? ev.text : '${ev.giftName} x$count',
           imageUrl: ev.imageUrl,
           soundUrl: ev.soundUrl,
           format: resolvedFormat,
@@ -728,7 +795,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           tier: resolvedTier,
           durationMs: resolvedDuration,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
-          comboCount: math.max(ev.comboCount, 1),
+          comboCount: count,
+          totalPlays: count,
+          remainingPlays: count,
+          currentPlayIndex: 1,
         );
         _enqueueRoomAnimation(anim);
       }
@@ -950,15 +1020,19 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           durationMs: durationMs,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
+          totalPlays: count,
+          remainingPlays: count,
+          currentPlayIndex: 1,
         );
         _enqueueSeatAnimation(targetUid, anim);
       } else {
+        final count = math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: msg.msgId,
           giftId: effectiveGiftId,
           url: giftUrl,
           senderUid: msg.uid,
-          text: msg.text,
+          text: msg.text.isNotEmpty ? msg.text : '${giftName.isNotEmpty ? giftName : 'Gift'} x$count',
           imageUrl: imageUrl,
           soundUrl: soundUrl,
           format: format,
@@ -967,7 +1041,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           tier: tier,
           durationMs: durationMs,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
-          comboCount: math.max(msg.quantity, 1),
+          comboCount: count,
+          totalPlays: count,
+          remainingPlays: count,
+          currentPlayIndex: 1,
         );
         _enqueueRoomAnimation(anim);
       }
@@ -1045,53 +1122,63 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
     if (_isAppPaused) return;
 
-    // 1. If an animation is actively PLAYING for the same sender + gift, absorb it!
-    if (_isFullScreenPlaying &&
-        _currentFullScreenAnim != null &&
-        _currentFullScreenAnim!.senderUid == anim.senderUid &&
-        _currentFullScreenAnim!.giftId == anim.giftId) {
-      final int delta = anim.comboCount > _currentFullScreenAnim!.comboCount
-          ? (anim.comboCount - _currentFullScreenAnim!.comboCount)
-          : (anim.comboCount > 0 ? anim.comboCount : 1);
-      final int newCombo = _currentFullScreenAnim!.comboCount + delta;
-      setState(() {
-        _currentFullScreenAnim = _currentFullScreenAnim!.copyWith(
-          comboCount: newCombo,
-          text: '${anim.giftName} x$newCombo',
-        );
-      });
-      debugPrint("[GiftQueue] Absorbed combo into active playing gift: ${anim.giftName} x$newCombo for sender ${anim.senderUid}");
-      // Optional short extend of the hold/safety timer with a cap (non-VAP only; VAP runs full video)
-      if (_currentFullScreenAnim!.durationMs > 0 && _currentFullScreenAnim!.format != 'vap') {
-        final int maxCap = _currentFullScreenAnim!.durationMs + 6000;
-        _armFullScreenSafetyTimer(maxCap, _currentFullScreenTicket);
-      }
-      return;
-    }
+    final int activePlays = (_currentFullScreenAnim != null &&
+            _currentFullScreenAnim!.senderUid == anim.senderUid &&
+            _currentFullScreenAnim!.giftId == anim.giftId)
+        ? _currentFullScreenAnim!.totalPlays
+        : 0;
+    final int maxAllowedInQueue = math.max(0, kMaxComboPlays - activePlays);
 
     if (anim.tier == 'LUXURY') {
-      // Combo merging per sender+gift in waiting queue
       final existingIdx = _luxuryQueue.indexWhere(
         (item) => item.senderUid == anim.senderUid && item.giftId == anim.giftId,
       );
       if (existingIdx != -1) {
         final existing = _luxuryQueue[existingIdx];
-        final int delta = anim.comboCount > existing.comboCount
-            ? (anim.comboCount - existing.comboCount)
-            : (anim.comboCount > 0 ? anim.comboCount : 1);
-        final mergedCount = existing.comboCount + delta;
+        final int lastComboCount = existing.comboCount;
+        final int deltaPlays = (anim.comboCount > 0 && lastComboCount > 0)
+            ? math.max(anim.comboCount - lastComboCount, 1)
+            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+        final int newTotal = existing.totalPlays + deltaPlays;
+        final int newRemaining = existing.remainingPlays + deltaPlays;
+        final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
+        final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
+        if (newTotal > maxAllowedInQueue) {
+          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
+        }
+        final int displayCombo = math.max(existing.comboCount, anim.comboCount);
         _luxuryQueue[existingIdx] = existing.copyWith(
-          comboCount: mergedCount,
-          text: '${anim.giftName} x$mergedCount',
+          comboCount: displayCombo,
+          totalPlays: cappedTotal,
+          remainingPlays: cappedRemaining,
+          text: '${anim.giftName} x$displayCombo',
         );
-        debugPrint("[GiftQueue] Merged luxury combo in queue: ${anim.giftName} x$mergedCount for sender ${anim.senderUid}");
+        debugPrint("[GiftQueue] Merged luxury combo in queue: ${anim.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) for sender ${anim.senderUid}");
       } else {
-        // Max 5 queued luxury gifts (drops oldest if exceeded)
+        final int lastPlayingCombo = (_currentFullScreenAnim != null &&
+                _currentFullScreenAnim!.senderUid == anim.senderUid &&
+                _currentFullScreenAnim!.giftId == anim.giftId)
+            ? _currentFullScreenAnim!.comboCount
+            : 0;
+        final int deltaPlays = (anim.comboCount > 0 && lastPlayingCombo > 0)
+            ? math.max(anim.comboCount - lastPlayingCombo, 1)
+            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+        final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
+        if (deltaPlays > maxAllowedInQueue) {
+          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
+        }
+        final animWithPlays = anim.copyWith(
+          totalPlays: cappedPlays,
+          remainingPlays: cappedPlays,
+          currentPlayIndex: 1,
+        );
+        // Max 5 queued luxury gift entries (drops oldest if exceeded)
         if (_luxuryQueue.length >= 5) {
           final dropped = _luxuryQueue.removeAt(0);
           debugPrint("[GiftQueue] Max 5 luxury cap reached, dropped oldest: ${dropped.giftName}");
         }
-        _luxuryQueue.add(anim);
+        _luxuryQueue.add(animWithPlays);
+        debugPrint("[GiftQueue] Added luxury gift to queue: ${anim.giftName} (plays=$cappedPlays, combo=${anim.comboCount}) for sender ${anim.senderUid}, luxury queue length=${_luxuryQueue.length}");
       }
     } else {
       // Medium / other room animations
@@ -1100,17 +1187,44 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       );
       if (existingIdx != -1) {
         final existing = _mediumQueue[existingIdx];
-        final int delta = anim.comboCount > existing.comboCount
-            ? (anim.comboCount - existing.comboCount)
-            : (anim.comboCount > 0 ? anim.comboCount : 1);
-        final mergedCount = existing.comboCount + delta;
+        final int lastComboCount = existing.comboCount;
+        final int deltaPlays = (anim.comboCount > 0 && lastComboCount > 0)
+            ? math.max(anim.comboCount - lastComboCount, 1)
+            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+        final int newTotal = existing.totalPlays + deltaPlays;
+        final int newRemaining = existing.remainingPlays + deltaPlays;
+        final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
+        final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
+        if (newTotal > maxAllowedInQueue) {
+          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
+        }
+        final int displayCombo = math.max(existing.comboCount, anim.comboCount);
         _mediumQueue[existingIdx] = existing.copyWith(
-          comboCount: mergedCount,
-          text: '${anim.giftName} x$mergedCount',
+          comboCount: displayCombo,
+          totalPlays: cappedTotal,
+          remainingPlays: cappedRemaining,
+          text: '${anim.giftName} x$displayCombo',
         );
       } else {
+        final int lastPlayingCombo = (_currentFullScreenAnim != null &&
+                _currentFullScreenAnim!.senderUid == anim.senderUid &&
+                _currentFullScreenAnim!.giftId == anim.giftId)
+            ? _currentFullScreenAnim!.comboCount
+            : 0;
+        final int deltaPlays = (anim.comboCount > 0 && lastPlayingCombo > 0)
+            ? math.max(anim.comboCount - lastPlayingCombo, 1)
+            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+        final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
+        if (deltaPlays > maxAllowedInQueue) {
+          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
+        }
+        final animWithPlays = anim.copyWith(
+          totalPlays: cappedPlays,
+          remainingPlays: cappedPlays,
+          currentPlayIndex: 1,
+        );
         if (_mediumQueue.length < 20) {
-          _mediumQueue.add(anim);
+          _mediumQueue.add(animWithPlays);
         }
       }
     }
@@ -1145,6 +1259,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       _isFullScreenPlaying = true;
       _currentFullScreenAnim = anim;
     });
+
+    final comboKey = anim.targetUid != null && anim.targetUid!.isNotEmpty && anim.giftId.isNotEmpty
+        ? comboKeyFor(anim.senderUid, anim.targetUid!, anim.giftId)
+        : null;
+    if (comboKey != null) {
+      ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
+    }
 
     if (isVap) {
       _vapStartTime = DateTime.now();
@@ -1286,13 +1407,45 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     _releaseFallbackTimer?.cancel();
     _waitingForReleaseTicket = null;
 
+    final current = _currentFullScreenAnim;
+    if (current != null && current.remainingPlays > 1) {
+      final nextPlayIndex = current.currentPlayIndex + 1;
+      final nextRemaining = current.remainingPlays - 1;
+      debugPrint("[GiftQueue] Repeating combo play: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining) for sender ${current.senderUid}");
+
+      final nextAnim = current.copyWith(
+        remainingPlays: nextRemaining,
+        currentPlayIndex: nextPlayIndex,
+        text: '${current.giftName} x$nextPlayIndex',
+      );
+
+      setState(() {
+        _currentFullScreenAnim = nextAnim;
+      });
+
+      final comboKey = current.targetUid != null && current.targetUid!.isNotEmpty && current.giftId.isNotEmpty
+          ? comboKeyFor(current.senderUid, current.targetUid!, current.giftId)
+          : null;
+      if (comboKey != null) {
+        ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
+      }
+
+      // 100ms grace window for GPU surface reset before starting the next play
+      _transitionTimer = Timer(const Duration(milliseconds: 100), () {
+        if (mounted && !_isAppPaused) {
+          _playFullScreenGift(nextAnim);
+        }
+      });
+      return;
+    }
+
     setState(() {
       _currentFullScreenAnim = null;
     });
 
     // 100ms grace window for GPU surface reset before picking the next queued gift
     _transitionTimer = Timer(const Duration(milliseconds: 100), () {
-      if (mounted) {
+      if (mounted && !_isAppPaused) {
         _isFullScreenPlaying = false;
         _checkNextFullScreenAnimation();
       }
@@ -1440,11 +1593,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     // MEDIUM/LUXURY get a hold wrapper: gift-icon base always visible,
     // Lottie loops until hold expires, audio gets full time before dispose.
     final player = RepaintBoundary(
-      key: ValueKey('room_anim_boundary_${anim.id}'),
+      key: ValueKey('room_anim_boundary_${anim.id}_p${anim.currentPlayIndex}'),
       child: IgnorePointer(
-        key: ValueKey(anim.id),
+        key: ValueKey('${anim.id}_p${anim.currentPlayIndex}'),
         child: _HeldRoomPlayer(
-          key: ValueKey(anim.id),
+          key: ValueKey('${anim.id}_p${anim.currentPlayIndex}'),
           animation: anim,
           onComplete: _onFullScreenAnimationFinished,
         ),
@@ -1640,6 +1793,9 @@ class _ActiveGiftAnimation {
   final int durationMs;
 
   final int comboCount;
+  final int totalPlays;
+  final int remainingPlays;
+  final int currentPlayIndex;
 
   _ActiveGiftAnimation({
     required this.id,
@@ -1656,7 +1812,11 @@ class _ActiveGiftAnimation {
     this.tier = 'NORMAL',
     this.durationMs = 0,
     this.comboCount = 1,
-  });
+    int? totalPlays,
+    int? remainingPlays,
+    this.currentPlayIndex = 1,
+  })  : totalPlays = totalPlays ?? comboCount,
+        remainingPlays = remainingPlays ?? (totalPlays ?? comboCount);
 
   _ActiveGiftAnimation copyWith({
     String? id,
@@ -1673,6 +1833,9 @@ class _ActiveGiftAnimation {
     String? tier,
     int? durationMs,
     int? comboCount,
+    int? totalPlays,
+    int? remainingPlays,
+    int? currentPlayIndex,
   }) {
     return _ActiveGiftAnimation(
       id: id ?? this.id,
@@ -1689,6 +1852,9 @@ class _ActiveGiftAnimation {
       tier: tier ?? this.tier,
       durationMs: durationMs ?? this.durationMs,
       comboCount: comboCount ?? this.comboCount,
+      totalPlays: totalPlays ?? this.totalPlays,
+      remainingPlays: remainingPlays ?? this.remainingPlays,
+      currentPlayIndex: currentPlayIndex ?? this.currentPlayIndex,
     );
   }
 }

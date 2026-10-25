@@ -204,6 +204,16 @@ class GiftComboController extends ChangeNotifier {
     combo.dismissTimer = Timer(kComboBannerTimeout, () => _beginExit(combo.comboKey));
   }
 
+  /// Extends the banner lifetime while plays are continuing.
+  void touch(String? comboKey) {
+    if (comboKey == null) return;
+    final combo = _combos[comboKey];
+    if (combo != null) {
+      _arm(combo);
+      notifyListeners();
+    }
+  }
+
   void _beginExit(String comboKey) {
     final combo = _combos[comboKey];
     if (combo == null || combo.exiting) return;
