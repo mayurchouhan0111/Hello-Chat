@@ -19,6 +19,8 @@ class SvgaParserUtil {
   static Directory? _tempAudioDir;
 
   static final Map<String, List<PreparedSvgaAudio>> _preparedAudioCache = {};
+  static final List<String> _preparedAudioKeys = [];
+  static const int _maxPreparedAudioCacheSize = 20;
 
   /// Extracts and verifies embedded audio tracks in [videoItem] into temp storage.
   /// Pre-extracting audio before starting animation playback guarantees that audio
@@ -100,7 +102,23 @@ class SvgaParserUtil {
         }
       }
       if (list.isNotEmpty) {
+        _preparedAudioKeys.remove(sourceKey);
+        _preparedAudioKeys.add(sourceKey);
         _preparedAudioCache[sourceKey] = list;
+
+        while (_preparedAudioKeys.length > _maxPreparedAudioCacheSize) {
+          final oldestKey = _preparedAudioKeys.removeAt(0);
+          final evictedList = _preparedAudioCache.remove(oldestKey);
+          if (evictedList != null) {
+            for (final item in evictedList) {
+              try {
+                if (item.file.existsSync()) {
+                  item.file.deleteSync();
+                }
+              } catch (_) {}
+            }
+          }
+        }
       }
     } catch (e) {
       debugPrint("[SvgaParserUtil] Error preparing embedded audio: $e");
@@ -115,7 +133,7 @@ class SvgaParserUtil {
   // Cache of parsed MovieEntity objects to avoid CPU-heavy parsing & image decoding on every load
   static final Map<String, MovieEntity> _movieCache = {};
   static final List<String> _movieCacheKeys = [];
-  static const int _maxMovieCacheSize = 120;
+  static const int _maxMovieCacheSize = 20;
   // Protected assets (e.g. preloaded VIP frames/badges/entry effects) that must never be evicted
   static final Set<String> _protectedAssetKeys = {};
 
