@@ -368,11 +368,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     // If we are minimizing OR navigating away without explicitly leaving, we stay in the voice channel!
     if (!_hasLeftRoom && !_isMinimizing && _isLeavingVoluntarily) {
       _hasLeftRoom = true;
+      debugPrint('🚪 [ROOM_EXIT] Reason: LiveRoomScreen.dispose voluntary leave roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
       voiceService.leaveRoom();
     } else {
       // Auto-minimize if we navigate away (e.g. going to messages) without leaving the room
       if (!_isLeavingVoluntarily && !_isLeavingRoom) {
          try {
+           debugPrint('🚪 [ROOM_EXIT] Reason: LiveRoomScreen.dispose auto-minimizing roomId=${widget.roomId}');
            ref.read(roomOverlayProvider.notifier).minimize(widget.roomId);
          } catch (_) {}
       }
@@ -430,6 +432,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
       if (result == 'minimize') {
         _isMinimizing = true;
+        debugPrint('🚪 [ROOM_EXIT] Reason: Host chosen minimize for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
         if (router.canPop()) {
           router.pop();
@@ -438,6 +441,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       } else if (result == 'end') {
         _hasLeftRoom = true;
+        debugPrint('🚪 [ROOM_EXIT] Reason: Host ended room for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.endRoom(widget.roomId),
@@ -449,6 +453,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       } else if (result == 'leave') {
         _hasLeftRoom = true;
+        debugPrint('🚪 [ROOM_EXIT] Reason: Host voluntary leave without ending roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.leaveRoom(widget.roomId),
@@ -482,6 +487,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       );
 
       if (result == 'minimize') {
+        debugPrint('🚪 [ROOM_EXIT] Reason: Listener chosen minimize for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
         if (router.canPop()) {
           router.pop();
@@ -490,6 +496,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         }
       } else if (result == 'leave') {
         _hasLeftRoom = true;
+        debugPrint('🚪 [ROOM_EXIT] Reason: Listener voluntary leave for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.leaveRoom(widget.roomId),
@@ -543,6 +550,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         if (room != null) {
           if (room.status == 'ended') {
             if (!_isLeavingRoom && mounted && context.mounted) {
+              debugPrint('🚪 [ROOM_EXIT] Reason: Host has ended room (room.status==ended) for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text("The host has ended this room.")),
               );
@@ -630,6 +638,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               final isEnded = room != null && room.status == 'ended';
 
               if (isBanned || isEnded) {
+                debugPrint('🚪 [ROOM_EXIT] Reason: User removed from participant list (isBanned=$isBanned, isEnded=$isEnded) for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
                 if (mounted && context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -788,6 +797,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
           canPop: false,
           onPopInvokedWithResult: (didPop, result) async {
             if (didPop) return;
+            debugPrint('🚪 [ROOM_EXIT] Reason: PopScope back navigation minimizing roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
             ref.read(roomOverlayProvider.notifier).minimize(widget.roomId, ctx: context);
             if (GoRouter.of(context).canPop()) {
               GoRouter.of(context).pop();
@@ -2803,6 +2813,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   Widget _buildRoomEndedSummary() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
+        debugPrint('🚪 [ROOM_EXIT] Reason: _buildRoomEndedSummary leaving voice and popping roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
         ref.read(voiceServiceProvider).leaveRoom();
         if (Navigator.canPop(context)) context.pop();
       }

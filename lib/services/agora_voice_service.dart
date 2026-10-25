@@ -34,11 +34,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   Timer? _healthTimer;
   DateTime? _lastAudioTimestamp;
-  DateTime? _lastHealthCheck;
   bool _isInChannel = false;
-
-  static const Duration _healthCheckInterval = Duration(seconds: 10);
-  static const Duration _audioStaleThreshold = Duration(seconds: 20);
 
   int getAgoraUid(String uid) {
     if (uid.isEmpty) return 0;
@@ -50,6 +46,8 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   @override
   bool get isBroadcaster => _currentRole == ClientRoleType.clientRoleBroadcaster;
+
+  DateTime? get lastAudioTimestamp => _lastAudioTimestamp;
 
   @override
   Stream<bool> get isSpeakingStream => _speakingController.stream;
@@ -218,9 +216,57 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
             }
             return;
           },
+          onConnectionLost: (RtcConnection connection) {
+            try {
+              debugPrint("🔌 [ROOM_EXIT] Agora onConnectionLost: channel=${connection.channelId}");
+            } catch (e) {
+              debugPrint("⚠️ Error in onConnectionLost: $e");
+            }
+          },
+          onRejoinChannelSuccess: (RtcConnection connection, int elapsed) {
+            try {
+              debugPrint("✅ [ROOM_EXIT] Agora onRejoinChannelSuccess: channel=${connection.channelId}, elapsed=${elapsed}ms");
+              _isInChannel = true;
+              _reconnectAttempts = 0;
+            } catch (e) {
+              debugPrint("⚠️ Error in onRejoinChannelSuccess: $e");
+            }
+          },
+          onTokenPrivilegeWillExpire: (RtcConnection connection, String token) async {
+            try {
+              final channel = connection.channelId ?? _currentRoomId ?? "";
+              debugPrint("🔑 [ROOM_EXIT] Agora onTokenPrivilegeWillExpire: renewing token for channel=$channel");
+              if (channel.isNotEmpty) {
+                final freshToken = await _fetchAgoraToken(channel);
+                if (freshToken != null && freshToken.isNotEmpty && _engine != null) {
+                  await _engine!.renewToken(freshToken);
+                  _lastToken = freshToken;
+                  debugPrint("✅ [ROOM_EXIT] Agora token renewed successfully via renewToken");
+                }
+              }
+            } catch (e) {
+              debugPrint("⚠️ [ROOM_EXIT] Failed to renew Agora token: $e");
+            }
+          },
+          onRequestToken: (RtcConnection connection) async {
+            try {
+              final channel = connection.channelId ?? _currentRoomId ?? "";
+              debugPrint("🔑 [ROOM_EXIT] Agora onRequestToken: channel=$channel");
+              if (channel.isNotEmpty) {
+                final freshToken = await _fetchAgoraToken(channel);
+                if (freshToken != null && freshToken.isNotEmpty && _engine != null) {
+                  await _engine!.renewToken(freshToken);
+                  _lastToken = freshToken;
+                  debugPrint("✅ [ROOM_EXIT] Agora token supplied successfully via renewToken");
+                }
+              }
+            } catch (e) {
+              debugPrint("⚠️ [ROOM_EXIT] Failed to supply requested Agora token: $e");
+            }
+          },
           onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
             try {
-              debugPrint("🔌 Agora Connection State Changed: state=$state, reason=$reason");
+              debugPrint("🔌 [ROOM_EXIT] Agora Connection State Changed: state=$state, reason=$reason");
               if (state == ConnectionStateType.connectionStateConnected) {
                 _reconnectAttempts = 0;
                 _lastAudioTimestamp = DateTime.now();
@@ -228,10 +274,10 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
                 _startHealthTimer();
                 debugPrint("✅ Agora reconnection successful");
               } else if (state == ConnectionStateType.connectionStateFailed) {
-                debugPrint("⚠️ Agora connection failed - attempting reconnect...");
+                debugPrint("⚠️ [ROOM_EXIT] Agora connection failed (reason=$reason) - attempting reconnect...");
                 _attemptReconnect();
               } else if (state == ConnectionStateType.connectionStateDisconnected) {
-                debugPrint("👋 Agora disconnected");
+                debugPrint("👋 [ROOM_EXIT] Agora disconnected (reason=$reason)");
                 _isInChannel = false;
                 _stopHealthTimer();
               }
@@ -263,6 +309,45 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
     }
   }
 
+  Future<String?> _fetchAgoraToken(String roomId) async {
+    if (AgoraConfig.tempToken.isNotEmpty) {
+      debugPrint("🧪 Using manual Testing Token from AgoraConfig");
+      return AgoraConfig.tempToken;
+    }
+    try {
+      final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
+      final headers = <String, dynamic>{};
+      if (idToken != null && idToken.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $idToken';
+      }
+      final response = await Dio().post(
+        AgoraConfig.tokenUrl,
+        data: {
+          'roomId': roomId,
+          'uid': 0,
+        },
+        options: Options(headers: headers),
+      );
+      String? token;
+      if (response.data['data'] != null) {
+        token = response.data['data']['token'];
+      } else {
+        token = response.data['rtcToken'] ?? response.data['token'];
+      }
+      debugPrint("✅ Agora Token received successfully via HTTP");
+      return token;
+    } catch (e) {
+      debugPrint("⚠️ Token HTTP fetch error: $e. Falling back to callable/cached...");
+      try {
+        final result = await FirebaseFunctions.instance.httpsCallable('getAgoraToken').call({'roomId': roomId});
+        return result.data['token'] as String?;
+      } catch (e2) {
+        debugPrint("⚠️ Token callable fetch error: $e2. Returning last known token");
+        return _lastToken;
+      }
+    }
+  }
+
   @override
   Future<void> joinRoom(String roomId, String userId) async {
     _currentUserId = userId;
@@ -291,42 +376,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
         _remoteUsersController.add([]);
       }
 
-      String? finalToken;
-
-      if (AgoraConfig.tempToken.isNotEmpty) {
-        debugPrint("🧪 Using manual Testing Token from AgoraConfig");
-        finalToken = AgoraConfig.tempToken;
-      } else {
-        try {
-          final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
-          final headers = <String, dynamic>{};
-          if (idToken != null && idToken.isNotEmpty) {
-            headers['Authorization'] = 'Bearer $idToken';
-          }
-          final response = await Dio().post(
-            AgoraConfig.tokenUrl,
-            data: {
-              'roomId': roomId,
-              'uid': 0,
-            },
-            options: Options(headers: headers),
-          );
-          if (response.data['data'] != null) {
-            finalToken = response.data['data']['token'];
-          } else {
-            finalToken = response.data['rtcToken'] ?? response.data['token'];
-          }
-          debugPrint("✅ Agora Token received successfully");
-        } catch (e) {
-          debugPrint("⚠️ Token fetch error: $e. Falling back to callable/cached...");
-          try {
-            final result = await FirebaseFunctions.instance.httpsCallable('getAgoraToken').call({'roomId': roomId});
-            finalToken = result.data['token'] as String?;
-          } catch (_) {
-            finalToken = _lastToken ?? "";
-          }
-        }
-      }
+      final finalToken = await _fetchAgoraToken(roomId);
       _lastToken = finalToken;
       
       _currentRoomId = roomId;
@@ -337,7 +387,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
         token: finalToken ?? "",
         channelId: roomId,
         uid: getAgoraUid(userId),
-        options: ChannelMediaOptions(
+        options: const ChannelMediaOptions(
           autoSubscribeAudio: true,
           publishMicrophoneTrack: false,
           publishCameraTrack: false,
@@ -360,18 +410,8 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   void _startHealthTimer() {
     _healthTimer?.cancel();
-    _healthTimer = Timer.periodic(_healthCheckInterval, (_) {
-      if (!_isInChannel || _currentRoomId == null) {
-        _stopHealthTimer();
-        return;
-      }
-      if (_lastAudioTimestamp == null) return;
-      final elapsed = DateTime.now().difference(_lastAudioTimestamp!);
-      if (elapsed > _audioStaleThreshold) {
-        debugPrint("⚠️ No audio for ${elapsed.inSeconds}s — triggering health reconnect...");
-        _attemptReconnect();
-      }
-    });
+    // Native Agora SDK handles reconnection automatically via onConnectionStateChanged.
+    // Audio silence is normal in voice rooms and must NEVER trigger false channel teardowns.
   }
 
   void _stopHealthTimer() {
@@ -402,8 +442,13 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
       try {
         await _engine!.leaveChannel();
+        // Fetch fresh token or fallback to _lastToken to avoid reconnecting with an expired token
+        final freshToken = await _fetchAgoraToken(_currentRoomId!).catchError((_) => _lastToken);
+        final tokenToUse = (freshToken != null && freshToken.isNotEmpty) ? freshToken : (_lastToken ?? "");
+        _lastToken = tokenToUse;
+
         await _engine!.joinChannel(
-          token: "",
+          token: tokenToUse,
           channelId: _currentRoomId!,
           uid: getAgoraUid(_currentUserId!),
           options: ChannelMediaOptions(
@@ -425,6 +470,7 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
 
   @override
   Future<void> leaveRoom() async {
+    debugPrint('🚪 [ROOM_EXIT] AgoraVoiceService.leaveRoom() called for channel=$_currentRoomId\nStack:\n${StackTrace.current}');
     _reconnectTimer?.cancel();
     _reconnectAttempts = 0;
     _isRetrying = false;

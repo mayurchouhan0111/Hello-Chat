@@ -282,6 +282,7 @@ class _BubbleContent extends ConsumerWidget {
                     onTap: () {
                       final roomId = ref.read(roomOverlayProvider).roomId;
                       if (roomId != null) {
+                        debugPrint('🚪 [ROOM_EXIT] Reason: Floating bubble close button tapped for roomId=$roomId\nStack:\n${StackTrace.current}');
                         ref.read(roomServiceProvider).leaveRoom(roomId);
                         ref.read(voiceServiceProvider).leaveRoom();
                       }
