@@ -2,22 +2,28 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { listScopedUsers, asDocList } from '../lib/scopedUsers';
 import { 
   Search, 
   UserPlus, 
   Users, 
-  Trophy, 
   Wallet,
   Star,
   ShieldCheck,
   ChevronRight,
-  TrendingUp,
   Building2,
   Trash2,
   X,
   ChevronLeft,
-  Zap
+  Plus,
+  Edit2,
+  CheckCircle2,
+  AlertCircle,
+  Percent,
+  Globe,
+  Phone,
+  RefreshCw,
+  Power,
+  Coins
 } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -26,475 +32,1047 @@ export const AgencyManagement = () => {
   const { userData: currentUser, isAdmin, isAgencyOwner } = useAdmin();
   const [agencies, setAgencies] = useState([]);
   const [selectedAgency, setSelectedAgency] = useState(null);
-  const [selectedHost, setSelectedHost] = useState(null);
   const [hosts, setHosts] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
+  const [selectedHost, setSelectedHost] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [isSearching, setIsSearching] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Modals state
+  const [showAppointModal, setShowAppointModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showRecruitModal, setShowRecruitModal] = useState(false);
+
+  // Form states
+  const [appointForm, setAppointForm] = useState({
+    ownerIdentifier: '',
+    name: '',
+    commissionRate: 10, // percentage (e.g. 10%)
+    country: '',
+    contactPhone: '',
+    description: ''
+  });
+
+  const [editForm, setEditForm] = useState({
+    name: '',
+    commissionRate: 10,
+    country: '',
+    contactPhone: '',
+    description: ''
+  });
+
+  const [recruitIdentifier, setRecruitIdentifier] = useState('');
 
   useEffect(() => {
     if (isAdmin) {
-       fetchAllAgencies();
-    } else if (isAgencyOwner) {
-       setSelectedAgency(currentUser);
+      fetchAgencies();
+    } else if (isAgencyOwner && currentUser) {
+      const myAgencyId = currentUser.agencyId || currentUser.uid || currentUser.id;
+      loadAgencyDetail(myAgencyId);
     }
   }, [isAdmin, isAgencyOwner, currentUser]);
 
-  useEffect(() => {
-    const agencyUid = selectedAgency?.uid || selectedAgency?.id;
-    if (agencyUid) {
-      fetchAgencyHosts(agencyUid);
-    }
-  }, [selectedAgency]);
-
-  const fetchAllAgencies = async () => {
+  const fetchAgencies = async () => {
     setLoading(true);
     try {
-      // Scoped read: the server returns only agencies inside this caller's
-      // hierarchy, so no client-side `where('isAgencyOwner','==',true)` claim.
-      const all = asDocList(await listScopedUsers());
-      setAgencies(all.filter(u => u.isAgencyOwner || u.role === 'agency'));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAgencyHosts = async (agencyUid) => {
-    setLoading(true);
-    try {
-      const all = asDocList(await listScopedUsers());
-      setHosts(all.filter(u => u.agencyId === agencyUid));
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRemoveHost = async (hostId) => {
-    if (!window.confirm("Release this host from your agency? All current contracts will be voided.")) return;
-    try {
-      // `agencyId`/`role` are PROTECTED_FIELDS in firestore.rules, so this cannot
-      // be a client-side updateDoc any more. Server-side, scope-checked, and it
-      // leaves balances and XP alone.
-      const release = httpsCallable(functions, 'releaseHostFromAgency');
-      await release({ hostUid: hostId });
-      alert("Host has been released from the agency.");
-      setSelectedHost(null);
-      fetchAgencyHosts(selectedAgency.uid);
-    } catch (err) {
-      alert("Remove Error: " + (err.message || err));
-    }
-  };
-
-  const handleDeleteAgency = async (agency) => {
-    const agencyId = agency.uid || agency.id;
-    if (!window.confirm(`Are you sure you want to REMOVE Agency status for "${agency.displayName}"? All ${hosts.length} hosts will be released.`)) return;
-
-    try {
-      setLoading(true);
-      // One server-side transaction instead of a client batch that the rules
-      // now reject on `isAgencyOwner`/`agencyId`.
-      const deactivate = httpsCallable(functions, 'deactivateAgency');
-      const res = await deactivate({ agencyUid: agencyId });
-      alert(`Agency "${agency.displayName}" has been deleted and ${res.data.releasedHosts} hosts have been released.`);
-      fetchAllAgencies();
-    } catch (err) {
-      console.error("Delete Agency Error:", err);
-      alert("Failed to delete agency: " + (err.message || err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearchUsers = async () => {
-    const term = searchTerm.trim();
-    if (!term) return;
-    setIsSearching(true);
-    setSearchResults([]);
-    
-    try {
-      // One scoped read, then match locally. Three parallel `where()` queries on
-      // `users` are denied by the list rule now, and the scoped list is what the
-      // server says this caller may see anyway.
-      const termLower = term.toLowerCase();
-      const seenIds = new Set();
-      const combined = (asDocList(await listScopedUsers()))
-        .filter((u) => {
-          if (seenIds.has(u.uid)) return false;
-          const matches =
-            u.uid === term ||
-            u.helloId === term ||
-            (u.username || '').toLowerCase() === termLower ||
-            (u.username_lowercase || '') === termLower;
-          if (!matches) return false;
-          // Don't show users already in this agency.
-          if (u.agencyId === selectedAgency?.uid) return false;
-          seenIds.add(u.uid);
-          return true;
-        })
-        .slice(0, 5);
-
-      setSearchResults(combined);
-      if (combined.length === 0) {
-        alert("No talent found matching: " + term);
+      const listFn = httpsCallable(functions, 'listAgencies');
+      const res = await listFn();
+      if (res.data?.success && Array.isArray(res.data.agencies)) {
+        setAgencies(res.data.agencies);
+      } else {
+        setAgencies([]);
       }
     } catch (err) {
-       console.error("Recruitment Search Error:", err);
-       alert("Find Talent Failed: Check your network/permissions");
+      console.error('Failed to list agencies:', err);
+      // Fallback empty if error
+      setAgencies([]);
     } finally {
-      setIsSearching(false);
+      setLoading(false);
     }
   };
 
-  const assignAsHost = async (targetUser) => {
-    if (!selectedAgency) return;
-    if (!window.confirm(`Assign ${targetUser.displayName} as a Host for ${selectedAgency.displayName}?`)) return;
-    
+  const loadAgencyDetail = async (agencyId) => {
+    setLoading(true);
     try {
-      // `role` and `agencyId` are PROTECTED_FIELDS, so this has to go through the
-      // hierarchy callable. The server derives agencyId from the caller's own uid
-      // rather than trusting the payload.
-      const assign = httpsCallable(functions, 'assignHierarchyRole');
-      await assign({
-        targetUid: targetUser.uid || targetUser.id,
-        newRole: 'host'
-      });
-      
-      alert(`${targetUser.displayName} has been assigned to the agency.`);
-      setSearchResults([]);
-      setSearchTerm('');
-      fetchAgencyHosts(selectedAgency.uid);
+      const getFn = httpsCallable(functions, 'getAgency');
+      const res = await getFn({ agencyId });
+      if (res.data?.success) {
+        setSelectedAgency(res.data.agency);
+        setHosts(res.data.hosts || []);
+        setEditForm({
+          name: res.data.agency.name || '',
+          commissionRate: Math.round((res.data.agency.commissionRate || 0.1) * 100),
+          country: res.data.agency.country || '',
+          contactPhone: res.data.agency.contactPhone || '',
+          description: res.data.agency.description || ''
+        });
+      }
     } catch (err) {
-      alert("Error: " + err.message);
+      console.error('Failed to get agency detail:', err);
+      alert('Error loading agency: ' + (err.message || err));
+    } finally {
+      setLoading(false);
     }
   };
+
+  const handleAppointAgency = async (e) => {
+    e.preventDefault();
+    if (!appointForm.ownerIdentifier.trim() || !appointForm.name.trim()) {
+      alert('Please provide Owner Hello ID / UID and Agency Name.');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const createFn = httpsCallable(functions, 'createAgency');
+      const rateDecimal = parseFloat(appointForm.commissionRate) / 100 || 0.1;
+      const res = await createFn({
+        ownerIdentifier: appointForm.ownerIdentifier.trim(),
+        name: appointForm.name.trim(),
+        commissionRate: rateDecimal,
+        country: appointForm.country.trim(),
+        contactPhone: appointForm.contactPhone.trim(),
+        description: appointForm.description.trim()
+      });
+
+      if (res.data?.success) {
+        alert(res.data.message || 'Agency appointed successfully!');
+        setShowAppointModal(false);
+        setAppointForm({
+          ownerIdentifier: '',
+          name: '',
+          commissionRate: 10,
+          country: '',
+          contactPhone: '',
+          description: ''
+        });
+        await fetchAgencies();
+      }
+    } catch (err) {
+      console.error('Failed to appoint agency:', err);
+      alert('Appoint Agency Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateAgency = async (e) => {
+    e.preventDefault();
+    if (!selectedAgency) return;
+
+    setActionLoading(true);
+    try {
+      const updateFn = httpsCallable(functions, 'updateAgency');
+      const rateDecimal = parseFloat(editForm.commissionRate) / 100 || 0.1;
+      const res = await updateFn({
+        agencyId: selectedAgency.agencyId || selectedAgency.id,
+        name: editForm.name.trim(),
+        commissionRate: rateDecimal,
+        country: editForm.country.trim(),
+        contactPhone: editForm.contactPhone.trim(),
+        description: editForm.description.trim()
+      });
+
+      if (res.data?.success) {
+        alert('Agency updated successfully!');
+        setShowEditModal(false);
+        await loadAgencyDetail(selectedAgency.agencyId || selectedAgency.id);
+        fetchAgencies();
+      }
+    } catch (err) {
+      console.error('Failed to update agency:', err);
+      alert('Update Agency Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleToggleStatus = async (agency) => {
+    const target = agency || selectedAgency;
+    if (!target) return;
+    const currentActive = target.isActive !== false;
+    const newActive = !currentActive;
+    const actionLabel = newActive ? 'activate' : 'suspend';
+
+    if (!window.confirm(`Are you sure you want to ${actionLabel} agency "${target.name}"?`)) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const statusFn = httpsCallable(functions, 'setAgencyStatus');
+      const agencyId = target.agencyId || target.id;
+      const res = await statusFn({ agencyId, isActive: newActive });
+      if (res.data?.success) {
+        if (selectedAgency && (selectedAgency.agencyId === agencyId || selectedAgency.id === agencyId)) {
+          setSelectedAgency(prev => ({ ...prev, isActive: newActive, status: res.data.status }));
+        }
+        await fetchAgencies();
+      }
+    } catch (err) {
+      console.error('Failed to set agency status:', err);
+      alert('Status Change Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRecruitHost = async (e) => {
+    e.preventDefault();
+    if (!selectedAgency || !recruitIdentifier.trim()) {
+      alert('Please enter a Host Hello ID or UID.');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const addHostFn = httpsCallable(functions, 'addHost');
+      const res = await addHostFn({
+        agencyId: selectedAgency.agencyId || selectedAgency.id,
+        hostIdentifier: recruitIdentifier.trim()
+      });
+
+      if (res.data?.success) {
+        alert(`Host ${res.data.host?.displayName || ''} (ID: ${res.data.host?.helloId || ''}) added to agency!`);
+        setRecruitIdentifier('');
+        setShowRecruitModal(false);
+        await loadAgencyDetail(selectedAgency.agencyId || selectedAgency.id);
+      }
+    } catch (err) {
+      console.error('Failed to recruit host:', err);
+      alert('Host Recruitment Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRemoveHost = async (host) => {
+    if (!selectedAgency || !host) return;
+    const hostUid = host.uid || host.id;
+    const hostName = host.displayName || host.username || hostUid;
+
+    if (!window.confirm(`Release host "${hostName}" from ${selectedAgency.name}?`)) {
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const removeHostFn = httpsCallable(functions, 'removeHost');
+      const res = await removeHostFn({
+        agencyId: selectedAgency.agencyId || selectedAgency.id,
+        hostUid
+      });
+
+      if (res.data?.success) {
+        alert(`Host "${hostName}" released successfully.`);
+        if (selectedHost && (selectedHost.uid === hostUid || selectedHost.id === hostUid)) {
+          setSelectedHost(null);
+        }
+        await loadAgencyDetail(selectedAgency.agencyId || selectedAgency.id);
+      }
+    } catch (err) {
+      console.error('Failed to remove host:', err);
+      alert('Host Release Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Filtered agencies
+  const filteredAgencies = agencies.filter(a => {
+    const term = searchTerm.toLowerCase();
+    const matchesSearch = !term || 
+      (a.name && a.name.toLowerCase().includes(term)) ||
+      (a.ownerName && a.ownerName.toLowerCase().includes(term)) ||
+      String(a.ownerHelloId || '').includes(term) ||
+      a.agencyId.toLowerCase().includes(term);
+
+    const matchesStatus = statusFilter === 'all' || 
+      (statusFilter === 'active' && a.isActive !== false) ||
+      (statusFilter === 'suspended' && a.isActive === false);
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const totalAgencies = agencies.length;
+  const activeAgencies = agencies.filter(a => a.isActive !== false).length;
+  const totalHosts = agencies.reduce((acc, a) => acc + (a.hostCount || 0), 0);
 
   return (
     <div className="p-8 space-y-8 min-h-screen bg-[#020617] text-slate-200">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-8 pb-8 border-b border-white/5">
+      {/* Top Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-6 border-b border-white/5">
         <div>
           <div className="flex items-center gap-4">
-              {isAdmin && selectedAgency && (
-                <button 
-                   onClick={() => setSelectedAgency(null)}
-                   className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-indigo-400 transition-all group"
-                   title="Return to Agency List"
-                >
-                   <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
-                </button>
-              )}
-             <h1 className="text-4xl font-black text-white tracking-widest uppercase">
-               {isAdmin && !selectedAgency ? 'All Agencies' : 'Agency Portal'}
-             </h1>
+            {isAdmin && selectedAgency && (
+              <button 
+                onClick={() => setSelectedAgency(null)}
+                className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-400 hover:text-indigo-400 transition-all group"
+                title="Return to Agency List"
+              >
+                <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
+              </button>
+            )}
+            <h1 className="text-3xl font-black text-white tracking-widest uppercase">
+              {isAdmin && !selectedAgency ? 'Agency Management' : selectedAgency?.name || 'Agency Portal'}
+            </h1>
           </div>
-          <p className="text-amber-500 font-black text-[10px] uppercase tracking-[0.3em] mt-2 flex items-center gap-2">
-             <ShieldCheck size={12} /> {selectedAgency ? `Managing: ${selectedAgency.displayName}` : 'Network Overview'}
+          <p className="text-amber-500 font-bold text-xs uppercase tracking-[0.25em] mt-2 flex items-center gap-2">
+            <ShieldCheck size={14} /> 
+            {selectedAgency 
+              ? `Owner: ${selectedAgency.ownerName || 'Unknown'} (Hello ID: ${selectedAgency.ownerHelloId || 'N/A'})` 
+              : 'Network Administration & Host Roster System'}
           </p>
         </div>
 
-        {selectedAgency && (
-          <div className="flex flex-wrap items-center gap-4">
-             <Link 
+        {/* Global Action Buttons */}
+        <div className="flex flex-wrap items-center gap-3">
+          {isAdmin && !selectedAgency && (
+            <>
+              <button
+                onClick={fetchAgencies}
+                disabled={loading}
+                className="p-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-2xl transition-all"
+                title="Refresh List"
+              >
+                <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+              </button>
+              <button
+                onClick={() => setShowAppointModal(true)}
+                className="flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/30"
+              >
+                <Plus size={18} /> Appoint Agency
+              </button>
+            </>
+          )}
+
+          {selectedAgency && (
+            <>
+              <Link 
                 to="/commission-wallet"
-                className="flex items-center gap-2 px-5 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-3xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-emerald-500/10"
-             >
-                <Wallet size={18} /> USD Commission Wallet
-             </Link>
-             <div className="bg-slate-900/50 border border-white/5 p-4 rounded-3xl flex items-center gap-4 min-w-[200px]">
-                <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl">
-                   <Users size={20} />
-                </div>
-                <div>
-                   <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Active Hosts</p>
-                   <p className="text-xl font-black text-white">{hosts.length}</p>
-                </div>
-             </div>
-             {/* Admin: Show Agency ID for debugging if needed */}
-             {isAdmin && (
-                <div className="bg-slate-900/50 border border-white/5 p-4 rounded-3xl hidden md:block">
-                   <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Agency UID</p>
-                   <p className="text-[10px] font-mono text-slate-400">{(selectedAgency.uid || selectedAgency.id)}</p>
-                </div>
-             )}
-          </div>
-        )}
+                className="flex items-center gap-2 px-5 py-3.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+              >
+                <Wallet size={16} /> Commission Wallet
+              </Link>
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => setShowEditModal(true)}
+                    className="flex items-center gap-2 px-4 py-3.5 bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    <Edit2 size={16} /> Edit Info
+                  </button>
+                  <button
+                    onClick={() => handleToggleStatus(selectedAgency)}
+                    className={`flex items-center gap-2 px-4 py-3.5 rounded-2xl text-xs font-black uppercase tracking-wider transition-all border ${
+                      selectedAgency.isActive !== false 
+                        ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/30' 
+                        : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                    }`}
+                  >
+                    <Power size={16} /> {selectedAgency.isActive !== false ? 'Suspend' : 'Activate'}
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setShowRecruitModal(true)}
+                className="flex items-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/30"
+              >
+                <UserPlus size={18} /> Recruit Host
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {isAdmin && !selectedAgency ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {agencies.map(agency => (
-            <div 
-              key={agency.id} 
-              onClick={() => setSelectedAgency(agency)}
-              className="bg-[#09090B] border border-white/5 p-8 rounded-[40px] hover:border-amber-500/30 transition-all cursor-pointer group relative overflow-hidden"
-            >
-               <div className="absolute top-0 right-0 p-8 bg-amber-500/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
-               
-               {/* Delete Button */}
-               <button 
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteAgency(agency);
-                  }}
-                  className="absolute top-6 right-6 p-3 bg-red-500/10 text-red-500 rounded-2xl opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all z-10"
-                  title="Delete Agency"
-               >
-                  <Trash2 size={18} />
-               </button>
+      {/* Metrics Row (when list view) */}
+      {isAdmin && !selectedAgency && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          <div className="bg-[#09090B] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+            <div className="p-4 bg-indigo-500/10 text-indigo-400 rounded-2xl">
+              <Building2 size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Total Agencies</p>
+              <p className="text-2xl font-black text-white">{totalAgencies}</p>
+            </div>
+          </div>
+          <div className="bg-[#09090B] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+            <div className="p-4 bg-emerald-500/10 text-emerald-400 rounded-2xl">
+              <CheckCircle2 size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Active Agencies</p>
+              <p className="text-2xl font-black text-emerald-400">{activeAgencies}</p>
+            </div>
+          </div>
+          <div className="bg-[#09090B] border border-white/5 p-6 rounded-3xl flex items-center gap-5">
+            <div className="p-4 bg-amber-500/10 text-amber-400 rounded-2xl">
+              <Users size={24} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Contracted Hosts</p>
+              <p className="text-2xl font-black text-amber-400">{totalHosts}</p>
+            </div>
+          </div>
+        </div>
+      )}
 
-               <div className="flex items-center gap-6 relative">
-                  <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center border border-amber-500/20 group-hover:scale-110 transition-transform">
-                     <Building2 size={32} className="text-amber-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-white mb-1">{agency.displayName}</h3>
-                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">@{agency.username}</p>
-                    <div className="mt-4 flex items-center gap-2 text-indigo-400 font-bold text-[10px] uppercase tracking-tighter">
-                       Tap to Manage <ChevronRight size={14} />
+      {/* ─── LIST VIEW ─── */}
+      {isAdmin && !selectedAgency ? (
+        <div className="space-y-6">
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-between items-center">
+            <div className="relative flex-1 w-full">
+              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                type="text"
+                placeholder="Search by agency name, owner, Hello ID or UID..."
+                className="w-full bg-[#09090B] border border-white/10 rounded-2xl py-3.5 pl-12 pr-4 text-sm text-white placeholder-slate-500 outline-none focus:border-indigo-500 transition-all font-medium"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 w-full sm:w-auto">
+              {['all', 'active', 'suspended'].map(status => (
+                <button
+                  key={status}
+                  onClick={() => setStatusFilter(status)}
+                  className={`px-4 py-3 rounded-2xl text-xs font-black uppercase tracking-wider transition-all ${
+                    statusFilter === status 
+                      ? 'bg-indigo-600 text-white' 
+                      : 'bg-white/5 text-slate-400 hover:bg-white/10'
+                  }`}
+                >
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Agencies Grid */}
+          {loading ? (
+            <div className="py-24 text-center animate-pulse uppercase font-black text-slate-600 tracking-[0.5em]">
+              Loading Registered Agencies...
+            </div>
+          ) : filteredAgencies.length === 0 ? (
+            <div className="bg-[#09090B] border border-dashed border-white/10 p-16 rounded-[40px] text-center space-y-4">
+              <div className="w-16 h-16 mx-auto bg-amber-500/10 text-amber-400 rounded-3xl flex items-center justify-center">
+                <Building2 size={32} />
+              </div>
+              <h3 className="text-xl font-black text-white">No Agencies Found</h3>
+              <p className="text-slate-400 text-sm max-w-md mx-auto">
+                {searchTerm || statusFilter !== 'all' 
+                  ? 'No agency matches your current filter criteria.' 
+                  : 'No agencies have been registered yet. Appoint the first agency to start recruiting hosts.'}
+              </p>
+              <button
+                onClick={() => setShowAppointModal(true)}
+                className="mt-4 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider inline-flex items-center gap-2 shadow-lg shadow-indigo-600/30"
+              >
+                <Plus size={16} /> Appoint First Agency
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredAgencies.map((agency) => {
+                const isActive = agency.isActive !== false;
+                return (
+                  <div
+                    key={agency.agencyId || agency.id}
+                    onClick={() => loadAgencyDetail(agency.agencyId || agency.id)}
+                    className="bg-[#09090B] border border-white/5 hover:border-indigo-500/40 p-7 rounded-[36px] transition-all cursor-pointer group relative overflow-hidden flex flex-col justify-between"
+                  >
+                    <div className="space-y-5">
+                      {/* Top Badges */}
+                      <div className="flex items-center justify-between">
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          isActive 
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                            : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                          {isActive ? 'Active' : 'Suspended'}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-slate-500">
+                          {(agency.commissionRate * 100).toFixed(0)}% Split
+                        </span>
+                      </div>
+
+                      {/* Agency Icon & Info */}
+                      <div className="flex items-center gap-4">
+                        <div className="w-16 h-16 bg-gradient-to-tr from-amber-500/10 to-indigo-500/10 rounded-2xl flex items-center justify-center border border-white/10 group-hover:scale-105 transition-transform flex-shrink-0">
+                          <Building2 size={28} className="text-amber-400" />
+                        </div>
+                        <div className="overflow-hidden">
+                          <h3 className="text-lg font-black text-white truncate group-hover:text-indigo-400 transition-colors">
+                            {agency.name}
+                          </h3>
+                          <p className="text-xs text-slate-400 truncate mt-0.5">
+                            Owner: <span className="text-white font-bold">{agency.ownerName || 'Unknown'}</span>
+                          </p>
+                          <p className="text-[11px] text-slate-500 font-mono">
+                            Hello ID: {agency.ownerHelloId || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Stats Row */}
+                      <div className="grid grid-cols-2 gap-3 pt-2">
+                        <div className="bg-white/[0.02] border border-white/5 p-3 rounded-2xl">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Hosts</p>
+                          <p className="text-base font-black text-indigo-400 mt-0.5">{agency.hostCount || 0}</p>
+                        </div>
+                        <div className="bg-white/[0.02] border border-white/5 p-3 rounded-2xl">
+                          <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Total Beans</p>
+                          <p className="text-base font-black text-amber-400 mt-0.5">{(agency.totalBeansEarned || 0).toLocaleString()}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom CTA */}
+                    <div className="mt-6 pt-4 border-t border-white/5 flex items-center justify-between text-indigo-400 text-xs font-bold uppercase tracking-wider">
+                      <span>Manage Roster</span>
+                      <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
-               </div>
+                );
+              })}
             </div>
-          ))}
+          )}
         </div>
       ) : selectedAgency ? (
-        <>
-          {/* Recruitment Hub */}
-          <div className="bg-indigo-600/5 border border-indigo-500/20 rounded-[40px] p-8 space-y-6">
-         <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500 text-white rounded-lg">
-               <UserPlus size={18} />
-            </div>
-            <h2 className="text-xl font-black text-white uppercase tracking-tighter">Host Recruitment Hub</h2>
-         </div>
+        /* ─── AGENCY DETAIL / ROSTER VIEW ─── */
+        <div className="space-y-8">
+          {/* Agency HUD Card */}
+          <div className="bg-gradient-to-r from-indigo-950/20 via-[#09090B] to-[#09090B] border border-indigo-500/20 p-8 rounded-[40px] space-y-6">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+              <div className="flex items-center gap-5">
+                <div className="w-20 h-20 bg-amber-500/10 rounded-3xl flex items-center justify-center border border-amber-500/20 flex-shrink-0">
+                  <Building2 size={36} className="text-amber-400" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-black text-white">{selectedAgency.name}</h2>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      selectedAgency.isActive !== false 
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                        : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                    }`}>
+                      {selectedAgency.isActive !== false ? 'Active' : 'Suspended'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Owner: <span className="text-white font-bold">{selectedAgency.ownerName || 'Unknown'}</span> · Hello ID: <span className="font-mono text-indigo-400 font-bold">{selectedAgency.ownerHelloId || 'N/A'}</span> · UID: <span className="font-mono text-slate-500 text-[10px]">{selectedAgency.ownerUid}</span>
+                  </p>
+                  {selectedAgency.description && (
+                    <p className="text-xs text-slate-500 mt-2 max-w-2xl">{selectedAgency.description}</p>
+                  )}
+                </div>
+              </div>
 
-         <div className="flex gap-4">
-            <div className="relative flex-1">
-               <input 
-                  type="text" 
-                  placeholder="Enter exact Username to recruit..."
-                  className="w-full bg-black/40 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:border-indigo-500 text-white font-bold"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearchUsers()}
-               />
-               <button 
-                  onClick={handleSearchUsers}
-                  disabled={isSearching}
-                  className="absolute right-2 top-2 bottom-2 px-6 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 text-white rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
-               >
-                  {isSearching ? 'Scanning Cloud...' : 'Find Talent'}
-               </button>
+              {/* Quick Details Badges */}
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="bg-white/[0.03] border border-white/5 px-4 py-3 rounded-2xl">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Commission Split</p>
+                  <p className="text-lg font-black text-white">{((selectedAgency.commissionRate || 0.1) * 100).toFixed(0)}%</p>
+                </div>
+                <div className="bg-white/[0.03] border border-white/5 px-4 py-3 rounded-2xl">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Active Hosts</p>
+                  <p className="text-lg font-black text-indigo-400">{hosts.length}</p>
+                </div>
+                <div className="bg-white/[0.03] border border-white/5 px-4 py-3 rounded-2xl">
+                  <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Beans Balance</p>
+                  <p className="text-lg font-black text-amber-400">{(selectedAgency.beansBalance || 0).toLocaleString()}</p>
+                </div>
+              </div>
             </div>
-         </div>
+          </div>
 
-         <AnimatePresence>
-            {searchResults.length > 0 && (
-               <motion.div 
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4"
-               >
-                  {searchResults.map(user => (
-                     <div key={user.id} className="bg-white/5 border border-white/10 p-6 rounded-3xl flex items-center justify-between group">
-                        <div className="flex items-center gap-4">
-                           <img src={user.profilePhotoUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${user.id}`} className="w-12 h-12 rounded-2xl object-cover" />
-                           <div>
-                              <p className="font-black text-white">{user.displayName}</p>
-                              <p className="text-xs font-bold text-slate-500">@{user.username}</p>
-                           </div>
+          {/* Roster Section Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-black text-white uppercase tracking-wider">Host Roster ({hosts.length})</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Performers and streamers managed under this agency.</p>
+            </div>
+            <button
+              onClick={() => setShowRecruitModal(true)}
+              className="flex items-center gap-2 px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-indigo-600/30"
+            >
+              <UserPlus size={16} /> Recruit Host
+            </button>
+          </div>
+
+          {/* Host Roster Cards */}
+          {loading ? (
+            <div className="py-20 text-center animate-pulse uppercase font-black text-slate-600 tracking-[0.5em]">
+              Loading Host Roster...
+            </div>
+          ) : hosts.length === 0 ? (
+            <div className="bg-[#09090B] border border-dashed border-white/10 p-14 rounded-[36px] text-center space-y-3">
+              <p className="text-slate-400 font-bold">No hosts assigned to this agency yet.</p>
+              <button
+                onClick={() => setShowRecruitModal(true)}
+                className="px-5 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-black uppercase tracking-wider inline-flex items-center gap-2"
+              >
+                <UserPlus size={16} /> Recruit First Host
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {hosts.map(host => (
+                <div 
+                  key={host.uid || host.id}
+                  className="bg-[#09090B] border border-white/5 hover:border-white/15 p-6 rounded-[32px] transition-all relative group flex flex-col justify-between"
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <img 
+                          src={host.profilePhotoUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${host.uid || host.id}`} 
+                          className="w-12 h-12 rounded-2xl object-cover ring-2 ring-indigo-500/20"
+                          alt="avatar"
+                        />
+                        <div>
+                          <h4 className="font-black text-white text-sm truncate max-w-[150px]">{host.displayName || 'Unknown Host'}</h4>
+                          <p className="text-[11px] font-mono text-indigo-400">ID: {host.helloId || 'N/A'}</p>
                         </div>
-                        <button 
-                           onClick={() => assignAsHost(user)}
-                           className="px-6 py-3 bg-white text-black font-black text-[10px] uppercase tracking-widest rounded-xl hover:scale-105 transition-transform"
-                        >
-                           Assign as Host
-                        </button>
-                     </div>
-                  ))}
-               </motion.div>
-            )}
-         </AnimatePresence>
-      </div>
-
-      {/* Roster List */}
-      <div className="space-y-6">
-         <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.4em] ml-2">Your Agency Roster</h2>
-         
-         {loading ? (
-             <div className="py-20 text-center animate-pulse uppercase font-black text-slate-700 tracking-[1em]">Retrieving Talent Data...</div>
-         ) : hosts.length === 0 ? (
-             <div className="bg-slate-900/30 border border-dashed border-white/5 py-20 rounded-[40px] text-center">
-                 <p className="text-slate-500 font-bold uppercase tracking-widest">No hosts assigned yet. Start recruiting!</p>
-             </div>
-         ) : (
-             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                {hosts.map(host => (
-                   <div key={host.id} className="bg-[#09090B] border border-white/5 p-6 rounded-[35px] hover:bg-white/[0.02] transition-all group relative overflow-hidden">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 blur-3xl -mr-16 -mt-16"></div>
-                      
-                      <div className="flex items-start justify-between mb-6 relative">
-                         <div className="flex items-center gap-4">
-                            <div className="relative">
-                               <img src={host.profilePhotoUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${host.id}`} className="w-16 h-16 rounded-2xl object-cover ring-2 ring-indigo-500/20" />
-                               <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-indigo-500 border-2 border-[#09090B] rounded-full"></div>
-                            </div>
-                            <div>
-                               <h3 className="font-black text-white">{host.displayName}</h3>
-                               <p className="text-[10px] font-black uppercase text-slate-500">Member since {host.assignedAt?.toDate().toLocaleDateString() || 'Recently'}</p>
-                            </div>
-                         </div>
-                         <div className="p-3 bg-slate-900 rounded-2xl text-amber-400">
-                             <Star size={18} fill="currentColor" />
-                         </div>
                       </div>
-
-                      <div className="grid grid-cols-2 gap-4 relative">
-                         <div className="bg-black/40 p-4 rounded-2xl">
-                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">XP Points</p>
-                            <p className="text-sm font-black text-white">{host.xp || 0}</p>
-                         </div>
-                         <div className="bg-black/40 p-4 rounded-2xl">
-                            <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Total Spent</p>
-                            <p className="text-sm font-black text-emerald-400">{host.svipPoints || 0} 💎</p>
-                         </div>
-                      </div>
-
-                      <button 
-                        onClick={() => setSelectedHost(host)}
-                        className="w-full mt-6 py-4 bg-white/[0.03] hover:bg-white/5 text-slate-400 font-black text-[10px] uppercase tracking-widest rounded-2xl border border-white/5 flex items-center justify-center gap-2 transition-all"
+                      <button
+                        onClick={() => handleRemoveHost(host)}
+                        className="p-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-xl transition-all"
+                        title="Release Host from Agency"
                       >
-                         View Full Analytics <ChevronRight size={14} />
+                        <Trash2 size={16} />
                       </button>
-                   </div>
-                ))}
-             </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="bg-white/[0.02] border border-white/5 p-3 rounded-xl">
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Beans Balance</p>
+                        <p className="font-black text-amber-400 mt-0.5">{(host.beansBalance || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white/[0.02] border border-white/5 p-3 rounded-xl">
+                        <p className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Diamonds Spent</p>
+                        <p className="font-black text-emerald-400 mt-0.5">{(host.svipPoints || 0).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedHost(host)}
+                    className="w-full mt-4 py-3 bg-white/5 hover:bg-white/10 text-slate-300 font-bold text-xs uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5"
+                  >
+                    Host Details <ChevronRight size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
-      </div>
-      {/* Host Analytics Modal */}
+        </div>
+      ) : null}
+
+      {/* ─── APPOINT AGENCY MODAL ─── */}
       <AnimatePresence>
-        {selectedHost && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-xl">
-             <motion.div 
-               initial={{ opacity: 0, scale: 0.9, y: 30 }}
-               animate={{ opacity: 1, scale: 1, y: 0 }}
-               exit={{ opacity: 0, scale: 0.9, y: 30 }}
-               className="bg-[#09090B] border border-white/10 w-full max-w-2xl rounded-[40px] overflow-hidden shadow-2xl relative"
-             >
-                <div className="absolute top-6 right-6 z-10">
-                   <button 
-                      onClick={() => setSelectedHost(null)}
-                      className="p-3 bg-white/5 hover:bg-white/10 rounded-2xl text-slate-500 hover:text-white transition-all"
-                   >
-                      <X size={20} />
-                   </button>
+        {showAppointModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#09090B] border border-white/10 w-full max-w-xl rounded-[36px] overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-2xl">
+                    <Building2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white uppercase tracking-wider">Appoint New Agency</h3>
+                    <p className="text-xs text-slate-500">Designate a user as an agency owner and register their agency.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowAppointModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleAppointAgency} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Owner Identifier (Hello ID or UID) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 5621916410 or user UID"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                    value={appointForm.ownerIdentifier}
+                    onChange={(e) => setAppointForm({ ...appointForm, ownerIdentifier: e.target.value })}
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">Accepts numeric Hello ID or standard Firebase Auth UID.</p>
                 </div>
 
-                <div className="p-10 space-y-8">
-                   {/* Host Profile Header */}
-                   <div className="flex items-center gap-6">
-                      <div className="relative">
-                         <img 
-                            src={selectedHost.profilePhotoUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${selectedHost.id}`} 
-                            className="w-24 h-24 rounded-[32px] object-cover ring-4 ring-indigo-500/20 shadow-2xl" 
-                         />
-                         <div className="absolute -top-2 -right-2 bg-indigo-500 text-white p-2 rounded-xl border-4 border-[#09090B]">
-                            <Star size={14} fill="currentColor" />
-                         </div>
-                      </div>
-                      <div>
-                         <h2 className="text-3xl font-black text-white tracking-tight uppercase">
-                            {selectedHost.displayName}
-                         </h2>
-                         <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
-                            Contracted Host Since {selectedHost.assignedAt?.toDate().toLocaleDateString() || 'Recently'}
-                         </p>
-                      </div>
-                   </div>
-
-                   {/* Stats Grid */}
-                   <div className="grid grid-cols-3 gap-4">
-                      <div className="bg-white/[0.03] border border-white/5 p-6 rounded-[32px] space-y-2">
-                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Global Ranking XP</p>
-                         <p className="text-2xl font-black text-white">{selectedHost.xp || 0}</p>
-                      </div>
-                      <div className="bg-white/[0.03] border border-white/5 p-6 rounded-[32px] space-y-2">
-                         <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Host Earnings (Beans)</p>
-                         <p className="text-2xl font-black text-amber-500">{selectedHost.beansBalance || 0}</p>
-                         <p className="text-[9px] font-bold text-slate-700">≈ ${( (selectedHost.beansBalance || 0) / 100).toFixed(2)} USD</p>
-                      </div>
-                      <div className="bg-emerald-500/5 border border-emerald-500/10 p-6 rounded-[32px] space-y-2">
-                         <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Total Spent (Diamonds)</p>
-                         <p className="text-2xl font-black text-white">{selectedHost.svipPoints || 0}</p>
-                         <p className="text-[9px] font-bold text-emerald-900/50">Cumulative Gifting</p>
-                      </div>
-                   </div>
-
-                   {/* Recent Performance HUD */}
-                   <div className="bg-indigo-600/5 border border-indigo-500/10 p-8 rounded-[40px] space-y-4">
-                      <div className="flex items-center justify-between">
-                         <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Live Activity Pulse</h4>
-                         <div className="flex items-center gap-2">
-                            <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-ping"></span>
-                            <span className="text-[9px] font-bold text-slate-500 uppercase">Synchronized with Node</span>
-                         </div>
-                      </div>
-                      <div className="h-24 flex items-end gap-2 justify-between px-2">
-                         {[40, 70, 45, 90, 65, 80, 55, 60, 30].map((h, i) => (
-                           <div key={i} style={{ height: `${h}%` }} className="flex-1 bg-indigo-500/20 rounded-lg group hover:bg-indigo-500 transition-all cursor-crosshair relative">
-                              <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-black text-[8px] font-black p-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-all">
-                                 {h}%
-                              </div>
-                           </div>
-                         ))}
-                      </div>
-                   </div>
-
-                   {/* Actions */}
-                   <div className="flex gap-4 pt-4">
-                      <button className="flex-1 py-4 bg-white text-black font-black text-xs uppercase tracking-[0.2em] rounded-2xl hover:scale-[1.02] transition-all">
-                         Export PDF Report
-                      </button>
-                      
-                      {/* Simulation Button for Testing */}
-                      <button 
-                        onClick={async () => {
-                           if (!window.confirm("Simulate Level 1 Achievement? This will generate test payouts.")) return;
-                           try {
-                              const simulate = httpsCallable(functions, 'simulateSalaryMilestone');
-                              await simulate({ targetUid: selectedHost.id, level: 1 });
-                              alert("Simulation Complete! Level 1 reached.");
-                              fetchAgencyHosts(selectedAgency.uid);
-                              setSelectedHost(null);
-                           } catch (err) {
-                              alert("Simulation Failed: " + err.message);
-                           }
-                        }}
-                        className="p-4 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-2xl hover:bg-indigo-500 hover:text-white transition-all"
-                        title="Simulate Lv.1 Milestone"
-                      >
-                         <Zap size={24} />
-                      </button>
-
-                      <button 
-                        onClick={() => handleRemoveHost(selectedHost.id)}
-                        className="p-4 bg-red-500/10 text-red-500 border border-red-500/20 rounded-2xl hover:bg-red-500 hover:text-white transition-all"
-                        title="Release Host"
-                      >
-                         <Trash2 size={24} />
-                      </button>
-                   </div>
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Agency Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Starlight Talent Group"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-medium"
+                    value={appointForm.name}
+                    onChange={(e) => setAppointForm({ ...appointForm, name: e.target.value })}
+                  />
                 </div>
-             </motion.div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                      Commission Rate (%)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        placeholder="10"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                        value={appointForm.commissionRate}
+                        onChange={(e) => setAppointForm({ ...appointForm, commissionRate: e.target.value })}
+                      />
+                      <Percent size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. India, Bangladesh"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-medium"
+                      value={appointForm.country}
+                      onChange={(e) => setAppointForm({ ...appointForm, country: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Contact Phone / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. +91 9876543210"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                    value={appointForm.contactPhone}
+                    onChange={(e) => setAppointForm({ ...appointForm, contactPhone: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Agency background or operational notes..."
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-white text-sm outline-none focus:border-indigo-500 resize-none font-medium"
+                    value={appointForm.description}
+                    onChange={(e) => setAppointForm({ ...appointForm, description: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAppointModal(false)}
+                    className="px-5 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-black uppercase tracking-wider text-slate-300 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2"
+                  >
+                    {actionLoading ? 'Appointing...' : 'Appoint Agency'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>
-        </>
-      ) : null}
+
+      {/* ─── EDIT AGENCY MODAL ─── */}
+      <AnimatePresence>
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#09090B] border border-white/10 w-full max-w-xl rounded-[36px] overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-2xl">
+                    <Edit2 size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white uppercase tracking-wider">Edit Agency Details</h3>
+                    <p className="text-xs text-slate-500">Update agency name, split percentage, and contact info.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleUpdateAgency} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Agency Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-medium"
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                      Commission Rate (%)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                        value={editForm.commissionRate}
+                        onChange={(e) => setEditForm({ ...editForm, commissionRate: e.target.value })}
+                      />
+                      <Percent size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-medium"
+                      value={editForm.country}
+                      onChange={(e) => setEditForm({ ...editForm, country: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Contact Phone / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                    value={editForm.contactPhone}
+                    onChange={(e) => setEditForm({ ...editForm, contactPhone: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    rows={2}
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-2.5 px-4 text-white text-sm outline-none focus:border-indigo-500 resize-none font-medium"
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    className="px-5 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-black uppercase tracking-wider text-slate-300 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2"
+                  >
+                    {actionLoading ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── RECRUIT HOST MODAL ─── */}
+      <AnimatePresence>
+        {showRecruitModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#09090B] border border-white/10 w-full max-w-lg rounded-[36px] overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-2xl">
+                    <UserPlus size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black text-white uppercase tracking-wider">Recruit Host</h3>
+                    <p className="text-xs text-slate-500">Link a registered user to this agency roster.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowRecruitModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={handleRecruitHost} className="p-6 space-y-4">
+                <div>
+                  <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                    Host Identifier (Hello ID or UID) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 1002 or user UID"
+                    className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                    value={recruitIdentifier}
+                    onChange={(e) => setRecruitIdentifier(e.target.value)}
+                  />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Enter the performer's numeric Hello ID or UID to link them to {selectedAgency?.name}.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-white/5">
+                  <button
+                    type="button"
+                    onClick={() => setShowRecruitModal(false)}
+                    className="px-5 py-3 bg-white/5 hover:bg-white/10 rounded-xl text-xs font-black uppercase tracking-wider text-slate-300 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={actionLoading}
+                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-900/50 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all shadow-lg shadow-indigo-600/30 flex items-center gap-2"
+                  >
+                    {actionLoading ? 'Linking...' : 'Add to Agency'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ─── HOST DETAIL MODAL ─── */}
+      <AnimatePresence>
+        {selectedHost && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-[#09090B] border border-white/10 w-full max-w-xl rounded-[36px] overflow-hidden shadow-2xl"
+            >
+              <div className="flex items-center justify-between p-6 border-b border-white/5">
+                <div className="flex items-center gap-3">
+                  <img
+                    src={selectedHost.profilePhotoUrl || `https://api.dicebear.com/7.x/avataaars/png?seed=${selectedHost.uid || selectedHost.id}`}
+                    className="w-12 h-12 rounded-2xl object-cover ring-2 ring-indigo-500/20"
+                    alt="avatar"
+                  />
+                  <div>
+                    <h3 className="text-lg font-black text-white">{selectedHost.displayName || 'Host Details'}</h3>
+                    <p className="text-xs font-mono text-indigo-400">Hello ID: {selectedHost.helloId || 'N/A'}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedHost(null)}
+                  className="p-2 hover:bg-white/10 rounded-xl text-slate-400 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Beans Balance</p>
+                    <p className="text-xl font-black text-amber-400 mt-1">{(selectedHost.beansBalance || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Diamonds Spent</p>
+                    <p className="text-xl font-black text-emerald-400 mt-1">{(selectedHost.svipPoints || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">XP Points</p>
+                    <p className="text-xl font-black text-indigo-400 mt-1">{(selectedHost.xp || 0).toLocaleString()}</p>
+                  </div>
+                  <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Role</p>
+                    <p className="text-xl font-black text-white uppercase mt-1">{selectedHost.role || 'host'}</p>
+                  </div>
+                </div>
+
+                <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl space-y-1">
+                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Firebase UID</p>
+                  <p className="text-xs font-mono text-slate-300 select-all">{selectedHost.uid || selectedHost.id}</p>
+                </div>
+
+                <div className="flex justify-between items-center pt-2">
+                  <button
+                    onClick={() => handleRemoveHost(selectedHost)}
+                    className="px-5 py-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2"
+                  >
+                    <Trash2 size={16} /> Release From Agency
+                  </button>
+                  <button
+                    onClick={() => setSelectedHost(null)}
+                    className="px-5 py-3 bg-white/5 hover:bg-white/10 text-slate-300 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
