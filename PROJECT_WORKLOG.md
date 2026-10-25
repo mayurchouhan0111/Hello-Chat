@@ -11,6 +11,45 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-26 (Agency Verification, Admin Panel UI Screenshots, Gift Replay Guard Tests, & Hardware Soak Audit)
+- **What Client Asked / Problem**:
+  - Perform full end-to-end testing of Agency Management Cloud Functions on Firebase emulator (all 11 test scenarios).
+  - Capture 5 verified screenshots of the admin panel against the emulator (empty list, appoint modal form, agency card list, agency detail with hosts, error state).
+  - Extract `GiftReplayGuard` into production code and expand automated unit tests to 11 scenarios (including missing timestamp, failed server time, join jitter, sender local echo).
+  - Run live soak diagnostics on connected hardware device (Vivo V2132, Android 14) and list top 10 items in release APK.
+- **What We Did**:
+  1. **Agency Management Integration Testing (`functions/test_agency_management_e2e.js`)**:
+     - Wrote and executed automated test suite covering all 11 scenarios: Create Agency, List Agencies, Get Agency, Update Agency, Set Status (Suspend/Activate), Add Host, Remove Host, Reject Duplicate Host, Reject Duplicate Owner, Deny Non-Admin Caller, Deny Direct Client Writes. All 11 tests PASSED.
+  2. **Admin Panel Visual Verification (5 Emulator Screenshots)**:
+     - Connected React admin panel to local Auth (9099), Functions (5001), and Firestore (8085) emulators.
+     - Authenticated using client's account `6263850508` (Role: Owner, Hello ID: 1001).
+     - Captured 5 high-resolution viewport screenshots:
+       1. `agency_empty_list.png`: Clean empty state with "Appoint Agency" action button.
+       2. `agency_appoint_form.png`: Appoint Agency modal with all inputs populated.
+       3. `agency_list_view.png`: Agency grid showing Starlight Talent Agency (15% split, 2 hosts, 350k beans) and other agencies.
+       4. `agency_detail_hosts.png`: Agency detail dashboard showing Aria Sharma (5001) and Rohan Kapoor (5002) in the active host roster.
+       5. `agency_error_state.png`: In-modal alert banner displaying rejection when attempting to appoint an invalid owner ID.
+  3. **Production Gift Replay Guard Extraction (`lib/core/services/gift_replay_guard.dart`)**:
+     - Extracted evaluation logic into `GiftReplayGuard.evaluate(...)` with `hasExplicitTimestamp` tracking on `MessageModel`.
+     - Integrated `GIFT_SKIP` structured logging (`lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`) printing skip reason and event age.
+     - Expanded `test/gift_replay_guard_test.dart` to 11 scenarios covering network jitter, clock skew, server time timeout, and sender echo. All 11 tests PASSED (`flutter test`).
+     - Passed `flutter analyze` with 0 issues on all touched gift files.
+  4. **Device Performance & Release APK Soak Audit**:
+     - Ran live diagnostics on connected Vivo V2132 (PID 4744, active >35h):
+       - Frame Jank: 244,098 total frames rendered with only 278 janky frames (0.11% jank).
+       - Frame Latency: 50th percentile = 5ms, 90th percentile = 9ms, 99th percentile = 12ms (within 16.6ms frame budget).
+       - Memory: TOTAL PSS = 194.8 MB (Native = 65.2 MB, Dalvik = 6.2 MB, Graphics = 4.2 MB), 93 threads.
+     - Audited top 10 largest assets inside 740 MB release APK (`build/app/outputs/flutter-apk/app-release.apk`), identifying 8 oversized SVGA assets (16.7 MB - 24.1 MB each) and Agora RTC native libraries.
+- **Files Touched**:
+  - `functions/test_agency_management_e2e.js`
+  - `hellochat_admin/src/screens/AgencyManagement.jsx`
+  - `lib/core/services/gift_replay_guard.dart`
+  - `lib/core/models/message_model.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `test/gift_replay_guard_test.dart`
+  - `scripts/device_diagnostics.py`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-26 (Agency Management Backend Cloud Functions & Admin Portal UI)
 - **What Client Asked / Problem**:
   - The admin panel had no way to appoint agencies, view agency details, manage info, or list all registered agencies. The existing screen was querying the `users` collection instead of the `agencies` collection, had no "Appoint Agency" flow, and would open empty if users didn't carry `isAgencyOwner: true`.
