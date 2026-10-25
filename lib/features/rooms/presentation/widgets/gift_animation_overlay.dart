@@ -21,6 +21,7 @@ import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../services/gift_service.dart';
+import 'package:hello_chat/core/services/server_time_service.dart';
 import 'gift_combo_overlay.dart';
 import 'seat_grid.dart';
 
@@ -403,6 +404,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final Set<String> _processedMessageIds = {};
   final Set<String> _processedEventIds = {};
   bool _initialHistorySeeded = false;
+  int _joinTimeServerMs = 0;
 
   /// True while the app is backgrounded: gift queues are cleared and new
   /// gifts are dropped (already marked processed, so nothing replays).
@@ -607,6 +609,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   @override
   void initState() {
     super.initState();
+    _joinTimeServerMs = ServerTimeService.serverNowMs;
+    ServerTimeService.sync();
     WidgetsBinding.instance.addObserver(this);
     // Configure global audio context once so individual players never incur platform latency
     try {
@@ -806,10 +810,14 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   }
 
   void _handleMessages(List<RoomMessage> messages) {
+    // Calibrate server time offset from document server timestamp if not yet synced
+    if (messages.isNotEmpty) {
+      ServerTimeService.calibrateWithServerTimestamp(messages.first.createdAt);
+    }
+
     // On room entry, seed the entire existing history as already processed so
     // joining (or re-mounting the overlay, e.g. PK toggling) never replays
-    // gifts that were sent before we started watching. Only genuinely new
-    // messages arriving after mount are animated.
+    // gifts that were sent before we started watching.
     if (!_initialHistorySeeded) {
       _initialHistorySeeded = true;
       for (final m in messages) {
@@ -823,14 +831,45 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ref.read(currentUserProfileProvider).value?.uid ??
         ref.read(authStateProvider).value?.uid;
 
-    // Filter unprocessed gift messages (accept if animationUrl is non-empty OR giftId is non-empty)
-    final newGifts = messages.where((msg) =>
-        msg.type == 'gift' &&
-        !_processedMessageIds.contains(msg.msgId) &&
-        (
-          (msg.animationUrl != null && msg.animationUrl!.trim().isNotEmpty) ||
-          (msg.giftId != null && msg.giftId!.trim().isNotEmpty)
-        )).toList();
+    final nowServerMs = ServerTimeService.serverNowMs;
+
+    // Filter gift messages through the strict Triple-Gate:
+    // Gate 1: Not already processed (!contains msgId)
+    // Gate 2: Sent at or after room join time (createdAt >= joinTimeServerMs - 2000ms tolerance)
+    // Gate 3: Not expired (age <= durationMs + 5000ms margin)
+    final List<RoomMessage> newGifts = [];
+
+    for (final msg in messages) {
+      if (msg.type != 'gift') continue;
+      if ((msg.animationUrl == null || msg.animationUrl!.trim().isEmpty) &&
+          (msg.giftId == null || msg.giftId!.trim().isEmpty)) {
+        continue;
+      }
+
+      if (_processedMessageIds.contains(msg.msgId)) {
+        continue;
+      }
+
+      final createdAtMs = msg.createdAt.millisecondsSinceEpoch;
+      final ageMs = nowServerMs - createdAtMs;
+      final int effectiveDuration = msg.durationMs > 0 ? msg.durationMs : 5000;
+
+      // Gate 2: Sent before user joined the room (-2s tolerance for network jitter)
+      if (_joinTimeServerMs > 0 && createdAtMs < (_joinTimeServerMs - 2000)) {
+        _processedMessageIds.add(msg.msgId);
+        debugPrint('🎁 [GIFT_SKIP] reason=beforeJoin, msgId=${msg.msgId}, giftId=${msg.giftId}, createdAtMs=$createdAtMs, joinTimeMs=$_joinTimeServerMs, age=${ageMs}ms');
+        continue;
+      }
+
+      // Gate 3: Message is old/expired (older than animation duration + 5s)
+      if (ageMs > (effectiveDuration + 5000)) {
+        _processedMessageIds.add(msg.msgId);
+        debugPrint('🎁 [GIFT_SKIP] reason=old, msgId=${msg.msgId}, giftId=${msg.giftId}, age=${ageMs}ms, maxTTL=${effectiveDuration + 5000}ms');
+        continue;
+      }
+
+      newGifts.add(msg);
+    }
 
     // Process strictly in ascending chronological sending order (oldest first, newest last)
     newGifts.sort((a, b) {

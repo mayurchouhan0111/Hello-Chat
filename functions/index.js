@@ -1007,26 +1007,14 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
         lastUpdated: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-    // Create Payouts for each milestone
-    const now = new Date();
-    const hostPayoutDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    // FINANCIAL INTEGRITY: Automatic USD host salary payouts are permanently DISABLED.
+    // Dollars must never be credited automatically to host wallets without explicit, audited authorization.
+    // Host salary progress is tracked strictly for rank/tier progression in salaryStatus without generating pending USD payouts.
+    console.log(`[SALARY] Milestone level ${newlyReachedLevels.map(l => l.level).join(', ')} reached by host ${hostUid}. Automated USD payout generation is disabled.`);
+
+    // Agency Payout (30% by default) - Kept in Beans (agency balance updates increment in Beans)
     const biWeeklyPayoutDate = getNextBiWeeklyDate();
-
     for (const lv of newlyReachedLevels) {
-        // 1. Host Payout (60% by default) - Stored in USD by applying 0.01 exchange rate
-        const hostPayoutRef = db.collection("salaryPayouts").doc();
-        transaction.set(hostPayoutRef, {
-            id: hostPayoutRef.id,
-            uid: hostUid,
-            amount: round2(lv.target * split.host * 0.01),
-            type: "host",
-            level: lv.level,
-            scheduledDate: admin.firestore.Timestamp.fromDate(hostPayoutDate),
-            status: "pending",
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-        // 2. Agency Payout (30% by default) - Kept in Beans (agency balance updates increment in Beans)
         if (userData.agencyId && split.agency > 0) {
             const agencyPayoutRef = db.collection("salaryPayouts").doc();
             transaction.set(agencyPayoutRef, {
@@ -1035,22 +1023,6 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
                 agencyId: userData.agencyId,
                 amount: Math.floor(lv.target * split.agency),
                 type: "agency",
-                level: lv.level,
-                scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
-                status: "pending",
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-        }
-
-        // 3. Admin Payout (10% by default) - Stored in USD by applying 0.01 exchange rate
-        if (userData.adminId && split.admin > 0) {
-            const adminPayoutRef = db.collection("salaryPayouts").doc();
-            transaction.set(adminPayoutRef, {
-                id: adminPayoutRef.id,
-                uid: userData.adminId,
-                hostUid: hostUid,
-                amount: round2(lv.target * split.admin * 0.01),
-                type: "admin",
                 level: lv.level,
                 scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
                 status: "pending",
@@ -2150,11 +2122,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const perTargetCost = (giftData.priceInDiamonds || 0) * qty;
             const totalCost = perTargetCost * targets.length;
             const isLuckyCategory = (giftData.category || '').toLowerCase().trim() === "lucky" || giftData.isLucky === true || (giftData.name || '').toLowerCase().includes("bell");
+            const giftCat = (giftData.category || '').toLowerCase().trim();
+
+            // 🛑 Strict Category Guard: allow Normal, Medium, Luxury, Relationship, VIP, and SVIP gifts. Reject all Lucky gifts.
+            const ALLOWED_GIFT_CATEGORIES = ['normal', 'medium', 'luxury', 'standard', 'gift', 'relationship', 'vip', 'svip', 'classic'];
+            if (isLuckyCategory || !ALLOWED_GIFT_CATEGORIES.includes(giftCat)) {
+                throw new functions.https.HttpsError(
+                    "failed-precondition",
+                    "Lucky gifts are temporarily disabled. Standard, Relationship, and VIP gifts are active."
+                );
+            }
             let rocketWinners = [];
 
             // 👑 Server-side VIP / SVIP Category Enforcement
             const senderData = senderDoc.data();
-            const giftCat = (giftData.category || '').toLowerCase().trim();
             if (giftCat === 'vip') {
                 const isVip = senderData.vipTier && senderData.vipTier !== 'none';
                 if (!isVip) {
@@ -2218,27 +2199,13 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             }
 
             // 🎲 Dynamic Lucky Gift Probability Engine (computed in memory per target)
+            // HARDENED: Fallback 320% RTP loop disabled to prevent unauthorized diamond generation.
+            // Requires explicit administrative configuration in system_settings/lucky_gift_config.
             const luckyConfig = luckyConfigDoc && luckyConfigDoc.exists ? luckyConfigDoc.data() : null;
             const luckyByTarget = {};
             let luckyRefundTotal = 0;
-            if (isLuckyCategory) {
-                const defaultMultipliers = [
-                    { multiplier: 0, winningAmount: 0, probability: 45.0, enabled: true },
-                    { multiplier: 1, winningAmount: (giftData.priceInDiamonds || 5) * 1, probability: 25.0, enabled: true },
-                    { multiplier: 2, winningAmount: (giftData.priceInDiamonds || 5) * 2, probability: 15.0, enabled: true },
-                    { multiplier: 5, winningAmount: (giftData.priceInDiamonds || 5) * 5, probability: 7.0, enabled: true },
-                    { multiplier: 10, winningAmount: (giftData.priceInDiamonds || 5) * 10, probability: 4.0, enabled: true },
-                    { multiplier: 20, winningAmount: (giftData.priceInDiamonds || 5) * 20, probability: 2.0, enabled: true },
-                    { multiplier: 50, winningAmount: (giftData.priceInDiamonds || 5) * 50, probability: 1.0, enabled: true },
-                    { multiplier: 100, winningAmount: (giftData.priceInDiamonds || 5) * 100, probability: 1.0, enabled: true },
-                    { multiplier: 300, winningAmount: (giftData.priceInDiamonds || 5) * 300, probability: 0.0, enabled: false },
-                    { multiplier: 1000, winningAmount: (giftData.priceInDiamonds || 5) * 1000, probability: 0.0, enabled: false }
-                ];
-
-                const activeMultipliers = (luckyConfig && Array.isArray(luckyConfig.multipliers) && luckyConfig.multipliers.length > 0)
-                    ? luckyConfig.multipliers.filter(m => m.enabled !== false)
-                    : defaultMultipliers.filter(m => m.enabled !== false);
-
+            if (isLuckyCategory && luckyConfig && luckyConfig.enabled === true && Array.isArray(luckyConfig.multipliers) && luckyConfig.multipliers.length > 0) {
+                const activeMultipliers = luckyConfig.multipliers.filter(m => m.enabled !== false);
                 const totalProb = activeMultipliers.reduce((sum, item) => sum + (parseFloat(item.probability) || 0), 0);
 
                 for (const t of targets) {
@@ -2259,6 +2226,10 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     const rewardCoins = unitWinningAmount * qty;
                     luckyByTarget[t] = { luckyMultiplier: multiplier, luckyRewardCoins: rewardCoins };
                     luckyRefundTotal += rewardCoins;
+                }
+            } else if (isLuckyCategory) {
+                for (const t of targets) {
+                    luckyByTarget[t] = { luckyMultiplier: 0, luckyRewardCoins: 0 };
                 }
             }
 
@@ -2307,6 +2278,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 senderUpdate.totalWinningEarned = admin.firestore.FieldValue.increment(luckyRefundTotal);
             }
             transaction.update(senderRef, senderUpdate);
+
+            // 📝 Log Sender Transaction in real-time history
+            const senderTxRef = senderRef.collection("transactions").doc();
+            transaction.set(senderTxRef, {
+                type: "gift_sent",
+                amount: -totalCost,
+                giftId: giftId,
+                giftName: giftData.name || "Gift",
+                quantity: qty * targets.length,
+                toUid: targets.length === 1 ? targets[0] : "multiple",
+                roomId: roomId || "",
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                description: `Sent ${qty}x ${giftData.name || 'Gift'}${targets.length > 1 ? ` to ${targets.length} users` : ''}`
+            });
 
             // Per-receiver writes: beans, salary, moments, seat badge, chat message, rankings
             const perTarget = [];
@@ -2364,6 +2349,20 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                         dailyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                         weeklyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
                         monthlyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
+                    });
+
+                    // 📝 Log Receiver Transaction in real-time history
+                    const receiverTxRef = db.collection("users").doc(t).collection("transactions").doc();
+                    transaction.set(receiverTxRef, {
+                        type: "gift_received",
+                        amount: beansEarned,
+                        giftId: giftId,
+                        giftName: giftData.name || "Gift",
+                        quantity: qty,
+                        fromUid: senderUid,
+                        roomId: roomId || "",
+                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        description: `Received ${qty}x ${giftData.name || 'Gift'} from ${senderDoc.data()?.displayName || 'User'}`
                     });
 
                     // 💰 Process Salary Milestones: passes the already-read salaryStatus snapshot and user snapshot
@@ -2605,14 +2604,24 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 const roomWeekly = (roomData.lastWeeklySentDate === thisWeekStr) ? (roomData.weeklyDiamondsSent || 0) : 0;
                 const roomMonthly = (roomData.lastMonthlySentDate === thisMonthStr) ? (roomData.monthlyDiamondsSent || 0) : 0;
 
+                const newDaily = roomDaily + totalCost;
+                let calculatedStarRating = 0;
+                if (newDaily >= 250000) calculatedStarRating = 5;
+                else if (newDaily >= 100000) calculatedStarRating = 4;
+                else if (newDaily >= 50000) calculatedStarRating = 3;
+                else if (newDaily >= 10000) calculatedStarRating = 2;
+                else if (newDaily >= 1000) calculatedStarRating = 1;
+
                 transaction.update(roomRef, {
                     totalDiamondsSent: admin.firestore.FieldValue.increment(totalCost),
-                    dailyDiamondsSent: roomDaily + totalCost,
+                    dailyDiamondsSent: newDaily,
                     weeklyDiamondsSent: roomWeekly + totalCost,
                     monthlyDiamondsSent: roomMonthly + totalCost,
                     lastDailySentDate: todayStr,
                     lastWeeklySentDate: thisWeekStr,
                     lastMonthlySentDate: thisMonthStr,
+                    starRating: calculatedStarRating,
+                    starRatingUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
                     weeklyEarnings: prevWeeklyEarnings + totalCost,
                     weekId: cycleWeekId
                 });
@@ -3945,14 +3954,18 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
     // Graceful Round Validation: Accept bet for current active round if within betting phase
     if (clientRoundId && clientRoundId !== currentRoundId) {
-        if (msIntoRound < 36000) {
+        const clientRoundNum = Number(clientRoundId);
+        const serverRoundNum = Number(currentRoundId);
+        if (serverRoundNum - clientRoundNum === 1 && msIntoRound < 3000) {
+            console.log(`[SpinWheel] Round transition transit: clientRound=${clientRoundId}, serverRound=${currentRoundId}. Gracefully binding bet to active server round ${currentRoundId}.`);
+        } else if (msIntoRound < 37000) {
             console.log(`[SpinWheel] Client clock skewed: clientRound=${clientRoundId}, serverRound=${currentRoundId}. Gracefully binding bet to active server round.`);
         }
     }
 
-    // Phase Gate: Bets for the active round close at 36.0s (providing a generous 9s transit buffer
-    // for all bets locked at 27.0s on the client UI). Outcome is revealed at 35-37s.
-    if (msIntoRound >= 36000 && totalBet > 0) {
+    // Phase Gate: Bets for the active round close at 37.0s (providing generous transit buffer
+    // for all bets locked at 27.0s on the client UI). Outcome is revealed at 38s.
+    if (msIntoRound >= 37000 && totalBet > 0) {
         throw new functions.https.HttpsError(
             "failed-precondition",
             `Betting phase closed for round ${currentRoundId}. Bets are locked during celebration and rollover.`
@@ -4234,45 +4247,13 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             transaction.set(roundBetRef, playerBetRecord, { merge: true });
             transaction.set(legacyRoundBetRef, playerBetRecord, { merge: true });
 
-            // Update Daily Players Collection for the Daily Top Players Leaderboard
-            const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
-            transaction.set(dailyPlayerRef, {
-                uid: uid,
-                name: userName,
-                avatar: userAvatar,
-                totalBets: admin.firestore.FieldValue.increment(deltaBet),
-                totalWinnings: admin.firestore.FieldValue.increment(calculatedPrize),
-                amount: admin.firestore.FieldValue.increment(calculatedPrize),
-                updatedAt: now
-            }, { merge: true });
+            // Note: Rankings/leaderboard (daily_players) update only AFTER the round settles in settleSpinWheelRound,
+            // strictly ensuring ranking points remain stable while a betting round is in progress.
         }
 
-        // Leaderboard updates
-        let todayWinners = currentStats.todayWinners || [];
-
-        if (calculatedPrize > 0) {
-            todayWinners = todayWinners.filter(w => w.uid !== uid);
-            todayWinners.push({
-                uid: uid,
-                name: userName,
-                avatar: userAvatar,
-                amount: calculatedPrize,
-                multiplier: roundResult.multiplier,
-                type: roundResult.type,
-                timestamp: now
-            });
-            todayWinners.sort((a, b) => b.amount - a.amount);
-            todayWinners = todayWinners.slice(0, 10);
-            transaction.set(statsRef, { 
-                todayWinners: todayWinners,
-                topWinnerName: todayWinners[0]?.name || "None",
-                topWinnerAvatar: todayWinners[0]?.avatar || "",
-                topWinnerAmount: todayWinners[0]?.amount || 0,
-                lastWinnerName: userName,
-                lastWinnerAvatar: userAvatar,
-                lastWinnerAmount: calculatedPrize
-            }, { merge: true });
-        }
+        // Outcome-free at bet time: winner leaderboard and previous winner fields
+        // are updated exclusively when rounds are finalized in settleSpinWheelRound,
+        // strictly preventing premature disclosure of current round winners.
 
         // Audit Log History Entry (Deduplicated strictly 1 record per round)
         const roundHistoryAlreadySettled = existingLogDoc && existingLogDoc.exists && existingLogDoc.data().settled === true;
@@ -4321,7 +4302,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             sectorIndex: roundResult.sectorIndex,
             exactStopAngle: roundResult.exactStopAngle,
             multiplier: roundResult.multiplier,
-            todayWinners: todayWinners,
+            todayWinners: currentStats.todayWinners || [],
             serverTime: now
         };
     });
@@ -4492,28 +4473,32 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
     const winTxRef = userRef.collection("transactions").doc(`spin_win_${roundId}`);
     const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
     const statsRef = db.collection("games_meta").doc("lucky_spin");
+    const roundBetRef = statsRef.collection("round_player_bets").doc(`${roundId}_${uid}`);
 
     return db.runTransaction(async (transaction) => {
-        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc] = await Promise.all([
+        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc] = await Promise.all([
             transaction.get(userRef),
             transaction.get(logRef),
             transaction.get(winTxRef),
             transaction.get(privateStatsRef),
-            transaction.get(statsRef)
+            transaction.get(statsRef),
+            transaction.get(roundBetRef)
         ]);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
         let balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
 
-        if (!logDoc.exists) {
+        if (!logDoc.exists && !roundBetDoc.exists) {
             return { settled: true, prize: 0, balance: balance };
         }
 
-        const logData = logDoc.data();
+        const logData = logDoc.exists ? logDoc.data() : {};
+        const roundBetData = roundBetDoc.exists ? roundBetDoc.data() : {};
+        const userBets = logData.bets || roundBetData.bets || {};
         const roundResult = (privateDoc.exists && privateDoc.data() && privateDoc.data().outcome) ? privateDoc.data().outcome : null;
         // History is written outcome-free at bet time, so recompute the prize
         // from the stored bets + this round's private outcome.
-        const prize = computeSpinPayout(logData.bets, roundResult);
+        const prize = computeSpinPayout(userBets, roundResult);
 
         if (logData.settled === true) {
             return { settled: true, prize: prize, balance: balance, alreadySettled: true };
@@ -4588,7 +4573,48 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             settledAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
 
-        // Record completed round in public recentResults and update game_rounds status to ROUND_SETTLED
+        // Record completed round in public recentResults, update previous winner, and update game_rounds status to ROUND_SETTLED
+        const currentStats = (statsDoc && statsDoc.exists) ? statsDoc.data() : {};
+        const statsUpdates = {};
+
+        if (prize > 0) {
+            const userName = userDoc.data().name || userDoc.data().displayName || "Player";
+            const userAvatar = userDoc.data().avatar || userDoc.data().photoUrl || "";
+            let todayWinners = Array.isArray(currentStats.todayWinners) ? [...currentStats.todayWinners] : [];
+            todayWinners = todayWinners.filter(w => w.uid !== uid);
+            todayWinners.push({
+                uid: uid,
+                name: userName,
+                avatar: userAvatar,
+                amount: prize,
+                multiplier: roundResult ? roundResult.multiplier : 0,
+                type: roundResult ? roundResult.type : "standard",
+                timestamp: Date.now()
+            });
+            todayWinners.sort((a, b) => b.amount - a.amount);
+            todayWinners = todayWinners.slice(0, 10);
+
+            statsUpdates.todayWinners = todayWinners;
+            statsUpdates.topWinnerName = todayWinners[0]?.name || "None";
+            statsUpdates.topWinnerAvatar = todayWinners[0]?.avatar || "";
+            statsUpdates.topWinnerAmount = todayWinners[0]?.amount || 0;
+
+            const isNewerRound = !currentStats.lastWinnerRoundId || Number(roundId) >= Number(currentStats.lastWinnerRoundId);
+            const isBiggerInSameRound = String(currentStats.lastWinnerRoundId) === String(roundId) && prize > (Number(currentStats.lastWinnerAmount) || 0);
+            if (isNewerRound || isBiggerInSameRound) {
+                statsUpdates.lastWinnerName = userName;
+                statsUpdates.lastWinnerAvatar = userAvatar;
+                statsUpdates.lastWinnerAmount = prize;
+                statsUpdates.lastWinnerRoundId = String(roundId);
+                statsUpdates.lastRound = {
+                    roundId: String(roundId),
+                    winnerName: userName,
+                    winnerAvatar: userAvatar,
+                    winnerAmount: prize,
+                };
+            }
+        }
+
         if (roundResult) {
             const roundSummaryItem = {
                 roundId: String(roundId),
@@ -4605,11 +4631,19 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 : [];
             if (!currentRecent.some(r => r && String(r.roundId) === String(roundId))) {
                 const updatedRecent = [roundSummaryItem, ...currentRecent].slice(0, 30);
-                transaction.set(statsRef, {
-                    recentResults: updatedRecent,
-                    lastGlobalOutcome: roundSummaryItem,
-                    lastGlobalRound: String(roundId)
-                }, { merge: true });
+                statsUpdates.recentResults = updatedRecent;
+                statsUpdates.lastGlobalOutcome = roundSummaryItem;
+                statsUpdates.lastGlobalRound = String(roundId);
+            }
+            if (statsUpdates.lastRound) {
+                statsUpdates.lastRound.outcome = roundSummaryItem;
+            } else if (!currentStats.lastRound || Number(roundId) >= Number(currentStats.lastRound.roundId || 0)) {
+                statsUpdates.lastRound = {
+                    roundId: String(roundId),
+                    winnerName: currentStats.lastWinnerName || "None",
+                    winnerAmount: currentStats.lastWinnerAmount || 0,
+                    outcome: roundSummaryItem
+                };
             }
             transaction.set(db.collection("game_rounds").doc(String(roundId)), {
                 roundId: String(roundId),
@@ -4617,6 +4651,27 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 outcome: roundSummaryItem,
                 serverTime: Date.now()
             }, { merge: true });
+        }
+
+        // Update Daily Players Collection for the Daily Top Players Leaderboard (only upon final settlement)
+        const settledWager = Number(logData.totalBet || roundBetData.totalBet) || 0;
+        if (settledWager > 0 || prize > 0) {
+            const userName = userDoc.data().name || userDoc.data().displayName || userDoc.data().username || "Player";
+            const userAvatar = userDoc.data().avatar || userDoc.data().photoUrl || userDoc.data().profilePhotoUrl || "";
+            const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
+            transaction.set(dailyPlayerRef, {
+                uid: uid,
+                name: userName,
+                avatar: userAvatar,
+                totalBets: admin.firestore.FieldValue.increment(settledWager),
+                totalWinnings: admin.firestore.FieldValue.increment(prize),
+                amount: admin.firestore.FieldValue.increment(prize),
+                updatedAt: Date.now()
+            }, { merge: true });
+        }
+
+        if (Object.keys(statsUpdates).length > 0) {
+            transaction.set(statsRef, statsUpdates, { merge: true });
         }
 
         console.log(`[SpinWheel] Settled round ${roundId} for user ${uid}: prize=${prize}, newBalance=${newBalance}`);
@@ -6080,12 +6135,12 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
             const isHost = pData.role === 'host' || pData.role === 'owner';
 
             if (isHost) {
-                if (now - lastActive > 10 * 60 * 1000) { // 10 min host grace
+                if (now - lastActive > 30 * 60 * 1000) { // 30 min host grace
                     console.log(`[PRESENCE] Removing inactive host ${pDoc.id} from room ${roomDoc.id} (lastActive: ${new Date(lastActive).toISOString()})`);
                     batch.delete(pDoc.ref);
                     hostDeleted = true;
                 }
-            } else if (now - lastActive > 5 * 60 * 1000) { // 5 min listener grace
+            } else if (now - lastActive > 30 * 60 * 1000) { // 30 min listener grace for active room
                 console.log(`[PRESENCE] Removing inactive participant ${pDoc.id} from room ${roomDoc.id} (lastActive: ${new Date(lastActive).toISOString()})`);
                 batch.delete(pDoc.ref);
             }
@@ -6123,6 +6178,24 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
         });
         await batch.commit();
         console.log(`[PRESENCE] Marked ${usersSnap.size} users as offline due to inactivity.`);
+    }
+
+    // PART C: Official Recharge History 90-Day Retention Pruning
+    // Strictly retains the last 3 months (90 days) and deletes records older than 3 months
+    try {
+        const ninetyDaysAgo = admin.firestore.Timestamp.fromMillis(now - (90 * 24 * 60 * 60 * 1000));
+        const oldRechargesSnap = await db.collectionGroup("official_recharges")
+            .where("timestamp", "<", ninetyDaysAgo)
+            .limit(100)
+            .get();
+        if (!oldRechargesSnap.empty) {
+            const pruneBatch = db.batch();
+            oldRechargesSnap.docs.forEach(doc => pruneBatch.delete(doc.ref));
+            await pruneBatch.commit();
+            console.log(`[RECHARGE_RETENTION] Pruned ${oldRechargesSnap.size} official recharge records older than 90 days.`);
+        }
+    } catch (err) {
+        console.warn("[RECHARGE_RETENTION] 90-day retention prune check:", err.message);
     }
 
     return null;
@@ -6407,29 +6480,119 @@ exports.adminSetResellerStatus = functions.https.onCall(async (data, context) =>
 });
 
 exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    
     const callerDoc = await db.collection("users").doc(context.auth.uid).get();
-    const tags = (callerDoc.data() || {}).tags || [];
-    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) throw new functions.https.HttpsError("permission-denied", "Admin only.");
-    const { targetUid, amountDelta } = data;
+    const callerData = callerDoc.data() || {};
+    const tags = callerData.tags || [];
+    const role = callerData.role || "";
+    
+    // Strict Authorization: Only Owner or SuperAdmin can adjust dollar wallet balances
+    const isAuthorized = role === "owner" || tags.includes("SuperAdmin") || tags.includes("Owner");
+    if (!isAuthorized) {
+        throw new functions.https.HttpsError("permission-denied", "Unauthorized. Only Platform Owners and Super Admins can adjust wallet balances.");
+    }
+
+    const { targetUid, amountDelta, reason, requestId } = data;
+    
+    if (!targetUid || typeof targetUid !== "string") {
+        throw new functions.https.HttpsError("invalid-argument", "Valid target user ID is required.");
+    }
+
+    const parsedDelta = Number(amountDelta);
+    if (isNaN(parsedDelta) || !isFinite(parsedDelta) || parsedDelta === 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Adjustment amount must be a finite non-zero number.");
+    }
+    const cleanDelta = Math.round(parsedDelta * 100) / 100;
+
+    if (!reason || typeof reason !== "string" || reason.trim().length < 5) {
+        throw new functions.https.HttpsError("invalid-argument", "A valid audit reason (minimum 5 characters) is required for financial balance adjustments.");
+    }
+
     const resellerRef = db.collection("users").doc(targetUid);
-    await db.runTransaction(async (transaction) => {
+    const guardRef = requestId
+        ? db.collection("idempotency").doc(`admin_wallet_${context.auth.uid}_${String(requestId).trim()}`)
+        : null;
+
+    return db.runTransaction(async (transaction) => {
+        // Idempotency check: prevent duplicate adjustments on network retries
+        if (guardRef) {
+            const guardSnap = await transaction.get(guardRef);
+            if (guardSnap.exists) {
+                return { success: true, duplicate: true, message: "Transaction already processed." };
+            }
+        }
+
         const resellerDoc = await transaction.get(resellerRef);
-        if (!resellerDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
-        const currentBalance = resellerDoc.data().walletBalance || 0;
-        transaction.update(resellerRef, { walletBalance: currentBalance + amountDelta });
-        const txRef = db.collection("transactions").doc();
+        if (!resellerDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+        
+        const rData = resellerDoc.data() || {};
+        const isReseller = rData.isReseller === true || (rData.tags || []).includes("Reseller");
+        if (!isReseller) {
+            throw new functions.https.HttpsError("failed-precondition", "Target user is not registered as a Reseller.");
+        }
+
+        const currentBalance = Number(rData.walletBalance || 0.0);
+        const newBalance = Math.round((currentBalance + cleanDelta) * 100) / 100;
+        
+        if (newBalance < 0) {
+            throw new functions.https.HttpsError("failed-precondition", `Insufficient balance. Current balance is $${currentBalance.toFixed(2)}, cannot deduct $${Math.abs(cleanDelta).toFixed(2)}.`);
+        }
+
+        transaction.update(resellerRef, { 
+            walletBalance: newBalance,
+            lastWalletUpdate: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 1. Immutable Admin Audit Log
+        const auditRef = db.collection("admin_audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            action: cleanDelta > 0 ? "ADMIN_WALLET_CREDIT" : "ADMIN_WALLET_DEBIT",
+            adminUid: context.auth.uid,
+            adminEmail: callerData.email || null,
+            adminName: callerData.displayName || "Admin",
+            targetUid: targetUid,
+            targetHelloId: rData.helloId || null,
+            targetName: rData.displayName || "Reseller",
+            amountDelta: cleanDelta,
+            balanceBefore: currentBalance,
+            balanceAfter: newBalance,
+            reason: reason.trim(),
+            requestId: requestId || null,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. User Transaction History Record
+        const txRef = db.collection("users").doc(targetUid).collection("transactions").doc();
         transaction.set(txRef, {
+            id: txRef.id,
             senderId: context.auth.uid,
             receiverId: targetUid,
-            amount: amountDelta,
+            amount: cleanDelta,
             currency: "USD",
-            type: amountDelta > 0 ? "ADMIN_WALLET_CREDIT" : "ADMIN_WALLET_DEBIT",
+            type: "admin_adjustment",
+            category: "wallet",
+            description: `Administrative ${cleanDelta > 0 ? 'Credit' : 'Debit'}: ${reason.trim()}`,
+            balanceBefore: currentBalance,
+            balanceAfter: newBalance,
             status: "completed",
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
+
+        // Set idempotency guard
+        if (guardRef) {
+            transaction.set(guardRef, {
+                adminUid: context.auth.uid,
+                targetUid: targetUid,
+                amount: cleanDelta,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+
+        console.log(`[ADMIN_WALLET_AUDIT] Admin ${context.auth.uid} adjusted wallet of ${targetUid} by $${cleanDelta}. New Balance: $${newBalance}. Reason: "${reason.trim()}"`);
+        return { success: true, oldBalance: currentBalance, newBalance: newBalance, amountDelta: cleanDelta };
     });
-    return { success: true };
 });
 
 exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
@@ -6928,130 +7091,13 @@ exports.initializeTopListFields = functions.https.onCall(async (data, context) =
 
 /**
  * --- AUTOMATED SALARY PAYOUT CRON JOB ---
- * Runs daily to process pending host, agency, and admin payouts.
+ * DISABLED BY ADMINISTRATOR: Automated background distribution of host/agency/admin payouts is halted.
+ * No payouts will execute automatically without explicit administrative audit and authorization.
  */
 exports.processSalaryPayouts = functions.pubsub.schedule('0 0 * * *')
     .timeZone('UTC')
     .onRun(async (context) => {
-        const now = admin.firestore.Timestamp.now();
-        const pendingPayouts = await db.collection("salaryPayouts")
-            .where("status", "==", "pending")
-            .where("scheduledDate", "<=", now)
-            .limit(100)
-            .get();
-
-        if (pendingPayouts.empty) return null;
-
-        for (const doc of pendingPayouts.docs) {
-            const payout = doc.data();
-            const payoutId = doc.id;
-
-            try {
-                await db.runTransaction(async (transaction) => {
-                    const freshDoc = await transaction.get(doc.ref);
-                    if (freshDoc.data().status !== "pending") return;
-
-                    // Spec: Super Admins are excluded from the salary system.
-                    // Re-check on payout (not just at creation): a host/admin
-                    // promoted to Super Admin after the payout was scheduled
-                    // must not receive it.
-                    if (payout.type !== "agency") {
-                        const recipRef = db.collection("users").doc(payout.uid);
-                        const recipSnap = await transaction.get(recipRef);
-                        if (recipSnap.exists && normalizeTier(recipSnap.data()) === "superadmin") {
-                            transaction.update(doc.ref, {
-                                status: "skipped",
-                                skippedReason: "superadmin excluded from salary",
-                                skippedAt: now
-                            });
-                            return;
-                        }
-                    }
-
-                    // 1. Mark as Paid
-                    transaction.update(doc.ref, { 
-                        status: "paid", 
-                        paidAt: admin.firestore.FieldValue.serverTimestamp() 
-                    });
-
-                    // 2. Distribute Funds
-                    if (payout.type === "host") {
-                        const userRef = db.collection("users").doc(payout.uid);
-                        transaction.update(userRef, { 
-                            walletBalance: admin.firestore.FieldValue.increment(payout.amount) 
-                        });
-                        
-                        // Transaction Log
-                        const txRef = userRef.collection("transactions").doc();
-                        transaction.set(txRef, {
-                            id: txRef.id,
-                            amount: payout.amount,
-                            type: "salary_reward",
-                            category: "wallet",
-                            description: `Level ${payout.level} Host Reward`,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            status: "completed"
-                        });
-                    } else if (payout.type === "agency" && payout.agencyId) {
-                        const agencyRef = db.collection("agencies").doc(payout.agencyId);
-                        transaction.update(agencyRef, {
-                            beansBalance: admin.firestore.FieldValue.increment(Math.floor(payout.amount))
-                        });
-
-                        // Global Audit
-                        const auditRef = db.collection("transactions").doc();
-                        transaction.set(auditRef, {
-                            id: auditRef.id,
-                            uid: payout.uid,
-                            agencyId: payout.agencyId,
-                            amount: payout.amount,
-                            type: "salary_reward",
-                            category: "bean",
-                            description: `Level ${payout.level} Agency Share`,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    } else if (payout.type === "admin") {
-                        // Spec: admin salary lands in the Admin Commission Wallet
-                        // (USD) so it is withdrawable like commission; previously
-                        // only a platformStats counter moved and the admin got
-                        // nothing.
-                        const adminUserRef = db.collection("users").doc(payout.uid);
-                        transaction.update(adminUserRef, {
-                            usdCommissionBalance: admin.firestore.FieldValue.increment(payout.amount)
-                        });
-                        const adminTxRef = adminUserRef.collection("transactions").doc();
-                        transaction.set(adminTxRef, {
-                            id: adminTxRef.id,
-                            amount: payout.amount,
-                            type: "salary_reward",
-                            category: "commission",
-                            description: `Level ${payout.level} Admin Salary`,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-                            status: "completed"
-                        });
-
-                        const statsRef = db.collection("platformStats").doc("revenue");
-                        transaction.set(statsRef, {
-                            totalAdminEarnings: admin.firestore.FieldValue.increment(payout.amount),
-                            lastUpdate: admin.firestore.FieldValue.serverTimestamp()
-                        }, { merge: true });
-
-                        // Global Audit
-                        const auditRef = db.collection("transactions").doc();
-                        transaction.set(auditRef, {
-                            id: auditRef.id,
-                            type: "admin_commission",
-                            amount: payout.amount,
-                            description: `Level ${payout.level} Admin Share (Admin: ${payout.uid})`,
-                            timestamp: admin.firestore.FieldValue.serverTimestamp()
-                        });
-                    }
-                });
-            } catch (err) {
-                console.error(`[PAYOUT_ERROR] Failed to process ${payoutId}:`, err);
-            }
-        }
-        console.log(`[PAYOUT] Finished processing up to 100 pending payouts.`);
+        console.warn("[SALARY_PAYOUTS] Automated salary distribution is DISABLED by administrator. No payouts processed.");
         return null;
     });
 
@@ -7059,48 +7105,102 @@ exports.processSalaryPayouts = functions.pubsub.schedule('0 0 * * *')
  * --- SECURE TRANSACTION FOR WALLET DIAMOND PURCHASE ---
  * Bypasses client-side database writes to prevent balance manipulation exploits.
  */
+// Authoritative server-side wallet diamond packages (Diamonds -> USD Price)
+const AUTHORITATIVE_WALLET_PACKAGES = {
+    262: 5.99,
+    890: 19.99,
+    2255: 49.99,
+    4562: 99.99,
+    9205: 199.99,
+};
+
 exports.purchaseDiamondsWithWallet = functions.region("us-central1").https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     
     const uid = context.auth.uid;
-    const { diamonds, price } = data; // price in USD, diamonds is package amount
+    const { diamonds, price, requestId } = data;
 
-    if (!diamonds || !price || price <= 0 || diamonds <= 0) {
+    const parsedDiamonds = parseInt(diamonds, 10);
+    const parsedPrice = Number(price);
+
+    if (isNaN(parsedDiamonds) || parsedDiamonds <= 0 || isNaN(parsedPrice) || parsedPrice <= 0) {
         throw new functions.https.HttpsError("invalid-argument", "Invalid package specifications.");
     }
 
+    // Server-Side Verification: Client-supplied diamonds and price must strictly match the authoritative catalog
+    const expectedPrice = AUTHORITATIVE_WALLET_PACKAGES[parsedDiamonds];
+    if (!expectedPrice || Math.abs(expectedPrice - parsedPrice) > 0.01) {
+        throw new functions.https.HttpsError(
+            "invalid-argument",
+            `Unauthorized package configuration. Package for ${parsedDiamonds} diamonds requires authoritative price of $${expectedPrice || 'N/A'}.`
+        );
+    }
+
     const userRef = db.collection("users").doc(uid);
+    const guardRef = requestId
+        ? db.collection("idempotency").doc(`wallet_buy_${uid}_${String(requestId).trim()}`)
+        : null;
 
     return db.runTransaction(async (transaction) => {
+        // Idempotency: prevent double deductions on network retries
+        if (guardRef) {
+            const guardSnap = await transaction.get(guardRef);
+            if (guardSnap.exists) {
+                return { success: true, duplicate: true, message: "Purchase already processed." };
+            }
+        }
+
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
         const currentWallet = Number(userDoc.data().walletBalance || 0.0);
         const currentDiamonds = Number(userDoc.data().diamondBalance || 0);
 
-        if (currentWallet < price) {
-            throw new functions.https.HttpsError("failed-precondition", "Insufficient wallet balance.");
+        if (currentWallet < expectedPrice) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `Insufficient wallet balance. Available: $${currentWallet.toFixed(2)}, Required: $${expectedPrice.toFixed(2)}.`
+            );
         }
 
-        // Deduct wallet balance and add diamonds
+        const newWallet = Math.round((currentWallet - expectedPrice) * 100) / 100;
+
+        // Deduct wallet balance and add diamonds atomically
         transaction.update(userRef, {
-            walletBalance: currentWallet - price,
-            diamondBalance: currentDiamonds + diamonds
+            walletBalance: newWallet,
+            diamondBalance: currentDiamonds + parsedDiamonds,
+            lastWalletUpdate: admin.firestore.FieldValue.serverTimestamp()
         });
+
+        // Set idempotency guard
+        if (guardRef) {
+            transaction.set(guardRef, {
+                uid: uid,
+                diamonds: parsedDiamonds,
+                price: expectedPrice,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
 
         // Log transaction
         const txRef = userRef.collection("transactions").doc();
         transaction.set(txRef, {
+            id: txRef.id,
             type: "purchase",
-            amount: -diamonds,
+            category: "wallet",
+            amount: -expectedPrice,
+            diamondsAwarded: parsedDiamonds,
+            balanceBefore: currentWallet,
+            balanceAfter: newWallet,
             timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            description: `Paid \$${price.toFixed(2)} from Wallet for ${diamonds} Diamonds`,
+            description: `Paid \$${expectedPrice.toFixed(2)} from Wallet for ${parsedDiamonds} Diamonds`,
+            status: "completed"
         });
 
         return {
             success: true,
-            newWalletBalance: currentWallet - price,
-            newDiamondBalance: currentDiamonds + diamonds
+            newWalletBalance: newWallet,
+            newDiamondBalance: currentDiamonds + parsedDiamonds
         };
     });
 });
@@ -8205,10 +8305,10 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 });
             }
 
-            // Add partner candidates
+            // Add partner candidates (Rule 1: Room owners cannot receive partner rewards for their own room)
             for (const pDoc of validPartners) {
                 const partnerUid = pDoc.data().uid || pDoc.id;
-                if (partnerUid) {
+                if (partnerUid && partnerUid !== ownerUid) {
                     if (!candidateRewardsByUser[partnerUid]) candidateRewardsByUser[partnerUid] = [];
                     candidateRewardsByUser[partnerUid].push({
                         uid: partnerUid,
@@ -8225,13 +8325,26 @@ async function executeRoomSupportRewardDistribution(options = {}) {
         }
     }
 
-    // RULE 5: ONE REWARD PER USER PER WEEK (Highest Target Wins)
+    // STRICT RULES ENFORCEMENT:
+    // Rule 1: Room owners cannot receive partner rewards for their own room (guaranteed above: partnerUid !== ownerUid).
+    // Rule 2: Users targeting own room cannot receive partner rewards from other rooms.
+    // Rule 3: Only highest target level (Levels 1-20) counts (no cumulative lower levels).
+    // Rule 4: Maximum 1 reward per user ID per week.
     console.log(`[ROOM_SUPPORT] Evaluating rewards for ${Object.keys(candidateRewardsByUser).length} unique candidate users.`);
     let distributedCount = 0;
 
     for (const [uid, candidates] of Object.entries(candidateRewardsByUser)) {
-        candidates.sort((a, b) => b.amount - a.amount || b.level - a.level);
-        const winningReward = candidates[0];
+        // Enforce Rule 2: If user targets own room (has owner reward), they cannot receive partner rewards from other rooms
+        const hasOwnerCandidate = candidates.some(c => c.role === "owner");
+        let eligibleCandidates = candidates;
+        if (hasOwnerCandidate) {
+            eligibleCandidates = candidates.filter(c => c.role === "owner");
+        }
+
+        // Enforce Rule 3 & Rule 4: Sort descending by reward amount / level and take only the single highest achieved target
+        eligibleCandidates.sort((a, b) => b.amount - a.amount || b.level - a.level);
+        const winningReward = eligibleCandidates[0];
+        if (!winningReward) continue;
 
         try {
             let isNewDistribution = false;
@@ -8292,19 +8405,39 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     transaction.delete(winningReward.partnerDocRef);
                 }
 
-                // Send in-app reward notification with deterministic doc ID to guarantee idempotency
+                // Real-time Transaction History entry
+                const txRef = userRef.collection("transactions").doc();
+                const salaryDesc = winningReward.role === "partner"
+                    ? `Official Weekly Room Partner Salary (Room ${winningReward.roomId}, Level ${winningReward.level})`
+                    : `Official Weekly Room Owner Salary (Room ${winningReward.roomId}, Level ${winningReward.level})`;
+                transaction.set(txRef, {
+                    type: "official_salary",
+                    action: "official_salary",
+                    amount: winningReward.amount,
+                    role: winningReward.role,
+                    level: winningReward.level,
+                    roomId: winningReward.roomId,
+                    weekId: winningReward.weekId,
+                    description: salaryDesc,
+                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                });
+
+                // Send in-app official salary notification with deterministic doc ID to guarantee idempotency
                 const notifDocId = `room_support_${winningReward.weekId}_${uid}`;
                 const inboxRef = userRef.collection("inbox_messages").doc(notifDocId);
                 const rewardCoins = winningReward.amount;
+                const notifTitle = winningReward.role === "partner"
+                    ? "Official Room Partner Salary Distributed 🎉"
+                    : "Official Room Owner Salary Distributed 🎉";
                 const rewardBody = winningReward.role === "partner"
-                    ? `Congratulations! You have achieved last week's Room Support goal. The owner of ROOM ID ${winningReward.roomId} has added you as a Room Partner, and ${rewardCoins} reward coins have been sent to you.\nNote: If you achieve multiple goals, only the reward with the highest number of coins will be sent.`
-                    : `Congratulations! You have achieved last week's Room Support goal. You have received the owner reward for ROOM ID ${winningReward.roomId}, and ${rewardCoins} reward coins have been sent to you.\nNote: If you achieve multiple goals, only the reward with the highest number of coins will be sent.`;
+                    ? `Official Room Partner Salary: You have achieved last week's Room Support goal for Room ID ${winningReward.roomId} (Level ${winningReward.level}). Your official partner salary of ${rewardCoins.toLocaleString()} diamonds has been credited to your balance.\nNote: Only the single highest achieved target level is awarded per week.`
+                    : `Official Room Owner Salary: You have achieved last week's Room Support goal for Room ID ${winningReward.roomId} (Level ${winningReward.level}). Your official room salary of ${rewardCoins.toLocaleString()} diamonds has been credited to your balance.\nNote: Only the single highest achieved target level is awarded per week.`;
 
                 const notifData = {
                     type: "reward",
-                    title: "Room Support Reward Delivered 🎉",
+                    title: notifTitle,
                     body: rewardBody,
-                    rewardName: "Room Support Reward",
+                    rewardName: winningReward.role === "partner" ? "Room Partner Salary" : "Room Owner Salary",
                     rewardAmount: rewardCoins,
                     reason: `Achieving Level ${winningReward.level} Room Support Goal as ${winningReward.role}.`,
                     status: "Received",
@@ -8336,10 +8469,13 @@ async function executeRoomSupportRewardDistribution(options = {}) {
 
             try {
                 const rewardCoins = winningReward.amount;
+                const notifTitle = winningReward.role === "partner"
+                    ? "Official Room Partner Salary Distributed 🎉"
+                    : "Official Room Owner Salary Distributed 🎉";
                 const pushMsg = winningReward.role === "partner"
-                    ? `Congratulations! You have achieved last week's Room Support goal. The owner of ROOM ID ${winningReward.roomId} has added you as a Room Partner, and ${rewardCoins} reward coins have been sent to you.`
-                    : `Congratulations! You have achieved last week's Room Support goal. You have received the owner reward for ROOM ID ${winningReward.roomId}, and ${rewardCoins} reward coins have been sent to you.`;
-                await sendPush(uid, "Room Support Reward Delivered 🎉", pushMsg, {
+                    ? `Official Room Partner Salary: Level ${winningReward.level} salary of ${rewardCoins.toLocaleString()} diamonds credited to your account.`
+                    : `Official Room Owner Salary: Level ${winningReward.level} salary of ${rewardCoins.toLocaleString()} diamonds credited to your account.`;
+                await sendPush(uid, notifTitle, pushMsg, {
                     route: "/inbox",
                     type: "ROOM_SUPPORT_REWARD",
                     roomId: winningReward.roomId,
@@ -10165,6 +10301,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     const bonusAmount = parsedAmount * 2; // 2x bonus event diamonds (e.g. 1M -> 2M bonus)
     const totalCredited = parsedAmount + bonusAmount;
 
+    let txId = "";
     await db.runTransaction(async (transaction) => {
         transaction.update(senderRef, {
             diamondStock: admin.firestore.FieldValue.increment(-parsedAmount)
@@ -10174,6 +10311,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
         });
 
         const txRef = db.collection("reseller_transactions").doc();
+        txId = txRef.id;
         transaction.set(txRef, {
             senderUid: senderUid,
             senderName: sellerName,
@@ -10187,30 +10325,107 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
-        const inboxRef = targetRef.collection("inbox_messages").doc();
-        transaction.set(inboxRef, {
-            type: "reward",
-            title: "Recharge Successful",
-            body: `Recharged successfully！ You have obtained ${bonusAmount} diamonds from the recharge event, and other rewards have been delivered to your package. Please check your account.`,
+        // 1. Dedicated Official Recharge Record (Separated from bonuses and gifts)
+        const officialRechargeRef = targetRef.collection("official_recharges").doc(txId);
+        transaction.set(officialRechargeRef, {
+            userId: targetUid,
+            userHelloId: targetHelloId,
+            rechargeAmount: parsedAmount,
+            diamondsReceived: parsedAmount,
+            bonusDiamonds: bonusAmount,
+            totalDiamonds: totalCredited,
+            status: "SUCCESS",
+            transactionId: txId,
+            sellerName: sellerName,
+            sellerId: sellerId,
+            rechargeDateTime: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 2. Separate General Transaction: Official Diamond Recharge
+        const rechargeTxRef = targetRef.collection("transactions").doc(`recharge_${txId}`);
+        transaction.set(rechargeTxRef, {
+            type: "recharge",
+            category: "official_recharge",
+            amount: parsedAmount,
+            currency: "diamonds",
+            description: `Official Diamond Recharge (+${parsedAmount.toLocaleString()} Diamonds)`,
+            sellerName: sellerName,
+            sellerId: sellerId,
+            orderId: txId,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 3. Separate General Transaction: Recharge Event Bonus
+        const bonusTxRef = targetRef.collection("transactions").doc(`bonus_${txId}`);
+        transaction.set(bonusTxRef, {
+            type: "event_bonus",
+            category: "event_bonus",
+            amount: bonusAmount,
+            currency: "diamonds",
+            description: `Recharge Event 200% Bonus (+${bonusAmount.toLocaleString()} Diamonds)`,
+            orderId: `${txId}_bonus`,
+            timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 4. Notification 1: Official Recharge Confirmation (Pure ASCII, no ï¼\x80)
+        const rechargeInboxRef = targetRef.collection("inbox_messages").doc();
+        transaction.set(rechargeInboxRef, {
+            type: "recharge",
+            title: "Official Recharge Successful",
+            body: `Recharged successfully! You have received ${parsedAmount.toLocaleString()} diamonds from official recharge.`,
             rewardName: "Diamonds",
-            rewardAmount: totalCredited,
-            reason: `Recharge Event 200% Bonus (${parsedAmount.toLocaleString()} basic + ${bonusAmount.toLocaleString()} bonus)`,
+            rewardAmount: parsedAmount,
+            reason: `Official Diamond Recharge (${parsedAmount.toLocaleString()} diamonds)`,
             status: "Received",
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
             data: {
                 sellerName: sellerName,
                 sellerId: sellerId,
-                amount: totalCredited,
+                amount: parsedAmount,
+                transactionId: txId,
+                route: "/wallet"
+            }
+        });
+
+        // 5. Notification 2: Recharge Event Bonus Notification (Pure ASCII)
+        const bonusInboxRef = targetRef.collection("inbox_messages").doc();
+        transaction.set(bonusInboxRef, {
+            type: "reward",
+            title: "Recharge Event Bonus",
+            body: `Congratulations! You have received ${bonusAmount.toLocaleString()} diamonds as a Recharge Event bonus (200% bonus).`,
+            rewardName: "Diamonds",
+            rewardAmount: bonusAmount,
+            reason: `Recharge Event 200% Bonus (${bonusAmount.toLocaleString()} diamonds)`,
+            status: "Received",
+            read: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            data: {
+                sellerName: sellerName,
+                sellerId: sellerId,
+                amount: bonusAmount,
+                transactionId: txId,
                 route: "/wallet"
             }
         });
     });
 
-    const pushBody = `Recharged successfully！ You have obtained ${bonusAmount} diamonds from the recharge event, and other rewards have been delivered to your package. Please check your account.`;
-    await sendPush(targetUid, "Recharge Successful", pushBody, { route: "/inbox", type: "RECHARGE_SUCCESSFUL" });
+    // Dispatch two separate push notifications
+    await sendPush(
+        targetUid,
+        "Official Recharge Successful",
+        `Recharged successfully! You have received ${parsedAmount.toLocaleString()} diamonds from official recharge.`,
+        { route: "/wallet", type: "OFFICIAL_RECHARGE_SUCCESSFUL", transactionId: txId }
+    );
+    await sendPush(
+        targetUid,
+        "Recharge Event Bonus",
+        `Congratulations! You have received ${bonusAmount.toLocaleString()} diamonds as a Recharge Event bonus.`,
+        { route: "/wallet", type: "RECHARGE_BONUS", transactionId: txId }
+    );
 
-    return { success: true, targetName: targetData.displayName, amount: totalCredited, bonusAmount: bonusAmount };
+    return { success: true, targetName: targetData.displayName, amount: parsedAmount, bonusAmount: bonusAmount, totalCredited: totalCredited, transactionId: txId };
 });
 
 
@@ -11307,13 +11522,39 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
     }
     if (!isOwner) {
         const callerForScope = { uid: callerUid, role: callerRole, branchId: cData.branchId || null, adminId: cData.adminId || null, agencyId: cData.agencyId || null };
-        const targetForScope = { uid: targetUid, role: normalizeTier(tData), branchId: tData.branchId || null, adminId: tData.adminId || null, agencyId: tData.agencyId || null };
+        const targetRole = normalizeTier(tData);
+        const targetForScope = { uid: targetUid, role: targetRole, branchId: tData.branchId || null, adminId: tData.adminId || null, agencyId: tData.agencyId || null };
         const inScope = isTargetInScope(callerForScope, targetForScope);
-        const claimableHost =
-            targetForScope.role === "host" &&
-            !tData.agencyId && !tData.adminId && !tData.superAdminId && !tData.branchId;
-        if (!inScope && !claimableHost) {
-            throw new functions.https.HttpsError("permission-denied", "Target user is outside your hierarchy scope.");
+        
+        let isEligible = inScope;
+        if (!isEligible) {
+            if (callerRole === "superadmin") {
+                // Super Admin appointing Admin, Agency, or Host in their branch:
+                // Target must not be owner or superadmin, and must not belong to another branch
+                const noOtherBranch = !tData.branchId || tData.branchId === cData.branchId;
+                const canManage = targetRole !== "owner" && targetRole !== "superadmin";
+                if (noOtherBranch && canManage) {
+                    isEligible = true;
+                }
+            } else if (callerRole === "admin") {
+                const noOtherAdmin = !tData.adminId || tData.adminId === callerUid;
+                const noOtherBranch = !tData.branchId || tData.branchId === cData.branchId;
+                const canManage = targetRole === "agency" || targetRole === "host";
+                if (noOtherAdmin && noOtherBranch && canManage) {
+                    isEligible = true;
+                }
+            } else if (callerRole === "agency" || cData.isAgencyOwner) {
+                // Agency recruiting a Host:
+                const noOtherAgency = !tData.agencyId;
+                const canManage = targetRole !== "owner" && targetRole !== "superadmin" && targetRole !== "admin";
+                if (noOtherAgency && canManage) {
+                    isEligible = true;
+                }
+            }
+        }
+
+        if (!isEligible) {
+            throw new functions.https.HttpsError("permission-denied", "Target user is outside your hierarchy scope or belongs to another branch/agency.");
         }
     }
 
@@ -11336,6 +11577,11 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         updates.superAdminId = callerUid;
         if (newRole === "agency") {
             updates.isAgencyOwner = true;
+            updates.tags = admin.firestore.FieldValue.arrayUnion("Agency");
+        } else if (newRole === "admin") {
+            updates.tags = admin.firestore.FieldValue.arrayUnion("Admin");
+        } else if (newRole === "host") {
+            updates.tags = admin.firestore.FieldValue.arrayRemove("Admin", "Agency");
         }
     } else if (callerRole === "admin") {
         if (newRole !== "agency" && newRole !== "host") {
@@ -13543,5 +13789,14 @@ exports.roomRemoveAdmin = functions.https.onCall(async (data, context) => {
         return { success: true, action: "REMOVE_ADMIN", targetUid };
     });
 });
+
+/**
+ * 99. getServerTime - lightweight callable returning authoritative server time
+ * used by clients to calibrate network RTT and enforce gift replay TTL.
+ */
+exports.getServerTime = functions.https.onCall(async (data, context) => {
+    return { serverTime: Date.now() };
+});
+
 
 
