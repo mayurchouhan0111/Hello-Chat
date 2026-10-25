@@ -72,7 +72,17 @@ class GiftReplayGuard {
       );
     }
 
-    // 4. Missing timestamp guard:
+    // 4. Local echo: sender already played it optimistically (even if server timestamp is pending)
+    if (isLocalEcho) {
+      return GiftReplayDecision(
+        shouldPlay: false,
+        reason: GiftSkipReason.localEcho,
+        ageMs: 0,
+        logMessage: '🎁 [GIFT_SKIP] reason=localEcho, msgId=$msgId, giftId=$giftId, age=0ms',
+      );
+    }
+
+    // 5. Missing timestamp guard:
     // If a message document arrives without a server timestamp, we cannot prove
     // it was sent after the user joined. Reject immediately to prevent historical replay.
     if (!hasExplicitTimestamp || createdAt == null) {
@@ -87,16 +97,6 @@ class GiftReplayGuard {
     final createdAtMs = createdAt.millisecondsSinceEpoch;
     final ageMs = nowServerMs - createdAtMs;
     final effectiveDuration = durationMs > 0 ? durationMs : 5000;
-
-    // 5. Local echo: sender already played it optimistically
-    if (isLocalEcho) {
-      return GiftReplayDecision(
-        shouldPlay: false,
-        reason: GiftSkipReason.localEcho,
-        ageMs: ageMs,
-        logMessage: '🎁 [GIFT_SKIP] reason=localEcho, msgId=$msgId, giftId=$giftId, age=${ageMs}ms',
-      );
-    }
 
     // 6. Gate 2: Sent before user joined the room (-2000ms jitter tolerance)
     if (joinTimeServerMs > 0 && createdAtMs < (joinTimeServerMs - 2000)) {

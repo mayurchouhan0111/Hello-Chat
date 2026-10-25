@@ -370,5 +370,107 @@ void main() {
       expect(decision.reason, GiftSkipReason.localEcho);
       expect(decision.logMessage, contains('reason=localEcho'));
     });
+
+    test('12. Sender own gift while server timestamp is still pending: skipped immediately as localEcho', () {
+      final now = DateTime.now();
+
+      // In Firestore latency compensation, a locally written doc first emits with null server timestamp
+      final decision = GiftReplayGuard.evaluate(
+        msgId: 'msg_pending_server_ts',
+        type: 'gift',
+        animationUrl: 'assets/vap/rocket.mp4',
+        giftId: 'rocket',
+        createdAt: now,
+        hasExplicitTimestamp: false, // Server timestamp has not written back yet
+        durationMs: 7000,
+        processedMessageIds: <String>{},
+        joinTimeServerMs: now.millisecondsSinceEpoch - 5000,
+        nowServerMs: now.millisecondsSinceEpoch,
+        isLocalEcho: true, // Sender sent this message locally
+      );
+
+      // Must be skipped as localEcho without crashing or waiting for server timestamp
+      expect(decision.shouldPlay, isFalse);
+      expect(decision.reason, GiftSkipReason.localEcho);
+      expect(decision.logMessage, contains('reason=localEcho'));
+    });
+
+    test('13. Legacy client message without timestamp: skipped with reason=missingTimestamp', () {
+      final now = DateTime.now();
+      final decision = GiftReplayGuard.evaluate(
+        msgId: 'msg_legacy_client_v1',
+        type: 'gift',
+        animationUrl: 'assets/vap/heart.mp4',
+        giftId: 'heart',
+        createdAt: now,
+        hasExplicitTimestamp: false, // Old version omitted serverTimestamp
+        durationMs: 4000,
+        processedMessageIds: <String>{},
+        joinTimeServerMs: now.millisecondsSinceEpoch - 10000,
+        nowServerMs: now.millisecondsSinceEpoch,
+        isLocalEcho: false,
+      );
+
+      expect(decision.shouldPlay, isFalse);
+      expect(decision.reason, GiftSkipReason.missingTimestamp);
+      expect(decision.logMessage, contains('reason=missingTimestamp'));
+    });
+
+    test('14. First snapshot after reconnect: filters old, duplicates, and plays valid in-flight gift', () {
+      final now = DateTime.now();
+      final nowMs = now.millisecondsSinceEpoch;
+      final joinTimeMs = nowMs - 60000; // Joined 60s ago
+
+      // History processed before network blip:
+      final processedBeforeDisconnect = <String>{'msg_seen_1', 'msg_seen_2'};
+
+      // 1. Message from before room entry (e.g. 5 minutes ago) present in initial snapshot
+      final preJoinMsg = GiftReplayGuard.evaluate(
+        msgId: 'msg_pre_join',
+        type: 'gift',
+        animationUrl: 'assets/vap/car.mp4',
+        giftId: 'car',
+        createdAt: now.subtract(const Duration(minutes: 5)),
+        hasExplicitTimestamp: true,
+        durationMs: 5000,
+        processedMessageIds: processedBeforeDisconnect,
+        joinTimeServerMs: joinTimeMs,
+        nowServerMs: nowMs,
+      );
+      expect(preJoinMsg.shouldPlay, isFalse);
+      expect(preJoinMsg.reason, GiftSkipReason.beforeJoin);
+
+      // 2. Message played right before disconnect re-emitted in reconnect snapshot
+      final duplicateMsg = GiftReplayGuard.evaluate(
+        msgId: 'msg_seen_2',
+        type: 'gift',
+        animationUrl: 'assets/vap/car.mp4',
+        giftId: 'car',
+        createdAt: now.subtract(const Duration(seconds: 10)),
+        hasExplicitTimestamp: true,
+        durationMs: 5000,
+        processedMessageIds: processedBeforeDisconnect,
+        joinTimeServerMs: joinTimeMs,
+        nowServerMs: nowMs,
+      );
+      expect(duplicateMsg.shouldPlay, isFalse);
+      expect(duplicateMsg.reason, GiftSkipReason.duplicate);
+
+      // 3. Fresh gift sent while disconnected (e.g. 3s ago during 4s network blip)
+      final inFlightDisconnectMsg = GiftReplayGuard.evaluate(
+        msgId: 'msg_sent_during_disconnect',
+        type: 'gift',
+        animationUrl: 'assets/vap/sports_car.mp4',
+        giftId: 'sports_car',
+        createdAt: now.subtract(const Duration(seconds: 3)),
+        hasExplicitTimestamp: true,
+        durationMs: 5000,
+        processedMessageIds: processedBeforeDisconnect,
+        joinTimeServerMs: joinTimeMs,
+        nowServerMs: nowMs,
+      );
+      expect(inFlightDisconnectMsg.shouldPlay, isTrue);
+      expect(inFlightDisconnectMsg.reason, GiftSkipReason.none);
+    });
   });
 }
