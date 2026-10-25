@@ -11,6 +11,79 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-26 (Agency Management Backend Cloud Functions & Admin Portal UI)
+- **What Client Asked / Problem**:
+  - The admin panel had no way to appoint agencies, view agency details, manage info, or list all registered agencies. The existing screen was querying the `users` collection instead of the `agencies` collection, had no "Appoint Agency" flow, and would open empty if users didn't carry `isAgencyOwner: true`.
+- **What We Did**:
+  1. **Server-Side Cloud Functions (`functions/index.js`)**:
+     - Implemented 7 production-grade Cloud Functions: `listAgencies`, `getAgency`, `createAgency`, `updateAgency`, `setAgencyStatus`, `addHost`, and `removeHost`.
+     - Enforced server-side administrative role checks (`owner`, `superadmin`, `admin`) via `loadHierarchy()`.
+     - `createAgency` resolves owners by numeric Hello ID or UID, sets `role: 'agency'`, `isAgencyOwner: true`, assigns `agencyId`, and writes audit log entries.
+     - `addHost` and `removeHost` atomically update agency `hostUids` and the target user's `agencyId`.
+  2. **Security Rules (`firebase/firestore.rules`)**:
+     - Added security rules for `/agencies/{agencyId}`: allows reads for staff and agency members (`isAdmin() || resource.data.ownerUid == request.auth.uid || request.auth.uid in resource.data.hostUids`), while strictly locking writes (`allow write: if false;`) to ensure all mutations occur through server-validated Cloud Functions.
+  3. **Admin Panel UI (`hellochat_admin/src/screens/AgencyManagement.jsx`)**:
+     - Switched data source to `httpsCallable(functions, 'listAgencies')` and `httpsCallable(functions, 'getAgency')`.
+     - Created "Appoint New Agency" modal with fields for Owner Hello ID/UID, Agency Name, Commission Rate (%), Country, Contact Phone, and Description.
+     - Added Agency HUD cards displaying status badges (`Active` / `Suspended`), commission split %, host count, total beans earned, and quick management links.
+     - Added "Edit Agency Details" modal and status toggle (Active/Suspended) calling `setAgencyStatus`.
+     - Added "Host Recruitment Hub" with Hello ID/UID recruitment and host release confirmation.
+     - Verified with `npm run build` in `hellochat_admin` (compiled cleanly in 13.88s).
+- **Files Touched**:
+  - `functions/index.js`
+  - `firebase/firestore.rules`
+  - `hellochat_admin/src/screens/AgencyManagement.jsx`
+  - `PROJECT_WORKLOG.md`
+
+### Date: 2026-10-26 (Preventing Old Gift Replay on Room Join - Triple-Gate Filter)
+- **What Client Asked / Problem**:
+  - When a gift animation is triggered in a room, users already inside see it. But a user who enters the same room later (minutes, an hour, or more) sees old animations play again.
+  - Required: animations must play ONLY when a gift is actually sent. Completed events must never replay for new joiners or re-entering users. Normal sending and combos must keep working.
+- **What We Did**:
+  1. **Server Time Synchronization**:
+     - Created `functions/index.js:getServerTime` callable returning authoritative server epoch ms.
+     - Created `lib/core/services/server_time_service.dart` providing RTT-calibrated server time and document timestamp calibration.
+  2. **Triple-Gate Filter (`gift_animation_overlay.dart`)**:
+     - On entering a room, captures authoritative server join timestamp `_joinTimeServerMs`.
+     - Implemented three strict gates before enqueuing or playing any gift animation:
+       - **Gate 1 (Duplicate Check)**: `!_processedMessageIds.contains(msgId)` prevents duplicate playback.
+       - **Gate 2 (Join Time Check)**: `createdAtMs >= (_joinTimeServerMs - 2000)` ensures events created prior to room entry are dropped immediately.
+       - **Gate 3 (Stale Event Check)**: `ageMs <= (effectiveDuration + 5000)` ensures overdue events (> animation duration + grace) never play.
+     - Added structured rejection logging: `🎁 [GIFT_SKIP] reason=beforeJoin|old|duplicate`.
+  3. **Unit Test Verification (`test/gift_replay_guard_test.dart`)**:
+     - Created and ran 7 automated test scenarios: join after 1h, join mid-play, re-enter room, network drop/reconnect, +/- 10 min clock skew, live gift, and combo x5. All 7 tests passed.
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/core/services/server_time_service.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `test/gift_replay_guard_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+### Date: 2026-10-26 (App Performance & Voice Room Stability Hardening)
+- **What Client Asked / Problem**:
+  - Client reported:
+    1. The phone suddenly becomes slow and app performance gets worse during use.
+    2. Sometimes a user is removed from a voice room automatically with no action from the user.
+    3. Crash: "hellochat keeps stopping" shown on home screen (Vivo V2132, Android 14).
+- **What We Did**:
+  1. **Voice Stability & Agora Auto-Renewal (`lib/services/agora_voice_service.dart`)**:
+     - Added comprehensive RTC event handlers: `onConnectionLost`, `onRejoinChannelSuccess`, `onTokenPrivilegeWillExpire`, `onRequestToken`, `onError`, and `onConnectionStateChanged`.
+     - When Agora token nears expiration (30s before) or expires, the service automatically requests and renews the token in the background using `_fetchAgoraToken()`, preventing unannounced audio drops.
+     - Added `🚪 [ROOM_EXIT]` structured logging with exact reasons and full stack traces to all 10 room exit/minimize/pop paths across `live_room_screen.dart`, `agora_voice_service.dart`, and `floating_room_overlay_manager.dart`.
+  2. **Bounded SVGA Movie & Audio Memory Cache (`lib/core/utils/svga_parser_util.dart`)**:
+     - Investigated memory bloat causing performance degradation and out-of-memory crashes: `_movieCache` was set to 120 SVGA animations, accumulating 1.2–2.4 GB of uncompressed textures in RAM.
+     - Bounded `_maxMovieCacheSize` to 20 with FIFO eviction.
+     - Bounded `_preparedAudioCache` to 20 entries with LRU eviction and temporary audio file cleanup on disk.
+  3. **Throttled Build Error Logging (`lib/main.dart`)**:
+     - Throttled `ErrorWidget.builder` logging to at most once per 10 seconds per unique signature, preventing 60 FPS console serialization storms and UI stutter during widget rebuilds.
+- **Files Touched**:
+  - `lib/services/agora_voice_service.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/core/services/floating_room_overlay_manager.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/main.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-25 (Sequential Combo Plays & Running Counter Sync)
 - **What Client Asked / Problem**:
   - Replace the earlier "absorb" design with sequential combo playback:
