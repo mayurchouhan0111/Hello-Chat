@@ -11,7 +11,45 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
-### Date: 2026-10-26 (Agency Verification, Admin Panel UI Screenshots, Gift Replay Guard Tests, & Hardware Soak Audit)
+### Date: 2026-10-26 (Safety Audit, Revert Auth Bypass, Dry-Run Migration, & SVGA Profiling)
+- **What Client Asked / Problem**:
+  - Perform safety audit on admin panel auth code: revert all emulator-only or auth-bypass changes in `AdminContext.jsx` and `LoginScreen.jsx`.
+  - Prove that a production build of the admin panel contains zero emulator hosts, zero custom-token logins, and zero hardcoded UIDs or phone numbers.
+  - Delete all scratch scripts containing phone numbers or tokens.
+  - Inspect production Firestore: check if any sample/seed data leaked to production, count users with agency roles/mappings, and explain how the in-app Agency Portal reads agencies and commission.
+  - Write and execute a DRY-RUN migration script simulating creation of missing agency documents without writing to the database.
+  - Profile the top largest SVGA files, measure parse/decompression times and memory impact, and evaluate per-ABI build and on-demand download savings.
+  - Implement an in-app periodic ResourceLoggerService for threads, open file descriptors, RSS, and cache metrics.
+- **What We Did**:
+  1. **Safety Audit & Auth Reversion (`hellochat_admin`)**:
+     - Fully reverted the emulator mock and hardcoded UID/phone number in `hellochat_admin/src/context/AdminContext.jsx`.
+     - Fully reverted the dev quick login button in `hellochat_admin/src/screens/LoginScreen.jsx`.
+     - Removed `hellochat_admin/.env.local`.
+     - Ran production build (`npm run build`), which compiled in 2.63s. Audited resulting bundle assets in `dist/assets/`: confirmed 0 occurrences of `6263850508`, `VJ1GwGfAwafIhCuHDaRTqBbdhYj2`, `127.0.0.1`, `9099`, `8085`, `5001`, `9000000003`, or `VITE_USE_EMULATOR`.
+     - Deleted all scratch scripts containing tokens or phone numbers: `lookup_user_auth.js`, `seed_user_auth.js`, `seed_sample_agency.js`, `get_token.js`, `find_user_details.js`, `check_owners.js`, `inspect_two_uids.js`, `setup_superadmins.js`, `grant_admin_5621916410.js`, `scripts/lookup_user_auth.cjs`, `scripts/audit_dist.py`, `scripts/test_fd.py`, and `%TEMP%/hc_adc.json`.
+  2. **Production Firestore Read-Only Audit & Dry-Run Migration**:
+     - Verified production Firestore: exactly 2 real agency documents exist (`VO4m5hbOpMwLc6PDF1bn` and `pUOzQAMTYQlvrTsxCVlC`). Zero sample/seed agencies leaked to production.
+     - Found 2 users with `isAgencyOwner: true`, 1 user with `role: 'agency'`, and 11 hosts with `agencyId` pointing to 5 distinct agency targets.
+     - Identified that in-app `AgencyPortalScreen` reads `/agencies/{user.agencyId}` directly via `AgencyService().streamAgency()`, but recharge commission logic (`functions/index.js:10935-10940`) credits `users/{agencyId}` using global policy rates rather than per-agency commission rates.
+     - Created and executed CommonJS dry-run migration script: simulated creation of 3 missing agency documents (`PeXwnBhFYuw0StePOH3K`, `lnmsVutlHiO7GDTkRmhRPvs5Y8J2`, `pc6mVRnBCVOTV9nM5J7FErJ5WZc2`) with zero writes.
+  3. **Gift Replay Edge Case Tests (`test/gift_replay_guard_test.dart`)**:
+     - Moved `isLocalEcho` check to run before timestamp validation so local echoes with pending server timestamps are dropped immediately.
+     - Added test 12 (sender own gift while server timestamp is pending), test 13 (legacy client message without timestamp), and test 14 (first snapshot after reconnect). All 14 tests PASSED.
+  4. **SVGA Profiling & Resource Logger (`lib/core/services/resource_logger_service.dart`)**:
+     - Confirmed all top SVGA assets are statically referenced in code (none are unused).
+     - Measured `cat_gift.svga` (24.15 MB, 86 ms inflate), `Crown 1_SVGA_SVGA.svga` (19.36 MB, 33 ms inflate), and `Crown 1.svga` (17.74 MB, 31 ms inflate).
+     - Calculated that caching 20 decoded MovieEntities consumes >1.2 GB RAM; proposed bounding cache to 64–100 MB or 3–5 items.
+     - Calculated per-ABI / App Bundle savings: eliminates 49 MB of redundant native Agora libraries, and on-demand SVGA downloads drop initial APK size from 740 MB to <85 MB.
+     - Built `ResourceLoggerService` periodically tracking threads, open file descriptors, ProcessInfo RSS, image cache, and SVGA cache. Passed `flutter analyze` with 0 issues.
+- **Files Touched**:
+  - `hellochat_admin/src/context/AdminContext.jsx`
+  - `hellochat_admin/src/screens/LoginScreen.jsx`
+  - `lib/core/services/gift_replay_guard.dart`
+  - `test/gift_replay_guard_test.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/core/services/resource_logger_service.dart`
+  - `test/svga_benchmark_test.dart`
+  - `PROJECT_WORKLOG.md`
 - **What Client Asked / Problem**:
   - Perform full end-to-end testing of Agency Management Cloud Functions on Firebase emulator (all 11 test scenarios).
   - Capture 5 verified screenshots of the admin panel against the emulator (empty list, appoint modal form, agency card list, agency detail with hosts, error state).
