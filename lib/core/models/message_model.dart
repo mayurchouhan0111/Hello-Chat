@@ -26,6 +26,7 @@ class RoomMessage {
   final String? giftCategory;
   final int durationMs;
   final String? soundUrl;
+  final bool hasExplicitTimestamp;
 
   RoomMessage({
     required this.msgId,
@@ -45,6 +46,7 @@ class RoomMessage {
     this.giftCategory,
     this.durationMs = 0,
     this.soundUrl,
+    this.hasExplicitTimestamp = true,
   });
 
   /// Null when the message is not part of a combo stream.
@@ -93,6 +95,7 @@ class RoomMessage {
       giftCategory: (map['giftCategory'] ?? map['category'])?.toString(),
       durationMs: (map['durationMs'] as num? ?? 0).toInt(),
       soundUrl: map['soundUrl']?.toString(),
+      hasExplicitTimestamp: map['createdAt'] != null,
     );
   }
 

@@ -22,6 +22,7 @@ import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../services/gift_service.dart';
 import 'package:hello_chat/core/services/server_time_service.dart';
+import 'package:hello_chat/core/services/gift_replay_guard.dart';
 import 'gift_combo_overlay.dart';
 import 'seat_grid.dart';
 
@@ -833,38 +834,31 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
     final nowServerMs = ServerTimeService.serverNowMs;
 
-    // Filter gift messages through the strict Triple-Gate:
-    // Gate 1: Not already processed (!contains msgId)
-    // Gate 2: Sent at or after room join time (createdAt >= joinTimeServerMs - 2000ms tolerance)
-    // Gate 3: Not expired (age <= durationMs + 5000ms margin)
+    // Filter gift messages through the strict Triple-Gate (GiftReplayGuard):
     final List<RoomMessage> newGifts = [];
 
     for (final msg in messages) {
-      if (msg.type != 'gift') continue;
-      if ((msg.animationUrl == null || msg.animationUrl!.trim().isEmpty) &&
-          (msg.giftId == null || msg.giftId!.trim().isEmpty)) {
-        continue;
-      }
+      final decision = GiftReplayGuard.evaluate(
+        msgId: msg.msgId,
+        type: msg.type,
+        animationUrl: msg.animationUrl,
+        giftId: msg.giftId,
+        createdAt: msg.createdAt,
+        hasExplicitTimestamp: msg.hasExplicitTimestamp,
+        durationMs: msg.durationMs,
+        processedMessageIds: _processedMessageIds,
+        joinTimeServerMs: _joinTimeServerMs,
+        nowServerMs: nowServerMs,
+      );
 
-      if (_processedMessageIds.contains(msg.msgId)) {
-        continue;
-      }
-
-      final createdAtMs = msg.createdAt.millisecondsSinceEpoch;
-      final ageMs = nowServerMs - createdAtMs;
-      final int effectiveDuration = msg.durationMs > 0 ? msg.durationMs : 5000;
-
-      // Gate 2: Sent before user joined the room (-2s tolerance for network jitter)
-      if (_joinTimeServerMs > 0 && createdAtMs < (_joinTimeServerMs - 2000)) {
-        _processedMessageIds.add(msg.msgId);
-        debugPrint('🎁 [GIFT_SKIP] reason=beforeJoin, msgId=${msg.msgId}, giftId=${msg.giftId}, createdAtMs=$createdAtMs, joinTimeMs=$_joinTimeServerMs, age=${ageMs}ms');
-        continue;
-      }
-
-      // Gate 3: Message is old/expired (older than animation duration + 5s)
-      if (ageMs > (effectiveDuration + 5000)) {
-        _processedMessageIds.add(msg.msgId);
-        debugPrint('🎁 [GIFT_SKIP] reason=old, msgId=${msg.msgId}, giftId=${msg.giftId}, age=${ageMs}ms, maxTTL=${effectiveDuration + 5000}ms');
+      if (decision.isSkipped) {
+        if (decision.reason != GiftSkipReason.notGiftType &&
+            decision.reason != GiftSkipReason.missingAnimationPayload) {
+          _processedMessageIds.add(msg.msgId);
+          if (decision.logMessage != null) {
+            debugPrint(decision.logMessage);
+          }
+        }
         continue;
       }
 
@@ -937,6 +931,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         giftId: matched.giftId,
       )))) {
         // Still feed combo controller with authoritative icon, but skip redundant local re-animation
+        debugPrint('🎁 [GIFT_SKIP] reason=localEcho, msgId=${msg.msgId}, giftId=$effectiveGiftId, age=${nowServerMs - msg.createdAt.millisecondsSinceEpoch}ms');
         combos.applyRemote(msg, giftIconUrl: imageUrl ?? matched?.imageUrl ?? giftUrl);
         continue;
       }
