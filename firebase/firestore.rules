@@ -56,8 +56,13 @@ service cloud.firestore {
       // the SAME protected-field list, so the reachable write surface is identical
       // for both. That symmetry is the point: a manager can no longer grant a
       // subordinate a privilege (or a balance) that they could not grant themselves.
+      // Owner may write administrative profile fields, but NEVER financial balances directly from client SDK.
+      // All balance mutations (walletBalance, diamondBalance, beansBalance) are strictly server-only via Cloud Functions.
       allow write: if request.auth != null && (
-        isOwner() ||
+        (
+          isOwner() &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(FINANCIAL_FIELDS())
+        ) ||
         (
           (isInMyHierarchyScope(userId) || isSelf(userId)) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(PROTECTED_FIELDS()) &&
@@ -724,6 +729,16 @@ service cloud.firestore {
     // `diamondBalance`/`beansBalance`/`walletBalance` outright. One union list for
     // both branches closes that: a manager can no longer do anything to a
     // subordinate that a user cannot do to themselves.
+    // FINANCIAL_FIELDS: Critical balances that no client SDK may ever mutate directly,
+    // not even an Owner or Administrator. All mutations must go through Cloud Functions.
+    function FINANCIAL_FIELDS() {
+      return [
+        'diamondBalance', 'diamondStock', 'beansBalance', 'walletBalance',
+        'usdCommissionBalance', 'usdResellerBalance', 'totalCommissionEarned',
+        'totalRechargeGenerated', 'pendingWithdrawalBalance', 'totalWithdrawnUSD'
+      ];
+    }
+
     function PROTECTED_FIELDS() {
       return [
         // Privilege / hierarchy

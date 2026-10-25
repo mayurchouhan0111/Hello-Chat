@@ -11955,6 +11955,407 @@ exports.deactivateAgency = functions.https.onCall(async (payload, context) => {
 });
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * AGENCY MANAGEMENT SURFACE (Server-verified admin roles; atomic writes)
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+
+/** Helper: resolve user by UID or numeric helloId */
+async function resolveUserDoc(identifier) {
+    if (!identifier) return null;
+    const str = String(identifier).trim();
+    const num = parseInt(str, 10);
+    if (!isNaN(num) && String(num) === str && num > 0) {
+        const snap = await db.collection("users").where("helloId", "==", num).limit(1).get();
+        if (!snap.empty) return snap.docs[0];
+    }
+    const docSnap = await db.collection("users").doc(str).get();
+    if (docSnap.exists) return docSnap;
+    return null;
+}
+
+/**
+ * 1. listAgencies - list all agencies with linked hosts count and status
+ */
+exports.listAgencies = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
+        throw new HttpsError("permission-denied", "Staff permissions (admin+) required to list agencies.");
+    }
+
+    const snap = await db.collection("agencies").orderBy("createdAt", "desc").limit(500).get();
+    const agencies = snap.docs.map(doc => {
+        const d = doc.data();
+        const hostUids = Array.isArray(d.hostUids) ? d.hostUids : [];
+        return {
+            id: doc.id,
+            agencyId: doc.id,
+            name: d.name || "Unnamed Agency",
+            ownerUid: d.ownerUid || "",
+            ownerName: d.ownerName || "",
+            ownerHelloId: d.ownerHelloId || null,
+            logoUrl: d.logoUrl || "",
+            description: d.description || "",
+            contactPhone: d.contactPhone || "",
+            country: d.country || "",
+            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : 0.1,
+            isActive: d.isActive !== false,
+            status: d.status || (d.isActive !== false ? "active" : "suspended"),
+            hostCount: hostUids.length,
+            beansBalance: d.beansBalance || 0,
+            totalBeansEarned: d.totalBeansEarned || 0,
+            createdAt: d.createdAt && typeof d.createdAt.toDate === "function" ? d.createdAt.toDate().toISOString() : null,
+            updatedAt: d.updatedAt && typeof d.updatedAt.toDate === "function" ? d.updatedAt.toDate().toISOString() : null,
+        };
+    });
+
+    return { success: true, agencies, count: agencies.length };
+});
+
+/**
+ * 2. getAgency - get full details of an agency including its linked hosts
+ */
+exports.getAgency = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const { agencyId } = request.data || {};
+    if (!agencyId) throw new HttpsError("invalid-argument", "agencyId is required.");
+
+    const caller = await loadHierarchy(uid);
+    const agencyRef = db.collection("agencies").doc(agencyId);
+    const agencySnap = await agencyRef.get();
+    if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
+
+    const d = agencySnap.data();
+    if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && d.ownerUid !== uid) {
+        throw new HttpsError("permission-denied", "You do not have access to this agency.");
+    }
+
+    const hostUids = Array.isArray(d.hostUids) ? d.hostUids : [];
+    let hosts = [];
+    if (hostUids.length > 0) {
+        const hostDocs = await db.getAll(...hostUids.slice(0, 100).map(hUid => db.collection("users").doc(hUid)));
+        hosts = hostDocs.filter(hSnap => hSnap.exists).map(hSnap => {
+            const hData = hSnap.data();
+            return {
+                uid: hSnap.id,
+                id: hSnap.id,
+                displayName: hData.displayName || "Host",
+                helloId: hData.helloId || null,
+                profilePhotoUrl: hData.profilePhotoUrl || "",
+                assignedAt: hData.assignedAt && typeof hData.assignedAt.toDate === "function" ? hData.assignedAt.toDate().toISOString() : null,
+                beansBalance: hData.beansBalance || 0,
+            };
+        });
+    }
+
+    return {
+        success: true,
+        agency: {
+            id: agencySnap.id,
+            agencyId: agencySnap.id,
+            name: d.name || "",
+            ownerUid: d.ownerUid || "",
+            ownerName: d.ownerName || "",
+            ownerHelloId: d.ownerHelloId || null,
+            logoUrl: d.logoUrl || "",
+            description: d.description || "",
+            contactPhone: d.contactPhone || "",
+            country: d.country || "",
+            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : 0.1,
+            isActive: d.isActive !== false,
+            status: d.status || (d.isActive !== false ? "active" : "suspended"),
+            hostCount: hostUids.length,
+            beansBalance: d.beansBalance || 0,
+            totalBeansEarned: d.totalBeansEarned || 0,
+            createdAt: d.createdAt && typeof d.createdAt.toDate === "function" ? d.createdAt.toDate().toISOString() : null,
+        },
+        hosts
+    };
+});
+
+/**
+ * 3. createAgency - appoint a new agency from the admin panel
+ */
+exports.createAgency = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
+        throw new HttpsError("permission-denied", "Only Staff (admin+) may appoint agencies.");
+    }
+
+    const { name, ownerIdentifier, commissionRate, description, contactPhone, country } = request.data || {};
+    if (!name || !String(name).trim()) {
+        throw new HttpsError("invalid-argument", "Agency name is required.");
+    }
+    if (!ownerIdentifier) {
+        throw new HttpsError("invalid-argument", "Owner user ID or Hello ID is required.");
+    }
+
+    const ownerDoc = await resolveUserDoc(ownerIdentifier);
+    if (!ownerDoc || !ownerDoc.exists) {
+        throw new HttpsError("not-found", `User with identifier "${ownerIdentifier}" was not found.`);
+    }
+
+    const ownerUid = ownerDoc.id;
+    const ownerData = ownerDoc.data();
+
+    // Check if this user is already an agency owner
+    const existingAgencySnap = await db.collection("agencies").where("ownerUid", "==", ownerUid).limit(1).get();
+    if (!existingAgencySnap.empty) {
+        throw new HttpsError("failed-precondition", `User "${ownerData.displayName || ownerUid}" is already the owner of agency "${existingAgencySnap.docs[0].data().name}".`);
+    }
+
+    const agencyRef = db.collection("agencies").doc();
+    const agencyId = agencyRef.id;
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    const rate = Number(commissionRate);
+    const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : 0.1;
+
+    await db.runTransaction(async (transaction) => {
+        transaction.set(agencyRef, {
+            id: agencyId,
+            name: String(name).trim(),
+            ownerUid: ownerUid,
+            ownerName: ownerData.displayName || "User",
+            ownerHelloId: ownerData.helloId || null,
+            description: String(description || "").trim(),
+            contactPhone: String(contactPhone || "").trim(),
+            country: String(country || "").trim(),
+            commissionRate: finalCommission,
+            isActive: true,
+            status: "active",
+            hostUids: [],
+            hostCount: 0,
+            beansBalance: 0,
+            totalBeansEarned: 0,
+            createdBy: uid,
+            createdAt: now,
+            updatedAt: now,
+        });
+
+        transaction.update(ownerDoc.ref, {
+            role: "agency",
+            isAgencyOwner: true,
+            agencyId: agencyId,
+            tags: admin.firestore.FieldValue.arrayUnion("Agency"),
+            roleUpdatedAt: now
+        });
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "CREATE_AGENCY",
+            targetId: agencyId,
+            details: { name, ownerUid, ownerName: ownerData.displayName, commissionRate: finalCommission },
+            timestamp: now
+        });
+    });
+
+    return { success: true, agencyId, name, ownerUid };
+});
+
+/**
+ * 4. updateAgency - edit agency details
+ */
+exports.updateAgency = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
+        throw new HttpsError("permission-denied", "Staff permissions required.");
+    }
+
+    const { agencyId, name, description, commissionRate, contactPhone, country } = request.data || {};
+    if (!agencyId) throw new HttpsError("invalid-argument", "agencyId required.");
+
+    const agencyRef = db.collection("agencies").doc(agencyId);
+    const snap = await agencyRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
+
+    const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+    if (name !== undefined && String(name).trim()) updates.name = String(name).trim();
+    if (description !== undefined) updates.description = String(description).trim();
+    if (contactPhone !== undefined) updates.contactPhone = String(contactPhone).trim();
+    if (country !== undefined) updates.country = String(country).trim();
+    if (commissionRate !== undefined) {
+        const r = Number(commissionRate);
+        if (Number.isFinite(r) && r >= 0 && r <= 1) updates.commissionRate = r;
+    }
+
+    await agencyRef.update(updates);
+    await db.collection("audit_logs").add({
+        actorUid: uid,
+        actorRole: caller.role,
+        action: "UPDATE_AGENCY",
+        targetId: agencyId,
+        details: updates,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, agencyId };
+});
+
+/**
+ * 5. setAgencyStatus - suspend or activate an agency
+ */
+exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
+        throw new HttpsError("permission-denied", "Staff permissions required.");
+    }
+
+    const { agencyId, status } = request.data || {};
+    if (!agencyId || !["active", "suspended"].includes(status)) {
+        throw new HttpsError("invalid-argument", "agencyId and valid status ('active' | 'suspended') required.");
+    }
+
+    const isActive = status === "active";
+    const agencyRef = db.collection("agencies").doc(agencyId);
+    const snap = await agencyRef.get();
+    if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
+
+    await agencyRef.update({
+        isActive: isActive,
+        status: status,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await db.collection("audit_logs").add({
+        actorUid: uid,
+        actorRole: caller.role,
+        action: "SET_AGENCY_STATUS",
+        targetId: agencyId,
+        details: { status, isActive },
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    return { success: true, agencyId, status, isActive };
+});
+
+/**
+ * 6. addHost - link a host to an agency
+ */
+exports.addHost = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+
+    const { agencyId, hostIdentifier } = request.data || {};
+    if (!agencyId || !hostIdentifier) {
+        throw new HttpsError("invalid-argument", "agencyId and hostIdentifier required.");
+    }
+
+    const agencyRef = db.collection("agencies").doc(agencyId);
+    const agencySnap = await agencyRef.get();
+    if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
+    const aData = agencySnap.data();
+
+    // Verify caller has permission to add hosts to this agency
+    if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {
+        throw new HttpsError("permission-denied", "You do not manage this agency.");
+    }
+
+    const hostDoc = await resolveUserDoc(hostIdentifier);
+    if (!hostDoc || !hostDoc.exists) {
+        throw new HttpsError("not-found", `User "${hostIdentifier}" was not found.`);
+    }
+
+    const hostUid = hostDoc.id;
+    const hostData = hostDoc.data();
+    if (hostData.agencyId && hostData.agencyId !== agencyId) {
+        throw new HttpsError("failed-precondition", `This user is already signed to agency "${hostData.agencyId}". Release them first.`);
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
+    await db.runTransaction(async (transaction) => {
+        transaction.update(agencyRef, {
+            hostUids: admin.firestore.FieldValue.arrayUnion(hostUid),
+            hostCount: admin.firestore.FieldValue.increment(hostData.agencyId === agencyId ? 0 : 1),
+            updatedAt: now
+        });
+
+        transaction.update(hostDoc.ref, {
+            agencyId: agencyId,
+            assignedAt: now,
+            roleUpdatedAt: now
+        });
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "ADD_HOST_TO_AGENCY",
+            targetId: agencyId,
+            details: { hostUid, hostName: hostData.displayName },
+            timestamp: now
+        });
+    });
+
+    return { success: true, agencyId, hostUid, hostName: hostData.displayName };
+});
+
+/**
+ * 7. removeHost - unlink a host from an agency
+ */
+exports.removeHost = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+
+    const { agencyId, hostUid } = request.data || {};
+    if (!agencyId || !hostUid) {
+        throw new HttpsError("invalid-argument", "agencyId and hostUid required.");
+    }
+
+    const agencyRef = db.collection("agencies").doc(agencyId);
+    const agencySnap = await agencyRef.get();
+    if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
+    const aData = agencySnap.data();
+
+    if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {
+        throw new HttpsError("permission-denied", "You do not manage this agency.");
+    }
+
+    const hostRef = db.collection("users").doc(hostUid);
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    await db.runTransaction(async (transaction) => {
+        transaction.update(agencyRef, {
+            hostUids: admin.firestore.FieldValue.arrayRemove(hostUid),
+            hostCount: admin.firestore.FieldValue.increment(-1),
+            updatedAt: now
+        });
+
+        transaction.update(hostRef, {
+            agencyId: null,
+            roleUpdatedAt: now
+        });
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "REMOVE_HOST_FROM_AGENCY",
+            targetId: agencyId,
+            details: { hostUid },
+            timestamp: now
+        });
+    });
+
+    return { success: true, agencyId, hostUid };
+});
+
+/**
  * 7. adminUpdateResellerDetails - staff-only merchant record edit.
  * The client-side fallback write this replaces was denied by rules
  * (diamondStock / isReseller are PROTECTED_FIELDS).
