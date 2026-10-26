@@ -14,6 +14,7 @@ class ResourceLoggerService {
 
   /// Starts the 60-second periodic resource logger (debug/profile only).
   void start({Duration interval = const Duration(seconds: 60)}) {
+    if (kReleaseMode && !kProfileMode) return;
     if (_isRunning) return;
     _isRunning = true;
 
@@ -31,7 +32,7 @@ class ResourceLoggerService {
   void _logResources() {
     // Only run in non-release or when explicitly profiling
     if (kReleaseMode && !kProfileMode) {
-      // In release mode, allow if debug override is set
+      return;
     }
 
     int threads = -1;
