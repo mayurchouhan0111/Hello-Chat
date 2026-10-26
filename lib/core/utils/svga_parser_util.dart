@@ -4,10 +4,18 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/widgets.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import '../constants/gift_vap_catalog.dart';
 import 'app_persistent_cache.dart';
+
+class _SvgaMemoryPressureListener with WidgetsBindingObserver {
+  @override
+  void didHaveMemoryPressure() {
+    SvgaParserUtil.clearOnMemoryPressure();
+  }
+}
 
 class PreparedSvgaAudio {
   final File file;
@@ -23,6 +31,7 @@ class SvgaParserUtil {
   static const int _maxPreparedAudioCacheSize = 20;
 
   static int get movieCacheCount => _movieCache.length;
+  static int get movieCacheBytes => _currentMovieCacheBytes;
   static int get preparedAudioCacheCount => _preparedAudioCache.length;
 
   /// Extracts and verifies embedded audio tracks in [videoItem] into temp storage.
@@ -136,9 +145,65 @@ class SvgaParserUtil {
   // Cache of parsed MovieEntity objects to avoid CPU-heavy parsing & image decoding on every load
   static final Map<String, MovieEntity> _movieCache = {};
   static final List<String> _movieCacheKeys = [];
-  static const int _maxMovieCacheSize = 20;
+  static final Map<String, int> _movieBytesMap = {};
+  static int _currentMovieCacheBytes = 0;
+  static const int _maxMovieCacheSize = 4;
+  static const int _maxMovieCacheBytes = 80 * 1024 * 1024; // 80 MB limit
   // Protected assets (e.g. preloaded VIP frames/badges/entry effects) that must never be evicted
   static final Set<String> _protectedAssetKeys = {};
+  static bool _observerInitialized = false;
+
+  static void ensureMemoryPressureObserver() {
+    if (_observerInitialized) return;
+    try {
+      WidgetsBinding.instance.addObserver(_SvgaMemoryPressureListener());
+      _observerInitialized = true;
+    } catch (_) {}
+  }
+
+  static void clearOnMemoryPressure() {
+    for (final key in List<String>.from(_movieCacheKeys)) {
+      _movieCache.remove(key);
+      final size = _movieBytesMap.remove(key) ?? 0;
+      _currentMovieCacheBytes = math.max(0, _currentMovieCacheBytes - size);
+    }
+    _movieCacheKeys.clear();
+    debugPrint("[SVGA_CACHE] Memory pressure: cleared transient movies, remaining: ${_movieCache.length}");
+  }
+
+  static void _addToMovieCache(String key, MovieEntity movie) {
+    ensureMemoryPressureObserver();
+    int estimatedBytes = 0;
+    try {
+      for (final bytes in movie.images.values) {
+        estimatedBytes += (bytes.length * 5);
+      }
+    } catch (_) {}
+    if (estimatedBytes <= 0) {
+      estimatedBytes = 5 * 1024 * 1024;
+    }
+
+    _movieCache[key] = movie;
+    _movieBytesMap[key] = estimatedBytes;
+    _currentMovieCacheBytes += estimatedBytes;
+
+    if (!_protectedAssetKeys.contains(key)) {
+      _movieCacheKeys.remove(key);
+      _movieCacheKeys.add(key);
+      _trimMovieCache();
+    }
+  }
+
+  static void _trimMovieCache() {
+    while (_movieCacheKeys.isNotEmpty &&
+        (_movieCacheKeys.length > _maxMovieCacheSize || _currentMovieCacheBytes > _maxMovieCacheBytes)) {
+      final oldest = _movieCacheKeys.removeAt(0);
+      _movieCache.remove(oldest);
+      final size = _movieBytesMap.remove(oldest) ?? 0;
+      _currentMovieCacheBytes = math.max(0, _currentMovieCacheBytes - size);
+      debugPrint("[SVGA_CACHE] Evicted $oldest (freed ${(size / (1024 * 1024)).toStringAsFixed(1)}MB). Count: ${_movieCacheKeys.length}, Total: ${(_currentMovieCacheBytes / (1024 * 1024)).toStringAsFixed(1)}MB");
+    }
+  }
 
   // Track pending loads to prevent concurrent duplicate reads
   static final Map<String, Future<Uint8List>> _pendingLoads = {};
@@ -720,7 +785,15 @@ class SvgaParserUtil {
 
   /// Returns in-memory pre-decoded MovieEntity if available, allowing instant frame-0 rendering.
   static MovieEntity? getCachedMovie(String assetPath) {
-    return _movieCache[assetPath.trim()];
+    ensureMemoryPressureObserver();
+    final cleanPath = assetPath.trim();
+    final movie = _movieCache[cleanPath];
+    if (movie != null && !_protectedAssetKeys.contains(cleanPath)) {
+      // LRU touch: promote to most recently used
+      _movieCacheKeys.remove(cleanPath);
+      _movieCacheKeys.add(cleanPath);
+    }
+    return movie;
   }
 
   /// Returns in-memory prepared audio tracks if available.
@@ -737,27 +810,19 @@ class SvgaParserUtil {
   static Future<MovieEntity> decodeSafeFromAssets(String assetPath) async {
     final cleanPath = assetPath.trim();
     if (_movieCache.containsKey(cleanPath)) {
-      return _movieCache[cleanPath]!;
+      final cached = _movieCache[cleanPath]!;
+      if (!_protectedAssetKeys.contains(cleanPath)) {
+        _movieCacheKeys.remove(cleanPath);
+        _movieCacheKeys.add(cleanPath);
+      }
+      return cached;
     }
 
     final bytes = await _loadBytes(cleanPath);
     final movie = await SVGAParser.shared.decodeFromBuffer(bytes);
     movie.autorelease = false;
 
-    _movieCache[cleanPath] = movie;
-    if (!_protectedAssetKeys.contains(cleanPath)) {
-      _movieCacheKeys.remove(cleanPath);
-      _movieCacheKeys.add(cleanPath);
-      if (_movieCacheKeys.length > _maxMovieCacheSize) {
-        final oldest = _movieCacheKeys.removeAt(0);
-        _movieCache.remove(oldest);
-        // CRITICAL: Do NOT call evicted?.dispose() here! Calling dispose() on a MovieEntity deletes its
-        // underlying native textures immediately. If an active painter or SvgaPlayer is rendering it,
-        // it causes a native SIGSEGV use-after-free crash. Removing from _movieCache allows Dart GC to
-        // safely reclaim it once all active players release references.
-      }
-    }
-
+    _addToMovieCache(cleanPath, movie);
     return movie;
   }
 
@@ -772,23 +837,19 @@ class SvgaParserUtil {
     }
 
     if (_movieCache.containsKey(cleanUrl)) {
-      return _movieCache[cleanUrl]!;
+      final cached = _movieCache[cleanUrl]!;
+      if (!_protectedAssetKeys.contains(cleanUrl)) {
+        _movieCacheKeys.remove(cleanUrl);
+        _movieCacheKeys.add(cleanUrl);
+      }
+      return cached;
     }
 
     final bytes = await _loadUrlBytes(cleanUrl);
     final movie = await SVGAParser.shared.decodeFromBuffer(bytes);
     movie.autorelease = false;
 
-    _movieCache[cleanUrl] = movie;
-    if (!_protectedAssetKeys.contains(cleanUrl)) {
-      _movieCacheKeys.remove(cleanUrl);
-      _movieCacheKeys.add(cleanUrl);
-      if (_movieCacheKeys.length > _maxMovieCacheSize) {
-        final oldest = _movieCacheKeys.removeAt(0);
-        _movieCache.remove(oldest);
-        // CRITICAL: Do NOT call evicted?.dispose() for safe GC reclamation.
-      }
-    }
+    _addToMovieCache(cleanUrl, movie);
 
     return movie;
   }
