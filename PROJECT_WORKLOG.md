@@ -11,6 +11,51 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-26 (Room Support Weekly Reset Fix, UTC Crons, Idempotency, SVGA LRU Cache, & Tests)
+- **What Client Asked / Problem**:
+  - Fix Room Support weekly target reset: client reported that on Monday after 00:00 UTC the Room Support screen still displays Sunday's weekly target ("50.2M / 75M, Level 13") instead of automatically resetting to 0.
+  - Audit all scheduled functions in `functions/index.js` for missing `.timeZone()` definitions and identify which crons depend on UTC vs Pacific time.
+  - Reproduce the Monday race condition on emulator: verify what happens when a gift arrives at Monday 00:00:01 UTC, a partner is assigned at 01:00 UTC, and `lockRoomSupportCycles` runs late at 07:00 UTC.
+  - Implement Stage 1 hotfix: add `.timeZone('UTC')` to lock and reward crons, add idempotency checks, protect partners assigned during Monday/Tuesday fill-in window, and apply client-side `weekId` guards and `ServerTimeService` countdowns.
+  - Design Stage 2 week-keyed storage architecture (`/room_support_weeks/{weekId}_{roomId}`) with single-write consolidation, idempotent settlement at Wednesday 00:05 UTC, and legacy mirror synchronization.
+  - Run boundary tests, clock tests, Agency E2E tests, quote owner role restoration code, disable `ResourceLoggerService` in release builds, and implement 80MB/4-entry LRU cache with memory pressure eviction for SVGA movie textures.
+- **What We Did**:
+  1. **Backend Cron Fixes & Idempotency (`functions/index.js`)**:
+     - Added `.timeZone('UTC')` to `lockRoomSupportCycles` (line 8133) and `distributeRoomSupportRewards` (line 8535).
+     - Added idempotency check to `lockRoomSupportCycles`: checks `historyRef.exists` before writing, preventing duplicate lockouts and multiple archive runs.
+     - Added partner fill-in window protection: the lock job now only cleans up partners assigned before `weekEndMs` (Sunday 23:59:59.999 UTC), preserving partners assigned during Monday/Tuesday.
+     - Added fallback to `lastWeekCoins` / `lastWeekLevel` if a gift already rolled the cycle document over before the cron ran.
+     - Updated `sendGift` (line 2603) to preserve `lastWeekLevel` alongside `lastWeekCoins`.
+  2. **Client-Side WeekId Guards & ServerTime Countdown**:
+     - Created shared ISO-8601 `WeekHelper` (`lib/core/utils/week_helper.dart`) providing consistent UTC week IDs (`YYYY-Www`), cycle boundary timestamps, and fill-in window checks.
+     - Added `weekId` field to `RoomModel` (`lib/core/models/room_model.dart`).
+     - Added client guard to `RoomSupportScreen` (`lib/features/rooms/presentation/screens/room_support_screen.dart`): if `cycle.weekId != currentUtcWeekId`, the screen immediately renders "This week: 0 / target, Level 0" and presents the archived data under "Last week" during Monday/Tuesday fill-in.
+     - Connected countdown timer to authoritative `ServerTimeService` offset rather than device hardware clock.
+     - Applied `weekId` guards to `LiveRoomScreen`, `RocketDetailSheet`, and `RoomSupportService`.
+  3. **SVGA Memory Optimization (`lib/core/utils/svga_parser_util.dart`)**:
+     - Implemented an 80 MB / 4-entry LRU cache (`_MovieLruCache`) for decoded SVGA `MovieEntity` textures.
+     - Integrated `WidgetsBindingObserver.didHaveMemoryPressure()` to proactively evict decoded textures upon low memory warnings from the OS.
+     - Disabled `ResourceLoggerService` in release builds with `kReleaseMode` early return (`lib/core/services/resource_logger_service.dart:16, 33`).
+  4. **Verification & Automated Testing**:
+     - Executed Agency Management E2E test suite (`functions/test_agency_management_e2e.js`) against local emulator: 18/18 tests PASSED.
+     - Executed ISO-8601 `WeekHelper` unit tests (`test/week_helper_test.dart`): 9/9 tests PASSED covering Sunday 23:59:59.999, Monday 00:00:00.000, 1ms boundary deltas, gifts between 00:00-07:00 UTC, year boundaries (2025/2026 and 53-week years 2026/2027), timezones (UTC, UTC+5:30, UTC-8), and wrong phone clocks.
+     - Executed Room Support screen clock simulation tests (`test/room_support_screen_simulation_test.dart`): 4/4 tests PASSED.
+     - Executed Backend idempotency and partner survival test against emulator (`scratch/test_room_support_backend_scenarios.cjs`): 8/8 steps PASSED.
+     - Executed Stage 2 dry-run migration script (`scratch/dry_run_stage2_migration.cjs`): verified clean translation of cycles to week-keyed records with 0 writes to Firestore.
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/core/models/room_model.dart`
+  - `lib/core/utils/week_helper.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/core/services/resource_logger_service.dart`
+  - `lib/features/rooms/presentation/screens/room_support_screen.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_detail_sheet.dart`
+  - `lib/services/room_support_service.dart`
+  - `test/week_helper_test.dart`
+  - `test/room_support_screen_simulation_test.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-26 (Safety Audit, Revert Auth Bypass, Dry-Run Migration, & SVGA Profiling)
 - **What Client Asked / Problem**:
   - Perform safety audit on admin panel auth code: revert all emulator-only or auth-bypass changes in `AdminContext.jsx` and `LoginScreen.jsx`.
