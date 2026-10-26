@@ -2592,6 +2592,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 status: "accumulating",
                 weekId: cycleWeekId,
                 lastWeekCoins: isSameWeekCycle ? (cycleData.lastWeekCoins || 0) : (cycleData.totalCoins || 0),
+                lastWeekLevel: isSameWeekCycle ? (cycleData.lastWeekLevel || 0) : (cycleData.level || 0),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
 
@@ -8125,38 +8126,83 @@ exports.removeRoomPartner = functions.https.onCall(async (data, context) => {
     });
 });
 
-/** Weekly cycle lock (Sunday 23:59 UTC) — locks current week, calculates level achieved */
-exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').onRun(async (context) => {
-    const cyclesSnap = await db.collection("room_support_cycles").where("status", "==", "accumulating").get();
-    const now = Date.now();
-    const weekEnd = admin.firestore.Timestamp.fromMillis(now);
-    const weekStart = admin.firestore.Timestamp.fromMillis(now - 7 * 24 * 60 * 60 * 1000);
+/** Helper to calculate standard ISO 8601 UTC week string (e.g. '2026-W44') */
+function getIsoWeekId(date = new Date()) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    const dayNr = (d.getUTCDay() + 6) % 7; // Monday = 0, Sunday = 6
+    d.setUTCDate(d.getUTCDate() - dayNr + 3); // Thursday of week
+    const thursdayTime = d.getTime();
+    const weekYear = d.getUTCFullYear();
+    const jan4 = new Date(Date.UTC(weekYear, 0, 4));
+    const jan4DayNr = (jan4.getUTCDay() + 6) % 7;
+    jan4.setUTCDate(jan4.getUTCDate() - jan4DayNr + 3);
+    const weekNumber = 1 + Math.round((thursdayTime - jan4.getTime()) / 604800000);
+    return `${weekYear}-W${String(weekNumber).padStart(2, '0')}`;
+}
 
-    console.log(`[ROOM_SUPPORT] Starting Sunday cycle lock for ${cyclesSnap.size} cycles...`);
+/** Helper to get Sunday 23:59:59.999 UTC timestamp for a given ISO week */
+function getWeekEndUtc(date = new Date()) {
+    const d = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 0, 0, 0, 0));
+    const dayNr = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - dayNr); // Monday 00:00:00
+    return new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
+}
+
+/** Weekly cycle lock (Sunday 23:59 UTC) — locks current week, calculates level achieved */
+exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZone('UTC').onRun(async (context) => {
+    const cyclesSnap = await db.collection("room_support_cycles").where("status", "==", "accumulating").get();
+    const nowUtc = new Date();
+    // If triggered anytime Sunday or early Monday, the week being locked is the week ending on Sunday
+    const closingDate = new Date(nowUtc);
+    if (closingDate.getUTCDay() === 1) {
+        closingDate.setUTCDate(closingDate.getUTCDate() - 1); // target Sunday
+    }
+    const closingWeekId = getIsoWeekId(closingDate);
+    const weekEndMs = getWeekEndUtc(closingDate).getTime();
+    const weekEnd = admin.firestore.Timestamp.fromMillis(weekEndMs);
+    const weekStart = admin.firestore.Timestamp.fromMillis(weekEndMs - 7 * 24 * 60 * 60 * 1000 + 1);
+
+    console.log(`[ROOM_SUPPORT] Starting Sunday cycle lock for closing week ${closingWeekId} (${cyclesSnap.size} cycles)...`);
 
     for (const doc of cyclesSnap.docs) {
         const roomId = doc.id;
-        const data = doc.data();
-        const totalCoins = data.totalCoins || 0;
-        const achievedLevel = ROOM_SUPPORT.calculateLevel(totalCoins);
-
-        const levelConfig = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1] : null;
-        const ownerReward = levelConfig ? levelConfig.ownerReward : 0;
-        const partnerReward = levelConfig ? levelConfig.partnerReward : 0;
-        const totalReward = levelConfig ? levelConfig.totalReward : 0;
-        const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
 
         try {
             await db.runTransaction(async (transaction) => {
-                // 1. Write historical week record
-                const weekDocId = `week_${new Date().toISOString().slice(0, 10)}`;
-                const historyRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc(weekDocId);
+                const cycleSnap = await transaction.get(doc.ref);
+                if (!cycleSnap.exists) return;
+                const cycleData = cycleSnap.data();
+
+                // 1. Idempotency Check: if history doc already exists for closingWeekId, do not duplicate!
+                const historyRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc(closingWeekId);
+                const historySnap = await transaction.get(historyRef);
+                if (historySnap.exists) {
+                    console.log(`[ROOM_SUPPORT] Room ${roomId} already has closed history for ${closingWeekId}. Skipping (idempotent).`);
+                    return;
+                }
+
+                // 2. Accurate Coin Extraction: if a gift already rolled cycle into new week, read saved lastWeekCoins
+                let finalizedCoins = 0;
+                if (cycleData.weekId === closingWeekId) {
+                    finalizedCoins = cycleData.totalCoins || 0;
+                } else {
+                    finalizedCoins = cycleData.lastWeekCoins || 0;
+                }
+                const achievedLevel = ROOM_SUPPORT.calculateLevel(finalizedCoins);
+
+                const levelConfig = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1] : null;
+                const ownerReward = levelConfig ? levelConfig.ownerReward : 0;
+                const partnerReward = levelConfig ? levelConfig.partnerReward : 0;
+                const totalReward = levelConfig ? levelConfig.totalReward : 0;
+                const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
+
+                // 3. Write historical week record
                 transaction.set(historyRef, {
-                    weekId: weekDocId,
+                    weekId: closingWeekId,
                     weekStart,
                     weekEnd,
-                    totalCoins,
-                    visitorCount: data.visitorCount || 0,
+                    totalCoins: finalizedCoins,
+                    visitorCount: cycleData.visitorCount || 0,
                     achievedLevel,
                     ownerReward,
                     partnerReward,
@@ -8167,36 +8213,52 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').onRun(a
                     createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
 
-                // 2. Clear old partner assignments so owner assigns fresh ones Mon-Tue
+                // 4. Partner collection protection:
+                // Only delete partners assigned during or before the closing week.
+                // NEVER delete partners assigned during Monday or Tuesday of the open fill-in window!
                 const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
-                partnersSnap.forEach(pDoc => transaction.delete(pDoc.ref));
+                partnersSnap.forEach(pDoc => {
+                    const pData = pDoc.data();
+                    const assignedAtMs = pData.assignedAt?.toMillis ? pData.assignedAt.toMillis() : (pData.assignedAt ? new Date(pData.assignedAt).getTime() : 0);
+                    if (assignedAtMs <= weekEndMs) {
+                        transaction.delete(pDoc.ref);
+                    }
+                });
 
-                // 3. Update cycle for the new accumulating week (starts Monday 00:00 UTC)
-                transaction.update(doc.ref, {
-                    lastWeekCoins: totalCoins,
+                // 5. Update cycle document:
+                const updates = {
+                    lastWeekCoins: finalizedCoins,
                     lastWeekLevel: achievedLevel,
                     lastWeekReward: totalReward,
                     lastWeekAchievedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    totalCoins: 0,
-                    level: 0,
-                    status: "accumulating",
-                    weekStart: admin.firestore.FieldValue.serverTimestamp(),
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                };
 
-                // 4. Update room ranking snapshot
+                // Only reset totalCoins & level if the cycle doc has NOT yet rolled over to the new week
+                if (cycleData.weekId === closingWeekId) {
+                    const nextWeekId = getIsoWeekId(new Date(closingDate.getTime() + 86400000));
+                    updates.totalCoins = 0;
+                    updates.level = 0;
+                    updates.weekId = nextWeekId;
+                    updates.status = "accumulating";
+                    updates.weekStart = admin.firestore.FieldValue.serverTimestamp();
+                }
+
+                transaction.update(doc.ref, updates);
+
+                // 6. Update room ranking snapshot
                 const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
                 const roomName = roomSnap.exists ? (roomSnap.data().name || roomSnap.data().title || "Room") : "Room";
                 const rankingRef = db.collection("room_support_rankings").doc("rankings").collection("rooms").doc(roomId);
                 transaction.set(rankingRef, {
                     roomId,
                     roomName,
-                    totalCoins,
+                    totalCoins: finalizedCoins,
                     level: achievedLevel,
                     lastUpdated: admin.firestore.FieldValue.serverTimestamp()
                 });
             });
-            console.log(`[ROOM_SUPPORT] Successfully locked room ${roomId}: ${totalCoins} coins -> Level ${achievedLevel}`);
+            console.log(`[ROOM_SUPPORT] Successfully locked room ${roomId} for ${closingWeekId}`);
         } catch (err) {
             console.error(`[ROOM_SUPPORT] Error locking room ${roomId}:`, err);
         }
@@ -8528,7 +8590,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
 }
 
 /** Auto distribute rewards (Wednesday 00:00 UTC) with Rule 3 expiration and Rule 5 one-reward-per-user enforcement */
-exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 0 * * 3').onRun(async (context) => {
+exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 0 * * 3').timeZone('UTC').onRun(async (context) => {
     await executeRoomSupportRewardDistribution();
 });
 
@@ -12103,6 +12165,11 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
     const ownerUid = ownerDoc.id;
     const ownerData = ownerDoc.data();
 
+    // Safety invariant: never lower a user's role. Refuse targets with role owner, superadmin, or admin.
+    if (["owner", "superadmin", "admin"].includes(ownerData.role)) {
+        throw new HttpsError("failed-precondition", `Cannot appoint user with role "${ownerData.role}" as agency owner. Administrative staff roles cannot be downgraded.`);
+    }
+
     // Check if this user is already an agency owner
     const existingAgencySnap = await db.collection("agencies").where("ownerUid", "==", ownerUid).limit(1).get();
     if (!existingAgencySnap.empty) {
@@ -12139,6 +12206,7 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
 
         transaction.update(ownerDoc.ref, {
             role: "agency",
+            previousRole: ownerData.role || "user",
             isAgencyOwner: true,
             agencyId: agencyId,
             tags: admin.firestore.FieldValue.arrayUnion("Agency"),
@@ -12161,15 +12229,12 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
 });
 
 /**
- * 4. updateAgency - edit agency details
+ * 4. updateAgency - edit agency details with strict field whitelisting
  */
 exports.updateAgency = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
     const uid = requireAuth(request);
     const caller = await loadHierarchy(uid);
-    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
-        throw new HttpsError("permission-denied", "Staff permissions required.");
-    }
 
     const { agencyId, name, description, commissionRate, contactPhone, country } = request.data || {};
     if (!agencyId) throw new HttpsError("invalid-argument", "agencyId required.");
@@ -12177,15 +12242,47 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
     const agencyRef = db.collection("agencies").doc(agencyId);
     const snap = await agencyRef.get();
     if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
+    const agencyData = snap.data();
+
+    const isStaff = ["owner", "superadmin", "admin"].includes(caller.role);
+    const isAgencyOwner = agencyData.ownerUid === uid;
+
+    if (!isStaff && !isAgencyOwner) {
+        throw new HttpsError("permission-denied", "You do not have permission to update this agency.");
+    }
+
+    const payloadData = request.data || {};
+
+    // 1. Server-only / transactional fields: NEVER modifiable via updateAgency by anyone
+    const FORBIDDEN_SERVER_FIELDS = ["ownerUid", "beansBalance", "totalBeansEarned", "hostUids", "status"];
+    for (const f of FORBIDDEN_SERVER_FIELDS) {
+        if (payloadData[f] !== undefined) {
+            throw new HttpsError("invalid-argument", `Field "${f}" cannot be modified via updateAgency.`);
+        }
+    }
+
+    // 2. Agency Owner Whitelist: Agency owners may ONLY edit description, contactPhone, and country
+    if (!isStaff && isAgencyOwner) {
+        const FORBIDDEN_FOR_OWNER = ["name", "commissionRate", "status", "ownerUid", "beansBalance", "totalBeansEarned", "hostUids", "isActive"];
+        for (const f of FORBIDDEN_FOR_OWNER) {
+            if (payloadData[f] !== undefined) {
+                throw new HttpsError("permission-denied", `Agency owners are not permitted to modify field "${f}". Agency owners may only update description, contactPhone, and country.`);
+            }
+        }
+    }
 
     const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
-    if (name !== undefined && String(name).trim()) updates.name = String(name).trim();
     if (description !== undefined) updates.description = String(description).trim();
     if (contactPhone !== undefined) updates.contactPhone = String(contactPhone).trim();
     if (country !== undefined) updates.country = String(country).trim();
-    if (commissionRate !== undefined) {
-        const r = Number(commissionRate);
-        if (Number.isFinite(r) && r >= 0 && r <= 1) updates.commissionRate = r;
+
+    // Staff-only allowed fields:
+    if (isStaff) {
+        if (name !== undefined && String(name).trim()) updates.name = String(name).trim();
+        if (commissionRate !== undefined) {
+            const r = Number(commissionRate);
+            if (Number.isFinite(r) && r >= 0 && r <= 1) updates.commissionRate = r;
+        }
     }
 
     await agencyRef.update(updates);
@@ -12202,7 +12299,7 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
 });
 
 /**
- * 5. setAgencyStatus - suspend or activate an agency
+ * 5. setAgencyStatus - suspend or activate an agency and atomically update owner role
  */
 exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
@@ -12219,22 +12316,57 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
 
     const isActive = status === "active";
     const agencyRef = db.collection("agencies").doc(agencyId);
-    const snap = await agencyRef.get();
-    if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
 
-    await agencyRef.update({
-        isActive: isActive,
-        status: status,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    await db.runTransaction(async (transaction) => {
+        const snap = await transaction.get(agencyRef);
+        if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
+        const aData = snap.data();
 
-    await db.collection("audit_logs").add({
-        actorUid: uid,
-        actorRole: caller.role,
-        action: "SET_AGENCY_STATUS",
-        targetId: agencyId,
-        details: { status, isActive },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        // READS FIRST: Read ownerDoc before any mutations
+        let ownerSnap = null;
+        let ownerRef = null;
+        if (aData.ownerUid) {
+            ownerRef = db.collection("users").doc(aData.ownerUid);
+            ownerSnap = await transaction.get(ownerRef);
+        }
+
+        // WRITES AFTER ALL READS:
+        const now = admin.firestore.FieldValue.serverTimestamp();
+        transaction.update(agencyRef, {
+            isActive: isActive,
+            status: status,
+            updatedAt: now
+        });
+
+        if (ownerSnap && ownerSnap.exists && ownerRef) {
+            const oData = ownerSnap.data();
+            if (!isActive) {
+                // Suspending agency: restore previous role and revoke isAgencyOwner
+                transaction.update(ownerRef, {
+                    role: oData.previousRole || "user",
+                    isAgencyOwner: false,
+                    roleUpdatedAt: now
+                });
+            } else {
+                // Reactivating agency: re-enable agency role and ownership
+                transaction.update(ownerRef, {
+                    role: "agency",
+                    isAgencyOwner: true,
+                    roleUpdatedAt: now
+                });
+            }
+        }
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "SET_AGENCY_STATUS",
+            targetId: agencyId,
+            details: { status, isActive },
+            timestamp: now
+        });
     });
 
     return { success: true, agencyId, status, isActive };
