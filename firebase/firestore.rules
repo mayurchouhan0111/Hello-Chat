@@ -744,6 +744,7 @@ service cloud.firestore {
         // Privilege / hierarchy
         'tags', 'role', 'isReseller', 'isAgencyOwner', 'isFamilyOwner', 'isVerified',
         'branchId', 'superAdminId', 'adminId', 'agencyId',
+        'appointedBy', 'appointedAt', 'previousRole', 'previousTags',
         // Platform currencies
         'diamondBalance', 'diamondStock', 'beansBalance', 'walletBalance',
         // HB-PMS USD commission wallets
