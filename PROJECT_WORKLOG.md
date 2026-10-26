@@ -11,6 +11,41 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-27 (Branch-Scoped Admin Management, Security Rules, Backend Callables, & E2E Verification)
+- **What Client Asked / Problem**:
+  - Appoint two candidates as Admins under their respective branch with proof.
+  - Implement Branch-Scoped Admin Management: Super Admins can appoint, list, view, remove, and replace Admins strictly within their own branch, with zero visibility or tampering across branches.
+  - Conduct a read-only audit of both candidate accounts, resolving display names, roles, agency ownership, and potential role conflicts.
+  - Fix architectural gaps: prevent client-side branch spoofing, ensure atomic multi-document updates, snapshot previous roles/tags, restore them on demotion, revoke auth refresh tokens upon role change, and protect appointment metadata fields in Firestore security rules.
+  - Write and run a comprehensive automated emulator test suite covering 19 test scenarios (cross-branch isolation, permission checks, agency conflict handling, idempotency, atomic replace, token revocation, audit logs).
+  - Dry-run the appointment of both candidates against the emulator without performing production writes.
+- **What We Did**:
+  1. **Read-Only Candidate & Hierarchy Audit**:
+     - Audited both requested candidate accounts. Identified that Candidate 1 is an active Agency Owner with registered hosts and commission balances, creating a structural conflict between `admin` and `agency` roles in HB-PMS. Candidate 2 is a standard host with a clean appointment path.
+     - Audited existing branch hierarchy, identifying that prior implementation accepted client-supplied branch IDs and lacked server-side branch derivation, atomic replace transactions, token revocations, and previous role restoration.
+  2. **Firestore Security Rules Hardening (`firebase/firestore.rules`)**:
+     - Added appointment tracking fields (`appointedBy`, `appointedAt`, `previousRole`, `previousTags`) to `PROTECTED_FIELDS()`, preventing direct client tampering via Firestore client SDKs.
+  3. **Branch-Scoped Backend Callables (`functions/index.js`)**:
+     - Implemented 5 dedicated Cloud Function callables: `appointAdmin`, `listBranchAdmins`, `getBranchAdmin`, `removeAdmin`, and `replaceAdmin`.
+     - Enforced server-derived branch scoping: branch IDs are strictly resolved from the authenticated Super Admin caller's Firestore user document, completely ignoring client-sent branch parameters.
+     - Enforced cross-branch invisibility: cross-branch lookups, removals, and replacements return generic `not-found` errors to prevent enumeration or ID probing across branches.
+     - Added agency ownership conflict guard: appointing an agency owner is rejected by default unless explicit `allowAgencyOverride` is supplied with an audit reason.
+     - Added atomic replace transaction: demotes the old admin, restores their previous role/tags, promotes the replacement admin, updates custom claims, revokes auth refresh tokens for both users, and records immutable audit logs.
+     - Implemented idempotency: re-appointing an existing admin returns `{ alreadyAdmin: true }` without duplicate mutations.
+  4. **Admin Web UI Integration (`hellochat_admin/src/screens/AdminManagement.jsx`)**:
+     - Connected Admin Management UI to the new branch-scoped callable functions.
+     - Added agency owner conflict confirmation modal requiring explicit acknowledgment and justification before proceeding.
+     - Replaced client-side array filtering with server-scoped querying.
+     - Verified clean production build (`npm run build`).
+  5. **Automated Verification & Dry-Run**:
+     - Executed automated E2E test suite against local Firebase emulators: all 19 of 19 test scenarios PASSED.
+     - Executed dry-run simulation of both candidate appointments on the emulator with zero production writes.
+- **Files Touched**:
+  - `firebase/firestore.rules`
+  - `functions/index.js`
+  - `hellochat_admin/src/screens/AdminManagement.jsx`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-26 (Room Support Weekly Reset Fix, UTC Crons, Idempotency, SVGA LRU Cache, & Tests)
 - **What Client Asked / Problem**:
   - Fix Room Support weekly target reset: client reported that on Monday after 00:00 UTC the Room Support screen still displays Sunday's weekly target ("50.2M / 75M, Level 13") instead of automatically resetting to 0.
