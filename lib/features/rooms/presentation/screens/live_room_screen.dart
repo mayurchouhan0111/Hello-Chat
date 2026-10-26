@@ -38,6 +38,7 @@ import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/widgets/svga_player.dart';
 import '../../../../core/services/broadcast_service.dart';
 import '../../../../core/services/report_service.dart';
+import '../../../../core/utils/week_helper.dart';
 import '../../../../core/services/cloudinary_service.dart';
 import '../../../../services/voice_service.dart';
 import 'dart:io';
@@ -983,7 +984,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                             Consumer(
                               builder: (context, ref, _) {
                                 final cycle = ref.watch(roomSupportCycleProvider(widget.roomId)).valueOrNull;
-                                final totalCoins = (cycle?['totalCoins'] as num?)?.toInt() ?? room.weeklyEarnings;
+                                final isCurrentWeek = cycle?['weekId'] == WeekHelper.getCurrentServerWeekId();
+                                final totalCoins = isCurrentWeek ? ((cycle?['totalCoins'] as num?)?.toInt() ?? 0) : 0;
                                 final lvl = RoomSupportService.calculateLevel(totalCoins);
                                 final badgeText = lvl > 0 ? "LVL $lvl" : "SUPPORT";
 

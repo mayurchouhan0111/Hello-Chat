@@ -13,6 +13,7 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/providers/room_support_provider.dart';
 import 'package:hello_chat/core/models/reward_model.dart';
 import 'package:hello_chat/features/leaderboards/presentation/screens/room_gift_leaderboard_screen.dart';
+import 'package:hello_chat/core/utils/week_helper.dart';
 import 'reward_ranking_widgets.dart';
 
 class RocketDetailSheet extends ConsumerStatefulWidget {
@@ -858,7 +859,8 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
   }
 
   Widget _buildStarPill(RoomModel room) {
-    final diamonds = room.weeklyEarnings;
+    final isCurrentWeek = room.weekId == null || room.weekId == WeekHelper.getCurrentServerWeekId();
+    final diamonds = isCurrentWeek ? room.weeklyEarnings : 0;
     final starLevel = _calculateStarLevel(diamonds);
     final starColor = _getStarColor(starLevel);
 

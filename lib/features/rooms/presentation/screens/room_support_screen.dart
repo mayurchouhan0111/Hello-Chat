@@ -12,6 +12,8 @@ import '../../../../core/providers/room_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../../core/utils/week_helper.dart';
+import '../../../../core/services/server_time_service.dart';
 import '../../../../services/room_support_service.dart';
 
 class RoomSupportScreen extends ConsumerStatefulWidget {
@@ -140,9 +142,8 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
   }
 
   void _updateCountdown() {
-    final now = DateTime.now().toUtc();
-    // Monday = 1, Tuesday = 2, ..., Sunday = 7
-    final isMonOrTue = (now.weekday == DateTime.monday || now.weekday == DateTime.tuesday);
+    final now = ServerTimeService.serverNow.toUtc();
+    final isMonOrTue = WeekHelper.isFillInWindow(now);
 
     if (isMonOrTue) {
       // Assignment window: ends Tuesday 23:59:59 UTC
@@ -398,12 +399,32 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     final isOwner = room != null && ref.watch(currentUserProfileProvider).value?.uid == room.ownerUid;
 
     final cycle = ref.watch(roomSupportCycleProvider(roomId)).valueOrNull ?? {};
-    int totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? room?.weeklyEarnings ?? 0;
-    // Ensure totalCoins is never negative
-    totalCoins = totalCoins < 0 ? 0 : totalCoins;
-    final currentLevel = _calculateLevel(totalCoins, _configLevels());
-    int lastWeekLevel = (cycle['lastWeekLevel'] as num?)?.toInt() ?? 0;
+    final currentWeekId = WeekHelper.getCurrentServerWeekId();
+    final cycleWeekId = cycle['weekId'] as String?;
+    final isMatchingCurrentWeek = cycleWeekId == currentWeekId;
+
+    int totalCoins = 0;
+    int currentLevel = 0;
+    int lastWeekLevel = 0;
+
+    if (isMatchingCurrentWeek) {
+      totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? 0;
+      totalCoins = totalCoins < 0 ? 0 : totalCoins;
+      currentLevel = _calculateLevel(totalCoins, _configLevels());
+      lastWeekLevel = (cycle['lastWeekLevel'] as num?)?.toInt() ?? 0;
+    } else {
+      // Document is still on old week (no gifts sent yet in current week)
+      totalCoins = 0;
+      currentLevel = 0;
+      if (WeekHelper.isFillInWindow()) {
+        final prevCoins = (cycle['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
+        lastWeekLevel = (cycle['level'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(prevCoins, _configLevels());
+      } else {
+        lastWeekLevel = (cycle['lastWeekLevel'] as num?)?.toInt() ?? 0;
+      }
+    }
     lastWeekLevel = lastWeekLevel < 0 ? 0 : lastWeekLevel;
+
     final activeLevelForPartners = _isAssignmentOpen ? (lastWeekLevel > 0 ? lastWeekLevel : currentLevel) : currentLevel;
     final requiredSlots = _getRequiredPartners(activeLevelForPartners);
 
@@ -785,16 +806,23 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     final historyAsync = roomId != null ? ref.watch(roomSupportHistoryProvider(roomId)) : null;
     final historyDocs = historyAsync?.valueOrNull ?? [];
 
-    int totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? 0;
-    if (totalCoins == 0 && room != null) {
-      totalCoins = room.weeklyEarnings;
+    final isCurrentWeek = cycle['weekId'] == WeekHelper.getCurrentServerWeekId();
+    int totalCoins = 0;
+    if (isCurrentWeek) {
+      totalCoins = (cycle['totalCoins'] as num?)?.toInt() ?? 0;
+      if (totalCoins == 0 && room != null && (room.weekId == null || room.weekId == WeekHelper.getCurrentServerWeekId())) {
+        totalCoins = room.weeklyEarnings;
+      }
     }
     // Ensure totalCoins is never negative
     totalCoins = totalCoins < 0 ? 0 : totalCoins;
 
-    int visitors = (cycle['visitorCount'] as num?)?.toInt() ?? 0;
-    if (visitors == 0 && room != null) {
-      visitors = room.currentUsersCount;
+    int visitors = 0;
+    if (isCurrentWeek) {
+      visitors = (cycle['visitorCount'] as num?)?.toInt() ?? 0;
+      if (visitors == 0 && room != null) {
+        visitors = room.currentUsersCount;
+      }
     }
     // Ensure visitors is never negative
     visitors = visitors < 0 ? 0 : visitors;
@@ -815,9 +843,24 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     rewardCoins = rewardCoins < 0 ? 0 : rewardCoins;
 
     final lastWeek = historyDocs.isNotEmpty ? historyDocs.first : {};
-    int lastWeekCoins = (lastWeek['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
+    int lastWeekCoins = 0;
+    int lastWeekLevel = 0;
+
+    if (isCurrentWeek) {
+      lastWeekCoins = (lastWeek['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
+      lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, levels);
+    } else {
+      if (WeekHelper.isFillInWindow()) {
+        lastWeekCoins = (cycle['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
+        lastWeekLevel = (cycle['level'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, levels);
+      } else {
+        lastWeekCoins = (lastWeek['totalCoins'] as num?)?.toInt() ?? (cycle['lastWeekCoins'] as num?)?.toInt() ?? 0;
+        lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, levels);
+      }
+    }
     lastWeekCoins = lastWeekCoins < 0 ? 0 : lastWeekCoins;
-    final lastWeekLevel = (lastWeek['achievedLevel'] as num?)?.toInt() ?? (cycle['lastWeekLevel'] as num?)?.toInt() ?? _calculateLevel(lastWeekCoins, levels);
+    lastWeekLevel = lastWeekLevel < 0 ? 0 : lastWeekLevel;
+
     int lastWeekReward = (lastWeek['totalReward'] as num?)?.toInt() ?? (cycle['lastWeekReward'] as num?)?.toInt() ?? 0;
     if (lastWeekReward == 0 && lastWeekLevel > 0) {
       final targetLvl = levels.firstWhere(

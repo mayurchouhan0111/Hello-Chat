@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/services/base_firebase_service.dart';
+import '../core/utils/week_helper.dart';
 
 final roomSupportServiceProvider = Provider<RoomSupportService>((ref) {
   return RoomSupportService();
@@ -186,7 +187,8 @@ class RoomSupportService extends BaseFirebaseService {
 
           return roomsSnap.docs.map((d) {
             final data = d.data();
-            final totalCoins = (data['weeklyEarnings'] as num?)?.toInt() ?? (data['totalCoins'] as num?)?.toInt() ?? 0;
+            final isCurrent = data['weekId'] == null || data['weekId'] == WeekHelper.getCurrentServerWeekId();
+            final totalCoins = isCurrent ? ((data['weeklyEarnings'] as num?)?.toInt() ?? (data['totalCoins'] as num?)?.toInt() ?? 0) : 0;
             final level = calculateLevel(totalCoins);
 
             return {

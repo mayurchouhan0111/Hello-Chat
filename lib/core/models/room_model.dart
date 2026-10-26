@@ -46,6 +46,7 @@ class RoomModel {
   final String pkPhase;
   final int weeklyTarget;
   final int weeklyEarnings;
+  final String? weekId;
   final String? agencyId;
   final int hourlyRank;
   final bool isTrending;
@@ -72,6 +73,12 @@ class RoomModel {
   final String rocketStatus; // "active" | "cooldown"
   final DateTime? rocketCooldownUntil;
   final Map<String, dynamic>? lastRocketResults;
+  final int dailyDiamondsSent;
+  final int monthlyDiamondsSent;
+  final String? lastDailySentDate;
+  final String? lastMonthlySentDate;
+  final int starRating;
+  final DateTime? starRatingUpdatedAt;
 
   RoomModel({
     required this.roomId,
@@ -102,6 +109,7 @@ class RoomModel {
     this.pkPhase = 'none',
     this.weeklyTarget = 0,
     this.weeklyEarnings = 0,
+    this.weekId,
     this.agencyId,
     this.hourlyRank = 99,
     this.isTrending = false,
@@ -128,12 +136,53 @@ class RoomModel {
     this.rocketStatus = "active",
     this.rocketCooldownUntil,
     this.lastRocketResults,
+    this.dailyDiamondsSent = 0,
+    this.monthlyDiamondsSent = 0,
+    this.lastDailySentDate,
+    this.lastMonthlySentDate,
+    this.starRating = 0,
+    this.starRatingUpdatedAt,
   });
 
   List<String> get adminIds => admins;
   // Single source of truth for "is this uid a designated Room Admin".
   bool isUserAdmin(String uid) => uid.isNotEmpty && uid != ownerUid && admins.contains(uid);
   bool isUserOwner(String uid) => uid == ownerUid;
+
+  /// Room star rating (1-5 stars) automatically resets to 0 Stars after 24 hours.
+  int get currentStarLevel {
+    final now = DateTime.now().toUtc();
+    final todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    // Must reset to 0 if last daily activity was not today (UTC date rollover)
+    if (lastDailySentDate != todayStr) {
+      return 0;
+    }
+    // Must reset to 0 if 24 hours have elapsed since the last star rating update
+    if (starRatingUpdatedAt != null) {
+      final hoursElapsed = DateTime.now().difference(starRatingUpdatedAt!).inHours;
+      if (hoursElapsed >= 24) {
+        return 0;
+      }
+    }
+    if (starRating > 0) return starRating.clamp(0, 5);
+    final diamonds = dailyDiamondsSent;
+    if (diamonds >= 250000) return 5;
+    if (diamonds >= 100000) return 4;
+    if (diamonds >= 50000) return 3;
+    if (diamonds >= 10000) return 2;
+    if (diamonds >= 1000) return 1;
+    return 0;
+  }
+
+  /// Room monthly target display resets to 0 at 12:00 AM on the 1st of every month.
+  int get currentMonthlyTargetProgress {
+    final now = DateTime.now().toUtc();
+    final thisMonthStr = "${now.year}-${now.month.toString().padLeft(2, '0')}";
+    if (lastMonthlySentDate != thisMonthStr) {
+      return 0;
+    }
+    return monthlyDiamondsSent;
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -165,6 +214,7 @@ class RoomModel {
       'pkPhase': pkPhase,
       'weeklyTarget': weeklyTarget,
       'weeklyEarnings': weeklyEarnings,
+      'weekId': weekId,
       'agencyId': agencyId,
       'hourlyRank': hourlyRank,
       'isTrending': isTrending,
@@ -191,6 +241,12 @@ class RoomModel {
       'rocketStatus': rocketStatus,
       'rocketCooldownUntil': rocketCooldownUntil != null ? Timestamp.fromDate(rocketCooldownUntil!) : null,
       'lastRocketResults': lastRocketResults,
+      'dailyDiamondsSent': dailyDiamondsSent,
+      'monthlyDiamondsSent': monthlyDiamondsSent,
+      'lastDailySentDate': lastDailySentDate,
+      'lastMonthlySentDate': lastMonthlySentDate,
+      'starRating': starRating,
+      'starRatingUpdatedAt': starRatingUpdatedAt != null ? Timestamp.fromDate(starRatingUpdatedAt!) : null,
     };
   }
 
@@ -247,6 +303,7 @@ class RoomModel {
       pkPhase: map['pkPhase']?.toString() ?? 'none',
       weeklyTarget: (map['weeklyTarget'] as num?)?.toInt() ?? 0,
       weeklyEarnings: (map['weeklyEarnings'] as num?)?.toInt() ?? 0,
+      weekId: map['weekId']?.toString(),
       agencyId: map['agencyId']?.toString(),
       hourlyRank: (map['hourlyRank'] as num?)?.toInt() ?? 99,
       isTrending: map['isTrending'] == true,
@@ -275,6 +332,12 @@ class RoomModel {
       rocketStatus: map['rocketStatus']?.toString() ?? 'active',
       rocketCooldownUntil: (map['rocketCooldownUntil'] as Timestamp?)?.toDate(),
       lastRocketResults: map['lastRocketResults'] != null ? Map<String, dynamic>.from(map['lastRocketResults']) : null,
+      dailyDiamondsSent: (map['dailyDiamondsSent'] as num?)?.toInt() ?? 0,
+      monthlyDiamondsSent: (map['monthlyDiamondsSent'] as num?)?.toInt() ?? 0,
+      lastDailySentDate: map['lastDailySentDate']?.toString(),
+      lastMonthlySentDate: map['lastMonthlySentDate']?.toString(),
+      starRating: (map['starRating'] as num?)?.toInt() ?? 0,
+      starRatingUpdatedAt: (map['starRatingUpdatedAt'] as Timestamp?)?.toDate(),
     );
   }
 
