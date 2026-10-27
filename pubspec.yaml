@@ -39,7 +39,8 @@ dependencies:
   lottie: ^3.1.0                    # Lottie animations for gifts/effects
   svgaplayer_flutter: ^2.1.0         # SVGA animation player
   flutter_animate: ^4.5.0           # Declarative animation toolkit
-  tancent_vap: ^1.0.0+1                # VAP animation player (Tencent VAP)
+  tancent_vap:
+    path: plugins/tancent_vap
 
   # ── Images & Media ──────────────────────────────────────
   cached_network_image: ^3.3.1      # Image caching with placeholder
@@ -58,6 +59,7 @@ dependencies:
   # ── Networking & Utils ───────────────────────────────────
   dio: ^5.4.3+1                     # HTTP client (for Agora token server)
   connectivity_plus: ^6.0.2         # Network connectivity status
+  intl: ^0.19.0                     # Date and number formatting
   # internet_connection_checker: ^1.0.0+1
 
   # ── Notifications ───────────────────────────────────────
@@ -144,6 +146,7 @@ flutter:
     - assets/animations/gifts/256006/
     - assets/animations/gifts/normal gift/lucky gift dates/
     - assets/animations/gifts/lucky gifts bell vap/lucky gifts bell vap/
+    - assets/gifts-vap/
     - assets/rocket/
     - assets/rocket/rocket_set_svga/
     - assets/rocket/Rocket set SVGA/

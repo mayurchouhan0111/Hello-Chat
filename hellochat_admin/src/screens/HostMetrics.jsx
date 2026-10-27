@@ -50,7 +50,7 @@ export const HostMetrics = () => {
         beansEarned: Number(u.beansBalance || u.totalBeansReceived || 0),
         beansTarget: Number(u.monthlyTargetBeans || 0),
         beansProgressPct: Number(u.monthlyTargetBeans) > 0 ? Math.min(100, Math.floor((Number(u.beansBalance || 0) / Number(u.monthlyTargetBeans)) * 100)) : null,
-        totalRechargeUSD: typeof u.totalRechargeUSD === 'number' ? u.totalRechargeUSD : null,
+        totalRechargeUSD: typeof u.totalRechargeUSD === 'number' ? u.totalRechargeUSD : (typeof u.totalRechargeGenerated === 'number' ? u.totalRechargeGenerated : 0),
         salaryPayoutCount: 0,
         salaryLastPaidAt: null
       }));

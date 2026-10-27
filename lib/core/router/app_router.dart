@@ -51,6 +51,7 @@ import '../../features/chats/presentation/screens/private_chat_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_dashboard_screen.dart';
 import '../../features/reseller/presentation/screens/reseller_list_screen.dart';
 import '../../features/profile/presentation/screens/agency/commission_wallet_screen.dart';
+import '../../features/admin/presentation/screens/super_admin_portal_screen.dart';
 
 import '../../features/rooms/presentation/screens/home_screen.dart';
 import '../../features/moments/presentation/screens/add_moment_screen.dart';
@@ -111,6 +112,7 @@ class AppRoutes {
   static const prestigeVault   = '/prestige-vault';
   static const luckySpin       = '/lucky-spin';
   static const agencyPortal     = '/agency-portal';
+  static const superAdminPortal = '/super-admin-portal';
   static const search          = '/search';
   static const svipPrivileges   = '/svip-privileges';
   static const invite          = '/invite-get-coins';
@@ -374,6 +376,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.agencyPortal,
         builder: (context, state) => const AgencyPortalScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.superAdminPortal,
+        builder: (context, state) => const SuperAdminPortalScreen(),
       ),
       GoRoute(
         path: AppRoutes.search,

@@ -37,11 +37,14 @@ class GiftPanel extends StatefulWidget {
     int startCount,
   })? onQuickSendActivated;
 
+  final GiftModel? initialGift;
+
   const GiftPanel({
     super.key, 
     required this.roomId, 
     this.targetUid,
     this.isMoment = false,
+    this.initialGift,
     this.onQuickSendActivated,
   });
 
@@ -55,7 +58,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   bool _isSending = false;
   List<String> _selectedTargetUids = [];
   bool _sendToAll = false;
-  String _selectedCategory = 'All Gifts';
+  String _selectedCategory = 'All';
 
   // ── In-Panel Combo Mode State ──────────────────────────────────
   bool _inComboMode = false;
@@ -155,6 +158,9 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    if (widget.initialGift != null) {
+      _selectedGift = widget.initialGift;
+    }
     if (widget.targetUid != null) {
       _selectedTargetUids.add(widget.targetUid!);
     }
@@ -169,12 +175,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
         final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
         final activeEvent = ref.watch(primaryActiveGiftEventProvider);
 
-        // Event can vanish (or end) while its tab is selected; fall back to
-        // All Gifts instead of filtering to an empty list forever.
-        final effectiveCategory =
-            (_selectedCategory == 'Event' && (activeEvent == null || activeEvent.gifts.isEmpty))
-                ? 'All Gifts'
-                : _selectedCategory;
+        final effectiveCategory = _selectedCategory;
 
         return Container(
           height: MediaQuery.of(context).size.height * 0.72,
@@ -225,25 +226,71 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                     }
 
                     final filteredGifts = gifts.where((g) {
-                      if (effectiveCategory == 'All Gifts') return true;
                       final cat = g.category.toLowerCase().trim().replaceAll('_', ' ');
+                      final gId = g.giftId.toLowerCase().trim();
+                      final name = g.name.toLowerCase().trim();
                       final sel = effectiveCategory.toLowerCase().trim();
                       final fmt = g.animationFormat.toLowerCase().trim();
+
+                      // Exclude disabled lucky gifts unless lucky tab is selected
+                      if (cat.contains('lucky') || gId.contains('lucky') || name.contains('lucky')) {
+                        if (sel != 'lucky') return false;
+                      }
+
+                      if (sel == 'all' || sel == 'all gifts') return true;
+
                       if (sel == 'event') {
                         return activeEvent != null && activeEvent.gifts.any((eg) => eg.giftId == g.giftId);
                       }
-                      if (sel == 'normal') return cat == 'normal' || cat == 'gift' || cat == 'standard';
-                      if (sel == 'svga') return cat == 'svga' || fmt == 'svga';
-                      if (sel == 'vap') return cat == 'vap' || fmt == 'vap' || fmt == 'vpa' || (fmt == 'mp4' && (cat == 'vap' || g.name.toLowerCase().contains('vap')));
+                      if (sel == 'normal' || sel == 'normal gifts') {
+                        return cat == 'normal' || cat == 'gift' || cat == 'standard' || cat == 'normal gifts';
+                      }
+                      if (sel == 'medium' || sel == 'medium gifts') {
+                        return cat == 'medium' || cat == 'medium gifts';
+                      }
+                      if (sel == 'luxury' || sel == 'luxury gifts') {
+                        return cat == 'luxury' || cat == 'luxury gifts';
+                      }
+                      if (sel == 'relationship' || sel == 'cp') {
+                        return cat == 'relationship' || cat == 'cp';
+                      }
+                      if (sel == 'vip') {
+                        return cat == 'vip';
+                      }
+                      if (sel == 'svip') {
+                        return cat == 'svip';
+                      }
+                      if (sel == 'svga') {
+                        return cat == 'svga' || fmt == 'svga';
+                      }
+                      if (sel == 'vap') {
+                        return cat == 'vap' || fmt == 'vap' || fmt == 'vpa' || fmt == 'mp4' || (fmt == 'mp4' && (cat == 'vap' || name.contains('vap')));
+                      }
+                      if (sel == 'custom') {
+                        return cat == 'custom';
+                      }
                       return cat == sel;
                     }).toList();
 
                     // No fallback to the full catalog: an empty tab shows its
                     // empty state, not every gift in the store.
-                    final displayGifts = filteredGifts;
+                    final displayGifts = List<GiftModel>.from(filteredGifts);
+                    final selectedCat = effectiveCategory.toLowerCase().trim();
+                    if (selectedCat == 'vap') {
+                      displayGifts.sort((a, b) {
+                        final aIsNew = a.giftId.startsWith('vap_gift_');
+                        final bIsNew = b.giftId.startsWith('vap_gift_');
+                        if (aIsNew && !bIsNew) return -1;
+                        if (!aIsNew && bIsNew) return 1;
+                        return a.sortOrder.compareTo(b.sortOrder);
+                      });
+                    }
 
                     return GridView.builder(
                       physics: const BouncingScrollPhysics(),
+                      cacheExtent: 180,
+                      addAutomaticKeepAlives: false,
+                      addRepaintBoundaries: true,
                       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                         crossAxisCount: 4,
                         mainAxisSpacing: 8,
@@ -290,22 +337,18 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   }
 
   Widget _buildCategoryTabs(GiftEventModel? activeEvent, String effectiveCategory) {
-    // Client-specified order. Event sits directly after Normal and only exists
-    // while an event is live with stock - otherwise the tab disappears.
     final categories = [
-      'All Gifts',
+      'All',
+      'VAP',
       'Normal',
       if (activeEvent != null && activeEvent.gifts.isNotEmpty) 'Event',
-      'Lucky',
       'Medium',
       'Luxury',
-      'CP',
-      'SVGA',
-      'VAP',
-      'Custom',
-      'Family Battle',
+      'Relationship',
       'VIP',
       'SVIP',
+      'SVGA',
+      'Custom',
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -326,7 +369,12 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                   _comboGift = null;
                 });
               }
-              setState(() => _selectedCategory = cat);
+              if (_selectedCategory.toLowerCase() != cat.toLowerCase()) {
+                setState(() {
+                  _selectedCategory = cat;
+                  _selectedGift = null;
+                });
+              }
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
@@ -407,7 +455,11 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                 }
                 setState(() {
                   _sendToAll = !_sendToAll;
-                  if (_sendToAll) _selectedTargetUids.clear();
+                  if (_sendToAll) {
+                    _selectedTargetUids.clear();
+                  } else if (recipients.isNotEmpty) {
+                    _selectedTargetUids = [recipients.first.uid];
+                  }
                 });
               },
               child: AnimatedContainer(
@@ -440,7 +492,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
           }
 
           final p = recipients[index - 1];
-          final isSelected = _selectedTargetUids.contains(p.uid);
+          final isSelected = !_sendToAll && _selectedTargetUids.contains(p.uid);
           final chipName = recipientName(p, profiles);
           final chipPhoto = recipientPhoto(p, profiles);
           
@@ -458,12 +510,8 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                 });
               }
               setState(() {
-                if (_sendToAll) _sendToAll = false;
-                if (_selectedTargetUids.contains(p.uid)) {
-                  _selectedTargetUids.remove(p.uid);
-                } else {
-                  _selectedTargetUids.add(p.uid);
-                }
+                _sendToAll = false;
+                _selectedTargetUids = [p.uid];
               });
             },
             child: AnimatedContainer(
@@ -487,7 +535,9 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                   CircleAvatar(
                     radius: 16,
                     backgroundImage: CachedNetworkImageProvider(
-                      chipPhoto.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : chipPhoto
+                      chipPhoto.isEmpty ? "https://picsum.photos/seed/${p.uid}/100" : chipPhoto,
+                      maxWidth: 96,
+                      maxHeight: 96,
                     ),
                   ),
                   const Gap(6),
@@ -617,37 +667,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
           ),
           const Gap(6),
         ],
-        GestureDetector(
-          onTap: () => _showLuckyBagDialog(context, ref),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFFF1744), Color(0xFFD50000)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFF1744).withOpacity(0.4),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-              border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.6), width: 1),
-            ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text("🧧", style: TextStyle(fontSize: 14)),
-                Gap(5),
-                Text("Lucky Bag", style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.3)),
-              ],
-            ),
-          ),
-        ),
-        const Gap(6),
+
         GestureDetector(
           onTap: () => _feedSampleGifts(context, ref),
           child: Container(
@@ -676,362 +696,6 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     );
   }
 
-  void _showLuckyBagDialog(BuildContext context, WidgetRef ref) {
-    final amountController = TextEditingController(text: '50000');
-    final winnersController = TextEditingController(text: '10');
-    int currentStep = 1;
-    bool isDropping = false;
-
-    final quickPools = [10000, 50000, 100000, 500000];
-    final quickWinners = [5, 10, 20, 50];
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDlgState) {
-          final amt = int.tryParse(amountController.text) ?? 50000;
-          final win = int.tryParse(winnersController.text) ?? 10;
-          final perWinner = win > 0 ? (amt / win).round() : 0;
-
-          return AlertDialog(
-            backgroundColor: const Color(0xFF141221),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-            contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Text("🧧", style: TextStyle(fontSize: 26)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              currentStep == 1 ? "Step 1: Diamond Pool" : "Step 2: Winner Count",
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                            ),
-                            Text(
-                              currentStep == 1 ? "Select total diamonds to drop" : "Select number of lucky winners",
-                              style: const TextStyle(color: Colors.white54, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  Row(
-                    children: [
-                      Expanded(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 200),
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: currentStep == 2 ? const Color(0xFFFFD700) : Colors.white24,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 20),
-
-                  if (currentStep == 1) ...[
-                    const Text(
-                      "Quick Select Pool:",
-                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: quickPools.map((pool) {
-                        final isSel = amt == pool;
-                        return GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setDlgState(() => amountController.text = pool.toString());
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSel ? const Color(0xFFFFD700).withOpacity(0.2) : Colors.white.withOpacity(0.06),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: isSel ? const Color(0xFFFFD700) : Colors.white12),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const PremiumDiamond(size: 14),
-                                const SizedBox(width: 4),
-                                Text(
-                                  "${(pool / 1000).toStringAsFixed(0)}K",
-                                  style: TextStyle(
-                                    color: isSel ? const Color(0xFFFFD700) : Colors.white,
-                                    fontWeight: FontWeight.w900,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: amountController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Color(0xFFFFD700), fontWeight: FontWeight.w900, fontSize: 16),
-                      onChanged: (_) => setDlgState(() {}),
-                      decoration: InputDecoration(
-                        labelText: "Custom Pool Amount",
-                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
-                        prefixIcon: const Icon(Icons.diamond_rounded, color: Color(0xFFFFD700)),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.05),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 44,
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFFFD700),
-                          foregroundColor: Colors.black,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-                        ),
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          setDlgState(() => currentStep = 2);
-                        },
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text("Next Step", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 14)),
-                            SizedBox(width: 6),
-                            Icon(Icons.arrow_forward_rounded, size: 18),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ] else ...[
-                    const Text(
-                      "Quick Select Winners:",
-                      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: quickWinners.map((w) {
-                        final isSel = win == w;
-                        return GestureDetector(
-                          onTap: () {
-                            HapticFeedback.selectionClick();
-                            setDlgState(() => winnersController.text = w.toString());
-                          },
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 180),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: isSel ? const Color(0xFFFF4081).withOpacity(0.2) : Colors.white.withOpacity(0.06),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: isSel ? const Color(0xFFFF4081) : Colors.white12),
-                            ),
-                            child: Text(
-                              "$w Winners",
-                              style: TextStyle(
-                                color: isSel ? const Color(0xFFFF4081) : Colors.white,
-                                fontWeight: FontWeight.w900,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: winnersController,
-                      keyboardType: TextInputType.number,
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16),
-                      onChanged: (_) => setDlgState(() {}),
-                      decoration: InputDecoration(
-                        labelText: "Custom Winner Count",
-                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
-                        prefixIcon: const Icon(Icons.group_rounded, color: Color(0xFFFF4081)),
-                        filled: true,
-                        fillColor: Colors.white.withOpacity(0.05),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.amber.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.amber.withOpacity(0.3)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text("Estimated Payout", style: TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 2),
-                              Text("~$perWinner 💎 / winner", style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w900)),
-                            ],
-                          ),
-                          Text("$win Winners", style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: SizedBox(
-                            height: 48,
-                            child: OutlinedButton(
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                side: const BorderSide(color: Colors.white24),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                              ),
-                              onPressed: () => setDlgState(() => currentStep = 1),
-                              child: const Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.arrow_back_rounded, size: 16),
-                                  SizedBox(width: 4),
-                                  Text("Back", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 3,
-                          child: SizedBox(
-                            height: 48,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                backgroundColor: const Color(0xFFFFD700),
-                                foregroundColor: Colors.black,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                              ),
-                              onPressed: isDropping ? null : () async {
-                                setDlgState(() => isDropping = true);
-                                try {
-                                  await ref.read(giftServiceProvider).sendLuckyBag(
-                                    roomId: widget.roomId,
-                                    totalDiamonds: amt,
-                                    winnerCount: win,
-                                  );
-                                  if (ctx.mounted) {
-                                    Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Row(
-                                          children: [
-                                            const Text("🎉", style: TextStyle(fontSize: 18)),
-                                            const SizedBox(width: 8),
-                                            Expanded(child: Text("Dropped Lucky Bag ($amt 💎) to room!", style: const TextStyle(fontWeight: FontWeight.bold))),
-                                          ],
-                                        ),
-                                        backgroundColor: const Color(0xFFD97706),
-                                        behavior: SnackBarBehavior.floating,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                    );
-                                  }
-                                } catch (e) {
-                                  if (ctx.mounted) {
-                                    setDlgState(() => isDropping = false);
-                                    String humanError = "Could not drop lucky bag. Please check your diamond balance.";
-                                    final errStr = e.toString().toLowerCase();
-                                    if (errStr.contains("balance") || errStr.contains("diamond") || errStr.contains("insufficient")) {
-                                      humanError = "Insufficient diamonds! Please top-up to send lucky bag.";
-                                    } else if (errStr.contains("network") || errStr.contains("socket") || errStr.contains("connection")) {
-                                      humanError = "Network connection issue. Please check your internet.";
-                                    }
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Row(
-                                          children: [
-                                            const Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
-                                            const SizedBox(width: 8),
-                                            Expanded(child: Text(humanError, style: const TextStyle(fontWeight: FontWeight.bold))),
-                                          ],
-                                        ),
-                                        backgroundColor: Colors.redAccent.shade700,
-                                        behavior: SnackBarBehavior.floating,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                      ),
-                                    );
-                                  }
-                                }
-                              },
-                              child: isDropping 
-                                  ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
-                                  : const Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text("DROP BAG", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13), maxLines: 1),
-                                        SizedBox(width: 6),
-                                        Text("🧧", style: TextStyle(fontSize: 16)),
-                                      ],
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
 
   Widget _buildFooter(int diamondBalance, WidgetRef ref) {
     final effectiveBalance = (diamondBalance - _reservedDiamonds).clamp(0, diamondBalance);
@@ -1222,7 +886,9 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     _comboRingController.forward();
     _comboBounceController.forward(from: 0);
 
-    final senderUid = ref.read(currentUserProfileProvider).value?.uid ?? '';
+    final senderUid = FirebaseAuth.instance.currentUser?.uid ??
+        ref.read(currentUserProfileProvider).value?.uid ??
+        '';
     final key = comboKeyFor(senderUid, targetUid, gift.giftId);
     final comboToSend = _comboCount;
 
@@ -1307,8 +973,8 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     final finalTargets = _sendToAll 
         ? ref.read(roomParticipantsProvider(widget.roomId)).value?.where((p) => 
             (p.role == 'host' || p.seatIndex != -1) && p.uid != currentUserUid
-          ).map((e) => e.uid).toList() ?? []
-        : _selectedTargetUids;
+          ).map((e) => e.uid).toSet().toList() ?? []
+        : _selectedTargetUids.toSet().toList();
 
     if (finalTargets.isEmpty) {
       AppToast.showOverlay(
@@ -1343,7 +1009,9 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
       final targetPhoto = target != null ? recipientPhoto(target, profiles) : (profiles[targetUid]?.profilePhotoUrl ?? '');
 
       // Push optimistic combo update to controller immediately
-      final senderUid = ref.read(currentUserProfileProvider).value?.uid ?? '';
+      final senderUid = currentUserUid ??
+          ref.read(currentUserProfileProvider).value?.uid ??
+          '';
       final key = comboKeyFor(senderUid, targetUid, giftToSend.giftId);
       ref.read(giftComboControllerProvider(widget.roomId)).tapLocal(
         key,
@@ -1371,11 +1039,15 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     // Requirement 2: Close the gift selection panel immediately upon clicking Send
     Navigator.pop(context);
 
+    final safeSenderUid = currentUserUid ??
+        ref.read(currentUserProfileProvider).value?.uid ??
+        '';
+
     // Trigger local gift animation immediately without delay or interruption
     for (final targetUid in finalTargets) {
       animController.playLocalGift(
         gift: giftToSend,
-        senderUid: currentUserUid ?? '',
+        senderUid: safeSenderUid,
         targetUid: targetUid,
         quantity: qtyToSend,
         comboCount: qtyToSend > 1 ? qtyToSend : 1,
@@ -1425,71 +1097,73 @@ class _GiftTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLucky = gift.category.toLowerCase().contains('lucky');
     final isEventGift = activeEvent != null && activeEvent!.gifts.any((eg) => eg.giftId == gift.giftId);
     final eventGiftItem = isEventGift 
         ? activeEvent!.gifts.firstWhere((eg) => eg.giftId == gift.giftId) 
         : null;
 
-    final isLuckyBell = gift.giftId == 'lucky_bell' || gift.name.toLowerCase().contains('bell') || gift.name.toLowerCase().contains('dates');
-    final displayImg = (isLuckyBell && (gift.imageUrl == '🔔' || gift.imageUrl.isEmpty))
-        ? 'assets/lucky gift dates/icon.png'
-        : gift.imageUrl;
-    final displayName = (isLuckyBell && gift.name == 'Lucky Bell')
-        ? 'Lucky Dates'
-        : gift.name;
+    final isNewVap = gift.giftId.startsWith('vap_gift_');
+    final displayImg = isNewVap ? 'assets/images/gifts/${gift.giftId}.png' : gift.imageUrl;
+    final displayName = gift.name;
 
-    return GestureDetector(
-      onTap: onSelect,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        decoration: BoxDecoration(
-          color: isSelected 
-              ? const Color(0xFF00E5FF).withOpacity(0.12) 
-              : isEventGift 
-              ? const Color(0xFFFFD700).withOpacity(0.06)
-              : const Color(0xFF1B1B26),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: onSelect,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          decoration: BoxDecoration(
             color: isSelected 
-                ? const Color(0xFF00E5FF) 
+                ? const Color(0xFF00E5FF).withOpacity(0.12) 
                 : isEventGift 
-                ? const Color(0xFFFFD700).withOpacity(0.4) 
-                : Colors.white.withOpacity(0.06),
-            width: isSelected ? 2.0 : 1.0,
+                ? const Color(0xFFFFD700).withOpacity(0.06)
+                : const Color(0xFF1B1B26),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected 
+                  ? const Color(0xFF00E5FF) 
+                  : isEventGift 
+                  ? const Color(0xFFFFD700).withOpacity(0.4) 
+                  : Colors.white.withOpacity(0.06),
+              width: isSelected ? 2.0 : 1.0,
+            ),
+            boxShadow: isSelected
+                ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10)]
+                : isEventGift
+                ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.15), blurRadius: 6)]
+                : [],
           ),
-          boxShadow: isSelected
-              ? [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 10)]
-              : isEventGift
-              ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.15), blurRadius: 6)]
-              : [],
-        ),
-        padding: const EdgeInsets.all(5),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              alignment: Alignment.topCenter,
-              clipBehavior: Clip.none,
-              children: [
-                SizedBox(
-                  width: 42,
-                  height: 42,
-                  child: displayImg.startsWith('http') 
-                    ? CachedNetworkImage(
-                        imageUrl: displayImg,
-                        fit: BoxFit.contain,
-                        placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
-                        errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
-                      )
-                    : displayImg.startsWith('assets/')
-                      ? Image.asset(
-                          displayImg,
+          padding: const EdgeInsets.all(5),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Stack(
+                alignment: Alignment.topCenter,
+                clipBehavior: Clip.none,
+                children: [
+                  SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: displayImg.startsWith('http') 
+                      ? CachedNetworkImage(
+                          imageUrl: displayImg,
+                          memCacheWidth: 126,
+                          memCacheHeight: 126,
+                          maxWidthDiskCache: 250,
+                          maxHeightDiskCache: 250,
                           fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => const Center(child: Text("🎁", style: TextStyle(fontSize: 28))),
+                          placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
+                          errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                         )
-                      : Center(child: Text(displayImg.isEmpty ? "🎁" : displayImg, style: const TextStyle(fontSize: 28))),
-                ),
+                      : displayImg.startsWith('assets/')
+                        ? Image.asset(
+                            displayImg,
+                            cacheWidth: 126,
+                            cacheHeight: 126,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const Center(child: Text("🎁", style: TextStyle(fontSize: 28))),
+                          )
+                        : Center(child: Text(displayImg.isEmpty ? "🎁" : displayImg, style: const TextStyle(fontSize: 28))),
+                  ),
                 if (isEventGift)
                   Positioned(
                     top: -8,
@@ -1506,19 +1180,19 @@ class _GiftTile extends StatelessWidget {
                       ),
                     ),
                   )
-                else if (isLucky)
+                else if (isNewVap || gift.animationFormat.toLowerCase() == 'vap')
                   Positioned(
-                    top: -8,
+                    top: -6,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFFFF0055), Color(0xFFFF5000)]),
-                        borderRadius: BorderRadius.circular(6),
-                        boxShadow: [BoxShadow(color: Colors.redAccent.withOpacity(0.5), blurRadius: 4)],
+                        gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF0072FF)]),
+                        borderRadius: BorderRadius.circular(5),
+                        boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.4), blurRadius: 4)],
                       ),
                       child: const Text(
-                        "JACKPOT",
-                        style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.w900, letterSpacing: 0.4),
+                        "VAP",
+                        style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900, letterSpacing: 0.3),
                       ),
                     ),
                   ),
@@ -1551,6 +1225,7 @@ class _GiftTile extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }

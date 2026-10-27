@@ -259,6 +259,71 @@ void main() {
           );
       expect(wouldAccept, isTrue);
     });
+
+    test('GiftAnimationController: exact and fallback echo deduplication prevents double playback', () {
+      final controller = GiftAnimationController();
+      final gift = GiftModel(
+        giftId: 'rose',
+        name: 'Rose',
+        priceInDiamonds: 50,
+        imageUrl: 'rose.png',
+        lottieAssetPath: 'assets/animations/rose.json',
+        category: 'Normal',
+        tier: 'NORMAL',
+        animationFormat: 'json',
+      );
+
+      // Local sender dispatches a gift
+      controller.playLocalGift(
+        gift: gift,
+        senderUid: 'user_sender_1',
+        targetUid: 'user_target_2',
+        quantity: 1,
+      );
+
+      final events = controller.consumePendingEvents();
+      expect(events.length, equals(1), reason: 'Local send must trigger exactly 1 local event');
+      expect(events.first.giftId, equals('rose'));
+
+      // Exact server echo arrives for same sender, receiver, and gift
+      final skipExact = controller.shouldSkipEcho(
+        senderUid: 'user_sender_1',
+        targetUid: 'user_target_2',
+        giftId: 'rose',
+      );
+      expect(skipExact, isTrue, reason: 'Server echo must be skipped to eliminate duplicate playback');
+
+      // Subsequent identical server message should not skip because echo was already consumed
+      final skipSubsequent = controller.shouldSkipEcho(
+        senderUid: 'user_sender_1',
+        targetUid: 'user_target_2',
+        giftId: 'rose',
+      );
+      expect(skipSubsequent, isFalse, reason: 'Consumed echo must not leave lingering skip state');
+
+      // Test fallback matching: when targetUid in server message differs (e.g. unseated or group)
+      controller.playLocalGift(
+        gift: gift,
+        senderUid: 'user_sender_1',
+        targetUid: 'seat_anchor_9',
+        quantity: 1,
+      );
+
+      final skipFallback = controller.shouldSkipEcho(
+        senderUid: 'user_sender_1',
+        targetUid: '', // Target UID empty/omitted in echo
+        giftId: 'rose',
+      );
+      expect(skipFallback, isTrue, reason: 'Fallback matching must skip echo by sender and gift ID');
+
+      // Test other user send: gifts from other room participants are NEVER skipped
+      final skipOtherUser = controller.shouldSkipEcho(
+        senderUid: 'other_user_88',
+        targetUid: 'user_target_2',
+        giftId: 'rose',
+      );
+      expect(skipOtherUser, isFalse, reason: 'Gifts from other users must never be skipped');
+    });
   });
 
   group('Spin Wheel Canonical 12 o\'clock Segment Mapping', () {

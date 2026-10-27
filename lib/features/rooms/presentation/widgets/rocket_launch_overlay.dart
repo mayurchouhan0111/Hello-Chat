@@ -41,69 +41,75 @@ String? _resolveTopUid(dynamic room) {
 }
 
 class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
+  String? _profileImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _initTopUser();
+  }
+
+  void _initTopUser() {
+    final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
+    final topUid = _resolveTopUid(room);
+    if (topUid != null) {
+      _profileImageUrl = ref.read(userProfileProvider(topUid)).value?.profilePhotoUrl;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
-    final room = roomAsync.value;
-
-    // Prefer lastRocketResults (server-written accurate data) over stale rocketContributions
-    final topUid = _resolveTopUid(room);
-
-    String? profileImageUrl;
-    if (topUid != null) {
-      final userAsync = ref.watch(userProfileProvider(topUid));
-      profileImageUrl = userAsync.value?.profilePhotoUrl;
-    }
-
     final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: 3);
 
-    return Container(
-      color: Colors.black54,
-      width: double.infinity,
-      height: double.infinity,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SizedBox(
-            width: MediaQuery.of(context).size.width,
-            height: MediaQuery.of(context).size.height,
-            child: VapAnimation(
-              assetPath: vapPath,
-              profileImageUrl: profileImageUrl,
-              fit: BoxFit.contain,
-              loop: false,
-              onComplete: () {
-                Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
-              },
+    return RepaintBoundary(
+      child: Container(
+        color: Colors.black54,
+        width: double.infinity,
+        height: double.infinity,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: MediaQuery.of(context).size.width,
+              height: MediaQuery.of(context).size.height,
+              child: VapAnimation(
+                assetPath: vapPath,
+                profileImageUrl: _profileImageUrl,
+                fit: BoxFit.contain,
+                loop: false,
+                onComplete: () {
+                  Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
+                },
+              ),
             ),
-          ),
 
-          Positioned(
-            bottom: 100,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  "LEVEL ${widget.level + 1} ROCKET",
-                  style: const TextStyle(
-                    color: Color(0xFFFFD700),
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+            Positioned(
+              bottom: 100,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "LEVEL ${widget.level + 1} ROCKET",
+                    style: const TextStyle(
+                      color: Color(0xFFFFD700),
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-                Text(
-                  "LAUNCHED!",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 4,
+                  const Text(
+                    "LAUNCHED!",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 4,
+                    ),
                   ),
-                ),
-              ],
-            ).animate().fadeIn(delay: 500.ms).scale(),
-          ),
-        ],
+                ],
+              ).animate().fadeIn(delay: 500.ms).scale(),
+            ),
+          ],
+        ),
       ),
     );
   }

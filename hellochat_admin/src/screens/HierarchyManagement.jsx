@@ -14,6 +14,12 @@ export const HierarchyManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   
+  // Appoint Admin / Role Modal State (Super Admin & Owner)
+  const [showAppointModal, setShowAppointModal] = useState(false);
+  const [targetUidInput, setTargetUidInput] = useState('');
+  const [targetRoleInput, setTargetRoleInput] = useState('admin');
+  const [isAppointing, setIsAppointing] = useState(false);
+
   // Provision Branch Modal State (Owner Only)
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
@@ -96,6 +102,33 @@ export const HierarchyManagement = () => {
     }
   };
 
+  const handleAppointDirect = async (e) => {
+    e.preventDefault();
+    if (!targetUidInput.trim()) {
+      alert("Please enter a Target User UID.");
+      return;
+    }
+    setIsAppointing(true);
+    try {
+      const assignFn = httpsCallable(functions, 'assignHierarchyRole');
+      await assignFn({
+        targetUid: targetUidInput.trim(),
+        newRole: targetRoleInput,
+        targetBranchId: isSuperAdmin ? branchId : undefined,
+        targetSuperAdminId: isSuperAdmin ? authUser.uid : undefined,
+        targetAdminId: isAdminRole ? authUser.uid : undefined
+      });
+      setActionMessage(`✅ Successfully appointed user as ${targetRoleInput.toUpperCase()}!`);
+      setShowAppointModal(false);
+      setTargetUidInput('');
+      fetchHierarchyData();
+    } catch (e) {
+      alert("Role Appointment Error: " + e.message);
+    } finally {
+      setIsAppointing(false);
+    }
+  };
+
   const filteredUsers = users.filter(u => {
     const matchesSearch = (u.displayName || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (u.username || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -143,14 +176,24 @@ export const HierarchyManagement = () => {
           </p>
         </div>
 
-        {isOwner && (
-          <button
-            onClick={() => setShowBranchModal(true)}
-            className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase px-5 py-3 rounded-2xl shadow-xl transition-all"
-          >
-            <Plus size={16} /> Provision New Branch
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {(isOwner || isSuperAdmin) && (
+            <button
+              onClick={() => setShowAppointModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black text-xs uppercase px-5 py-3 rounded-2xl shadow-xl transition-all"
+            >
+              <UserCheck size={16} /> Appoint Admin / Role
+            </button>
+          )}
+          {isOwner && (
+            <button
+              onClick={() => setShowBranchModal(true)}
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-xs uppercase px-5 py-3 rounded-2xl shadow-xl transition-all"
+            >
+              <Plus size={16} /> Provision New Branch
+            </button>
+          )}
+        </div>
       </div>
 
       {actionMessage && (
@@ -322,6 +365,66 @@ export const HierarchyManagement = () => {
                   className="flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 text-white font-black text-xs uppercase py-3.5 rounded-2xl shadow-xl transition-all disabled:opacity-50"
                 >
                   {isProvisioning ? "Provisioning..." : "Create Branch"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Appoint Role Modal (Super Admin & Owner) */}
+      {showAppointModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#121214] border border-white/10 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
+            <h2 className="text-xl font-black uppercase tracking-tight flex items-center gap-3">
+              <UserCheck className="text-indigo-400" size={22} /> Appoint Role in Branch
+            </h2>
+            <p className="text-xs text-slate-400">
+              {isSuperAdmin
+                ? `Assign an Admin, Agency, or Host role under your supervised branch (${branchId || 'Assigned'}).`
+                : 'Assign hierarchy roles across the platform with full authority.'}
+            </p>
+
+            <form onSubmit={handleAppointDirect} className="space-y-4">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Target User UID</label>
+                <input
+                  type="text"
+                  placeholder="Enter user's Firebase UID"
+                  className="w-full bg-black border border-white/10 px-4 py-3 rounded-2xl text-white text-sm font-bold outline-none focus:border-indigo-500 font-mono"
+                  value={targetUidInput}
+                  onChange={e => setTargetUidInput(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-2">Assign Role</label>
+                <select
+                  value={targetRoleInput}
+                  onChange={e => setTargetRoleInput(e.target.value)}
+                  className="w-full bg-black border border-white/10 px-4 py-3 rounded-2xl text-white text-sm font-bold outline-none focus:border-indigo-500 uppercase"
+                >
+                  <option value="admin">Admin (Tier 2 - Branch Supervisor)</option>
+                  <option value="agency">Agency (Tier 1 - Host Recruiter)</option>
+                  <option value="host">Host (Tier 0 - Standard Broadcaster)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAppointModal(false)}
+                  className="flex-1 bg-white/5 hover:bg-white/10 text-white font-bold text-xs uppercase py-3.5 rounded-2xl transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAppointing}
+                  className="flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white font-black text-xs uppercase py-3.5 rounded-2xl shadow-xl transition-all disabled:opacity-50"
+                >
+                  {isAppointing ? "Appointing..." : "Confirm Appointment"}
                 </button>
               </div>
             </form>

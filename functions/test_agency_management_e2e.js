@@ -332,16 +332,153 @@ async function main() {
 
     // 11. Direct Client Write Denied Check
     await runTest("11. direct client writes to /agencies denied by firestore rules", async () => {
-        // In firestore.rules:
-        // match /agencies/{agencyId} {
-        //   allow read: if request.auth != null && (isAdmin() || resource.data.ownerUid == request.auth.uid || ...);
-        //   allow write: if false; // All creation, status, and roster mutations via Cloud Functions only
-        // }
-        // Verify from rules that write is strictly false.
         const fs = require('fs');
         const rules = fs.readFileSync('../firebase/firestore.rules', 'utf8');
         assert.ok(rules.includes('match /agencies/{agencyId}'), "Rules must contain match /agencies/{agencyId}");
         assert.ok(rules.includes('allow write: if false;'), "Rules must contain allow write: if false; for agencies");
+    });
+
+    // 12. createAgency Refuses Admin / Staff Roles
+    await runTest("12. createAgency refuses targets with role admin, superadmin, or owner", async () => {
+        const staffCandidateUid = `staff_cand_${ts}`;
+        await db.collection('users').doc(staffCandidateUid).set({
+            role: 'admin',
+            displayName: 'Existing Admin Staff',
+            helloId: 991100
+        });
+
+        let threw = false;
+        try {
+            await runCall(functionsModule.createAgency, {
+                name: "Illegal Staff Agency",
+                ownerIdentifier: staffCandidateUid,
+                commissionRate: 0.1
+            }, { uid: adminUid });
+        } catch (e) {
+            threw = true;
+            assert.ok(e.message.includes("downgraded") || e.message.includes("Cannot appoint"), "Error must state staff cannot be downgraded");
+        }
+        assert.ok(threw, "Must refuse to appoint user with role admin as agency owner");
+
+        // Verify user role was NOT modified
+        const userSnap = await db.collection('users').doc(staffCandidateUid).get();
+        assert.strictEqual(userSnap.data().role, 'admin', "Staff role must remain unchanged");
+    });
+
+    // 13. createAgency Preserves previousRole on User Document
+    let thirdAgencyId = null;
+    const thirdCandidateUid = `third_cand_${ts}`;
+    await runTest("13. createAgency preserves previousRole on candidate user doc", async () => {
+        await db.collection('users').doc(thirdCandidateUid).set({
+            role: 'user',
+            displayName: 'Regular User Candidate',
+            helloId: 992200
+        });
+
+        const res = await runCall(functionsModule.createAgency, {
+            name: "Role Restoration Test Agency",
+            ownerIdentifier: thirdCandidateUid,
+            commissionRate: 0.1
+        }, { uid: adminUid });
+
+        thirdAgencyId = res.agencyId;
+        const ownerSnap = await db.collection('users').doc(thirdCandidateUid).get();
+        assert.strictEqual(ownerSnap.data().role, 'agency');
+        assert.strictEqual(ownerSnap.data().previousRole, 'user', "previousRole must be preserved as 'user'");
+        assert.strictEqual(ownerSnap.data().isAgencyOwner, true);
+    });
+
+    // 14. setAgencyStatus('suspended') Restores Role and Revokes isAgencyOwner
+    await runTest("14. setAgencyStatus('suspended') restores owner role and revokes isAgencyOwner", async () => {
+        await runCall(functionsModule.setAgencyStatus, {
+            agencyId: thirdAgencyId,
+            status: 'suspended'
+        }, { uid: adminUid });
+
+        const ownerSnap = await db.collection('users').doc(thirdCandidateUid).get();
+        assert.strictEqual(ownerSnap.data().role, 'user', "Role must be restored to previousRole ('user')");
+        assert.strictEqual(ownerSnap.data().isAgencyOwner, false, "isAgencyOwner must be false when agency suspended");
+    });
+
+    // 15. setAgencyStatus('active') Reactivates Agency Role and isAgencyOwner
+    await runTest("15. setAgencyStatus('active') reactivates agency role and isAgencyOwner", async () => {
+        await runCall(functionsModule.setAgencyStatus, {
+            agencyId: thirdAgencyId,
+            status: 'active'
+        }, { uid: adminUid });
+
+        const ownerSnap = await db.collection('users').doc(thirdCandidateUid).get();
+        assert.strictEqual(ownerSnap.data().role, 'agency', "Role must be reactivated to 'agency'");
+        assert.strictEqual(ownerSnap.data().isAgencyOwner, true, "isAgencyOwner must be reactivated to true");
+    });
+
+    // 16. updateAgency by Agency Owner Allows Whitelisted Fields
+    await runTest("16. updateAgency by agency owner allows editing description, contactPhone, and country", async () => {
+        const updateRes = await runCall(functionsModule.updateAgency, {
+            agencyId: thirdAgencyId,
+            description: "Updated agency description by owner",
+            contactPhone: "+91 9999888877",
+            country: "India"
+        }, { uid: thirdCandidateUid });
+
+        assert.strictEqual(updateRes.success, true);
+        const aSnap = await db.collection('agencies').doc(thirdAgencyId).get();
+        assert.strictEqual(aSnap.data().description, "Updated agency description by owner");
+        assert.strictEqual(aSnap.data().contactPhone, "+91 9999888877");
+        assert.strictEqual(aSnap.data().country, "India");
+    });
+
+    // 17. updateAgency by Agency Owner Denies Non-Whitelisted Fields
+    await runTest("17. updateAgency by agency owner denies each non-whitelisted field", async () => {
+        const deniedFields = [
+            { field: "name", payload: { name: "Hacked Name" } },
+            { field: "commissionRate", payload: { commissionRate: 0.5 } },
+            { field: "status", payload: { status: "suspended" } },
+            { field: "ownerUid", payload: { ownerUid: "hacker_uid" } },
+            { field: "beansBalance", payload: { beansBalance: 99999999 } },
+            { field: "totalBeansEarned", payload: { totalBeansEarned: 99999999 } },
+            { field: "hostUids", payload: { hostUids: ["some_host"] } }
+        ];
+
+        for (const { field, payload } of deniedFields) {
+            let threw = false;
+            try {
+                await runCall(functionsModule.updateAgency, {
+                    agencyId: thirdAgencyId,
+                    ...payload
+                }, { uid: thirdCandidateUid });
+            } catch (e) {
+                threw = true;
+                assert.ok(e.message.includes("not permitted") || e.message.includes("cannot be modified") || e.code === "permission-denied" || e.code === "invalid-argument",
+                    `Must throw permission or invalid error for field ${field}`);
+            }
+            assert.ok(threw, `Agency owner must be denied when attempting to update field "${field}"`);
+        }
+    });
+
+    // 18. updateAgency by Staff Denies Server-Only / Financial Fields
+    await runTest("18. updateAgency by staff denies server-only financial and roster fields", async () => {
+        const serverOnlyFields = [
+            { field: "beansBalance", payload: { beansBalance: 500000 } },
+            { field: "totalBeansEarned", payload: { totalBeansEarned: 500000 } },
+            { field: "hostUids", payload: { hostUids: ["rogue_host"] } },
+            { field: "status", payload: { status: "active" } },
+            { field: "ownerUid", payload: { ownerUid: "other_owner" } }
+        ];
+
+        for (const { field, payload } of serverOnlyFields) {
+            let threw = false;
+            try {
+                await runCall(functionsModule.updateAgency, {
+                    agencyId: thirdAgencyId,
+                    ...payload
+                }, { uid: adminUid });
+            } catch (e) {
+                threw = true;
+                assert.ok(e.message.includes("cannot be modified via updateAgency"), `Error must mention forbidden field ${field}`);
+            }
+            assert.ok(threw, `Staff must be denied when passing server-only field "${field}" to updateAgency`);
+        }
     });
 
     console.log("\n==================================================");

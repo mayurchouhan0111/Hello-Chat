@@ -305,8 +305,11 @@ const UserEditModal = ({ user, onClose, onUpdate }) => {
         .map(t => t.trim())
         .filter(t => t.length > 0);
         
+      // Financial fields must never be directly overwritten via client SDK updateDoc
+      const { walletBalance, diamondBalance, beansBalance, ...safeFormData } = formData;
+        
       await updateDoc(userRef, {
-        ...formData,
+        ...safeFormData,
         tags: finalTags,
         updatedAt: serverTimestamp()
       });
@@ -449,14 +452,14 @@ const UserEditModal = ({ user, onClose, onUpdate }) => {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Wallet Balance ($ USD)</label>
-                <input 
-                  type="number"
-                  step="0.01"
-                  className="w-full bg-black border border-white/10 rounded-2xl p-4 text-emerald-400 font-black"
-                  value={formData.walletBalance}
-                  onChange={(e) => setFormData({...formData, walletBalance: parseFloat(e.target.value) || 0.0})}
-                />
+                <div className="flex justify-between items-center ml-2">
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Wallet Balance ($ USD)</label>
+                  <span className="text-[9px] font-bold text-emerald-400/80">Read-Only (Audited)</span>
+                </div>
+                <div className="w-full bg-black/60 border border-white/5 rounded-2xl p-4 text-emerald-400 font-black flex items-center justify-between cursor-not-allowed select-none">
+                  <span>${Number(user.walletBalance || 0.0).toFixed(2)}</span>
+                  <span className="text-[10px] text-slate-500 font-medium tracking-normal">Immutable</span>
+                </div>
               </div>
             </div>
           </div>

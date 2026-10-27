@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/svga_player.dart';
@@ -147,8 +146,8 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
               return Positioned(
                 left: currentSlide,
                 top: useVehicle ? (MediaQuery.of(context).size.height * 0.28) : 180,
-                child: Opacity(
-                  opacity: _fadeAnimation.value,
+                child: FadeTransition(
+                  opacity: _fadeAnimation,
                   child: RepaintBoundary(
                     child: useVehicle 
                       ? _buildVehicleEntry(lottieAsset, name, photo, accentColor, assetWidth)
@@ -191,7 +190,7 @@ class _EntryEffectOverlayState extends ConsumerState<EntryEffectOverlay> with Si
               vipTier: widget.participant.vipTier,
               radius: 22,
               showFrame: true,
-            ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 2.seconds),
+            ),
           ),
 
           // 3. Floating Name Banner

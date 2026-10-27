@@ -145,6 +145,79 @@ class MyProfileScreen extends ConsumerWidget {
                   const Gap(6),
                   const Icon(Icons.verified_rounded, color: Color(0xFF00ACC1), size: 18),
                 ],
+                if (userData.isSuperAdmin || userData.tags.contains('SuperAdmin') || userData.role == 'superadmin' || userData.isOwner || userData.role == 'owner') ...[
+                  const Gap(6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x336366F1),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.shield_rounded, color: Colors.white, size: 12),
+                        SizedBox(width: 3),
+                        Text(
+                          "SUPER ADMIN",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (userData.isAdminRole || userData.role == 'admin' || userData.tags.contains('Admin')) ...[
+                  const Gap(6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x332563EB),
+                          blurRadius: 4,
+                          offset: Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.shield_rounded, color: Colors.white, size: 12),
+                        SizedBox(width: 3),
+                        Text(
+                          "ADMIN",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (userData.isReseller) ...[
                   const Gap(6),
                   Container(
@@ -431,6 +504,22 @@ class MyProfileScreen extends ConsumerWidget {
             : _buildNotificationDot(color: Colors.cyan),
           onTap: () => context.push(AppRoutes.verification),
         ),
+        if (userData.isAdmin) ...[
+          _buildMenuTile(
+            icon: Icons.admin_panel_settings_rounded,
+            label: (userData.isSuperAdmin || userData.isOwner) ? "Super Admin Portal" : "Admin Portal",
+            iconColor: const Color(0xFF6366F1),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: const Color(0xFF6366F1).withOpacity(0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Text("Active", style: TextStyle(color: Color(0xFF6366F1), fontSize: 10, fontWeight: FontWeight.bold)),
+            ),
+            onTap: () => context.push(AppRoutes.superAdminPortal),
+          ),
+        ],
         if (userData.isReseller) ...[
           _buildMenuTile(
             icon: Icons.store_rounded,

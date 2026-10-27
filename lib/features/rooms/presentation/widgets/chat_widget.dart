@@ -7,12 +7,10 @@ import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 import '../../../../core/models/user_model.dart';
 import '../../../../core/services/broadcast_service.dart';
-import '../../../../utils/level_utils.dart';
 import '../../../../core/widgets/user_badge.dart';
 import '../../../../core/utils/badge_utils.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/widgets/app_avatar.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../services/gift_service.dart';
 import 'gift_combo_overlay.dart';
@@ -251,7 +249,9 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
               begin: isRemoving ? 1.0 : 0.92,
               end: isRemoving ? 0.88 : 1.0,
             ).animate(curvedAnimation),
-            child: RoomMessageTile(msg: msg, roomId: widget.roomId, onUserTap: widget.onUserTap),
+            child: RepaintBoundary(
+              child: RoomMessageTile(msg: msg, roomId: widget.roomId, onUserTap: widget.onUserTap),
+            ),
           ),
         ),
       ),
@@ -271,7 +271,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
     final myProfileAsync = ref.watch(cachedUserProfileProvider(currentUid ?? ''));
 
     final blocked = myProfileAsync.maybeWhen(
-      data: (myProfile) => (myProfile != null && myProfile is UserModel)
+      data: (myProfile) => (myProfile != null)
           ? myProfile.blockedUids
           : <String>[],
       orElse: () => <String>[],
@@ -784,30 +784,34 @@ class RoomMessageTile extends ConsumerWidget {
       if (resolvedGiftImageUrl.startsWith('http://') || resolvedGiftImageUrl.startsWith('https://')) {
         giftIconWidget = CachedNetworkImage(
           imageUrl: resolvedGiftImageUrl,
-          width: 24,
-          height: 24,
+          width: 18,
+          height: 18,
+          memCacheWidth: 36,
+          memCacheHeight: 36,
           fit: BoxFit.contain,
-          placeholder: (_, __) => const SizedBox(width: 24, height: 24),
-          errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+          placeholder: (_, __) => const SizedBox(width: 18, height: 18),
+          errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 14),
         );
       } else if (resolvedGiftImageUrl.startsWith('assets/')) {
         giftIconWidget = Image.asset(
           resolvedGiftImageUrl,
-          width: 24,
-          height: 24,
+          width: 18,
+          height: 18,
+          cacheWidth: 36,
+          cacheHeight: 36,
           fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 20),
+          errorBuilder: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 14),
         );
       } else {
-        giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 20);
+        giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 14);
       }
     } else {
-      giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 20);
+      giftIconWidget = const Icon(Icons.card_giftcard, color: Colors.amber, size: 14);
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
+      margin: const EdgeInsets.only(bottom: 3.5),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -817,33 +821,33 @@ class RoomMessageTile extends ConsumerWidget {
           ],
           stops: const [0.0, 0.65, 1.0],
         ),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.purpleAccent.withOpacity(0.35), width: 0.8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.volunteer_activism_rounded, color: Color(0xFFE040FB), size: 16),
-          const SizedBox(width: 6),
+          const Icon(Icons.volunteer_activism_rounded, color: Color(0xFFE040FB), size: 13),
+          const SizedBox(width: 5),
           Flexible(
             child: Text(
               name,
               style: const TextStyle(
                 color: Color(0xFF00E5FF),
-                fontSize: 13,
+                fontSize: 11,
                 fontWeight: FontWeight.bold,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(width: 6),
+          const SizedBox(width: 5),
           giftIconWidget,
-          const SizedBox(width: 4),
+          const SizedBox(width: 3),
           Text(
             "x$multiplier",
             style: const TextStyle(
               color: Color(0xFFFFD700),
-              fontSize: 14,
+              fontSize: 11.5,
               fontWeight: FontWeight.w900,
               fontStyle: FontStyle.italic,
             ),

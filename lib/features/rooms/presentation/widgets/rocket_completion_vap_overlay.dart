@@ -24,21 +24,18 @@ class RocketCompletionVapOverlay extends ConsumerStatefulWidget {
 
 class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVapOverlay> {
   bool _showVariant2 = false;
+  UserModel? _topUser;
 
   @override
   void initState() {
     super.initState();
     _showVariant2 = false;
+    _initTopUser();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
-    final room = roomAsync.value;
-
-    UserModel? topUser;
+  void _initTopUser() {
+    final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
     if (room != null) {
-      // Prefer lastRocketResults (server-written accurate top 3) over stale rocketContributions
       String? topUid;
       if (room.lastRocketResults != null) {
         final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
@@ -53,15 +50,18 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
         topUid = sorted.isNotEmpty ? sorted.first.key : null;
       }
       final targetUid = topUid ?? room.ownerUid;
-      final userAsync = ref.watch(userProfileProvider(targetUid));
-      topUser = userAsync.value;
+      _topUser = ref.read(userProfileProvider(targetUid)).value;
     }
+  }
 
+  @override
+  Widget build(BuildContext context) {
     final needsSequence = widget.level >= 3;
     final variant = needsSequence ? (_showVariant2 ? 2 : 1) : 1;
     final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: variant);
 
-    return Positioned.fill(
+    return RepaintBoundary(
+      child: Positioned.fill(
       child: Material(
         color: Colors.transparent,
         child: Stack(
@@ -69,7 +69,7 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
             VapAnimation(
               key: ValueKey('completion_${widget.level}_$_showVariant2'),
               assetPath: vapPath,
-              profileImageUrl: topUser?.profilePhotoUrl,
+              profileImageUrl: _topUser?.profilePhotoUrl,
               fit: BoxFit.contain,
               loop: false,
               onComplete: () {
@@ -109,6 +109,7 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
           ],
         ),
       ),
+    ),
     );
   }
 }

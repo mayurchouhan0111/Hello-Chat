@@ -56,16 +56,42 @@ async function runAll() {
 
     const roundId = Math.floor(Date.now() / 40000).toString();
 
-    // Test 1: Outcome create-once across syncSpinWheelRound and playSpinWheel
-    await test("Test 1: syncSpinWheelRound generates deterministic outcome atomically", async () => {
-        const syncRes = await syncFn({ roundId: roundId }, { auth: { uid: testUid } });
-        assert(syncRes.outcome, "syncSpinWheelRound should return an outcome");
-        assert(syncRes.outcome.name, "Outcome should have a winning food name");
+    // Reset any stale public result for this round from previous emulator runs, so the
+    // "no leak during active betting" assertion below reflects THIS run's behavior only.
+    const statsResetRef = db.collection("games_meta").doc("lucky_spin");
+    const statsResetDoc = await statsResetRef.get();
+    if (statsResetDoc.exists) {
+        const recent = Array.isArray(statsResetDoc.data().recentResults) ? statsResetDoc.data().recentResults : [];
+        await statsResetRef.set({
+            recentResults: recent.filter(r => !r || String(r.roundId) !== roundId)
+        }, { merge: true });
+    }
 
-        // Verify doc in Firestore
-        const privDoc = await db.collection("games_meta_private").doc(`spin_${roundId}`).get();
-        assert(privDoc.exists, "games_meta_private doc must exist");
-        assert.strictEqual(privDoc.data().outcome.name, syncRes.outcome.name);
+    // Test 1: Outcome masking during betting vs deterministic lock after betting window
+    const cycleMs = Date.now() % 40000;
+    const isBettingWindow = cycleMs <= 27000;
+    await test("Test 1: syncSpinWheelRound masks outcome during betting, locks deterministic outcome after", async () => {
+        const syncRes = await syncFn({ roundId: roundId }, { auth: { uid: testUid } });
+        if (isBettingWindow) {
+            // CLIENT REQUIREMENT: while betting is open, the outcome MUST be masked (never leaked)
+            assert.strictEqual(syncRes.outcome, null, "outcome must be masked (null) during the active betting window");
+
+            // Public leaderboard stats must NOT leak the current round before it settles
+            const statsDoc = await db.collection("games_meta").doc("lucky_spin").get();
+            const stats = statsDoc.exists ? statsDoc.data() : {};
+            const recent = Array.isArray(stats.recentResults) ? stats.recentResults : [];
+            assert(!recent.some(r => r && String(r.roundId) === roundId), "current round must NOT appear in public recentResults during active betting");
+        } else {
+            // After betting closes the outcome is locked deterministically and returned
+            assert(syncRes.outcome, "syncSpinWheelRound should return an outcome after the betting window");
+            assert(syncRes.outcome.name, "Outcome should have a winning food name");
+            assert(syncRes.outcome.sectorIndex !== undefined, "Outcome must include sectorIndex for wheel alignment");
+
+            // Verify create-once doc in Firestore matches
+            const privDoc = await db.collection("games_meta_private").doc(`spin_${roundId}`).get();
+            assert(privDoc.exists, "games_meta_private doc must exist");
+            assert.strictEqual(privDoc.data().outcome.name, syncRes.outcome.name);
+        }
     });
 
     // Test 2: playSpinWheel reuses existing outcome without overwrite
@@ -161,9 +187,28 @@ async function runAll() {
             game: "spin_wheel",
             type: "game_bet",
             totalBet: 100,
-            prize: 1500, // Won 1500 diamonds
+            bets: { "Skewer": 100 }, // Won 1500 diamonds
+            prize: 1500,
             settled: false,
             winningFood: "Skewer"
+        });
+
+        // Seed the round's server-private outcome (created by sync/play at outcome-lock in production).
+        // Auto-settle recomputes the prize from bets + this private outcome, never from client-side prizes.
+        await db.collection("games_meta_private").doc(`spin_${roundA}`).set({
+            roundId: roundA,
+            outcome: {
+                roundId: roundA,
+                type: "standard",
+                name: "Skewer",
+                multiplier: 15,
+                emoji: "🍢",
+                label: "15x",
+                category: "pizza",
+                sectorIndex: 1,
+                exactStopAngle: 90,
+                createdAt: Date.now()
+            }
         });
 
         const preBalance = (await recUserRef.get()).data().diamondBalance;

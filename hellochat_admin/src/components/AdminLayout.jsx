@@ -69,6 +69,7 @@ const Sidebar = () => {
     menu = [
       { name: 'Dashboard', icon: LayoutDashboard, path: '/' },
       { name: 'Hierarchy & Branches', icon: Shield, path: '/hierarchy' },
+      { name: 'Admin Management', icon: ShieldCheck, path: '/admins' },
       { name: 'Rocket Config', icon: Rocket, path: '/rocket-management' },
       { name: 'Users', icon: Users, path: '/users' },
       { name: 'Live Rooms', icon: Volume2, path: '/rooms' },

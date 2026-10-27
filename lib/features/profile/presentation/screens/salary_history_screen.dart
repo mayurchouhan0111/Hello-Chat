@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/services/salary_service.dart';
 import '../../../../core/models/salary_model.dart';
+import '../../../../core/providers/profile_provider.dart';
 import 'package:gap/gap.dart';
 
 class SalaryHistoryScreen extends ConsumerWidget {
@@ -200,6 +200,9 @@ class SalaryHistoryScreen extends ConsumerWidget {
 
   Widget _buildLiveStatsCard(WidgetRef ref, String uid) {
     final metricsAsync = ref.watch(hostMetricsProvider(uid));
+    final userAsync = ref.watch(currentUserProfileProvider);
+    final user = userAsync.valueOrNull;
+
     final metrics = metricsAsync.valueOrNull ?? {
       'liveHoursTotal': 0.0,
       'liveMinutesTotal': 0,
@@ -210,6 +213,17 @@ class SalaryHistoryScreen extends ConsumerWidget {
     final double hours = (metrics['liveHoursTotal'] as num?)?.toDouble() ?? 0.0;
     final int days = (metrics['liveDayCount'] as num?)?.toInt() ?? 0;
     final int sessions = (metrics['liveSessionsTotal'] as num?)?.toInt() ?? 0;
+
+    // Beans Target Metrics
+    final int targetBeans = user?.monthlyTargetBeans ?? (metrics['monthlyTargetBeans'] as num?)?.toInt() ?? 50000;
+    final int beansEarned = user?.beansBalance ?? 0;
+    final double targetProgress = targetBeans > 0 ? (beansEarned / targetBeans).clamp(0.0, 1.0) : 0.0;
+    final bool isTargetReached = targetBeans > 0 && beansEarned >= targetBeans;
+    final int remainingBeans = targetBeans > beansEarned ? (targetBeans - beansEarned) : 0;
+
+    // Recharge Report Metrics
+    final double rechargeUSD = user?.totalRechargeGenerated ?? (metrics['totalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
+    final int diamondsAttributed = (rechargeUSD * 1000000).toInt();
 
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -229,15 +243,16 @@ class SalaryHistoryScreen extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Row(
                 children: [
-                  Icon(Icons.podcasts_rounded, color: Color(0xFF6366F1), size: 20),
+                  Icon(Icons.analytics_rounded, color: Color(0xFF6366F1), size: 20),
                   Gap(8),
                   Text(
-                    "HOST BROADCAST METRICS",
+                    "HOST PERFORMANCE REPORT",
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w900,
@@ -265,6 +280,8 @@ class SalaryHistoryScreen extends ConsumerWidget {
             ],
           ),
           const Gap(16),
+
+          // 1. Broadcast Activity Metrics
           Row(
             children: [
               Expanded(
@@ -297,6 +314,239 @@ class SalaryHistoryScreen extends ConsumerWidget {
                 ),
               ),
             ],
+          ),
+
+          const Gap(16),
+          const Divider(height: 1, color: Color(0xFFF3F4F6)),
+          const Gap(14),
+
+          // 2. Beans Target Report
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.track_changes_rounded, color: Color(0xFFF59E0B), size: 16),
+                  Gap(6),
+                  Text(
+                    "MONTHLY BEANS TARGET",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF374151),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isTargetReached
+                      ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                      : const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  isTargetReached ? "TARGET MET (100%)" : "${(targetProgress * 100).toInt()}% ACHIEVED",
+                  style: TextStyle(
+                    color: isTargetReached ? const Color(0xFF059669) : const Color(0xFFD97706),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    "◈ ${NumberFormat.decimalPattern().format(beansEarned)}",
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  const Gap(6),
+                  Text(
+                    "/ ◈ ${NumberFormat.decimalPattern().format(targetBeans)}",
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                "${(targetProgress * 100).toInt()}%",
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w900,
+                  color: Color(0xFFF59E0B),
+                ),
+              ),
+            ],
+          ),
+          const Gap(8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: targetProgress,
+              minHeight: 8,
+              backgroundColor: const Color(0xFFF3F4F6),
+              valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFF59E0B)),
+            ),
+          ),
+          const Gap(6),
+          Text(
+            isTargetReached
+                ? "🎉 Monthly beans target reached! All live earnings eligible for performance bonuses."
+                : "◈ ${NumberFormat.decimalPattern().format(remainingBeans)} beans remaining to hit this month's target.",
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              color: isTargetReached ? const Color(0xFF059669) : const Color(0xFF9CA3AF),
+            ),
+          ),
+
+          const Gap(16),
+          const Divider(height: 1, color: Color(0xFFF3F4F6)),
+          const Gap(14),
+
+          // 3. Recharge Report
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.payments_rounded, color: Color(0xFF10B981), size: 16),
+                  Gap(6),
+                  Text(
+                    "ROOM RECHARGE REPORT",
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFF374151),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  "DIRECT ATTRIBUTION",
+                  style: TextStyle(
+                    color: Color(0xFF059669),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const Gap(10),
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  const Color(0xFF10B981).withValues(alpha: 0.08),
+                  const Color(0xFF047857).withValues(alpha: 0.03),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "TOTAL RECHARGE GENERATED",
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF047857),
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const Gap(2),
+                        Text(
+                          "\$${rechargeUSD.toStringAsFixed(2)} USD",
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w900,
+                            color: Color(0xFF065F46),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.diamond_rounded, color: Color(0xFF06B6D4), size: 14),
+                          const Gap(4),
+                          Text(
+                            "${NumberFormat.compact().format(diamondsAttributed)} Coins",
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const Gap(8),
+                const Text(
+                  "Official lifetime room recharge volume attributed to your live broadcasts and direct room viewers.",
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF4B5563),
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -433,10 +683,10 @@ class SalaryHistoryScreen extends ConsumerWidget {
           const Gap(10),
 
           // Header Row
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
             child: Row(
-              children: const [
+              children: [
                 Expanded(
                   flex: 5,
                   child: Text("LEVEL / TITLE", style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
@@ -447,7 +697,7 @@ class SalaryHistoryScreen extends ConsumerWidget {
                 ),
                 Expanded(
                   flex: 3,
-                  child: Text("HOST (60%)", textAlign: TextAlign.right, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
+                  child: Text("HOST SHARE (60%)", textAlign: TextAlign.right, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF9CA3AF), letterSpacing: 0.5)),
                 ),
                 SizedBox(width: 38),
               ],
@@ -459,16 +709,6 @@ class SalaryHistoryScreen extends ConsumerWidget {
           ...SalaryLevel.allLevels.map((lv) {
             final isCompleted = completedLevels.contains(lv.level);
             final isCurrent = lv.level == (currentLv + 1);
-
-            Color badgeBg = const Color(0xFFF3F4F6);
-            Color badgeText = const Color(0xFF6B7280);
-            if (isCompleted) {
-              badgeBg = const Color(0xFFDEF7EC);
-              badgeText = const Color(0xFF03543F);
-            } else if (isCurrent) {
-              badgeBg = const Color(0xFFE0E7FF);
-              badgeText = const Color(0xFF3730A3);
-            }
 
             return Container(
               margin: const EdgeInsets.symmetric(vertical: 3),
@@ -514,7 +754,7 @@ class SalaryHistoryScreen extends ConsumerWidget {
                   Expanded(
                     flex: 3,
                     child: Text(
-                      "\$${NumberFormat.decimalPattern().format((lv.hostShare * 0.01).toInt())}",
+                      "◈ ${_formatCompactBeans(lv.hostShare.toInt())}",
                       textAlign: TextAlign.right,
                       style: const TextStyle(
                         fontSize: 12,
@@ -537,7 +777,7 @@ class SalaryHistoryScreen extends ConsumerWidget {
                 ],
               ),
             );
-          }).toList(),
+          }),
         ],
       ),
     );
@@ -649,8 +889,8 @@ class SalaryHistoryScreen extends ConsumerWidget {
                 Expanded(
                   child: Text(
                     payout.type == 'host' 
-                      ? "Host share (60%) will be added to your wallet tomorrow."
-                      : "Agency share (30%) is distributed every 15 days.",
+                      ? "Host share (60%) milestone progress is reviewed by your Agency."
+                      : "Agency share (30%) is reviewed and distributed by Branch Admin.",
                     style: TextStyle(color: Colors.grey.shade500, fontSize: 11, fontWeight: FontWeight.w500),
                   ),
                 ),

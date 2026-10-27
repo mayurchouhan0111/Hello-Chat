@@ -95,7 +95,29 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller = SVGAAnimationController(vsync: this);
-    _loadAnimation();
+
+    // Instant frame-0 rendering if the movie is pre-decoded in memory — prevents frame flickering
+    final key = widget.assetPath?.trim() ?? widget.url?.trim();
+    final cached = key != null ? SvgaParserUtil.getCachedMovie(key) : null;
+    if (cached != null) {
+      _controller!.videoItem = cached;
+      _isLoading = false;
+      if (widget.loop) {
+        _controller!.repeat();
+      } else {
+        _controller!.forward();
+      }
+      if (widget.playAudio) {
+        final effectiveFps = cached.params.fps > 0 ? cached.params.fps : 30;
+        SvgaParserUtil.getPreparedAudios(cached, key!, effectiveFps).then((audios) {
+          if (mounted && audios.isNotEmpty) {
+            _playPreparedAudios(audios);
+          }
+        });
+      }
+    } else {
+      _loadAnimation();
+    }
   }
 
   @override
@@ -128,10 +150,12 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _hasError = false;
-    });
+    if (_controller?.videoItem == null) {
+      setState(() {
+        _isLoading = true;
+        _hasError = false;
+      });
+    }
 
     try {
       MovieEntity? videoItem;
@@ -251,15 +275,29 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   void didUpdateWidget(covariant SvgaPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.assetPath != widget.assetPath || oldWidget.url != widget.url || oldWidget.loop != widget.loop) {
-      _controller?.stop();
-      _controller?.videoItem = null;
-      for (final timer in _audioTimers) {
-        timer.cancel();
+      final key = widget.assetPath?.trim() ?? widget.url?.trim();
+      final cached = key != null ? SvgaParserUtil.getCachedMovie(key) : null;
+      if (cached != null) {
+        _controller?.stop();
+        _controller?.videoItem = cached;
+        _isLoading = false;
+        _hasError = false;
+        if (widget.loop) {
+          _controller?.repeat();
+        } else {
+          _controller?.forward();
+        }
+      } else {
+        _controller?.stop();
+        _controller?.videoItem = null;
+        for (final timer in _audioTimers) {
+          timer.cancel();
+        }
+        _audioTimers.clear();
+        _audioPlayer?.stop();
+        _loadAnimation();
       }
-      _audioTimers.clear();
-      _audioPlayer?.stop();
-      _loadAnimation();
-    } else if (_controller?.videoItem == null) {
+    } else if (_controller?.videoItem == null && !_hasError) {
       _loadAnimation();
     }
   }
@@ -285,17 +323,14 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   }
 
   Widget _buildFallback() {
-    if (_hasError) {
-      if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
-        return Image.asset(
-          widget.fallbackImagePath!,
-          fit: widget.fit,
-          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-        );
-      }
-      return const SizedBox.shrink();
+    if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
+      return Image.asset(
+        widget.fallbackImagePath!,
+        fit: widget.fit,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
     }
-    return _SkeletonShimmer(fit: widget.fit);
+    return const SizedBox.shrink();
   }
 
   @override

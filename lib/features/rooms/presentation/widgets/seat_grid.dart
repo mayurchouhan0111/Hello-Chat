@@ -23,15 +23,7 @@ class SeatAnchors {
 
   static GlobalKey keyFor(String roomId, String uid) {
     final id = '$roomId|$uid';
-    // First registration wins the rectFor slot. Later callers (host seat,
-    // minimized-room overlay) get a private key so GlobalKeys never collide.
-    final existing = _keys[id];
-    if (existing != null) {
-      return GlobalKey(debugLabel: 'seat_${id}_${existing.hashCode}');
-    }
-    final key = GlobalKey(debugLabel: 'seat_$id');
-    _keys[id] = key;
-    return key;
+    return _keys.putIfAbsent(id, () => GlobalKey(debugLabel: 'seat_$id'));
   }
 
   /// Global rect of the seat cell, or null when the seat isn't laid out
@@ -43,6 +35,11 @@ class SeatAnchors {
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.attached || !box.hasSize) return null;
     return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  static void clearRoom(String roomId) {
+    final prefix = '$roomId|';
+    _keys.removeWhere((key, _) => key.startsWith(prefix));
   }
 }
 

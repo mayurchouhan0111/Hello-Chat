@@ -76,9 +76,10 @@ class _RocketProgressWidgetState extends ConsumerState<RocketProgressWidget> wit
                        widget.room.rocketCooldownUntil != null &&
                        widget.room.rocketCooldownUntil!.isAfter(DateTime.now());
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
+    return RepaintBoundary(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
         showModalBottomSheet(
           context: context,
           isScrollControlled: true,
@@ -151,7 +152,7 @@ class _RocketProgressWidgetState extends ConsumerState<RocketProgressWidget> wit
                     : (_controller?.videoItem != null)
                         ? SVGAImage(_controller!)
                         : const Icon(Icons.rocket_launch_rounded, color: Colors.amberAccent, size: 34),
-              ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
+              ),
               
               const SizedBox(height: 4),
 
@@ -182,6 +183,7 @@ class _RocketProgressWidgetState extends ConsumerState<RocketProgressWidget> wit
             ],
           ],
         ),
+      ),
       ),
     );
   }

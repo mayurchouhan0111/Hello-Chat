@@ -34,6 +34,7 @@ import { SVIPManagement } from './screens/SVIPManagement';
 import { HierarchyManagement } from './screens/HierarchyManagement';
 import { HostMetrics } from './screens/HostMetrics';
 import { CommissionWallet } from './screens/CommissionWallet';
+import { AdminManagement } from './screens/AdminManagement';
 
 /**
  * HB-PMS route table.
@@ -63,6 +64,7 @@ const ROUTES = [
 
   // ── Super Admin ──
   { path: '/hierarchy', min: 'superadmin', element: <HierarchyManagement /> },
+  { path: '/admins', min: 'superadmin', element: <AdminManagement /> },
 
   // ── Owner & Super Admin: platform management modules ──
   { path: '/financials', min: 'superadmin', element: <FinancialManagement /> },

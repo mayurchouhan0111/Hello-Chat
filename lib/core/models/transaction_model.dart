@@ -20,7 +20,7 @@ class WalletTransaction {
 
   bool get isIncoming => displayAmount > 0;
 
-  // New: Categorization helper for UI Tabs
+  // Categorization helpers for UI Tabs
   bool get isDiamondTransaction => 
     type == TransactionType.recharge || 
     type == TransactionType.purchase || 
@@ -35,6 +35,24 @@ class WalletTransaction {
     type == TransactionType.gift_received || 
     (type == TransactionType.exchange && amount < 0); // Beans spent in exchange
 
+  bool get isOfficialRecharge =>
+    type == TransactionType.recharge &&
+    !description.toLowerCase().contains('bonus') &&
+    !description.toLowerCase().contains('reward');
+
+  bool get isEventBonus =>
+    description.toLowerCase().contains('bonus') ||
+    description.toLowerCase().contains('giveaway') ||
+    description.toLowerCase().contains('reward') ||
+    description.toLowerCase().contains('event');
+
+  bool get isGiftTransaction =>
+    type == TransactionType.gift_sent ||
+    type == TransactionType.gift_received;
+
+  bool get isOtherTransaction =>
+    !isOfficialRecharge && !isEventBonus && !isGiftTransaction;
+
   WalletTransaction({
     required this.id,
     required this.type,
@@ -47,6 +65,19 @@ class WalletTransaction {
     required this.description,
   });
 
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) return DateTime.now();
+    if (value is Timestamp) return value.toDate();
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is String) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed;
+      final intMs = int.tryParse(value);
+      if (intMs != null) return DateTime.fromMillisecondsSinceEpoch(intMs);
+    }
+    return DateTime.now();
+  }
+
   factory WalletTransaction.fromMap(Map<String, dynamic> data, String id) {
     // Determine type safely to prevent crashes on new/unrecognized types
     final rawType = (data['action'] ?? data['type'] ?? 'recharge').toString().toLowerCase().trim();
@@ -57,7 +88,13 @@ class WalletTransaction {
       txType = TransactionType.game_win;
     } else if (rawType == 'spin_wheel_loss' || rawType == 'game_settle_loss') {
       txType = TransactionType.game_bet;
-    } else if (rawType == 'spin_reconciliation_offset') {
+    } else if (rawType == 'spin_reconciliation_offset' || rawType == 'balance_reconciliation' || rawType == 'official_recharge') {
+      txType = TransactionType.recharge;
+    } else if (rawType == 'gift_sent' || rawType == 'send_gift') {
+      txType = TransactionType.gift_sent;
+    } else if (rawType == 'gift_received' || rawType == 'receive_gift') {
+      txType = TransactionType.gift_received;
+    } else if (rawType.contains('salary') || rawType.contains('reward')) {
       txType = TransactionType.recharge;
     } else {
       txType = TransactionType.values.firstWhere(
@@ -66,16 +103,25 @@ class WalletTransaction {
       );
     }
 
+    final num? rawAmount = data['amount'] as num? ?? data['diamonds'] as num? ?? data['beans'] as num?;
+    final int amount = (rawAmount ?? 0).toInt();
+
+    final num? rawReceived = data['receivedAmount'] as num? ?? data['diamondAmount'] as num?;
+    final int? receivedAmount = rawReceived?.toInt();
+
+    final rawTs = data['timestamp'] ?? data['createdAt'] ?? data['created_at'] ?? data['settledAt'];
+    final timestamp = _parseDateTime(rawTs);
+
     return WalletTransaction(
       id: id,
       type: txType,
-      amount: data['amount'] ?? 0,
-      receivedAmount: data['receivedAmount'],
-      giftId: data['giftId'],
-      fromUid: data['fromUid'],
-      toUid: data['toUid'],
-      timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      description: data['description'] ?? '',
+      amount: amount,
+      receivedAmount: receivedAmount,
+      giftId: data['giftId']?.toString(),
+      fromUid: data['fromUid']?.toString(),
+      toUid: data['toUid']?.toString(),
+      timestamp: timestamp,
+      description: data['description']?.toString() ?? '',
     );
   }
 

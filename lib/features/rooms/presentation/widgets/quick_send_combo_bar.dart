@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,6 +60,7 @@ class QuickSendComboBar extends ConsumerStatefulWidget {
   final int startCount;
 
   final VoidCallback onDismiss;
+  final VoidCallback? onOpenGiftPicker;
 
   const QuickSendComboBar({
     super.key,
@@ -67,6 +70,7 @@ class QuickSendComboBar extends ConsumerStatefulWidget {
     required this.targetName,
     required this.targetPhotoUrl,
     required this.onDismiss,
+    this.onOpenGiftPicker,
     this.startCount = 1,
   });
 
@@ -106,9 +110,6 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
   /// stale balance and the server would reject the tail of the combo.
   int _reserved = 0;
 
-  /// Serialises the actual sends. Rapid taps queue here instead of firing
-  /// concurrent transactions at the same sender doc.
-  Future<void> _chain = Future<void>.value();
 
   bool _finishing = false;
 
@@ -143,6 +144,20 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
     _afterExit = null;
   }
 
+  @override
+  void didUpdateWidget(QuickSendComboBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.gift.giftId != widget.gift.giftId || oldWidget.targetUid != widget.targetUid) {
+      debugPrint('QC bar gift updated: ${oldWidget.gift.name} -> ${widget.gift.name}');
+      _combo = widget.startCount;
+      _reserved = 0;
+      _finishing = false;
+      _ring.reset();
+      _ring.forward();
+      _bounce.forward(from: 0);
+    }
+  }
+
   void _onRingStatus(AnimationStatus status) {
     if (status == AnimationStatus.completed) _finish();
   }
@@ -156,6 +171,9 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
     _exit.dispose();
     super.dispose();
   }
+
+  int _pendingDispatches = 0;
+  bool _isSending = false;
 
   void _onTap() {
     if (_finishing) return;
@@ -179,40 +197,64 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
     final comboAtSend = _combo;
     _pushComboLocal(comboAtSend);
 
-    // Synchronously capture Riverpod dependencies while the widget is guaranteed mounted
+    _pendingDispatches += 1;
+    _pumpDispatches();
+  }
+
+  void _pumpDispatches() {
+    if (_isSending || _pendingDispatches == 0) return;
+    _isSending = true;
+
+    final countToSend = _pendingDispatches;
+    _pendingDispatches = 0;
+    final comboToSend = _combo;
+
     final giftService = ref.read(giftServiceProvider);
     final combos = ref.read(giftComboControllerProvider(widget.roomId));
     final key = _comboKey;
     final roomId = widget.roomId;
     final gift = widget.gift;
     final targetUid = widget.targetUid;
+    final batchPrice = gift.priceInDiamonds * countToSend;
 
-    // Deliberately not awaited: the tap returns immediately so the button stays
-    // responsive at 60fps, and the chain guarantees ordering + no dropped event.
-    _chain = _chain.then((_) => _dispatch(
-          giftService: giftService,
-          combos: combos,
-          key: key,
-          roomId: roomId,
-          gift: gift,
-          targetUid: targetUid,
-          combo: comboAtSend,
-        )).whenComplete(() {
-      _reserved -= price;
+    _dispatch(
+      giftService: giftService,
+      combos: combos,
+      key: key,
+      roomId: roomId,
+      gift: gift,
+      targetUid: targetUid,
+      quantity: countToSend,
+      combo: comboToSend,
+    ).whenComplete(() {
+      if (mounted) {
+        setState(() {
+          _reserved = math.max(0, _reserved - batchPrice);
+          _isSending = false;
+        });
+      } else {
+        _reserved = math.max(0, _reserved - batchPrice);
+        _isSending = false;
+      }
+      if (_pendingDispatches > 0) {
+        _pumpDispatches();
+      }
     });
   }
 
   /// Same key the server message and the chat row use, so the banner, the row
   /// and the ledger all describe one stream.
   String get _comboKey => comboKeyFor(
-        ref.read(currentUserProfileProvider).value?.uid ?? '',
+        FirebaseAuth.instance.currentUser?.uid ?? ref.read(currentUserProfileProvider).value?.uid ?? '',
         widget.targetUid,
         widget.gift.giftId,
       );
 
   /// Optimistic bump: the banner has to move on the tap, not on the round trip.
   void _pushComboLocal(int count) {
-    final senderUid = ref.read(currentUserProfileProvider).value?.uid ?? '';
+    final senderUid = FirebaseAuth.instance.currentUser?.uid ??
+        ref.read(currentUserProfileProvider).value?.uid ??
+        '';
     ref.read(giftComboControllerProvider(widget.roomId)).tapLocal(
           _comboKey,
           senderUid: senderUid,
@@ -237,6 +279,7 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
     required String roomId,
     required GiftModel gift,
     required String targetUid,
+    required int quantity,
     required int combo,
   }) async {
     try {
@@ -244,7 +287,7 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
         roomId: roomId,
         gift: gift,
         targetUids: [targetUid],
-        quantity: 1,
+        quantity: quantity,
         comboCount: combo,
       );
     } catch (e) {
@@ -285,6 +328,9 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
   void _finish({VoidCallback? onSettled}) {
     if (_finishing) return;
     _finishing = true;
+    if (_pendingDispatches > 0) {
+      _pumpDispatches();
+    }
     HapticFeedback.mediumImpact();
     _afterExit = onSettled;
     _ring.stop();
@@ -352,81 +398,106 @@ class _QuickSendComboBarState extends ConsumerState<QuickSendComboBar>
               ),
             ),
 
-            // Gift thumbnail
-            _GiftThumb(url: widget.gift.imageUrl),
-            const SizedBox(width: 8),
-
-            // Gift name + diamond cost and recipient
+            // Gift thumbnail and recipient info - clickable to change gift
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          widget.gift.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w800,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: widget.onOpenGiftPicker,
+                child: Row(
+                  children: [
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _GiftThumb(url: widget.gift.imageUrl),
+                        Positioned(
+                          right: -3,
+                          bottom: -3,
+                          child: Container(
+                            padding: const EdgeInsets.all(2),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFFD700),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.sync_rounded, size: 8, color: Colors.black),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
-                      Row(
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const PremiumDiamond(size: 11),
-                          const SizedBox(width: 2),
-                          Text(
-                            '${widget.gift.priceInDiamonds}',
-                            style: const TextStyle(
-                              color: Color(0xFFFFD700),
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  widget.gift.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const PremiumDiamond(size: 11),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '${widget.gift.priceInDiamonds}',
+                                    style: const TextStyle(
+                                      color: Color(0xFFFFD700),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              const Text(
+                                "To: ",
+                                style: TextStyle(color: Colors.white38, fontSize: 10),
+                              ),
+                              Container(
+                                width: 14,
+                                height: 14,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  image: widget.targetPhotoUrl.isEmpty
+                                      ? null
+                                      : DecorationImage(
+                                          image: CachedNetworkImageProvider(widget.targetPhotoUrl),
+                                        ),
+                                  color: widget.targetPhotoUrl.isEmpty ? Colors.white24 : null,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(
+                                  widget.targetName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white70, fontSize: 10.5),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      const Text(
-                        "To: ",
-                        style: TextStyle(color: Colors.white38, fontSize: 10),
-                      ),
-                      Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          image: widget.targetPhotoUrl.isEmpty
-                              ? null
-                              : DecorationImage(
-                                  image: CachedNetworkImageProvider(widget.targetPhotoUrl),
-                                ),
-                          color: widget.targetPhotoUrl.isEmpty ? Colors.white24 : null,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Flexible(
-                        child: Text(
-                          widget.targetName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(color: Colors.white70, fontSize: 10.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(width: 6),

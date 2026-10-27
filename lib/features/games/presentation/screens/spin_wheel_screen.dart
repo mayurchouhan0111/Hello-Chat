@@ -1022,6 +1022,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   List<dynamic> _storedWinners = [];
   String _storedRoundId = '';
   Map<String, int>? _storedBets;
+  String? _sessionLastWinnerName;
+  dynamic _sessionLastWinnerAmount;
 
   String? _hasShownResultForRound;
   String? _hasTriggeredSpinSyncForRound;
@@ -1285,9 +1287,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _playBetSoundAndHaptic();
 
     final now = _synchronizedTimeMs;
-    // FIX 1: Derive txnId from server clock — same formula as _autoSubmitBets —
+    // FIX 1: Derive txnId from active round — same formula as _autoSubmitBets —
     // so reconcileBetSuccess always clears the correct pending debit key.
-    final betRoundId = (now ~/ 40000).toString();
+    final betRoundId = _currentRoundId ?? (now ~/ 40000).toString();
     final betTxnId = 'bet_$betRoundId';
 
     _walletManager.addPendingDebit(
@@ -1304,8 +1306,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final newTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     debugPrint('[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
 
-    final curRound = _currentRoundId;
-    if (curRound != null && curRound.isNotEmpty) {
+    final curRound = _currentRoundId ?? betRoundId;
+    if (curRound.isNotEmpty) {
       _recordSessionBet(
         roundId: curRound,
         bets: _currentBets,
@@ -1315,12 +1317,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     _debounceTimer?.cancel();
     final secIntoCycle = (now % 40000) ~/ 1000;
-    // Dynamic debounce: 350ms during active betting to naturally group rapid chip taps into a single wager,
-    // and 100ms when approaching the 27s cutoff to ensure prompt dispatch.
-    final debounceDuration = secIntoCycle >= 24 ? const Duration(milliseconds: 100) : const Duration(milliseconds: 350);
+    // Dynamic debounce: if at or after 25s, submit immediately with 20ms debounce so it never delays past 27s
+    final debounceDuration = secIntoCycle >= 25 ? const Duration(milliseconds: 20) : (secIntoCycle >= 23 ? const Duration(milliseconds: 60) : const Duration(milliseconds: 200));
     _debounceTimer = Timer(debounceDuration, () {
       if (!mounted || _currentBets.isEmpty) return;
-      _autoSubmitBets();
+      _autoSubmitBets(forcedRoundId: _currentRoundId);
     });
 
     _persistBetState();
@@ -1386,17 +1387,23 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // by seconds (observed ±13s), so prefer _currentRoundId if aligned.
     final submissionRoundId = forcedRoundId ?? _currentRoundId ?? (now ~/ serverRoundMs).toString();
 
-    // STRICT ROUND GUARD: Never auto-submit for a round that is not the active round
+    // STRICT ROUND GUARD: Allow forcedRoundId, active round, or recently closed round in rollover transit
     if (_currentRoundId != null && submissionRoundId != _currentRoundId && forcedRoundId == null) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Auto-submit cancelled: submissionRoundId ($submissionRoundId) != currentRoundId ($_currentRoundId)');
-      return;
+      final subNum = int.tryParse(submissionRoundId) ?? 0;
+      final curNum = int.tryParse(_currentRoundId!) ?? 0;
+      if (curNum - subNum == 1 && secondsIntoCycle < 3) {
+        debugPrint('[SPIN_WHEEL_EVENT] 🚀 Flushing queued bets for recently closed round $submissionRoundId during rollover transit');
+      } else {
+        debugPrint('[SPIN_WHEEL_EVENT] ⛔ Auto-submit skipped: submissionRoundId ($submissionRoundId) != currentRoundId ($_currentRoundId)');
+        return;
+      }
     }
 
     // Taps are disabled on the UI at second 27. Any bets queued here were placed
-    // legitimately before second 27 and are simply finishing network dispatch. Allow up to second 35.
-    // The server strictly rejects bets when msIntoRound >= 36000 ("Betting phase closed").
-    if (secondsIntoCycle >= 35) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 35s for round $submissionRoundId');
+    // legitimately before second 27 and are simply finishing network dispatch. Allow up to second 36.
+    // The server accepts bets when msIntoRound < 37000.
+    if (secondsIntoCycle >= 36) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 36s for round $submissionRoundId');
       _reconcileSessionHistoryAfterFailure(submissionRoundId);
       return;
     }
@@ -1570,7 +1577,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       if (!mounted) return;
 
-      final bool roundMovedOn = _gameState != SpinGameState.betting || _currentRoundId != submissionRoundId;
+      final bool roundMovedOn = (_currentRoundId != null && _currentRoundId != submissionRoundId);
 
       // TRANSPARENT ERROR SURFACING: while the round is still accepting bets, a rejection
       // is ALWAYS shown to the user instead of silently cancelling their wager. A
@@ -1591,13 +1598,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         );
       }
 
-      // STRICT PHASE GUARD: when the round has already moved to spinning/results or rolled
-      // to a new round, clear the stale input (nothing to do — the round is over). Never a
-      // silent wipe of an ACTIVE round.
+      // STRICT PHASE GUARD: only clear bets when the round ID has ACTUALLY rolled
+      // to a new round. Never wipe bets while this active round is still spinning or settling!
       if (roundMovedOn) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: ${_gameState.name} phase / cross-round transition.');
+        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: cross-round transition to $_currentRoundId.');
         _reconcileSessionHistoryAfterFailure(submissionRoundId);
-        // Still tell the player. A silent wipe here is literally "my bet vanished".
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -2290,7 +2295,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _debounceTimer?.cancel();
         if (!_isAutoSubmitting) {
           if (_hasUnconfirmedBets()) {
-            _autoSubmitBets();
+            _autoSubmitBets(forcedRoundId: _currentRoundId);
           } else if (!_hasPendingResult && !_hasStartedFallbackCall) {
             _hasStartedFallbackCall = true;
             _preFetchRoundOutcome();
@@ -2302,7 +2307,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newCountdown = 0;
         newCountdownLabel = "Spinning";
         if (!_isAutoSubmitting && _hasUnconfirmedBets()) {
-          _autoSubmitBets();
+          _autoSubmitBets(forcedRoundId: _currentRoundId);
         }
       } else if (secondsIntoCycle >= 35 && secondsIntoCycle < 37) {
         newBetLocked = true;
@@ -4082,66 +4087,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final bool isSpinningPhase = _gameState == SpinGameState.spinning || _isSpinning;
     final bool isResultCelebration = _gameState == SpinGameState.results && _spinCompleted;
 
-    // 1. NEUTRAL THROUGHOUT ACTIVE BETTING & SPINNING
-    // Players must never see live winning or losing outcomes before the round finishes!
-    if (!isResultCelebration) {
-      final String neutralStatusText = isSpinningPhase
-          ? "Wheel spinning • Awaiting official result..."
-          : "Round in play • Outcomes revealed after spin";
-      final String neutralEmoji = isSpinningPhase ? "🎰" : "⏳";
 
-      return Container(
-        width: double.infinity,
-        padding: EdgeInsets.symmetric(vertical: 3 * scale),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.15),
-        ),
-        child: Row(
-          children: [
-            SizedBox(width: 16 * scale),
-            Text(
-              "Result",
-              style: TextStyle(
-                color: Colors.black87,
-                fontSize: 14 * scale,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(width: 12 * scale),
-            Expanded(
-              child: Container(
-                margin: EdgeInsets.only(right: 16 * scale),
-                padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.25),
-                  borderRadius: BorderRadius.circular(16 * scale),
-                  border: Border.all(color: Colors.black12, width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(neutralEmoji, style: TextStyle(fontSize: 13 * scale)),
-                    SizedBox(width: 6 * scale),
-                    Flexible(
-                      child: Text(
-                        neutralStatusText,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.black87,
-                          fontSize: 11 * scale,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
 
     // 2. OFFICIAL CONFIRMED RESULT (AFTER BETTING CLOSES & ROUND COMPLETES)
     final Map<String, Map<String, dynamic>> mergedByRoundId = {};
@@ -4223,138 +4169,213 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       ),
       child: Row(
         children: [
-          SizedBox(width: 16 * scale),
+          SizedBox(width: 14 * scale),
           Text(
             "Result",
             style: TextStyle(
               color: Colors.black87,
-              fontSize: 14 * scale,
+              fontSize: 13.5 * scale,
               fontWeight: FontWeight.bold,
             ),
           ),
-          SizedBox(width: 8 * scale),
+          SizedBox(width: 6 * scale),
+          // ── PREMIUM STATUS BADGE (LIVE / SPINNING / SETTLED) ──
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 7 * scale, vertical: 2 * scale),
+            decoration: BoxDecoration(
+              color: isResultCelebration
+                  ? const Color(0xFFFFD700).withOpacity(0.2)
+                  : isSpinningPhase
+                      ? const Color(0xFFFFB800).withOpacity(0.2)
+                      : const Color(0xFF10B981).withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10 * scale),
+              border: Border.all(
+                color: isResultCelebration
+                    ? const Color(0xFFFFD700)
+                    : isSpinningPhase
+                        ? const Color(0xFFFFB800)
+                        : const Color(0xFF10B981),
+                width: 1 * scale,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: (isResultCelebration
+                          ? const Color(0xFFFFD700)
+                          : isSpinningPhase
+                              ? const Color(0xFFFFB800)
+                              : const Color(0xFF10B981))
+                      .withOpacity(0.25),
+                  blurRadius: 3 * scale,
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 5.5 * scale,
+                  height: 5.5 * scale,
+                  decoration: BoxDecoration(
+                    color: isResultCelebration
+                        ? const Color(0xFFFFD700)
+                        : isSpinningPhase
+                            ? const Color(0xFFFFB800)
+                            : const Color(0xFF10B981),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                SizedBox(width: 4 * scale),
+                Text(
+                  isResultCelebration
+                      ? "SETTLED"
+                      : isSpinningPhase
+                          ? "SPINNING"
+                          : "LIVE",
+                  style: TextStyle(
+                    color: isResultCelebration
+                        ? const Color(0xFFFFD700)
+                        : isSpinningPhase
+                            ? const Color(0xFFFFB800)
+                            : const Color(0xFF10B981),
+                    fontSize: 8.5 * scale,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(width: 6 * scale),
+          // Subtle vertical divider between header and history list
+          Container(
+            width: 1.2 * scale,
+            height: 18 * scale,
+            color: Colors.black26,
+          ),
+          SizedBox(width: 4 * scale),
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
               child: Row(
                 children: [
-                  // ── HIGHLIGHTED RESULT AREA (OFFICIAL OUTCOME OF COMPLETED ROUND) ──
-                  Container(
-                    margin: EdgeInsets.symmetric(horizontal: 4 * scale),
-                    padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20 * scale),
-                      border: Border.all(color: const Color(0xFFFFD700), width: 1.5 * scale),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Winning circle with "New" badge
-                        Container(
-                          width: 34 * scale,
-                          height: 34 * scale,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFFFFD700), width: 2 * scale),
-                            boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                          ),
-                          child: Stack(
-                            alignment: Alignment.center,
-                            clipBehavior: Clip.none,
-                            children: [
-                              Text(winningEmoji, style: TextStyle(fontSize: 18 * scale)),
-                              Positioned(
-                                bottom: -4 * scale,
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
-                                  decoration: BoxDecoration(
-                                    color: Colors.yellow,
-                                    borderRadius: BorderRadius.circular(4 * scale),
-                                    border: Border.all(color: Colors.black87, width: 1),
-                                  ),
-                                  child: Text(
-                                    "New",
-                                    style: TextStyle(
-                                      color: Colors.black,
-                                      fontSize: 7 * scale,
-                                      fontWeight: FontWeight.bold,
+                  // ── HIGHLIGHTED RESULT AREA (OFFICIAL OUTCOME OF COMPLETED ROUND ONLY) ──
+                  if (isResultCelebration) ...[
+                    Container(
+                      margin: EdgeInsets.symmetric(horizontal: 4 * scale),
+                      padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(20 * scale),
+                        border: Border.all(color: const Color(0xFFFFD700), width: 1.5 * scale),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Winning circle with "New" badge
+                          Container(
+                            width: 34 * scale,
+                            height: 34 * scale,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: const Color(0xFFFFD700), width: 2 * scale),
+                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                            ),
+                            child: Stack(
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.none,
+                              children: [
+                                Text(winningEmoji, style: TextStyle(fontSize: 18 * scale)),
+                                Positioned(
+                                  bottom: -4 * scale,
+                                  child: Container(
+                                    padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
+                                    decoration: BoxDecoration(
+                                      color: Colors.yellow,
+                                      borderRadius: BorderRadius.circular(4 * scale),
+                                      border: Border.all(color: Colors.black87, width: 1),
+                                    ),
+                                    child: Text(
+                                      "New",
+                                      style: TextStyle(
+                                        color: Colors.black,
+                                        fontSize: 7 * scale,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(width: 6 * scale),
-                        // Winning Option Pill
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFD700),
-                            borderRadius: BorderRadius.circular(8 * scale),
-                            border: Border.all(color: Colors.black87, width: 1),
-                          ),
-                          child: Text(
-                            "$winningName $winningLabel",
-                            style: TextStyle(
-                              color: Colors.black,
-                              fontSize: 10 * scale,
-                              fontWeight: FontWeight.w900,
+                              ],
                             ),
                           ),
-                        ),
-                        // Final Win / Loss Status (where appropriate)
-                        if (hasPlayerBet) ...[
-                          SizedBox(width: 5 * scale),
-                          if (isPlayerWin)
-                            Container(
-                              padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF10B981),
-                                borderRadius: BorderRadius.circular(8 * scale),
-                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
-                              ),
-                              child: Text(
-                                "🏆 WON +${_formatNumber(effectivePrize)}",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10 * scale,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            )
-                          else
-                            Container(
-                              padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
-                              decoration: BoxDecoration(
-                                color: Colors.black54,
-                                borderRadius: BorderRadius.circular(8 * scale),
-                              ),
-                              child: Text(
-                                "NO WIN",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9 * scale,
-                                  fontWeight: FontWeight.w800,
-                                ),
+                          SizedBox(width: 6 * scale),
+                          // Winning Option Pill
+                          Container(
+                            padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD700),
+                              borderRadius: BorderRadius.circular(8 * scale),
+                              border: Border.all(color: Colors.black87, width: 1),
+                            ),
+                            child: Text(
+                              "$winningName $winningLabel",
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 10 * scale,
+                                fontWeight: FontWeight.w900,
                               ),
                             ),
+                          ),
+                          // Final Win / Loss Status (where appropriate)
+                          if (hasPlayerBet) ...[
+                            SizedBox(width: 5 * scale),
+                            if (isPlayerWin)
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF10B981),
+                                  borderRadius: BorderRadius.circular(8 * scale),
+                                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                                ),
+                                child: Text(
+                                  "🏆 WON +${_formatNumber(effectivePrize)}",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10 * scale,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              )
+                            else
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(8 * scale),
+                                ),
+                                child: Text(
+                                  "NO WIN",
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 9 * scale,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                          ],
+                          SizedBox(width: 4 * scale),
                         ],
-                        SizedBox(width: 4 * scale),
-                      ],
+                      ),
                     ),
-                  ),
-
-                  // Divider between highlighted current result and past rounds
-                  if (visiblePastHistory.isNotEmpty)
-                    Container(
-                      margin: EdgeInsets.symmetric(horizontal: 4 * scale),
-                      width: 1.5 * scale,
-                      height: 24 * scale,
-                      color: Colors.black26,
-                    ),
+                    if (visiblePastHistory.isNotEmpty)
+                      Container(
+                        margin: EdgeInsets.symmetric(horizontal: 4 * scale),
+                        width: 1.5 * scale,
+                        height: 24 * scale,
+                        color: Colors.black26,
+                      ),
+                  ],
 
                   // ── PAST SETTLED ROUNDS HISTORY (WITHOUT ANY "NEW" BADGE) ──
                   ...visiblePastHistory.map((rec) {
@@ -4396,8 +4417,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final topWinnerName = stats?['topWinnerName'] ?? topFromList?['name'] ?? "No data";
     final topWinnerAmount = stats?['topWinnerAmount'] ?? topFromList?['amount'] ?? 0;
     
-    final lastWinnerName = stats?['lastWinnerName'] ?? lastRound?['winnerName'] ?? "None";
-    final lastWinnerAmount = stats?['lastWinnerAmount'] ?? lastRound?['winnerAmount'] ?? 0;
+    if (stats?['lastWinnerName'] != null && stats!['lastWinnerName'].toString() != 'None' && stats!['lastWinnerName'].toString().isNotEmpty) {
+      _sessionLastWinnerName = stats['lastWinnerName'].toString();
+      _sessionLastWinnerAmount = stats['lastWinnerAmount'];
+    } else if (lastRound?['winnerName'] != null && lastRound!['winnerName'].toString() != 'None') {
+      _sessionLastWinnerName = lastRound['winnerName'].toString();
+      _sessionLastWinnerAmount = lastRound['winnerAmount'];
+    }
+
+    final lastWinnerName = stats?['lastWinnerName'] ?? lastRound?['winnerName'] ?? _sessionLastWinnerName ?? "None";
+    final lastWinnerAmount = stats?['lastWinnerAmount'] ?? lastRound?['winnerAmount'] ?? _sessionLastWinnerAmount ?? 0;
 
     // Calculate Today's Stats from local history
     final now = DateTime.now();
@@ -4924,8 +4953,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
       int sessionWinnings = 0;
       int sessionBets = 0;
       for (final r in _sessionRoundsHistory.values) {
-        sessionWinnings += (r['prize'] as num?)?.toInt() ?? 0;
-        sessionBets += (r['totalBet'] as num?)?.toInt() ?? 0;
+        // Ranking points must remain stable during active betting; only confirmed settled rounds contribute
+        if (r['settled'] == true) {
+          sessionWinnings += (r['prize'] as num?)?.toInt() ?? 0;
+          sessionBets += (r['totalBet'] as num?)?.toInt() ?? 0;
+        }
       }
       final userProfile = ref.read(currentUserProfileProvider).valueOrNull;
       final currentUserName = userProfile?.displayName ?? userProfile?.username ?? FirebaseAuth.instance.currentUser?.displayName ?? 'You';

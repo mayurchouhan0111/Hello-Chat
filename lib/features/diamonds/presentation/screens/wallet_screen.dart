@@ -2,23 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
-import '../../../../core/constants/app_colors.dart';
-import '../../../../core/constants/app_spacing.dart';
-import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/premium_bean.dart';
 import '../../../../core/widgets/premium_diamond.dart';
-import '../../../../core/widgets/visa_icon.dart';
-
-import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../wallet/presentation/screens/transaction_history_screen.dart';
+import '../../../wallet/presentation/screens/official_recharge_history_screen.dart';
 import '../../../wallet/presentation/screens/bean_exchange_screen.dart';
-import '../../../../core/services/payment_service.dart';
-import '../../../../providers/wallet_provider.dart';
-import '../../../../core/models/transaction_model.dart';
-import '../../../../core/models/user_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 class WalletScreen extends ConsumerStatefulWidget {
   const WalletScreen({super.key});
@@ -29,175 +18,7 @@ class WalletScreen extends ConsumerStatefulWidget {
 
 class _WalletScreenState extends ConsumerState<WalletScreen> {
   String _activeTab = "Diamonds";
-  bool _isWalletExpanded = true;
 
-  void _showWalletTopUpSheet(UserModel user) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFF97316))),
-        content: const Text(
-          "Direct wallet deposits are disabled until the payment gateway is fully integrated and certified in production.",
-          style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK", style: TextStyle(color: Color(0xFFF97316), fontWeight: FontWeight.bold)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _handleWalletBalancePurchase(UserModel user, int diamonds, double price) async {
-    if (user.walletBalance < price) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Text("Insufficient Balance", style: TextStyle(fontWeight: FontWeight.w900, color: Colors.redAccent)),
-          content: Text("Your wallet balance (\$${user.walletBalance.toStringAsFixed(2)}) is insufficient to purchase this package (\$${price.toStringAsFixed(2)}). Please top-up first."),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF97316),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                _showWalletTopUpSheet(user);
-              },
-              child: const Text("TOP-UP NOW", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text("Confirm Purchase", style: TextStyle(fontWeight: FontWeight.w900)),
-        content: Text("Deduct \$${price.toStringAsFixed(2)} from your wallet to buy $diamonds Diamonds?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("CANCEL", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFF97316), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            child: const Text("PURCHASE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => const Center(child: CircularProgressIndicator(color: Color(0xFFF97316))),
-      );
-
-      final HttpsCallable callable = FirebaseFunctions.instance.httpsCallable('purchaseDiamondsWithWallet');
-      await callable.call({
-        'diamonds': diamonds,
-        'price': price,
-      });
-
-      if (mounted) {
-        Navigator.pop(context); // Close loading indicator
-        _showSuccessDialog(diamonds);
-        ref.refresh(currentUserProfileProvider);
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context); // Close loading indicator
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent));
-      }
-    }
-  }
-
-  Widget _buildWalletBalanceRechargeTile(UserModel user) {
-    return Column(
-      children: [
-        ListTile(
-          onTap: () {
-            setState(() {
-              _isWalletExpanded = !_isWalletExpanded;
-            });
-          },
-          dense: true,
-          visualDensity: VisualDensity.compact,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-          leading: Container(
-            width: 54,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF7ED),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const Center(
-              child: Icon(Icons.account_balance_wallet_rounded, color: Color(0xFFF97316), size: 20),
-            ),
-          ),
-          title: const Text("Wallet Balance", style: TextStyle(color: Color(0xFF1F2937), fontSize: 14, fontWeight: FontWeight.w800)),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 1),
-            child: Text(
-              "Balance: \$${user.walletBalance.toStringAsFixed(2)}",
-              style: const TextStyle(color: Color(0xFFF97316), fontSize: 11, fontWeight: FontWeight.bold),
-            ),
-          ),
-          trailing: Icon(_isWalletExpanded ? Icons.keyboard_arrow_down_rounded : Icons.chevron_right_rounded, color: const Color(0xFFD1D5DB), size: 18),
-        ),
-        if (_isWalletExpanded)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Padding(
-                  padding: EdgeInsets.only(left: 60),
-                  child: Text(
-                    "Pay instantly using your Hello Chat Wallet balance.",
-                    style: TextStyle(color: Color(0xFFBBBBBB), fontSize: 9, fontWeight: FontWeight.w400),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                GridView.count(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  crossAxisCount: 3,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
-                  childAspectRatio: 1.25,
-                  children: [
-                    _buildPackageItem("262", "USD 5.99", onTap: () => _handleWalletBalancePurchase(user, 262, 5.99)),
-                    _buildPackageItem("890", "USD 19.99", bonus: "+5", isBigDeal: true, onTap: () => _handleWalletBalancePurchase(user, 890, 19.99)),
-                    _buildPackageItem("2,255", "USD 49.99", bonus: "+5", onTap: () => _handleWalletBalancePurchase(user, 2255, 49.99)),
-                    _buildPackageItem("4,562", "USD 99.99", bonus: "+5", onTap: () => _handleWalletBalancePurchase(user, 4562, 99.99)),
-                    _buildPackageItem("9,205", "USD 199.99", bonus: "+5", onTap: () => _handleWalletBalancePurchase(user, 9205, 199.99)),
-                    _buildCustomAmountItem(),
-                  ],
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -284,9 +105,9 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                             ],
                           ),
                           const SizedBox(height: 8),
-                          Row(
+                          const Row(
                             mainAxisSize: MainAxisSize.min,
-                            children: const [
+                            children: [
                               Text(
                                 "Account Balance",
                                 style: TextStyle(color: Color(0xFFF97316), fontSize: 13, fontWeight: FontWeight.w700),
@@ -306,22 +127,17 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                               GestureDetector(
                                 onTap: () => Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()),
+                                  MaterialPageRoute(builder: (_) => const OfficialRechargeHistoryScreen()),
                                 ),
-                                child: _buildHeaderAction(Icons.history_rounded),
+                                child: _buildHeaderAction(Icons.receipt_long_rounded),
                               ),
                               const SizedBox(width: 8),
                               GestureDetector(
-                                onTap: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Payment gateway coming soon. Recharge is not available at this time.'),
-                                      backgroundColor: Color(0xFF1A237E),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                },
-                                child: _buildHeaderAction(Icons.account_balance_wallet_rounded),
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => const TransactionHistoryScreen()),
+                                ),
+                                child: _buildHeaderAction(Icons.history_rounded),
                               ),
                             ],
                           ),
@@ -368,12 +184,15 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                   ),
                 ),
 
-                // 4. Recharge By Section
+                // 4. Options Section
                 Padding(
                   padding: const EdgeInsets.fromLTRB(20, 12, 20, 6),
                   child: Row(
                     children: [
-                      Text("Recharge by", style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.w600)),
+                      Text(
+                        _activeTab == "Diamonds" ? "Recharge by" : "Exchange by",
+                        style: TextStyle(color: Colors.grey[600], fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
                       const Spacer(),
                       const Icon(Icons.location_on_rounded, color: Colors.grey, size: 14),
                       const SizedBox(width: 4),
@@ -382,70 +201,46 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                   ),
                 ),
 
-                // 4.5 Wallet Balance Recharge Block
-                if (user != null) ...[
+                // 5. Exclusive Action Groups per Section
+                if (_activeTab == "Diamonds") ...[
+                  // Diamond Section: Official Recharge options
                   _buildActionBlock([
-                    _buildWalletBalanceRechargeTile(user),
-                  ]),
-                  const SizedBox(height: 6),
-                ],
-
-                // 5. Compact Action Groups
-                _buildActionBlock([
-                  _buildRefinedTile(
-                    customIcon: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Text("🫘", style: TextStyle(fontSize: 14)),
-                        Icon(Icons.arrow_forward_ios_rounded, size: 8, color: Colors.grey),
-                        Icon(Icons.diamond_rounded, size: 14, color: Color(0xFFFFD700)),
-                      ],
+                    _buildRefinedTile(
+                      icon: Icons.face_retouching_natural_rounded,
+                      iconColor: Colors.cyan[300],
+                      title: "Reseller Recharge",
+                      subtitle: "1 💎 ≈ 0.020",
+                      onTap: () => context.push(AppRoutes.resellerList),
                     ),
-                    title: "Beans Exchange",
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => BeanExchangeScreen())),
-                  ),
-                ]),
-
-                const SizedBox(height: 6),
-
-                _buildActionBlock([
-                  _buildRefinedTile(
-                    icon: Icons.face_retouching_natural_rounded,
-                    iconColor: Colors.cyan[300],
-                    title: "Reseller Recharge",
-                    subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.020",
-                    onTap: () => context.push(AppRoutes.resellerList),
-                  ),
-                ]),
-
-                const SizedBox(height: 6),
-
-                _buildActionBlock([
-                  _buildRefinedTile(
-                    imageUrl: "https://img.icons8.com/color/96/wallet.png",
-                    title: "Touch 'n Go",
-                    subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.076 MYR",
-                    bonus: "+1",
-                    onTap: () {}, // Simulation Disabled
-                  ),
-                  const Divider(height: 1, thickness: 0.3, indent: 76),
-                  _buildExpandableRefinedTile(
-                    customIcon: VisaIcon(size: 28),
-                    title: "VISA/Master",
-                    subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "🫘"} ≈ 0.089 MYR",
-                    bonus: "+1",
-                    description: "Supports VISA/Master/Amex and more...",
-                    onTap: () {},
-                  ),
-                  const Divider(height: 1, thickness: 0.3, indent: 76),
-                  _buildRefinedTile(
-                    imageUrl: "https://img.icons8.com/color/96/google-wallet.png",
-                    title: "Google Wallet",
-                    subtitle: "1 ${_activeTab == "Diamonds" ? "💎" : "𫰘"} ≈ 0.12 MYR",
-                    bonus: "+1",
-                    onTap: () {}, // Simulation Disabled
-                  ),
-                ]),
+                    _buildRefinedTile(
+                      icon: Icons.receipt_long_rounded,
+                      iconColor: const Color(0xFF00E5FF),
+                      title: "Official Recharge History",
+                      subtitle: "View successful recharges & bonus breakdown (90 days)",
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const OfficialRechargeHistoryScreen()),
+                      ),
+                    ),
+                  ]),
+                ] else ...[
+                  // Bean Section: Keep ONLY the official Bean Exchange option
+                  _buildActionBlock([
+                    _buildRefinedTile(
+                      customIcon: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text("🫘", style: TextStyle(fontSize: 14)),
+                          Icon(Icons.arrow_forward_ios_rounded, size: 8, color: Colors.grey),
+                          Icon(Icons.diamond_rounded, size: 14, color: Color(0xFFFFD700)),
+                        ],
+                      ),
+                      title: "Beans Exchange",
+                      subtitle: "Exchange Beans to Diamonds",
+                      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const BeanExchangeScreen())),
+                    ),
+                  ]),
+                ],
 
                 const SizedBox(height: 60),
               ],
@@ -574,444 +369,5 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
       trailing: Icon(isExpanded ? Icons.keyboard_arrow_down_rounded : Icons.chevron_right_rounded, color: const Color(0xFFD1D5DB), size: 18),
     );
   }
-
-  Widget _buildExpandableRefinedTile({
-    String? imageUrl,
-    Widget? customIcon,
-    required String title,
-    required String subtitle,
-    required String bonus,
-    required String description,
-    required VoidCallback onTap,
-  }) {
-    return Column(
-      children: [
-        _buildRefinedTile(
-          imageUrl: imageUrl,
-          customIcon: customIcon,
-          title: title,
-          subtitle: subtitle,
-          bonus: bonus,
-          isExpanded: true,
-          onTap: onTap,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(left: 60),
-                child: Text(
-                  description,
-                  style: const TextStyle(color: Color(0xFFBBBBBB), fontSize: 9, fontWeight: FontWeight.w400),
-                ),
-              ),
-              const SizedBox(height: 12),
-              GridView.count(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisCount: 3,
-                mainAxisSpacing: 8,
-                crossAxisSpacing: 8,
-                childAspectRatio: 1.25,
-                children: [
-                  _buildPackageItem("262", "USD 5.99", method: "Stripe"),
-                  _buildPackageItem("890", "USD 19.99", bonus: "+5", isBigDeal: true, method: "Stripe"),
-                  _buildPackageItem("2,255", "USD 49.99", bonus: "+5", method: "Stripe"),
-                  _buildPackageItem("4,562", "USD 99.99", bonus: "+5", method: "Stripe"),
-                  _buildPackageItem("9,205", "USD 199.99", bonus: "+5", method: "Stripe"),
-                  _buildCustomAmountItem(),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildPackageItem(String amount, String price, {String? bonus, bool isBigDeal = false, String method = "Default", VoidCallback? onTap}) {
-    return GestureDetector(
-      onTap: onTap ?? () {},
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF9FAFB),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFEEEEEE)),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      if (_activeTab == "Diamonds")
-                        const PremiumDiamond(size: 11)
-                      else
-                        const PremiumBean(size: 11),
-                      Text(" $amount", style: const TextStyle(color: Color(0xFF333333), fontWeight: FontWeight.w900, fontSize: 12)),
-                      if (bonus != null) Text(bonus, style: const TextStyle(color: Color(0xFFFFD700), fontSize: 9, fontWeight: FontWeight.w900)),
-                    ],
-                  ),
-                  Text(price, style: const TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-            if (isBigDeal)
-              Positioned(
-                top: 0,
-                left: 0,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: const BoxDecoration(color: Color(0xFFEF4444), borderRadius: BorderRadius.only(topLeft: Radius.circular(16), bottomRight: Radius.circular(8))),
-                  child: const Text("BIG DEAL", style: TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w900)),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showSuccessDialog(int amount) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.check_circle_outline_rounded, color: Colors.green, size: 64),
-            const SizedBox(height: 16),
-            const Text(
-              "Purchase Successful!",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "◈ $amount Diamonds have been added to your account.",
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text("Awesome!", style: TextStyle(color: Colors.white)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCustomAmountItem() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFFEF2F2),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFFCA5A5).withOpacity(0.1)),
-      ),
-      child: const Center(
-        child: Text("Enter\nAmount", textAlign: TextAlign.center, style: TextStyle(color: Color(0xFFEF4444), fontSize: 10, fontWeight: FontWeight.w900)),
-      ),
-    );
-  }
 }
 
-class _WalletTopUpSheet extends ConsumerStatefulWidget {
-  final UserModel user;
-  const _WalletTopUpSheet({super.key, required this.user});
-
-  @override
-  ConsumerState<_WalletTopUpSheet> createState() => _WalletTopUpSheetState();
-}
-
-class _WalletTopUpSheetState extends ConsumerState<_WalletTopUpSheet> {
-  double _selectedAmount = 20.0;
-  final List<double> _amountOptions = [10.0, 20.0, 50.0, 100.0, 200.0, 500.0];
-  String _paymentMethod = "VISA/Master";
-  bool _isProcessing = false;
-  final TextEditingController _customAmountController = TextEditingController();
-
-  @override
-  void dispose() {
-    _customAmountController.dispose();
-    super.dispose();
-  }
-
-  void _handleTopUp() async {
-    double depositAmount = _selectedAmount;
-    if (_customAmountController.text.trim().isNotEmpty) {
-      final parsed = double.tryParse(_customAmountController.text.trim());
-      if (parsed == null || parsed <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid amount"), backgroundColor: Colors.redAccent));
-        return;
-      }
-      depositAmount = parsed;
-    }
-
-    // Recharge is not available via simulation.
-    // Production payment gateway integration is pending.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Row(
-          children: [
-            Icon(Icons.info_outline_rounded, color: Colors.white),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Payment gateway coming soon. Recharge is not available at this time.',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFF1A237E),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final transactionsAsync = ref.watch(transactionStreamProvider);
-
-    return Container(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 20,
-        right: 20,
-        top: 20,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(child: Container(width: 40, height: 4, decoration: const BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.all(Radius.circular(2))))),
-            const SizedBox(height: 20),
-            Row(
-              children: const [
-                Icon(Icons.account_balance_wallet_rounded, color: Color(0xFFF97316), size: 28),
-                SizedBox(width: 12),
-                Text("Wallet Top-Up", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              ],
-            ),
-            const SizedBox(height: 20),
-            
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 15, offset: const Offset(0, 8))
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("CURRENT BALANCE", style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
-                  const SizedBox(height: 8),
-                  Text(
-                    "\$${widget.user.walletBalance.toStringAsFixed(2)}",
-                    style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text("USER ID: ${widget.user.displayName}", style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 11, fontWeight: FontWeight.bold)),
-                      const Icon(Icons.stars, color: Colors.amberAccent, size: 16),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            
-            const SizedBox(height: 24),
-            const Text("SELECT DEPOSIT AMOUNT", style: TextStyle(color: Colors.black54, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
-            const SizedBox(height: 12),
-            
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 3,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: 1.6,
-              children: _amountOptions.map((amount) {
-                bool isSel = _selectedAmount == amount && _customAmountController.text.trim().isEmpty;
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      _selectedAmount = amount;
-                      _customAmountController.clear();
-                    });
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: isSel ? const Color(0xFFFFF7ED) : const Color(0xFFF9FAFB),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: isSel ? const Color(0xFFF97316) : const Color(0xFFEEEEEE), width: isSel ? 2 : 1),
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(
-                      "\$${amount.toInt()}",
-                      style: TextStyle(color: isSel ? const Color(0xFFF97316) : const Color(0xFF333333), fontWeight: FontWeight.w900, fontSize: 16),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            
-            const SizedBox(height: 16),
-            TextField(
-              controller: _customAmountController,
-              decoration: InputDecoration(
-                labelText: "Or Enter Custom USD Amount",
-                prefixText: "\$ ",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              onChanged: (val) {
-                setState(() {});
-              },
-            ),
-            
-            const SizedBox(height: 24),
-            const Text("PAYMENT METHOD", style: TextStyle(color: Colors.black54, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _paymentMethod = "VISA/Master"),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: _paymentMethod == "VISA/Master" ? const Color(0xFFFFF7ED) : const Color(0xFFF9FAFB),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _paymentMethod == "VISA/Master" ? const Color(0xFFF97316) : const Color(0xFFEEEEEE), width: _paymentMethod == "VISA/Master" ? 2 : 1),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.credit_card, color: Colors.blueAccent, size: 16),
-                          SizedBox(width: 8),
-                          Text("Card", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () => setState(() => _paymentMethod = "Touch 'n Go"),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: _paymentMethod == "Touch 'n Go" ? const Color(0xFFFFF7ED) : const Color(0xFFF9FAFB),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: _paymentMethod == "Touch 'n Go" ? const Color(0xFFF97316) : const Color(0xFFEEEEEE), width: _paymentMethod == "Touch 'n Go" ? 2 : 1),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.account_balance_wallet_rounded, color: Colors.green, size: 16),
-                          SizedBox(width: 8),
-                          Text("Touch 'n Go", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 54,
-              child: ElevatedButton(
-                onPressed: _isProcessing ? null : _handleTopUp,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFF97316),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 4,
-                ),
-                child: _isProcessing
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text("TOP-UP NOW", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16, letterSpacing: 1)),
-              ),
-            ),
-            
-            const SizedBox(height: 30),
-            
-            const Text("TOP-UP HISTORY", style: TextStyle(color: Colors.black54, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1)),
-            const SizedBox(height: 10),
-            
-            transactionsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Center(child: Text("Error loading history: $err")),
-              data: (txs) {
-                final topUps = txs.where((t) => t.type == TransactionType.recharge && t.description.contains("Wallet Deposit")).toList();
-                if (topUps.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 20),
-                    child: Center(child: Text("No top-up records found.", style: TextStyle(color: Colors.grey, fontSize: 12))),
-                  );
-                }
-                return Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: topUps.length,
-                    itemBuilder: (context, index) {
-                      final tx = topUps[index];
-                      return ListTile(
-                        dense: true,
-                        contentPadding: EdgeInsets.zero,
-                        leading: const CircleAvatar(backgroundColor: Color(0xFFEFF6FF), child: Icon(Icons.arrow_downward, color: Colors.blue, size: 16)),
-                        title: Text(tx.description, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                        subtitle: Text(tx.timestamp.toLocal().toString().split('.').first, style: const TextStyle(fontSize: 11)),
-                        trailing: Text(
-                          "+\$${tx.amount.toDouble().toStringAsFixed(2)}",
-                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.w900, fontSize: 14),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 40),
-          ],
-        ),
-      ),
-    );
-  }
-}
