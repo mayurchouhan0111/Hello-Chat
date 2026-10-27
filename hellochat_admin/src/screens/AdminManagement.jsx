@@ -452,6 +452,11 @@ export const AdminManagement = () => {
                       </td>
                       <td className="py-4 px-6">
                         <span className="font-mono font-bold text-white text-sm">{helloId}</span>
+                        {adminUser.roleCode && (
+                          <div className="text-[11px] font-mono font-bold text-[#818CF8] mt-0.5">
+                            Code: #{adminUser.roleCode}
+                          </div>
+                        )}
                       </td>
                       <td className="py-4 px-6">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/[0.04] border border-white/[0.06] rounded-xl text-xs font-bold text-gray-300">

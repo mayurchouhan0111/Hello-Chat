@@ -5,7 +5,9 @@ const { defineString, defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
 
-admin.initializeApp();
+if (!admin.apps.length) {
+    admin.initializeApp();
+}
 
 
 const region = "us-central1";
@@ -11492,6 +11494,95 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
     return { success: true, action: action };
 });
 
+// ── Unique Role Codes (client spec §7) ────────────────────────────────────────
+// 4-digit superadmin / 5-digit admin / 6-digit agency, allocated from one
+// monotonic counter (counters/role_codes) so concurrent grants never collide.
+// Capacity: 9,000 superadmin / 90,000 admin / 900,000 agency codes; the
+// allocator throws resource-exhausted when a space runs out (spec §7).
+const ROLE_CODE_SPECS = {
+    superadmin: { len: 4, min: 1000 },
+    admin: { len: 5, min: 10000 },
+    agency: { len: 6, min: 100000 },
+};
+
+/** Well-formed code for `role`: all digits, exact length. */
+function isValidRoleCode(code, role) {
+    const spec = ROLE_CODE_SPECS[role];
+    return !!spec && typeof code === "string" && code.length === spec.len && /^\d+$/.test(code);
+}
+
+/** Keep an existing code only if it already fits `role`; else null (allocate). */
+function reusableRoleCode(existingCode, role) {
+    return isValidRoleCode(existingCode, role) ? existingCode : null;
+}
+
+/**
+ * Next code for `role` inside an OPEN transaction. Must run before any
+ * transaction writes (Firestore reads-before-writes rule). The counter only
+ * increments - a code is never reissued to another account (spec §7).
+ */
+async function allocateRoleCodeTx(transaction, role) {
+    const spec = ROLE_CODE_SPECS[role];
+    if (!spec) throw new HttpsError("internal", `No code spec for role "${role}".`);
+    const counterRef = db.collection("counters").doc("role_codes");
+    const snap = await transaction.get(counterRef);
+    const stored = snap.exists ? Number(snap.data()[role]) : NaN;
+    const next = Number.isFinite(stored) && stored >= spec.min ? stored : spec.min;
+    const code = String(next);
+    if (code.length !== spec.len) {
+        throw new HttpsError("resource-exhausted",
+            `${role} ${spec.len}-digit code space exhausted. Report capacity limit before issuing more ${role} codes.`);
+    }
+    transaction.set(counterRef, { [role]: next + 1 }, { merge: true });
+    return code;
+}
+
+/** Spec §8: assert `uid` exists and resolves to `tier`. Returns the user data. */
+async function assertUserTier(uid, tier, label) {
+    const snap = await db.collection("users").doc(uid).get();
+    if (!snap.exists) throw new HttpsError("failed-precondition", `${label} user "${uid}" not found.`);
+    if (normalizeTier(snap.data()) !== tier) {
+        throw new HttpsError("failed-precondition", `${label} "${uid}" is not a ${tier}.`);
+    }
+    return snap.data();
+}
+
+/**
+ * Spec §8 hierarchy validation, run after `updates` is fully built for
+ * assignHierarchyRole: every role carries its required parent links and each
+ * parent exists at the right tier. Staff paths derive the ids above; the Owner
+ * path must pass them explicitly (panel collects them).
+ */
+async function assertHierarchyParents(newRole, updates) {
+    if (newRole === "superadmin") {
+        if (!updates.branchId) {
+            throw new HttpsError("failed-precondition",
+                "Super Admin requires a branchId. Use Provision Branch, or pass targetBranchId.");
+        }
+    } else if (newRole === "admin") {
+        if (!updates.superAdminId || !updates.branchId) {
+            throw new HttpsError("failed-precondition",
+                "Admin requires a valid superAdminId and branchId. Pass targetSuperAdminId and targetBranchId.");
+        }
+        await assertUserTier(updates.superAdminId, "superadmin", "Super Admin");
+    } else if (newRole === "agency") {
+        if (!updates.adminId) {
+            throw new HttpsError("failed-precondition",
+                "Agency requires a valid adminId. Pass targetAdminId.");
+        }
+        const adminData = await assertUserTier(updates.adminId, "admin", "Admin");
+        if (updates.branchId && adminData.branchId && adminData.branchId !== updates.branchId) {
+            throw new HttpsError("failed-precondition", "Agency's Admin belongs to a different branch.");
+        }
+    } else if (newRole === "host") {
+        if (!updates.agencyId) {
+            throw new HttpsError("failed-precondition",
+                "Host requires a valid agencyId. Pass targetAgencyId.");
+        }
+        await assertUserTier(updates.agencyId, "agency", "Agency");
+    }
+}
+
 /**
  * 7. Owner: Provision Isolated Super Admin Branch
  */
@@ -11513,11 +11604,15 @@ exports.provisionBranch = functions.https.onCall(async (data, context) => {
 
     const saDoc = await db.collection("users").doc(superAdminUid).get();
     if (!saDoc.exists) throw new functions.https.HttpsError("not-found", "Target Super Admin user not found.");
+    const saData = saDoc.data();
 
     const branchRef = db.collection("branches").doc();
     const now = admin.firestore.FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
+        const saCode = reusableRoleCode(saData.roleCode, "superadmin") ||
+            await allocateRoleCodeTx(transaction, "superadmin");
+
         transaction.set(branchRef, {
             id: branchRef.id,
             name: branchName,
@@ -11531,6 +11626,7 @@ exports.provisionBranch = functions.https.onCall(async (data, context) => {
             role: "superadmin",
             branchId: branchRef.id,
             superAdminId: superAdminUid,
+            roleCode: saCode,
             roleUpdatedAt: now
         });
 
@@ -11632,29 +11728,22 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         if (targetAdminId !== undefined) updates.adminId = targetAdminId;
         if (targetAgencyId !== undefined) updates.agencyId = targetAgencyId;
     } else if (callerRole === "superadmin") {
-        if (newRole !== "admin" && newRole !== "agency" && newRole !== "host") {
-            throw new functions.https.HttpsError("permission-denied", "Super Admins can only assign Admin, Agency, or Host roles.");
+        // Spec §2.4/§11: a Super Admin creates and manages Admins only.
+        if (newRole !== "admin") {
+            throw new functions.https.HttpsError("permission-denied", "Super Admins can only assign Admin roles.");
         }
         updates.branchId = cData.branchId || `branch_${callerUid}`;
         updates.superAdminId = callerUid;
-        if (newRole === "agency") {
-            updates.isAgencyOwner = true;
-            updates.tags = admin.firestore.FieldValue.arrayUnion("Agency");
-        } else if (newRole === "admin") {
-            updates.tags = admin.firestore.FieldValue.arrayUnion("Admin");
-        } else if (newRole === "host") {
-            updates.tags = admin.firestore.FieldValue.arrayRemove("Admin", "Agency");
-        }
+        updates.tags = admin.firestore.FieldValue.arrayUnion("Admin");
     } else if (callerRole === "admin") {
-        if (newRole !== "agency" && newRole !== "host") {
-            throw new functions.https.HttpsError("permission-denied", "Admins can only assign Agency or Host roles.");
+        // Spec §11/§5.8: Admins assign Agencies; Hosts are recruited by Agencies.
+        if (newRole !== "agency") {
+            throw new functions.https.HttpsError("permission-denied", "Admins can only assign Agency roles.");
         }
         updates.branchId = cData.branchId || null;
         updates.superAdminId = cData.superAdminId || null;
         updates.adminId = callerUid;
-        if (newRole === "agency") {
-            updates.isAgencyOwner = true;
-        }
+        updates.isAgencyOwner = true;
     } else if (callerRole === "agency" || cData.isAgencyOwner) {
         if (newRole !== "host") {
             throw new functions.https.HttpsError("permission-denied", "Agencies can only recruit Hosts.");
@@ -11667,7 +11756,19 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("permission-denied", "Insufficient permissions for role assignment.");
     }
 
+    // Spec §8: parents must exist at the right tier before anything is written.
+    await assertHierarchyParents(newRole, updates);
+
+    // Spec §7: keep a valid existing code for this role, otherwise allocate.
+    if (ROLE_CODE_SPECS[newRole]) {
+        const existing = reusableRoleCode(tData.roleCode, newRole);
+        if (existing) updates.roleCode = existing;
+    }
+
     await db.runTransaction(async (transaction) => {
+        if (ROLE_CODE_SPECS[newRole] && !updates.roleCode) {
+            updates.roleCode = await allocateRoleCodeTx(transaction, newRole);
+        }
         transaction.update(targetUserRef, updates);
 
         const auditRef = db.collection("audit_logs").doc();
@@ -11747,6 +11848,18 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("failed-precondition", "Caller is not assigned to any active branch.");
     }
 
+    // Spec §8.1: an Admin's superAdminId must point at a real Super Admin.
+    // Super Admin callers are their own link; Owner callers inherit the
+    // branch's governing Super Admin (appointAdmin is the shared entry point).
+    let superAdminUid = callerUid;
+    if (callerTier === "owner") {
+        const branchSnap = await db.collection("branches").doc(callerBranchId).get();
+        if (!branchSnap.exists || !branchSnap.data().superAdminUid) {
+            throw new functions.https.HttpsError("failed-precondition", `Branch "${callerBranchId}" has no governing Super Admin.`);
+        }
+        superAdminUid = branchSnap.data().superAdminUid;
+    }
+
     const { targetIdentifier, allowAgencyOverride, overrideReason } = data || {};
     if (!targetIdentifier) {
         throw new functions.https.HttpsError("invalid-argument", "targetIdentifier (Hello ID or UID) is required.");
@@ -11771,7 +11884,7 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
 
     // Idempotency: if already Admin in caller's branch, return success immediately
     if (targetTier === "admin" && tData.branchId === callerBranchId) {
-        return { success: true, alreadyAdmin: true, targetUid, branchId: callerBranchId };
+        return { success: true, alreadyAdmin: true, targetUid, branchId: callerBranchId, roleCode: tData.roleCode || null };
     }
 
     // Agency Owner conflict guard: refuse by default
@@ -11788,17 +11901,21 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
     const targetUserRef = db.collection("users").doc(targetUid);
     const previousRole = tData.role || "host";
     const previousTags = Array.isArray(tData.tags) ? [...tData.tags] : [];
+    let adminCode = reusableRoleCode(tData.roleCode, "admin");
 
     await db.runTransaction(async (transaction) => {
+        if (!adminCode) adminCode = await allocateRoleCodeTx(transaction, "admin");
+
         transaction.update(targetUserRef, {
             role: "admin",
             tags: admin.firestore.FieldValue.arrayUnion("Admin"),
             branchId: callerBranchId,
-            superAdminId: callerUid,
+            superAdminId: superAdminUid,
+            roleCode: adminCode,
             appointedBy: callerUid,
             appointedAt: now,
             previousRole: tData.previousRole || previousRole,
-            previousTags: tData.previousTags || previousTags,
+            previousTags: tData.previousRole ? tData.previousTags : previousTags,
             roleUpdatedAt: now
         });
 
@@ -11826,7 +11943,7 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
     }).catch(err => console.warn(`[appointAdmin] Custom claims update warning:`, err.message));
 
     console.log(`[HB_PMS] Admin appointed: ${targetUid} by ${callerUid} in branch ${callerBranchId}`);
-    return { success: true, targetUid, branchId: callerBranchId, role: "admin" };
+    return { success: true, targetUid, branchId: callerBranchId, role: "admin", roleCode: adminCode };
 });
 
 /**
@@ -11877,6 +11994,7 @@ exports.listBranchAdmins = functions.https.onCall(async (data, context) => {
             displayId: d.displayId || null,
             role: d.role,
             tags: d.tags || [],
+            roleCode: d.roleCode || null,
             branchId: d.branchId,
             superAdminId: d.superAdminId || null,
             appointedBy: d.appointedBy || null,
@@ -11924,6 +12042,7 @@ exports.getBranchAdmin = functions.https.onCall(async (data, context) => {
             displayId: d.displayId || null,
             role: d.role,
             tags: d.tags || [],
+            roleCode: d.roleCode || null,
             branchId: d.branchId,
             superAdminId: d.superAdminId || null,
             appointedBy: d.appointedBy || null,
@@ -12074,9 +12193,12 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
 
     const now = admin.firestore.FieldValue.serverTimestamp();
     const newTargetRef = db.collection("users").doc(newTargetUid);
+    let newAdminCode = reusableRoleCode(nData.roleCode, "admin");
 
     await db.runTransaction(async (transaction) => {
-        // 1. Demote old admin
+        if (!newAdminCode) newAdminCode = await allocateRoleCodeTx(transaction, "admin");
+
+        // 1. Demote old admin (roleCode stays linked to the account - spec §8)
         transaction.update(oldAdminRef, {
             role: oldRestoredRole,
             tags: oldRestoredTags,
@@ -12090,12 +12212,15 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
             roleUpdatedAt: now
         });
 
-        // 2. Promote new admin
+        // 2. Promote new admin into the OLD admin's branch slot (spec §8:
+        //    the replacement inherits branchId/superAdminId, so an Owner
+        //    caller never writes a null branch onto the new admin)
         transaction.update(newTargetRef, {
             role: "admin",
             tags: admin.firestore.FieldValue.arrayUnion("Admin"),
-            branchId: branchId,
-            superAdminId: callerUid,
+            branchId: oldData.branchId || branchId,
+            superAdminId: oldData.superAdminId || callerUid,
+            roleCode: newAdminCode,
             appointedBy: callerUid,
             appointedAt: now,
             previousRole: nData.previousRole || newPreviousRole,
@@ -12127,15 +12252,16 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
     await admin.auth().setCustomUserClaims(oldAdminUid, {}).catch(() => null);
     await admin.auth().revokeRefreshTokens(oldAdminUid).catch(() => null);
 
-    // Set new admin claims
+    // Set new admin claims (same inherited branch slot as the doc write)
+    const effectiveBranchId = oldData.branchId || branchId;
     await admin.auth().setCustomUserClaims(newTargetUid, {
         role: "admin",
         admin: true,
-        branchId: branchId
+        branchId: effectiveBranchId
     }).catch(() => null);
 
     console.log(`[HB_PMS] Admin replacement complete: ${oldAdminUid} -> ${newTargetUid} by ${callerUid}`);
-    return { success: true, oldAdminUid, newAdminUid: newTargetUid, branchId };
+    return { success: true, oldAdminUid, newAdminUid: newTargetUid, branchId: effectiveBranchId, roleCode: newAdminCode };
 });
 
 
@@ -12511,6 +12637,10 @@ exports.listAgencies = functions.https.onCall(async (payload, context) => {
             ownerUid: d.ownerUid || "",
             ownerName: d.ownerName || "",
             ownerHelloId: d.ownerHelloId || null,
+            code: d.code || null,
+            adminId: d.adminId || null,
+            branchId: d.branchId || null,
+            superAdminId: d.superAdminId || null,
             logoUrl: d.logoUrl || "",
             description: d.description || "",
             contactPhone: d.contactPhone || "",
@@ -12575,6 +12705,10 @@ exports.getAgency = functions.https.onCall(async (payload, context) => {
             ownerUid: d.ownerUid || "",
             ownerName: d.ownerName || "",
             ownerHelloId: d.ownerHelloId || null,
+            code: d.code || null,
+            adminId: d.adminId || null,
+            branchId: d.branchId || null,
+            superAdminId: d.superAdminId || null,
             logoUrl: d.logoUrl || "",
             description: d.description || "",
             contactPhone: d.contactPhone || "",
@@ -12619,8 +12753,37 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
     const ownerData = ownerDoc.data();
 
     // Safety invariant: never lower a user's role. Refuse targets with role owner, superadmin, or admin.
-    if (["owner", "superadmin", "admin"].includes(ownerData.role)) {
-        throw new HttpsError("failed-precondition", `Cannot appoint user with role "${ownerData.role}" as agency owner. Administrative staff roles cannot be downgraded.`);
+    if (["owner", "superadmin", "admin"].includes(normalizeTier(ownerData))) {
+        throw new HttpsError("failed-precondition", `Cannot appoint user with tier "${normalizeTier(ownerData)}" as agency owner. Administrative staff roles cannot be downgraded.`);
+    }
+
+    // Spec §4/§8: every Agency binds to a valid Admin + branch. Admin callers
+    // are the binding; Super Admin / Owner callers must name the Admin.
+    let adminId, branchId, superAdminId;
+    if (caller.role === "admin") {
+        adminId = uid;
+        branchId = caller.branchId;
+        superAdminId = caller.data.superAdminId || null;
+    } else {
+        const adminIdentifier = request.data.adminId;
+        if (!adminIdentifier) {
+            throw new HttpsError("failed-precondition",
+                "An Agency must be assigned to a valid Admin. Pass adminId (Admin UID or Hello ID).");
+        }
+        const adminDoc = await resolveUserDoc(adminIdentifier);
+        if (!adminDoc || !adminDoc.exists) {
+            throw new HttpsError("not-found", `Admin "${adminIdentifier}" not found.`);
+        }
+        const adminData = adminDoc.data();
+        if (normalizeTier(adminData) !== "admin") {
+            throw new HttpsError("failed-precondition", `User "${adminIdentifier}" is not an Admin.`);
+        }
+        if (caller.role === "superadmin" && adminData.branchId !== caller.branchId) {
+            throw new HttpsError("permission-denied", "That Admin belongs to a different branch.");
+        }
+        adminId = adminDoc.id;
+        branchId = adminData.branchId || null;
+        superAdminId = adminData.superAdminId || null;
     }
 
     // Check if this user is already an agency owner
@@ -12634,14 +12797,21 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
     const now = admin.firestore.FieldValue.serverTimestamp();
     const rate = Number(commissionRate);
     const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : 0.1;
+    let agencyCode = reusableRoleCode(ownerData.roleCode, "agency");
 
     await db.runTransaction(async (transaction) => {
+        if (!agencyCode) agencyCode = await allocateRoleCodeTx(transaction, "agency");
+
         transaction.set(agencyRef, {
             id: agencyId,
             name: String(name).trim(),
             ownerUid: ownerUid,
             ownerName: ownerData.displayName || "User",
             ownerHelloId: ownerData.helloId || null,
+            code: agencyCode,
+            adminId: adminId,
+            branchId: branchId || null,
+            superAdminId: superAdminId || null,
             description: String(description || "").trim(),
             contactPhone: String(contactPhone || "").trim(),
             country: String(country || "").trim(),
@@ -12662,6 +12832,10 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
             previousRole: ownerData.role || "user",
             isAgencyOwner: true,
             agencyId: agencyId,
+            roleCode: agencyCode,
+            adminId: adminId,
+            branchId: branchId || null,
+            superAdminId: superAdminId || null,
             tags: admin.firestore.FieldValue.arrayUnion("Agency"),
             roleUpdatedAt: now
         });
@@ -12673,12 +12847,12 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
             actorRole: caller.role,
             action: "CREATE_AGENCY",
             targetId: agencyId,
-            details: { name, ownerUid, ownerName: ownerData.displayName, commissionRate: finalCommission },
+            details: { name, ownerUid, ownerName: ownerData.displayName, commissionRate: finalCommission, adminId, roleCode: agencyCode },
             timestamp: now
         });
     });
 
-    return { success: true, agencyId, name, ownerUid };
+    return { success: true, agencyId, name, ownerUid, adminId, roleCode: agencyCode };
 });
 
 /**

@@ -517,6 +517,11 @@ export const AgencyManagement = () => {
                           <p className="text-[11px] text-slate-500 font-mono">
                             Hello ID: {agency.ownerHelloId || 'N/A'}
                           </p>
+                          {agency.code && (
+                            <p className="text-[11px] text-amber-400 font-mono font-bold mt-0.5">
+                              Agency Code: #{agency.code}
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -564,6 +569,11 @@ export const AgencyManagement = () => {
                     }`}>
                       {selectedAgency.isActive !== false ? 'Active' : 'Suspended'}
                     </span>
+                    {selectedAgency.code && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        Code: #{selectedAgency.code}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
                     Owner: <span className="text-white font-bold">{selectedAgency.ownerName || 'Unknown'}</span> · Hello ID: <span className="font-mono text-indigo-400 font-bold">{selectedAgency.ownerHelloId || 'N/A'}</span> · UID: <span className="font-mono text-slate-500 text-[10px]">{selectedAgency.ownerUid}</span>
@@ -743,7 +753,7 @@ export const AgencyManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
-                      Commission Rate (%)
+                      Commission Rate (%) <span className="text-amber-400 text-[10px] lowercase font-normal">(display only, not used for payouts)</span>
                     </label>
                     <div className="relative">
                       <input
@@ -758,6 +768,9 @@ export const AgencyManagement = () => {
                       />
                       <Percent size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" />
                     </div>
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      * Informational only. Recharge commission uses global system policy.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
@@ -866,7 +879,7 @@ export const AgencyManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
-                      Commission Rate (%)
+                      Commission Rate (%) <span className="text-amber-400 text-[10px] lowercase font-normal">(display only, not used for payouts)</span>
                     </label>
                     <div className="relative">
                       <input
@@ -880,6 +893,9 @@ export const AgencyManagement = () => {
                       />
                       <Percent size={14} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500" />
                     </div>
+                    <p className="text-[9px] text-slate-500 mt-1">
+                      * Informational only. Payout calculations use system-wide financial policies.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">

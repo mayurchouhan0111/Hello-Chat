@@ -361,13 +361,13 @@ service cloud.firestore {
       allow create: if request.auth != null &&
         request.auth.uid == request.resource.data.ownerUid &&
         !request.resource.data.diff({}).affectedKeys().hasAny([
-          'beansBalance', 'totalBeansEarned'
+          'beansBalance', 'totalBeansEarned', 'code', 'adminId', 'branchId', 'superAdminId'
         ]);
       allow update, delete: if request.auth != null && (
         isOwner() || request.auth.uid == resource.data.ownerUid
       ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'beansBalance', 'totalBeansEarned'
-      ]);
+          'beansBalance', 'totalBeansEarned', 'code', 'adminId', 'branchId', 'superAdminId'
+        ]);
     }
 
     // Legacy bean-withdrawal queue (distinct from commission_withdrawals below).
@@ -744,7 +744,7 @@ service cloud.firestore {
         // Privilege / hierarchy
         'tags', 'role', 'isReseller', 'isAgencyOwner', 'isFamilyOwner', 'isVerified',
         'branchId', 'superAdminId', 'adminId', 'agencyId',
-        'appointedBy', 'appointedAt', 'previousRole', 'previousTags',
+        'appointedBy', 'appointedAt', 'previousRole', 'previousTags', 'roleCode',
         // Platform currencies
         'diamondBalance', 'diamondStock', 'beansBalance', 'walletBalance',
         // HB-PMS USD commission wallets

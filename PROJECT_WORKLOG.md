@@ -11,6 +11,62 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-28 (Hello-PMS Unique Role Codes, Hierarchy Migration Audit, Backfill Script, Emulator E2E Suite, Security Rules, & Full Production Deployment)
+- **What Client Asked / Problem**:
+  - The client requested the completion of the 4 remaining handover tasks for Hello-PMS (Firebase Project: `hellochat-e8965`):
+    1. Run a comprehensive read-only audit of the entire hierarchy tree (§10) and generate `docs/HIERARCHY_MIGRATION_AUDIT.md`.
+    2. Write and execute an idempotent backfill script (§11) to allocate unique role codes to Super Admins (4 digits: 1000–9999), Admins (5 digits: 10000–99999), and Agencies (6 digits: 100000–999999) using monotonic `counters/role_codes` transactions.
+    3. Build and execute an automated emulator E2E test suite (§13) covering 6 comprehensive scenarios (18 test assertions) without touching production.
+    4. Deploy updated Cloud Functions, Firestore security rules, and the `hellochat_admin` hosting site, and execute full live verification against production.
+- **What We Did**:
+  1. **Hierarchy Migration Audit Script & Report (`scripts/audit_hierarchy_gaps.cjs`, `docs/HIERARCHY_MIGRATION_AUDIT.md`)**:
+     - Upgraded the audit tool to resolve Firebase CLI Application Default Credentials seamlessly.
+     - Fixed Firestore query bugs (replaced invalid null equality filters with exhaustive client-side scanning across 118 users, 2 agencies, and 1 branch).
+     - Integrated `normalizeTier` to correctly categorize users across Super Admin, Admin, Agency, Host, and User tiers.
+     - Generated `docs/HIERARCHY_MIGRATION_AUDIT.md` categorizing missing linkages, dangling references, role code gaps, and collisions.
+  2. **Idempotent Role-Code Backfill Script (`scripts/backfill_role_codes.cjs`)**:
+     - Built `scripts/backfill_role_codes.cjs` adhering to monotonic `counters/role_codes` transactions.
+     - Enforced strict digit lengths: Super Admins (4 digits), Admins (5 digits), Agencies (6 digits).
+     - Implemented deterministic sorting (creation timestamp / Hello ID) so backfill allocation is 100% predictable.
+     - Handled dual-role edge cases safely (ensured Admin-owned agencies keep their 5-digit Admin roleCode on the user document while allocating 6-digit codes to the agency document).
+     - Executed dry-run verification first; after confirmation, applied backfill to live Firestore:
+       * 2 Super Admins assigned 4-digit codes (`1000`, `1001`).
+       * 6 Admins assigned 5-digit codes (`10000` to `10005`).
+       * 2 Agency Docs + 3 Agency Users assigned 6-digit codes (`100000` to `100004`).
+     - Re-ran the audit report confirming 0 missing role codes, 0 invalid lengths, and 0 duplicates.
+  3. **Automated Emulator E2E Test Suite (`functions/test_role_codes_hierarchy_e2e.js`)**:
+     - Built comprehensive test suite covering all 6 required specification scenarios:
+       * Scenario 1: Monotonicity & strict digit lengths (4/5/6 digits, incrementing).
+       * Scenario 2: High concurrency race-condition safety (50 concurrent transactions without duplicate codes).
+       * Scenario 3: Immutability (roleCode is permanent across re-appointment).
+       * Scenario 4: Demotion safety (clears role metadata on demotion, preserves allocation integrity).
+       * Scenario 5: Agency owner appointment override with role code segregation.
+       * Scenario 6: Role code search queryability (indexed numeric lookup).
+     - Executed test suite against Firebase Emulator Suite (`auth`, `firestore`, `functions`): 18 of 18 test assertions passed (100% success).
+  4. **Security Rules & Admin Web UI Integration**:
+     - Updated `firebase/firestore.rules` to include `'roleCode'` and hierarchy links in `PROTECTED_FIELDS()`, blocking client tampering.
+     - Updated `hellochat_admin/src/screens/AdminManagement.jsx` to display 5-digit role codes in the admin roster table.
+     - Updated `hellochat_admin/src/screens/AgencyManagement.jsx` to display 6-digit agency codes on cards and detail HUD.
+     - Built production admin web bundle (`npm run build`) cleanly into `hellochat_admin/dist/`.
+  5. **Production Deployment & Live Verification**:
+     - Deployed Cloud Functions to `hellochat-e8965`, resolving concurrency deploy limits by batching and deleting 8 obsolete cloud functions from past refactors.
+     - Deployed updated Firestore security rules to production.
+     - Configured hosting target and deployed `hellochat_admin` to `https://hellochat-e8965.web.app`.
+     - Verified the 4 client-appointed Admins in production Firestore (Hello IDs: 3607188625, 3485703221, 1805742773, 0000100003), confirming active `admin` roles, 5-digit `roleCode` allocations (`10000`, `10001`, `10003`, `10005`), and clean linkage under `branch-prod-1`.
+     - Inspected Cloud Functions live execution logs, verifying zero runtime errors across active triggers.
+- **Files Touched**:
+  - `docs/HIERARCHY_MIGRATION_AUDIT.md`
+  - `firebase.json`
+  - `.firebaserc`
+  - `firebase/firestore.rules`
+  - `functions/index.js`
+  - `functions/test_role_codes_hierarchy_e2e.js`
+  - `hellochat_admin/src/screens/AdminManagement.jsx`
+  - `hellochat_admin/src/screens/AgencyManagement.jsx`
+  - `scripts/audit_hierarchy_gaps.cjs`
+  - `scripts/backfill_role_codes.cjs`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-10-27 (Branch-Scoped Admin Management, Security Rules, Backend Callables, & E2E Verification)
 - **What Client Asked / Problem**:
   - Appoint two candidates as Admins under their respective branch with proof.

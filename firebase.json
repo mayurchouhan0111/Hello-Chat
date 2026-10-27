@@ -15,6 +15,7 @@
     }
   ],
   "hosting": {
+    "target": "hellochat_admin",
     "public": "hellochat_admin/dist",
     "ignore": [
       "firebase.json",
