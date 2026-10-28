@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/models/participant_model.dart';
+import 'package:hello_chat/core/models/room_model.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/seat_grid.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('🏷️ Task 3: Admin Seat Label Badge Tests', () {
-    testWidgets('OccupiedSeatWidget displays Admin label for room admins', (WidgetTester tester) async {
+    testWidgets('OccupiedSeatWidget displays Admin label for room admins',
+        (WidgetTester tester) async {
       final adminParticipant = Participant(
         uid: 'admin_user_99',
         displayName: 'Room Admin User',
@@ -82,15 +85,39 @@ void main() {
         totalWithdrawnUSD: 0,
       );
 
+      final testRoom = RoomModel(
+        roomId: 'test_room',
+        createdBy: 'owner_1',
+        ownerUid: 'owner_1',
+        name: 'Test Room',
+        theme: 'classic',
+        coverUrl: '',
+        isPrivate: false,
+        capacity: 10,
+        currentUsersCount: 1,
+        backgroundMusic: false,
+        createdAt: DateTime.now(),
+        status: 'active',
+        admins: ['admin_user_99'],
+        moderators: [],
+        bannedUids: [],
+      );
+
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
-            cachedUserProfileProvider('admin_user_99').overrideWith((ref) => Stream.value(dummyUser)),
+            cachedUserProfileProvider('admin_user_99')
+                .overrideWith((ref) => Stream.value(dummyUser)),
+            userProfileProvider('admin_user_99')
+                .overrideWith((ref) => Stream.value(dummyUser)),
+            currentRoomStreamProvider('test_room')
+                .overrideWith((ref) => Stream.value(testRoom)),
           ],
           child: MaterialApp(
             home: Scaffold(
               body: OccupiedSeatWidget(
                 participant: adminParticipant,
+                roomId: 'test_room',
                 index: 1,
                 radius: 24,
                 iconSize: 14,

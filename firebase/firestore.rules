@@ -366,12 +366,16 @@ service cloud.firestore {
       allow create: if request.auth != null &&
         request.auth.uid == request.resource.data.ownerUid &&
         !request.resource.data.diff({}).affectedKeys().hasAny([
-          'beansBalance', 'totalBeansEarned', 'code', 'adminId', 'branchId', 'superAdminId'
+          'beansBalance', 'totalBeansEarned', 'usdCommissionBalance', 'totalCommissionEarned',
+          'totalRechargeGenerated', 'pendingWithdrawalBalance', 'totalWithdrawnUSD',
+          'code', 'adminId', 'branchId', 'superAdminId'
         ]);
       allow update, delete: if request.auth != null && (
         isOwner() || request.auth.uid == resource.data.ownerUid
       ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-          'beansBalance', 'totalBeansEarned', 'code', 'adminId', 'branchId', 'superAdminId'
+          'beansBalance', 'totalBeansEarned', 'usdCommissionBalance', 'totalCommissionEarned',
+          'totalRechargeGenerated', 'pendingWithdrawalBalance', 'totalWithdrawnUSD',
+          'code', 'adminId', 'branchId', 'superAdminId'
         ]);
     }
 

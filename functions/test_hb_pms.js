@@ -16,6 +16,8 @@ const {
     DEFAULT_FINANCIAL_POLICIES,
     normalizeTier,
     round2,
+    commissionWalletTotal,
+    splitCommissionDebit,
     assertValidRates,
     canManageTier,
     hierarchyScope,
@@ -187,6 +189,33 @@ runTest("round2 kills sub-cent precision and float drift", () => {
     assert.strictEqual(round2(33.333333), 33.33);
     assert.strictEqual(round2(1.004999), 1, "must round down below the half-cent");
     assert.strictEqual(round2(1234.5678), 1234.57);
+});
+
+runTest("commission wallet aggregates legacy user + agency balances", () => {
+    assert.strictEqual(commissionWalletTotal(4.5, 5.5), 10);
+    assert.strictEqual(commissionWalletTotal(10, 0), 10);
+    assert.strictEqual(commissionWalletTotal(undefined, 3.25), 3.25);
+    assert.strictEqual(commissionWalletTotal(-5, 2), 2, "negative legacy values cannot reduce the wallet");
+    assert.strictEqual(commissionWalletTotal("bad", "2.10"), 2.1);
+});
+
+runTest("commission debit spends legacy user balance first, then agency", () => {
+    assert.deepStrictEqual(splitCommissionDebit(4.5, 5.5, 10), {
+        availableUSD: 10,
+        userDebitUSD: 4.5,
+        agencyDebitUSD: 5.5,
+    });
+    assert.deepStrictEqual(splitCommissionDebit(25, 5, 10), {
+        availableUSD: 30,
+        userDebitUSD: 10,
+        agencyDebitUSD: 0,
+    });
+    assert.deepStrictEqual(splitCommissionDebit(0, 5, 2.25), {
+        availableUSD: 5,
+        userDebitUSD: 0,
+        agencyDebitUSD: 2.25,
+    });
+    assert.throws(() => splitCommissionDebit(1, 1, 2.01), /Insufficient USD commission balance/);
 });
 
 runTest("a legitimate 0 rate is accepted (regression: || 0.30 turned 0 into 0.30)", () => {

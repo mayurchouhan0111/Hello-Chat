@@ -24,7 +24,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const CommissionWallet = () => {
-  const { userData: currentUser, role, isSuperAdmin } = useAdmin();
+  const { userData: currentUser, role, isSuperAdmin, agencyId } = useAdmin();
 
   // Balance & Profile State
   const [wallet, setWallet] = useState({
@@ -81,26 +81,58 @@ export const CommissionWallet = () => {
     );
   }
 
-  // 1. Real-time balance sync from user doc
+  // 1. Real-time balance sync: legacy users/{uid} balance + new agency document
+  //    balance. From the agency-document release onward, recharge commission
+  //    lands on agencies/{agencyId}; old balances stay on the user doc.
   useEffect(() => {
     if (!currentUser?.uid) return;
-    const unsub = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        setWallet({
-          usdCommissionBalance: Number(data.usdCommissionBalance || 0),
-          totalCommissionEarned: Number(data.totalCommissionEarned || 0),
-          totalRechargeGenerated: Number(data.totalRechargeGenerated || 0),
-          pendingWithdrawalBalance: Number(data.pendingWithdrawalBalance || 0),
-          totalWithdrawnUSD: Number(data.totalWithdrawnUSD || 0),
-          diamondBalance: Number(data.diamondBalance || 0),
-        });
-      }
+    const walletAgencyId = agencyId || currentUser.agencyId || null;
+    let userWallet = null;
+    let agencyWallet = null;
+    const number = (value) => {
+      const n = Number(value);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    };
+    const apply = () => {
+      if (!userWallet) return;
+      setWallet({
+        usdCommissionBalance: number(userWallet.usdCommissionBalance) + number(agencyWallet?.usdCommissionBalance),
+        totalCommissionEarned: number(userWallet.totalCommissionEarned) + number(agencyWallet?.totalCommissionEarned),
+        totalRechargeGenerated: number(userWallet.totalRechargeGenerated) + number(agencyWallet?.totalRechargeGenerated),
+        pendingWithdrawalBalance: number(userWallet.pendingWithdrawalBalance) + number(agencyWallet?.pendingWithdrawalBalance),
+        totalWithdrawnUSD: number(userWallet.totalWithdrawnUSD) + number(agencyWallet?.totalWithdrawnUSD),
+        diamondBalance: number(userWallet.diamondBalance),
+      });
       setLoading(false);
+    };
+
+    const unsubUser = onSnapshot(doc(db, 'users', currentUser.uid), (snap) => {
+      if (snap.exists()) {
+        userWallet = snap.data();
+        apply();
+      }
     });
 
-    return () => unsub();
-  }, [currentUser?.uid]);
+    let unsubAgency = () => {};
+    if (walletAgencyId) {
+      unsubAgency = onSnapshot(
+        doc(db, 'agencies', walletAgencyId),
+        (snap) => {
+          agencyWallet = snap.exists() ? snap.data() : null;
+          apply();
+        },
+        (err) => {
+          console.warn('Agency wallet read denied:', err);
+          apply();
+        }
+      );
+    }
+
+    return () => {
+      unsubUser();
+      unsubAgency();
+    };
+  }, [currentUser?.uid, currentUser?.agencyId, agencyId]);
 
   // 2. Fetch Owner Policies
   useEffect(() => {

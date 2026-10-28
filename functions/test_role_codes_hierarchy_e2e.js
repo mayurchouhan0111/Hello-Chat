@@ -831,6 +831,165 @@ async function main() {
         assert.strictEqual(ledgerSnap.data().recipientUid, agencyOwnerUid, "Ledger keeps the owner UID for wallet history");
     });
 
+    await runTest("7.9 Withdrawal/convert debit both wallet sources and review restores them", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const walletOwnerUid = `wallet_owner_${ts}`;
+        const userRef = db.collection("users").doc(walletOwnerUid);
+
+        await agencyRef.set({
+            id: agencyRef.id,
+            name: "Wallet Source Agency",
+            ownerUid: walletOwnerUid,
+            adminId: appointedAdminUid,
+            isActive: true,
+            status: "active",
+            usdCommissionBalance: 10,
+            pendingWithdrawalBalance: 0,
+            totalWithdrawnUSD: 0,
+        });
+        await userRef.set({
+            displayName: "Wallet Owner",
+            role: "agency",
+            agencyId: agencyRef.id,
+            usdCommissionBalance: 5,
+            pendingWithdrawalBalance: 0,
+            totalWithdrawnUSD: 0,
+            diamondBalance: 0,
+        });
+
+        const submitted = await runCall(functionsModule.submitCommissionWithdrawal, {
+            usdAmount: 12,
+            paymentMethod: "bKash",
+            paymentAccountDetails: "01700000000",
+        }, { uid: walletOwnerUid });
+        assert.ok(submitted.success, "Withdrawal submit must succeed");
+
+        const requestSnap = await db.collection("commission_withdrawals").doc(submitted.requestId).get();
+        assert.strictEqual(requestSnap.data().userDebitUSD, 5);
+        assert.strictEqual(requestSnap.data().agencyDebitUSD, 7);
+        assert.strictEqual((await userRef.get()).data().usdCommissionBalance, 0);
+        assert.strictEqual((await userRef.get()).data().pendingWithdrawalBalance, 5);
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 3);
+        assert.strictEqual((await agencyRef.get()).data().pendingWithdrawalBalance, 7);
+
+        await runCall(functionsModule.reviewCommissionWithdrawal, {
+            requestId: submitted.requestId,
+            action: "approve",
+        }, { uid: ownerUid });
+        await runCall(functionsModule.reviewCommissionWithdrawal, {
+            requestId: submitted.requestId,
+            action: "pay",
+        }, { uid: ownerUid });
+
+        assert.strictEqual((await userRef.get()).data().pendingWithdrawalBalance, 0);
+        assert.strictEqual((await userRef.get()).data().totalWithdrawnUSD, 5);
+        assert.strictEqual((await agencyRef.get()).data().pendingWithdrawalBalance, 0);
+        assert.strictEqual((await agencyRef.get()).data().totalWithdrawnUSD, 7);
+
+        await userRef.update({ usdCommissionBalance: 0, pendingWithdrawalBalance: 0 });
+        await agencyRef.update({ usdCommissionBalance: 12, pendingWithdrawalBalance: 0 });
+        const rejectedSubmit = await runCall(functionsModule.submitCommissionWithdrawal, {
+            usdAmount: 10,
+            paymentMethod: "bKash",
+            paymentAccountDetails: "01700000000",
+        }, { uid: walletOwnerUid });
+        await runCall(functionsModule.reviewCommissionWithdrawal, {
+            requestId: rejectedSubmit.requestId,
+            action: "reject",
+        }, { uid: ownerUid });
+        assert.strictEqual((await userRef.get()).data().usdCommissionBalance, 0);
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 12, "Reject must refund the agency source");
+
+        await userRef.update({ usdCommissionBalance: 2, diamondBalance: 0 });
+        await agencyRef.update({ usdCommissionBalance: 5 });
+        const converted = await runCall(functionsModule.convertCommissionToDiamonds, {
+            usdAmount: 6,
+        }, { uid: walletOwnerUid });
+        assert.strictEqual(converted.diamondsReceived, 6000000);
+        assert.strictEqual((await userRef.get()).data().usdCommissionBalance, 0);
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 1);
+        assert.strictEqual((await userRef.get()).data().diamondBalance, 6000000);
+    });
+
+    await runTest("7.10 Host cannot spend the linked agency wallet", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const hostWalletUid = `wallet_host_${ts}`;
+        const userRef = db.collection("users").doc(hostWalletUid);
+
+        await agencyRef.set({
+            name: "Host Roster Agency",
+            ownerUid: `wallet_host_owner_${ts}`,
+            usdCommissionBalance: 10,
+        });
+        await userRef.set({
+            displayName: "Wallet Host",
+            role: "host",
+            agencyId: agencyRef.id,
+            usdCommissionBalance: 1,
+            diamondBalance: 0,
+        });
+
+        await assert.rejects(
+            () => runCall(functionsModule.convertCommissionToDiamonds, { usdAmount: 2 }, { uid: hostWalletUid }),
+            /Insufficient USD commission balance/,
+            "Host must not see the agency wallet through its roster link"
+        );
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 10, "Agency balance must be untouched");
+
+        const legacyOnly = await runCall(functionsModule.convertCommissionToDiamonds, { usdAmount: 1 }, { uid: hostWalletUid });
+        assert.strictEqual(legacyOnly.diamondsReceived, 1000000);
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 10, "Host still spends only its own legacy balance");
+    });
+
+    await runTest("7.11 Admin who owns the linked agency can spend its wallet", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const adminWalletUid = `wallet_admin_${ts}`;
+        const userRef = db.collection("users").doc(adminWalletUid);
+
+        await agencyRef.set({
+            name: "Admin Owned Agency",
+            ownerUid: adminWalletUid,
+            usdCommissionBalance: 3,
+        });
+        await userRef.set({
+            displayName: "Wallet Admin",
+            role: "admin",
+            agencyId: agencyRef.id,
+            usdCommissionBalance: 0,
+            diamondBalance: 0,
+        });
+
+        const converted = await runCall(functionsModule.convertCommissionToDiamonds, { usdAmount: 1 }, { uid: adminWalletUid });
+        assert.strictEqual(converted.diamondsReceived, 1000000);
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 2);
+    });
+
+    await runTest("7.12 Agency staff cannot spend an agency wallet they do not own", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const staffUid = `wallet_staff_${ts}`;
+        const userRef = db.collection("users").doc(staffUid);
+
+        await agencyRef.set({
+            name: "Staffed Agency",
+            ownerUid: `wallet_staff_owner_${ts}`,
+            usdCommissionBalance: 5,
+        });
+        await userRef.set({
+            displayName: "Agency Staff",
+            role: "agency",
+            agencyId: agencyRef.id,
+            usdCommissionBalance: 1,
+            diamondBalance: 0,
+        });
+
+        await assert.rejects(
+            () => runCall(functionsModule.convertCommissionToDiamonds, { usdAmount: 2 }, { uid: staffUid }),
+            /Insufficient USD commission balance/,
+            "Agency tier alone must not grant access to another owner's wallet"
+        );
+        assert.strictEqual((await agencyRef.get()).data().usdCommissionBalance, 5);
+    });
+
     console.log("\n==================================================");
     console.log(`TOTAL TESTS: ${passedCount + failedCount} | PASSED: ${passedCount} | FAILED: ${failedCount}`);
     console.log("==================================================");

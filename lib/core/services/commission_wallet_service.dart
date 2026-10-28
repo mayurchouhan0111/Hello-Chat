@@ -8,7 +8,10 @@ class CommissionWalletService {
   /// Fetch active financial policies (Commission rates, USD-to-Diamond rate, Supported Gateways)
   Future<Map<String, dynamic>> getFinancialPolicies() async {
     try {
-      final doc = await _firestore.collection('system_configs').doc('financial_policies').get();
+      final doc = await _firestore
+          .collection('system_configs')
+          .doc('financial_policies')
+          .get();
       if (doc.exists && doc.data() != null) {
         return doc.data()!;
       }
@@ -19,20 +22,32 @@ class CommissionWalletService {
       'agencyCommissionRate': 0.30,
       'adminCommissionRate': 0.10,
       'usdToDiamondRate': 1000000,
-      'supportedGateways': ['bKash', 'Nagad', 'Rocket', 'Bank Transfer', 'PayPal', 'Wise', 'Binance Pay', 'USDT TRC20', 'USDT BEP20']
+      'supportedGateways': [
+        'bKash',
+        'Nagad',
+        'Rocket',
+        'Bank Transfer',
+        'PayPal',
+        'Wise',
+        'Binance Pay',
+        'USDT TRC20',
+        'USDT BEP20'
+      ]
     };
   }
 
   /// Option 3: Convert USD Commission Balance -> Diamonds
   /// Rate: 1 USD = 1,000,000 Diamonds (default)
-  Future<Map<String, dynamic>> convertCommissionToDiamonds(double usdAmount) async {
+  Future<Map<String, dynamic>> convertCommissionToDiamonds(
+      double usdAmount) async {
     final callable = _functions.httpsCallable('convertCommissionToDiamonds');
     final result = await callable.call({'usdAmount': usdAmount});
     return Map<String, dynamic>.from(result.data as Map);
   }
 
   /// Option 1: Transfer USD Commission Balance -> Reseller Wallet
-  Future<Map<String, dynamic>> transferCommissionToReseller(String targetResellerHelloId, double usdAmount) async {
+  Future<Map<String, dynamic>> transferCommissionToReseller(
+      String targetResellerHelloId, double usdAmount) async {
     final callable = _functions.httpsCallable('transferCommissionToReseller');
     final result = await callable.call({
       'targetResellerHelloId': targetResellerHelloId,
@@ -63,7 +78,8 @@ class CommissionWalletService {
         .where('userId', isEqualTo: uid)
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 
   /// Stream Direct Withdrawal Requests for a User
@@ -73,7 +89,8 @@ class CommissionWalletService {
         .where('userId', isEqualTo: uid)
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 
   /// Stream Reseller Transfers History for a User
@@ -83,7 +100,17 @@ class CommissionWalletService {
         .where('senderUid', isEqualTo: uid)
         .orderBy('createdAt', descending: true)
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+  }
+
+  /// Stream the agency document wallet that receives new recharge commissions.
+  Stream<Map<String, dynamic>?> streamAgencyWallet(String agencyId) {
+    return _firestore
+        .collection('agencies')
+        .doc(agencyId)
+        .snapshots()
+        .map((snap) => snap.exists ? {'id': snap.id, ...?snap.data()} : null);
   }
 
   /// Stream Commission Earnings Ledger for a User
@@ -93,6 +120,7 @@ class CommissionWalletService {
         .where('recipientUid', isEqualTo: uid)
         .orderBy('timestamp', descending: true)
         .snapshots()
-        .map((snap) => snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
+        .map((snap) =>
+            snap.docs.map((doc) => {'id': doc.id, ...doc.data()}).toList());
   }
 }

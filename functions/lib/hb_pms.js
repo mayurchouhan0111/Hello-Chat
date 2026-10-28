@@ -119,6 +119,42 @@ function round2(n) {
     return Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 }
 
+/** Treat missing, negative, or non-numeric wallet values as zero. */
+function cleanMoney(n) {
+    const value = Number(n);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/**
+ * The spendable commission wallet is the sum of the agency document balance
+ * (new credits) and the legacy users/{uid} balance. The two ledgers are
+ * disjoint: before the agency-document migration every credit lived on the
+ * user doc, and this release writes every new credit to the agency doc.
+ */
+function commissionWalletTotal(userBalance, agencyBalance = 0) {
+    return round2(cleanMoney(userBalance) + cleanMoney(agencyBalance));
+}
+
+/**
+ * Split a spend across the legacy user wallet first, then the agency wallet.
+ * Returns the exact amounts to debit from each source. Throws when the combined
+ * balance is insufficient so callers cannot partially spend.
+ */
+function splitCommissionDebit(userBalance, agencyBalance, usdAmount) {
+    const availableUSD = commissionWalletTotal(userBalance, agencyBalance);
+    const requestedUSD = round2(usdAmount);
+    if (!Number.isFinite(requestedUSD) || requestedUSD <= 0) {
+        throw new HttpsError("invalid-argument", "Positive USD amount required.");
+    }
+    if (availableUSD < requestedUSD) {
+        throw new HttpsError("failed-precondition",
+            `Insufficient USD commission balance. Available: $${availableUSD.toFixed(2)} USD.`);
+    }
+    const userDebitUSD = round2(Math.min(cleanMoney(userBalance), requestedUSD));
+    const agencyDebitUSD = round2(requestedUSD - userDebitUSD);
+    return { availableUSD, userDebitUSD, agencyDebitUSD };
+}
+
 /**
  * Reject nonsensical financial configuration. Throws HttpsError.
  *
@@ -239,6 +275,8 @@ module.exports = {
     DEFAULT_SALARY_SLABS,
     normalizeTier,
     round2,
+    commissionWalletTotal,
+    splitCommissionDebit,
     assertValidRates,
     assertValidConversionRate,
     validateSalarySlabs,

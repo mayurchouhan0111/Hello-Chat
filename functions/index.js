@@ -18,7 +18,8 @@ const { RtcTokenBuilder, RtcRole } = require('agora-access-token');
 // this file and the test suite (see functions/lib/hb_pms.js for why).
 const {
     HB_TIERS, HB_RANK, DEFAULT_FINANCIAL_POLICIES, FALLBACK_GATEWAYS, DEFAULT_SALARY_SLABS,
-    normalizeTier, round2, assertValidRates, assertValidConversionRate, validateSalarySlabs,
+    normalizeTier, round2, commissionWalletTotal, splitCommissionDebit,
+    assertValidRates, assertValidConversionRate, validateSalarySlabs,
     canManageTier, hierarchyScope, isTargetInScope, isSalaryEligible
 } = require("./lib/hb_pms");
 
@@ -11099,6 +11100,33 @@ async function loadFinancialPolicy() {
 }
 
 /**
+ * Read both halves of a commission wallet inside a transaction. Legacy balances
+ * stay on users/{uid}; new recharge commissions live on agencies/{agencyId}.
+ * A dangling agency link is ignored so legacy users can still spend their own
+ * balance, but a review that must debit the agency side fails loudly instead.
+ * A Host's agencyId is a roster link, not wallet ownership, so the agency
+ * document is spendable only by an Agency/Admin tier user who owns it.
+ */
+async function readCommissionSources(transaction, userRef, userDoc, agencyId) {
+    const userData = userDoc.data();
+    const tier = normalizeTier(userData);
+    let agencyDoc = null;
+    if (agencyId && (tier === "agency" || tier === "admin")) {
+        const snap = await transaction.get(db.collection("agencies").doc(agencyId));
+        if (snap.exists && snap.data().ownerUid === userRef.id) agencyDoc = snap;
+    }
+    return {
+        userRef,
+        userData,
+        agencyDoc,
+        availableUSD: commissionWalletTotal(
+            userData.usdCommissionBalance,
+            agencyDoc ? agencyDoc.data().usdCommissionBalance : 0
+        ),
+    };
+}
+
+/**
  * 3b. Backfill / manual trigger for recharge commission.
  * Owner/Admin only, and idempotent via the required `sourceId` (typically the
  * recharge transaction id). The normal path is applyRechargeCommission() called
@@ -11177,21 +11205,28 @@ exports.convertCommissionToDiamonds = functions.https.onCall(async (data, contex
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
-        const uData = userDoc.data();
-        const currentUSD = uData.usdCommissionBalance || 0.0;
-        if (currentUSD < parsedUSD) {
-            throw new functions.https.HttpsError("failed-precondition", `Insufficient USD commission balance. Available: $${currentUSD.toFixed(2)} USD.`);
-        }
+        const sources = await readCommissionSources(transaction, userRef, userDoc, userDoc.data().agencyId);
+        const uData = sources.userData;
+        const debit = splitCommissionDebit(
+            uData.usdCommissionBalance,
+            sources.agencyDoc ? sources.agencyDoc.data().usdCommissionBalance : 0,
+            parsedUSD
+        );
 
         if (guardRef) {
             transaction.set(guardRef, { uid, usdAmount: parsedUSD, createdAt: now });
         }
 
-        // Deduct USD, credit Diamonds
+        // Deduct USD from both legacy and agency sources, credit Diamonds once.
         transaction.update(userRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD),
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD),
             diamondBalance: admin.firestore.FieldValue.increment(diamondsReceived)
         });
+        if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
+            transaction.update(sources.agencyDoc.ref, {
+                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD)
+            });
+        }
 
         // Record Conversion Log
         const convRef = db.collection("commission_diamond_conversions").doc();
@@ -11200,7 +11235,10 @@ exports.convertCommissionToDiamonds = functions.https.onCall(async (data, contex
             userId: uid,
             displayName: uData.displayName || "User",
             role: normalizeTier(uData),
+            agencyId: uData.agencyId || null,
             usdAmount: parsedUSD,
+            userDebitUSD: debit.userDebitUSD,
+            agencyDebitUSD: debit.agencyDebitUSD,
             conversionRate: rate,
             diamondsReceived: diamondsReceived,
             status: "completed",
@@ -11283,20 +11321,27 @@ exports.transferCommissionToReseller = functions.https.onCall(async (data, conte
         // opened, so parallel transfers could both pass the balance check).
         const senderDoc = await transaction.get(senderRef);
         if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender user not found.");
-        const sData = senderDoc.data();
-        const currentUSD = sData.usdCommissionBalance || 0.0;
-        if (currentUSD < parsedUSD) {
-            throw new functions.https.HttpsError("failed-precondition", `Insufficient USD balance. Available: $${currentUSD.toFixed(2)} USD.`);
-        }
+        const sources = await readCommissionSources(transaction, senderRef, senderDoc, senderDoc.data().agencyId);
+        const sData = sources.userData;
+        const debit = splitCommissionDebit(
+            sData.usdCommissionBalance,
+            sources.agencyDoc ? sources.agencyDoc.data().usdCommissionBalance : 0,
+            parsedUSD
+        );
 
         if (guardRef) {
             transaction.set(guardRef, { senderUid, targetUid, usdAmount: parsedUSD, createdAt: now });
         }
 
-        // Deduct from Sender USD Commission
+        // Deduct from both legacy and agency commission sources.
         transaction.update(senderRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD)
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD)
         });
+        if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
+            transaction.update(sources.agencyDoc.ref, {
+                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD)
+            });
+        }
 
         // Credit the Reseller Wallet. Spec: "Reseller can use the credited
         // balance to purchase/receive Diamonds" - every spend path
@@ -11313,10 +11358,13 @@ exports.transferCommissionToReseller = functions.https.onCall(async (data, conte
             senderUid: senderUid,
             senderName: sData.displayName || "Agency/Admin",
             senderRole: normalizeTier(sData),
+            agencyId: sData.agencyId || null,
             targetUid: targetUid,
             targetName: targetData.displayName || "Reseller",
             targetHelloId: targetResellerHelloId,
             transferAmountUSD: parsedUSD,
+            userDebitUSD: debit.userDebitUSD,
+            agencyDebitUSD: debit.agencyDebitUSD,
             status: "completed",
             createdAt: now
         });
@@ -11382,28 +11430,40 @@ exports.submitCommissionWithdrawal = functions.https.onCall(async (data, context
         // submissions could lock funds the user did not have).
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
-        const uData = userDoc.data();
-        const currentUSD = uData.usdCommissionBalance || 0.0;
-        if (currentUSD < parsedUSD) {
-            throw new functions.https.HttpsError("failed-precondition", `Insufficient USD commission balance. Available: $${currentUSD.toFixed(2)} USD.`);
-        }
+        const agencyId = userDoc.data().agencyId || caller.agencyId || null;
+        const sources = await readCommissionSources(transaction, userRef, userDoc, agencyId);
+        const uData = sources.userData;
+        const debit = splitCommissionDebit(
+            uData.usdCommissionBalance,
+            sources.agencyDoc ? sources.agencyDoc.data().usdCommissionBalance : 0,
+            parsedUSD
+        );
 
         if (guardRef) {
             transaction.set(guardRef, { uid, usdAmount: parsedUSD, requestId: reqRef.id, createdAt: now });
         }
 
-        // Lock funds into pendingWithdrawalBalance
+        // Lock funds into pendingWithdrawalBalance on the same sources.
         transaction.update(userRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-parsedUSD),
-            pendingWithdrawalBalance: admin.firestore.FieldValue.increment(parsedUSD)
+            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD),
+            pendingWithdrawalBalance: admin.firestore.FieldValue.increment(debit.userDebitUSD)
         });
+        if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
+            transaction.update(sources.agencyDoc.ref, {
+                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD),
+                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(debit.agencyDebitUSD)
+            });
+        }
 
         transaction.set(reqRef, {
             requestId: reqRef.id,
             userId: uid,
             displayName: uData.displayName || "User",
             userRole: normalizeTier(uData),
+            agencyId: agencyId,
             usdAmount: parsedUSD,
+            userDebitUSD: debit.userDebitUSD,
+            agencyDebitUSD: debit.agencyDebitUSD,
             paymentMethod: paymentMethod,
             paymentAccountDetails: paymentAccountDetails,
             status: "pending", // pending -> processing -> approved -> paid / rejected
@@ -11473,8 +11533,35 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
         }
 
         const targetUid = reqData.userId;
-        const usdAmount = reqData.usdAmount;
+        const usdAmount = round2(reqData.usdAmount);
         const userRef = db.collection("users").doc(targetUid);
+        const hasSplit = reqData.userDebitUSD !== undefined || reqData.agencyDebitUSD !== undefined;
+        const userDebitUSD = hasSplit ? round2(reqData.userDebitUSD || 0) : usdAmount;
+        const agencyDebitUSD = hasSplit ? round2(reqData.agencyDebitUSD || 0) : 0;
+        if (round2(userDebitUSD + agencyDebitUSD) !== usdAmount) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                `Withdrawal request ${requestId} has an invalid source split.`
+            );
+        }
+
+        let userDoc = null;
+        let agencyDoc = null;
+        if (action === "pay" || action === "reject") {
+            // Read every source before writing; Firestore transactions forbid
+            // reads after the first write.
+            userDoc = await transaction.get(userRef);
+            if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "Withdrawal user not found.");
+            if (agencyDebitUSD > 0) {
+                if (!reqData.agencyId) {
+                    throw new functions.https.HttpsError("failed-precondition", "Agency source missing from withdrawal request.");
+                }
+                agencyDoc = await transaction.get(db.collection("agencies").doc(reqData.agencyId));
+                if (!agencyDoc.exists) {
+                    throw new functions.https.HttpsError("failed-precondition", "Agency source document no longer exists.");
+                }
+            }
+        }
 
         if (action === "process") {
             transaction.update(reqRef, { status: "processing", processedAt: now, processedBy: reviewerUid });
@@ -11483,20 +11570,32 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
         } else if (action === "pay") {
             // Money moves only here: locked pending -> settled withdrawn.
             transaction.update(userRef, {
-                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-usdAmount),
-                totalWithdrawnUSD: admin.firestore.FieldValue.increment(usdAmount)
+                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-userDebitUSD),
+                totalWithdrawnUSD: admin.firestore.FieldValue.increment(userDebitUSD)
             });
+            if (agencyDebitUSD > 0 && agencyDoc) {
+                transaction.update(agencyDoc.ref, {
+                    pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-agencyDebitUSD),
+                    totalWithdrawnUSD: admin.firestore.FieldValue.increment(agencyDebitUSD)
+                });
+            }
             transaction.update(reqRef, {
                 status: "paid",
                 paidAt: now,
                 approvedBy: reviewerUid
             });
         } else if (action === "reject") {
-            // Refund locked pending balance back to available balance
+            // Refund locked pending balance back to the exact sources.
             transaction.update(userRef, {
-                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-usdAmount),
-                usdCommissionBalance: admin.firestore.FieldValue.increment(usdAmount)
+                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-userDebitUSD),
+                usdCommissionBalance: admin.firestore.FieldValue.increment(userDebitUSD)
             });
+            if (agencyDebitUSD > 0 && agencyDoc) {
+                transaction.update(agencyDoc.ref, {
+                    pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-agencyDebitUSD),
+                    usdCommissionBalance: admin.firestore.FieldValue.increment(agencyDebitUSD)
+                });
+            }
             transaction.update(reqRef, {
                 status: "rejected",
                 rejectedAt: now,

@@ -3,18 +3,28 @@ import '../services/commission_wallet_service.dart';
 import 'auth_provider.dart';
 
 /// Service provider
-final commissionWalletServiceProvider = Provider<CommissionWalletService>((ref) {
+final commissionWalletServiceProvider =
+    Provider<CommissionWalletService>((ref) {
   return CommissionWalletService();
 });
 
 /// Active Financial Policies Provider (Commission rates, USD to Diamond rate, Gateways)
-final financialPoliciesProvider = FutureProvider<Map<String, dynamic>>((ref) async {
+final financialPoliciesProvider =
+    FutureProvider<Map<String, dynamic>>((ref) async {
   final service = ref.watch(commissionWalletServiceProvider);
   return await service.getFinancialPolicies();
 });
 
+/// Agency document wallet (new recharge commissions) for an agency owner.
+final agencyWalletStreamProvider = StreamProvider.autoDispose
+    .family<Map<String, dynamic>?, String>((ref, agencyId) {
+  final service = ref.watch(commissionWalletServiceProvider);
+  return service.streamAgencyWallet(agencyId);
+});
+
 /// 1. Stream: Commission Earnings Ledger (from host recharges)
-final commissionEarningsStreamProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+final commissionEarningsStreamProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value([]);
   final service = ref.watch(commissionWalletServiceProvider);
@@ -22,7 +32,8 @@ final commissionEarningsStreamProvider = StreamProvider.autoDispose<List<Map<Str
 });
 
 /// 2. Stream: Direct Cash Withdrawals History
-final commissionWithdrawalsStreamProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+final commissionWithdrawalsStreamProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value([]);
   final service = ref.watch(commissionWalletServiceProvider);
@@ -30,7 +41,8 @@ final commissionWithdrawalsStreamProvider = StreamProvider.autoDispose<List<Map<
 });
 
 /// 3. Stream: Reseller Wallet Transfers History
-final resellerTransfersStreamProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+final resellerTransfersStreamProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value([]);
   final service = ref.watch(commissionWalletServiceProvider);
@@ -38,7 +50,8 @@ final resellerTransfersStreamProvider = StreamProvider.autoDispose<List<Map<Stri
 });
 
 /// 4. Stream: USD-to-Diamond Conversions History
-final diamondConversionsStreamProvider = StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
+final diamondConversionsStreamProvider =
+    StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
   final user = ref.watch(authStateProvider).value;
   if (user == null) return Stream.value([]);
   final service = ref.watch(commissionWalletServiceProvider);
@@ -74,7 +87,8 @@ class CommissionActionState {
 class CommissionActionNotifier extends StateNotifier<CommissionActionState> {
   final CommissionWalletService _service;
 
-  CommissionActionNotifier(this._service) : super(const CommissionActionState());
+  CommissionActionNotifier(this._service)
+      : super(const CommissionActionState());
 
   /// Option 3: Convert USD -> Diamonds
   Future<bool> convertToDiamonds(double usdAmount) async {
@@ -83,7 +97,8 @@ class CommissionActionNotifier extends StateNotifier<CommissionActionState> {
       final res = await _service.convertCommissionToDiamonds(usdAmount);
       state = state.copyWith(
         isLoading: false,
-        successMessage: 'Successfully converted \$${usdAmount.toStringAsFixed(2)} USD to Diamonds!',
+        successMessage:
+            'Successfully converted \$${usdAmount.toStringAsFixed(2)} USD to Diamonds!',
       );
       return res['success'] == true;
     } catch (e) {
@@ -93,13 +108,16 @@ class CommissionActionNotifier extends StateNotifier<CommissionActionState> {
   }
 
   /// Option 1: Transfer USD -> Reseller Wallet
-  Future<bool> transferToReseller(String targetResellerHelloId, double usdAmount) async {
+  Future<bool> transferToReseller(
+      String targetResellerHelloId, double usdAmount) async {
     state = state.copyWith(isLoading: true, error: null, successMessage: null);
     try {
-      final res = await _service.transferCommissionToReseller(targetResellerHelloId, usdAmount);
+      final res = await _service.transferCommissionToReseller(
+          targetResellerHelloId, usdAmount);
       state = state.copyWith(
         isLoading: false,
-        successMessage: 'Successfully transferred \$${usdAmount.toStringAsFixed(2)} USD to Reseller!',
+        successMessage:
+            'Successfully transferred \$${usdAmount.toStringAsFixed(2)} USD to Reseller!',
       );
       return res['success'] == true;
     } catch (e) {
@@ -123,7 +141,8 @@ class CommissionActionNotifier extends StateNotifier<CommissionActionState> {
       );
       state = state.copyWith(
         isLoading: false,
-        successMessage: 'Withdrawal request submitted successfully! Pending Owner review.',
+        successMessage:
+            'Withdrawal request submitted successfully! Pending Owner review.',
       );
       return res['success'] == true;
     } catch (e) {
@@ -137,7 +156,9 @@ class CommissionActionNotifier extends StateNotifier<CommissionActionState> {
   }
 }
 
-final commissionActionProvider = StateNotifierProvider<CommissionActionNotifier, CommissionActionState>((ref) {
+final commissionActionProvider =
+    StateNotifierProvider<CommissionActionNotifier, CommissionActionState>(
+        (ref) {
   final service = ref.watch(commissionWalletServiceProvider);
   return CommissionActionNotifier(service);
 });
