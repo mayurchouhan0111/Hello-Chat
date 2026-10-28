@@ -45,6 +45,9 @@ export function scopeFilterOf(uid, data) {
     return { field: 'branchId', value: data.branchId };
   }
   if (tier === 'admin') return { field: 'adminId', value: uid };
-  if (tier === 'agency') return { field: 'agencyId', value: uid };
+  if (tier === 'agency') {
+    if (!data?.agencyId) throw new Error('Agency has no agencyId; refusing an unscoped user query.');
+    return { field: 'agencyId', value: data.agencyId };
+  }
   throw new Error(`The ${tier} tier may not list users.`);
 }

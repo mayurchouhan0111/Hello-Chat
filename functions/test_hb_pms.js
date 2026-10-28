@@ -95,8 +95,14 @@ runTest("hierarchyScope derives scope from the resolved caller, not the request"
         { field: "adminId", value: "a1" }
     );
     assert.deepStrictEqual(
-        hierarchyScope({ role: "agency", uid: "g1" }),
-        { field: "agencyId", value: "g1" }
+        hierarchyScope({ role: "agency", uid: "g1", agencyId: "agency_doc_1" }),
+        { field: "agencyId", value: "agency_doc_1" },
+        "Agency is confined to its resolved agency document ID"
+    );
+    assert.strictEqual(
+        hierarchyScope({ role: "agency", uid: "g1" }).field,
+        "__selfOnly",
+        "Agency with no resolved document must fail closed to self"
     );
     assert.strictEqual(
         hierarchyScope({ role: "host", uid: "h1" }).field,
@@ -145,6 +151,30 @@ runTest("isTargetInScope requires BOTH lower rank and real linkage", () => {
         isTargetInScope({ role: "host", uid: "h1" }, { uid: "h2", role: "host" }),
         false,
         "hosts manage nobody"
+    );
+});
+
+runTest("agency scope compares agency document IDs, never the owner UID", () => {
+    const agency = { role: "agency", uid: "owner_uid", agencyId: "agency_doc_A" };
+    assert.strictEqual(
+        isTargetInScope(agency, { uid: "h1", role: "host", agencyId: "agency_doc_A" }),
+        true,
+        "host linked to the caller's agency document is in scope"
+    );
+    assert.strictEqual(
+        isTargetInScope(agency, { uid: "h2", role: "host", agencyId: "agency_doc_B" }),
+        false,
+        "cross-agency host must be denied"
+    );
+    assert.strictEqual(
+        isTargetInScope(agency, { uid: "h3", role: "host", agencyId: "owner_uid" }),
+        false,
+        "legacy owner-UID linkage must not be treated as the canonical document ID"
+    );
+    assert.strictEqual(
+        isTargetInScope({ role: "agency", uid: "owner_uid" }, { uid: "h4", role: "host", agencyId: null }),
+        false,
+        "agency with no resolved document must manage nobody"
     );
 });
 

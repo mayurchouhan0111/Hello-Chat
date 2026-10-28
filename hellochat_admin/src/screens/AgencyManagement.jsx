@@ -69,8 +69,12 @@ export const AgencyManagement = () => {
     if (isAdmin) {
       fetchAgencies();
     } else if (isAgencyOwner && currentUser) {
-      const myAgencyId = currentUser.agencyId || currentUser.uid || currentUser.id;
-      loadAgencyDetail(myAgencyId);
+      if (currentUser.agencyId) {
+        loadAgencyDetail(currentUser.agencyId);
+      } else {
+        console.error('Agency owner has no agencyId; refusing to fall back to a user UID.');
+        setLoading(false);
+      }
     }
   }, [isAdmin, isAgencyOwner, currentUser]);
 
@@ -1070,7 +1074,7 @@ export const AgencyManagement = () => {
                   </div>
                   <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl">
                     <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Role</p>
-                    <p className="text-xl font-black text-white uppercase mt-1">{selectedHost.role || 'host'}</p>
+                    <p className="text-xl font-black text-white uppercase mt-1">{selectedHost.role || 'user'}</p>
                   </div>
                 </div>
 

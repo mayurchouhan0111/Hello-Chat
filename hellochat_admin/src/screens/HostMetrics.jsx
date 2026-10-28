@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { db, functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
 import { collection, getDocs, limit as fsLimit, query } from 'firebase/firestore';
+import { tierOf } from '../lib/tier';
 import {
   Activity,
   CalendarDays,
@@ -34,7 +35,9 @@ export const HostMetrics = () => {
 
     try {
       const snap = await getDocs(query(collection(db, 'users'), fsLimit(100)));
-      const rawHosts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const rawHosts = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(u => tierOf(u) === 'host');
       const mapped = rawHosts.map(u => ({
         uid: u.id,
         displayName: u.displayName || u.username || 'User',

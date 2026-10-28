@@ -586,7 +586,7 @@ export const AdminManagement = () => {
                         Hello ID: <span className="text-white font-bold">{foundUser.helloId || 'N/A'}</span>
                       </div>
                       <div className="text-xs text-gray-400 font-mono">
-                        Current Role: <span className="text-amber-400 font-bold uppercase">{foundUser.role || 'host'}</span>
+                        Current Role: <span className="text-amber-400 font-bold uppercase">{foundUser.role || 'user'}</span>
                       </div>
                     </div>
                   </div>
@@ -702,7 +702,7 @@ export const AdminManagement = () => {
                         Hello ID: <span className="text-white font-bold">{foundReplaceUser.helloId || 'N/A'}</span>
                       </div>
                       <div className="text-xs text-gray-400 font-mono">
-                        Current Role: <span className="text-emerald-400 font-bold uppercase">{foundReplaceUser.role || 'host'}</span>
+                        Current Role: <span className="text-emerald-400 font-bold uppercase">{foundReplaceUser.role || 'user'}</span>
                       </div>
                     </div>
                   </div>

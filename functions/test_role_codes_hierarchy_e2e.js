@@ -634,11 +634,201 @@ async function main() {
         assert.strictEqual(client.rankOf("unknown-tier"), -1, "Unknown tier must rank below user");
         assert.strictEqual(client.scopeFilterOf("owner1", { role: "owner" }), null);
         assert.deepStrictEqual(client.scopeFilterOf("admin1", { role: "admin" }), { field: "adminId", value: "admin1" });
-        assert.deepStrictEqual(client.scopeFilterOf("agency1", { role: "agency" }), { field: "agencyId", value: "agency1" });
+        assert.deepStrictEqual(client.scopeFilterOf("agency1", { role: "agency", agencyId: "agency_doc_1" }), { field: "agencyId", value: "agency_doc_1" });
+        assert.throws(() => client.scopeFilterOf("agency1", { role: "agency" }), /no agencyId/i);
         assert.deepStrictEqual(client.scopeFilterOf("sa1", { role: "superadmin", branchId: "b1" }), { field: "branchId", value: "b1" });
         assert.throws(() => client.scopeFilterOf("sa1", { role: "superadmin", branchId: null }), /no branch/i);
         assert.throws(() => client.scopeFilterOf("host1", { role: "host" }), /may not list users/i);
         assert.throws(() => client.scopeFilterOf("user1", {}), /may not list users/i);
+    });
+
+    await runTest("7.5 Agency assignment writes the agency document ID, not caller UID", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const agencyOwnerUid = `doc_owner_${ts}`;
+        const candidateUid = `doc_candidate_${ts}`;
+
+        await agencyRef.set({
+            id: agencyRef.id,
+            name: "Document ID Agency",
+            ownerUid: agencyOwnerUid,
+            ownerName: "Document Owner",
+            isActive: true,
+            status: "active",
+            hostUids: [],
+            hostCount: 0,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(agencyOwnerUid).set({
+            displayName: "Document Owner",
+            role: "agency",
+            tags: ["Agency"],
+            isAgencyOwner: true,
+            agencyId: agencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(candidateUid).set({
+            displayName: "Unlinked Candidate",
+            role: "user",
+            tags: [],
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const res = await runCall(functionsModule.assignHierarchyRole, {
+            targetUid: candidateUid,
+            newRole: "host",
+        }, { uid: agencyOwnerUid });
+
+        assert.ok(res.success, "Agency must be able to recruit an unlinked host");
+        const hostSnap = await db.collection("users").doc(candidateUid).get();
+        assert.strictEqual(hostSnap.data().role, "host");
+        assert.strictEqual(hostSnap.data().agencyId, agencyRef.id, "Must write agencies/{id}, not the owner UID");
+        assert.notStrictEqual(hostSnap.data().agencyId, agencyOwnerUid);
+    });
+
+    await runTest("7.6 Agency scope resolves owned agency when users.agencyId is missing", async () => {
+        const ownAgencyRef = db.collection("agencies").doc();
+        const otherAgencyRef = db.collection("agencies").doc();
+        const ownerWithoutLinkUid = `scope_owner_${ts}`;
+        const ownHostUid = `scope_host_${ts}`;
+        const otherHostUid = `other_scope_host_${ts}`;
+
+        await ownAgencyRef.set({
+            id: ownAgencyRef.id,
+            name: "Own Scope Agency",
+            ownerUid: ownerWithoutLinkUid,
+            isActive: true,
+            status: "active",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await otherAgencyRef.set({
+            id: otherAgencyRef.id,
+            name: "Other Scope Agency",
+            ownerUid: `other_scope_owner_${ts}`,
+            isActive: true,
+            status: "active",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(ownerWithoutLinkUid).set({
+            displayName: "Scope Owner",
+            role: "agency",
+            tags: ["Agency"],
+            isAgencyOwner: true,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(ownHostUid).set({
+            displayName: "Own Scope Host",
+            role: "host",
+            agencyId: ownAgencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(otherHostUid).set({
+            displayName: "Other Scope Host",
+            role: "host",
+            agencyId: otherAgencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const res = await runCall(functionsModule.getScopedUsers, {}, { uid: ownerWithoutLinkUid });
+        assert.strictEqual(res.scope, "agencyId", "Resolved scope must filter on agencyId");
+        assert.ok(res.users.some(u => u.uid === ownHostUid), "Own agency host must be visible");
+        assert.ok(!res.users.some(u => u.uid === otherHostUid), "Cross-agency host must be denied");
+    });
+
+    await runTest("7.7 Owner targetAgencyId must be an existing agency document ID", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const agencyOwnerUid = `owner_path_agency_owner_${ts}`;
+        const candidateUid = `owner_path_candidate_${ts}`;
+
+        await agencyRef.set({
+            id: agencyRef.id,
+            name: "Owner Path Agency",
+            ownerUid: agencyOwnerUid,
+            isActive: true,
+            status: "active",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(agencyOwnerUid).set({
+            displayName: "Owner Path Agency Owner",
+            role: "agency",
+            agencyId: agencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(candidateUid).set({
+            displayName: "Owner Path Candidate",
+            role: "user",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        let rejected = false;
+        try {
+            await runCall(functionsModule.assignHierarchyRole, {
+                targetUid: candidateUid,
+                newRole: "host",
+                targetAgencyId: ownerUid,
+            }, { uid: ownerUid });
+        } catch (e) {
+            rejected = true;
+            assert.ok(/agency document/i.test(e.message), `Expected agency-document error, got: ${e.message}`);
+        }
+        assert.ok(rejected, "Owner must not be able to pass a user UID as targetAgencyId");
+
+        const res = await runCall(functionsModule.assignHierarchyRole, {
+            targetUid: candidateUid,
+            newRole: "host",
+            targetAgencyId: agencyRef.id,
+        }, { uid: ownerUid });
+        assert.ok(res.success, "Owner must be able to assign a real agency document ID");
+        const hostSnap = await db.collection("users").doc(candidateUid).get();
+        assert.strictEqual(hostSnap.data().agencyId, agencyRef.id);
+    });
+
+    await runTest("7.8 Recharge commission credits the agency document, not the owner user", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const agencyOwnerUid = `commission_owner_${ts}`;
+        const commissionHostUid = `commission_host_${ts}`;
+        const sourceId = `commission_source_${ts}`;
+
+        await agencyRef.set({
+            id: agencyRef.id,
+            name: "Commission Agency",
+            ownerUid: agencyOwnerUid,
+            adminId: appointedAdminUid,
+            isActive: true,
+            status: "active",
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(agencyOwnerUid).set({
+            displayName: "Commission Owner",
+            role: "agency",
+            agencyId: agencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(commissionHostUid).set({
+            displayName: "Commission Host",
+            role: "host",
+            agencyId: agencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const res = await runCall(functionsModule.processRechargeCommission, {
+            hostUid: commissionHostUid,
+            rechargeUSD: 100,
+            sourceId,
+        }, { uid: appointedAdminUid });
+
+        assert.ok(res.processed, "Commission must process for a document-linked agency");
+        const agencySnap = await agencyRef.get();
+        assert.strictEqual(agencySnap.data().usdCommissionBalance, 30);
+        assert.strictEqual(agencySnap.data().totalCommissionEarned, 30);
+        assert.strictEqual(agencySnap.data().totalRechargeGenerated, 100);
+
+        const ownerSnap = await db.collection("users").doc(agencyOwnerUid).get();
+        assert.strictEqual(ownerSnap.data().usdCommissionBalance || 0, 0, "Agency funds must not be credited to the owner user");
+
+        const ledgerSnap = await db.collection("commission_transactions").doc(`${sourceId}_agency`).get();
+        assert.ok(ledgerSnap.exists);
+        assert.strictEqual(ledgerSnap.data().agencyId, agencyRef.id);
+        assert.strictEqual(ledgerSnap.data().recipientUid, agencyOwnerUid, "Ledger keeps the owner UID for wallet history");
     });
 
     console.log("\n==================================================");

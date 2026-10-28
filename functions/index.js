@@ -23,6 +23,25 @@ const {
 } = require("./lib/hb_pms");
 
 /**
+ * Resolve the caller's canonical agency document ID.
+ *
+ * `users.agencyId` is an agencies/{id} document ID. Legacy rows may be missing
+ * it or may point at a value with no matching agency document (owner UID or
+ * dangling ID). In those cases only, fall back to the agency owned by the user.
+ */
+async function resolveAgencyDocId(uid, linkedAgencyId) {
+    if (linkedAgencyId) {
+        const linkedSnap = await db.collection("agencies").doc(linkedAgencyId).get();
+        if (linkedSnap.exists) return linkedAgencyId;
+    }
+    const ownedSnap = await db.collection("agencies")
+        .where("ownerUid", "==", uid)
+        .limit(1)
+        .get();
+    return ownedSnap.empty ? null : ownedSnap.docs[0].id;
+}
+
+/**
  * Hierarchy context for a caller: {uid, role, branchId, adminId, agencyId}
  * with role already collapsed through normalizeTier (role field OR tags).
  */
@@ -30,12 +49,17 @@ async function loadHierarchy(uid) {
     const snap = await db.collection("users").doc(uid).get();
     if (!snap.exists) throw new HttpsError("not-found", "User not found.");
     const d = snap.data();
+    const role = normalizeTier(d);
+    let agencyId = d.agencyId || null;
+    if (role === "agency" || d.isAgencyOwner === true) {
+        agencyId = await resolveAgencyDocId(uid, agencyId);
+    }
     return {
         uid,
-        role: normalizeTier(d),
+        role,
         branchId: d.branchId || null,
         adminId: d.adminId || null,
-        agencyId: d.agencyId || null,
+        agencyId,
         data: d
     };
 }
@@ -10997,10 +11021,12 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
     const agencyId = hData.agencyId;
     if (!agencyId) return { processed: false, reason: "host has no agency" };
 
-    const agencyRef = db.collection("users").doc(agencyId);
+    const agencyRef = db.collection("agencies").doc(agencyId);
     const agencyDoc = await transaction.get(agencyRef);
     if (!agencyDoc.exists) return { processed: false, reason: "agency not found" };
-    const adminId = agencyDoc.data().adminId || null;
+    const agencyData = agencyDoc.data();
+    const adminId = agencyData.adminId || null;
+    const agencyOwnerUid = agencyData.ownerUid || null;
 
     const agencyRate = policy.agencyCommissionRate !== undefined ? policy.agencyCommissionRate : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate;
     const adminRate = policy.adminCommissionRate !== undefined ? policy.adminCommissionRate : DEFAULT_FINANCIAL_POLICIES.adminCommissionRate;
@@ -11026,8 +11052,9 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
         transaction.set(agencyLedgerRef, {
             txId: agencyLedgerRef.id,
             sourceId: sourceId,
-            recipientUid: agencyId,
+            recipientUid: agencyOwnerUid || agencyId,
             recipientRole: "agency",
+            agencyId: agencyId,
             hostUid: hostUid,
             rechargeUSD: usdAmount,
             commissionRate: agencyRate,
@@ -11578,9 +11605,23 @@ async function assertHierarchyParents(newRole, updates) {
     } else if (newRole === "host") {
         if (!updates.agencyId) {
             throw new HttpsError("failed-precondition",
-                "Host requires a valid agencyId. Pass targetAgencyId.");
+                "Host requires a valid agency document ID. Pass targetAgencyId.");
         }
-        await assertUserTier(updates.agencyId, "agency", "Agency");
+        const agencySnap = await db.collection("agencies").doc(updates.agencyId).get();
+        if (!agencySnap.exists) {
+            throw new HttpsError("failed-precondition",
+                `Agency document "${updates.agencyId}" not found.`);
+        }
+        const agencyOwnerUid = agencySnap.data().ownerUid;
+        if (!agencyOwnerUid) {
+            throw new HttpsError("failed-precondition",
+                `Agency document "${updates.agencyId}" has no ownerUid.`);
+        }
+        const ownerSnap = await db.collection("users").doc(agencyOwnerUid).get();
+        if (!ownerSnap.exists) {
+            throw new HttpsError("failed-precondition",
+                `Agency owner "${agencyOwnerUid}" not found.`);
+        }
     }
 }
 
@@ -11676,11 +11717,15 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
     //   2. an unlinked host - i.e. recruiting someone not yet claimed by any
     //      agency/admin/branch (the legitimate recruitment path).
     const callerRole = normalizeTier(cData);
+    let callerAgencyId = cData.agencyId || null;
+    if (callerRole === "agency" || cData.isAgencyOwner === true) {
+        callerAgencyId = await resolveAgencyDocId(callerUid, callerAgencyId);
+    }
     if (!isOwner && targetUid === callerUid) {
         throw new functions.https.HttpsError("permission-denied", "You cannot change your own role.");
     }
     if (!isOwner) {
-        const callerForScope = { uid: callerUid, role: callerRole, branchId: cData.branchId || null, adminId: cData.adminId || null, agencyId: cData.agencyId || null };
+        const callerForScope = { uid: callerUid, role: callerRole, branchId: cData.branchId || null, adminId: cData.adminId || null, agencyId: callerAgencyId };
         const targetRole = normalizeTier(tData);
         const targetForScope = { uid: targetUid, role: targetRole, branchId: tData.branchId || null, adminId: tData.adminId || null, agencyId: tData.agencyId || null };
         const inScope = isTargetInScope(callerForScope, targetForScope);
@@ -11727,7 +11772,16 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         if (targetBranchId !== undefined) updates.branchId = targetBranchId;
         if (targetSuperAdminId !== undefined) updates.superAdminId = targetSuperAdminId;
         if (targetAdminId !== undefined) updates.adminId = targetAdminId;
-        if (targetAgencyId !== undefined) updates.agencyId = targetAgencyId;
+        if (targetAgencyId !== undefined) {
+            if (targetAgencyId) {
+                const agencySnap = await db.collection("agencies").doc(targetAgencyId).get();
+                if (!agencySnap.exists) {
+                    throw new functions.https.HttpsError("failed-precondition",
+                        "targetAgencyId must be an existing agency document ID.");
+                }
+            }
+            updates.agencyId = targetAgencyId || null;
+        }
     } else if (callerRole === "superadmin") {
         // Spec §2.4/§11: a Super Admin creates and manages Admins only.
         if (newRole !== "admin") {
@@ -11752,7 +11806,11 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         updates.branchId = cData.branchId || null;
         updates.superAdminId = cData.superAdminId || null;
         updates.adminId = cData.adminId || null;
-        updates.agencyId = callerUid;
+        if (!callerAgencyId) {
+            throw new functions.https.HttpsError("failed-precondition",
+                "Agency caller has no resolvable agency document ID.");
+        }
+        updates.agencyId = callerAgencyId;
     } else {
         throw new functions.https.HttpsError("permission-denied", "Insufficient permissions for role assignment.");
     }

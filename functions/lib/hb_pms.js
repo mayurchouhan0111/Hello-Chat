@@ -177,7 +177,7 @@ function canManageTier(callerTier, targetTier) {
  *   Owner       -> null (global authority)
  *   Super Admin -> branchId == me  (own branch only, never a peer branch)
  *   Admin       -> adminId  == me  (my agencies + their hosts)
- *   Agency      -> agencyId == me  (my hosts)
+ *   Agency      -> agencyId == resolvedAgencyDocId (my hosts)
  *   User / Host -> __selfOnly      (personal rows only)
  */
 function hierarchyScope(h) {
@@ -191,7 +191,9 @@ function hierarchyScope(h) {
         case "admin":
             return { field: "adminId", value: h.uid };
         case "agency":
-            return { field: "agencyId", value: h.uid };
+            return h.agencyId
+                ? { field: "agencyId", value: h.agencyId }
+                : { field: "__selfOnly", value: h.uid, reason: "no agency document linked" };
         default:
             return { field: "__selfOnly", value: h.uid };
     }
@@ -218,7 +220,7 @@ function isTargetInScope(caller, target) {
         return target.adminId === caller.uid;
     }
     if (caller.role === "agency") {
-        return target.agencyId === caller.uid;
+        return !!caller.agencyId && target.agencyId === caller.agencyId;
     }
     return false; // hosts manage nobody
 }

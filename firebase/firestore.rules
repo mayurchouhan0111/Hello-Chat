@@ -36,14 +36,19 @@ service cloud.firestore {
       );
       // List rules are evaluated per returned document, so each disjunct below is a
       // scope predicate a query must provably satisfy: Owner (all), an Agency listing
-      // its own hosts (where agencyId == me), an Admin listing its own agencies/hosts
+      // its own hosts (where agencyId == my agency document ID), an Admin listing its own agencies/hosts
       // (where adminId == me), or a Super Admin listing its own branch (where
       // branchId == me). Unfiltered dumps - which previously exposed every USD wallet
       // in the platform - are denied. Management screens use the server-derived
       // `getScopedUsers` callable instead.
       allow list: if request.auth != null && (
         isOwner() ||
-        request.auth.uid == resource.data.get('agencyId', '') ||
+        (
+          (selfData().get('role', '') == 'agency' ||
+           selfData().get('isAgencyOwner', false) == true) &&
+          selfData().get('agencyId', null) != null &&
+          resource.data.get('agencyId', null) == selfData().get('agencyId', null)
+        ) ||
         request.auth.uid == resource.data.get('adminId', '') ||
         (
           selfData().get('role', '') == 'superadmin' &&
@@ -787,7 +792,7 @@ service cloud.firestore {
     //   Owner      -> absolute, every user
     //   Super Admin-> only users carrying the same branchId
     //   Admin      -> only users whose adminId is me (my agencies + my hosts)
-    //   Agency     -> only users whose agencyId is me (my hosts)
+    //   Agency     -> only users whose agencyId is my agencies/{id} document (my hosts)
     //   Host       -> only myself
     function isInMyHierarchyScope(userId) {
       return request.auth != null && (
@@ -803,7 +808,8 @@ service cloud.firestore {
         ) ||
         (
           (selfData().get('role', '') == 'agency' || selfData().get('isAgencyOwner', false) == true) &&
-          get(/databases/$(database)/documents/users/$(userId)).data.get('agencyId', null) == request.auth.uid
+          selfData().get('agencyId', null) != null &&
+          get(/databases/$(database)/documents/users/$(userId)).data.get('agencyId', null) == selfData().get('agencyId', null)
         )
       );
     }

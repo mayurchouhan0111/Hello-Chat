@@ -574,7 +574,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                       style: const TextStyle(color: Colors.white54, fontSize: 11),
                                     ),
                                     Text(
-                                      'Current Role: ${(foundUser!['role'] ?? 'host').toString().toUpperCase()}',
+                                      'Current Role: ${(foundUser!['role'] ?? 'user').toString().toUpperCase()}',
                                       style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 11, fontWeight: FontWeight.bold),
                                     ),
                                   ],
@@ -1343,7 +1343,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                       style: const TextStyle(color: Colors.white54, fontSize: 11),
                                     ),
                                     Text(
-                                      'Current Role: ${(foundUser!['role'] ?? 'host').toString().toUpperCase()}',
+                                      'Current Role: ${(foundUser!['role'] ?? 'user').toString().toUpperCase()}',
                                       style: const TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
                                     ),
                                   ],
@@ -2048,7 +2048,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
 
     final name = data['displayName'] ?? 'Unknown';
     final helloId = data['helloId'] ?? 'N/A';
-    final role = data['role'] ?? 'host';
+    final role = data['role'] ?? 'user';
     final branch = data['branchId'] ?? 'None';
     final tags = (data['tags'] as List?)?.join(', ') ?? 'None';
 

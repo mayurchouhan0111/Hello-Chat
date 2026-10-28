@@ -167,7 +167,7 @@ const TopBar = () => {
   // "Super Admin" regardless of tier.
   const name = userData?.displayName || user?.displayName || user?.phoneNumber || 'Administrator';
   const initial = (name.replace(/[^A-Za-z0-9]/g, '')[0] || '#').toUpperCase();
-  const roleTitle = (role || 'host').toUpperCase();
+  const roleTitle = (role || 'user').toUpperCase();
 
   return (
     <header className="h-20 border-b border-white/[0.03] bg-[#0A0A0B]/80 backdrop-blur-xl flex items-center justify-between px-10 sticky top-0 z-40">
