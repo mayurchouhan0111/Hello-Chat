@@ -58,17 +58,22 @@ runTest("normalizeTier honours role, tags, and isAgencyOwner", () => {
     assert.strictEqual(normalizeTier({ tags: ["Owner"], role: "host" }), "owner", "Owner tag must not be downgraded");
 
     assert.strictEqual(normalizeTier({ isAgencyOwner: true }), "agency");
-    assert.strictEqual(normalizeTier(null), "host", "null must fail closed to host");
-    assert.strictEqual(normalizeTier({}), "host", "empty must fail closed to host");
+    assert.strictEqual(normalizeTier({ role: "user" }), "user", "explicit user must stay user");
+    assert.strictEqual(normalizeTier({ tags: ["Host"] }), "host", "legacy Host tag still grants host");
+    assert.strictEqual(normalizeTier(null), "user", "null must fail closed to user, not host");
+    assert.strictEqual(normalizeTier({}), "user", "empty must fail closed to user, not host");
+    assert.strictEqual(normalizeTier({ displayName: "New User" }), "user", "unmarked registration must not become host");
 });
 
-runTest("5 tiers are strictly ordered owner > superadmin > admin > agency > host", () => {
-    assert.deepStrictEqual(HB_TIERS, ["host", "agency", "admin", "superadmin", "owner"]);
+runTest("6 tiers are strictly ordered owner > superadmin > admin > agency > host > user", () => {
+    assert.deepStrictEqual(HB_TIERS, ["user", "host", "agency", "admin", "superadmin", "owner"]);
     for (let i = 0; i < HB_TIERS.length - 1; i++) {
         assert.ok(HB_RANK[HB_TIERS[i]] < HB_RANK[HB_TIERS[i + 1]], `${HB_TIERS[i]} must rank below ${HB_TIERS[i + 1]}`);
     }
     assert.strictEqual(canManageTier("admin", "host"), true);
-    assert.strictEqual(canManageTier("admin", "agency"), true);
+    assert.strictEqual(canManageTier("admin", "user"), true);
+    assert.strictEqual(canManageTier("host", "user"), true);
+    assert.strictEqual(canManageTier("user", "host"), false);
     assert.strictEqual(canManageTier("admin", "admin"), false, "must not manage own tier");
     assert.strictEqual(canManageTier("admin", "superadmin"), false, "must not manage upward");
     assert.strictEqual(canManageTier("owner", "superadmin"), true);
@@ -97,6 +102,11 @@ runTest("hierarchyScope derives scope from the resolved caller, not the request"
         hierarchyScope({ role: "host", uid: "h1" }).field,
         "__selfOnly",
         "Host has no hierarchy field, so listing must be refused, not widened"
+    );
+    assert.strictEqual(
+        hierarchyScope({ role: "user", uid: "u1" }).field,
+        "__selfOnly",
+        "Plain user has no hierarchy field, so listing must be refused, not widened"
     );
 });
 

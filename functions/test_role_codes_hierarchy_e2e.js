@@ -492,6 +492,155 @@ async function main() {
         assert.strictEqual(getRes.agency.adminId, appointedAdminUid, "getAgency must project adminId");
     });
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // 7. Registration, scope fallback, and agency deactivation regressions
+    // ─────────────────────────────────────────────────────────────────────────
+    console.log("\n--- Scenario 7: User Tier, Scoped Fallback & Agency Deactivation ---");
+
+    await runTest("7.1 createBaseUserDoc creates a plain user, not a host", async () => {
+        const newUid = `auth_trigger_user_${ts}`;
+        await functionsModule.createBaseUserDoc.run({
+            uid: newUid,
+            phoneNumber: "+15550001111",
+            email: null,
+            displayName: "Auth Trigger User",
+            photoURL: null,
+        });
+
+        const snap = await db.collection("users").doc(newUid).get();
+        assert.ok(snap.exists, "Auth trigger must create the profile");
+        assert.strictEqual(snap.data().role, "user", "New registration must not be auto-promoted to host");
+        assert.strictEqual(normalizeTier(snap.data()), "user", "New registration must normalize to user");
+    });
+
+    await runTest("7.2 Admin can appoint an unlinked plain user as Agency", async () => {
+        const unlinkedUid = `unlinked_user_${ts}`;
+        await db.collection("users").doc(unlinkedUid).set({
+            displayName: "Unlinked Candidate",
+            helloId: 9404,
+            role: "user",
+            tags: [],
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const res = await runCall(functionsModule.assignHierarchyRole, {
+            targetUid: unlinkedUid,
+            newRole: "agency",
+        }, { uid: appointedAdminUid });
+
+        assert.ok(res.success, "Admin must be able to recruit an unlinked user as Agency");
+        const snap = await db.collection("users").doc(unlinkedUid).get();
+        assert.strictEqual(snap.data().role, "agency");
+        assert.strictEqual(snap.data().adminId, appointedAdminUid);
+        assert.strictEqual(snap.data().isAgencyOwner, true);
+    });
+
+    await runTest("7.3 deactivateAgency marks the agency document, releases hosts, keeps balances", async () => {
+        const agencyRef = db.collection("agencies").doc();
+        const ownerUid = `deact_owner_${ts}`;
+        const hostA = `deact_host_a_${ts}`;
+        const hostB = `deact_host_b_${ts}`;
+
+        await agencyRef.set({
+            id: agencyRef.id,
+            name: "Deactivation Test Agency",
+            ownerUid,
+            ownerName: "Deactivation Owner",
+            isActive: true,
+            status: "active",
+            hostUids: [hostA, hostB],
+            hostCount: 2,
+            beansBalance: 777,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(ownerUid).set({
+            displayName: "Deactivation Owner",
+            role: "agency",
+            tags: ["Agency"],
+            isAgencyOwner: true,
+            agencyId: agencyRef.id,
+            diamondBalance: 123,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        // Historical rows use both linkage shapes: agency doc id (addHost) and
+        // owner uid (assignHierarchyRole/hierarchyScope). Both must be released.
+        await db.collection("users").doc(hostA).set({
+            displayName: `Host ${hostA}`,
+            role: "host",
+            agencyId: agencyRef.id,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        await db.collection("users").doc(hostB).set({
+            displayName: `Host ${hostB}`,
+            role: "host",
+            agencyId: ownerUid,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+
+        const res = await runCall(functionsModule.deactivateAgency, { agencyUid: ownerUid }, { uid: ownerUid });
+        assert.ok(res.success, "deactivateAgency must succeed");
+        assert.strictEqual(res.agencyId, agencyRef.id, "Must resolve the real agency document id");
+        assert.strictEqual(res.releasedHosts, 2);
+
+        const agencySnap = await agencyRef.get();
+        assert.strictEqual(agencySnap.data().isActive, false, "Agency document must be deactivated");
+        assert.strictEqual(agencySnap.data().status, "deactivated");
+        assert.strictEqual(agencySnap.data().beansBalance, 777, "Balances must be preserved (soft delete)");
+
+        const ownerSnap = await db.collection("users").doc(ownerUid).get();
+        const ownerData = ownerSnap.data();
+        assert.strictEqual(ownerData.isAgencyOwner, false);
+        assert.strictEqual(ownerData.agencyId, null);
+        assert.ok(!(ownerData.tags || []).includes("Agency"), "Agency tag must be removed");
+        assert.strictEqual(ownerData.diamondBalance, 123, "Owner balance must be preserved");
+
+        for (const h of [hostA, hostB]) {
+            const hSnap = await db.collection("users").doc(h).get();
+            assert.strictEqual(hSnap.data().agencyId, null, "Released host must no longer point at the agency");
+        }
+
+        const auditSnap = await db.collection("audit_logs")
+            .where("action", "==", "DEACTIVATE_AGENCY")
+            .where("targetId", "==", agencyRef.id)
+            .limit(1)
+            .get();
+        assert.ok(!auditSnap.empty, "Deactivation must be audited");
+        assert.strictEqual(auditSnap.docs[0].data().details.softDelete, true);
+        assert.strictEqual(auditSnap.docs[0].data().details.agencyDocumentUpdated, true);
+    });
+
+    await runTest("7.4 Panel tier mirror agrees with backend and scope fallback fails closed", async () => {
+        const { pathToFileURL } = require('url');
+        const path = require('path');
+        const tierPath = pathToFileURL(path.join(__dirname, '..', 'hellochat_admin', 'src', 'lib', 'tier.js')).href;
+        const client = await import(tierPath);
+
+        const samples = [
+            null,
+            {},
+            { role: "user" },
+            { role: "host" },
+            { tags: ["Host"] },
+            { tags: ["Agency"] },
+            { role: "admin" },
+            { tags: ["SuperAdmin"] },
+            { role: "owner" },
+            { role: "host", tags: ["Owner"] },
+        ];
+        for (const sample of samples) {
+            assert.strictEqual(client.tierOf(sample), normalizeTier(sample), `Client/backend tier mismatch for ${JSON.stringify(sample)}`);
+        }
+
+        assert.strictEqual(client.rankOf("unknown-tier"), -1, "Unknown tier must rank below user");
+        assert.strictEqual(client.scopeFilterOf("owner1", { role: "owner" }), null);
+        assert.deepStrictEqual(client.scopeFilterOf("admin1", { role: "admin" }), { field: "adminId", value: "admin1" });
+        assert.deepStrictEqual(client.scopeFilterOf("agency1", { role: "agency" }), { field: "agencyId", value: "agency1" });
+        assert.deepStrictEqual(client.scopeFilterOf("sa1", { role: "superadmin", branchId: "b1" }), { field: "branchId", value: "b1" });
+        assert.throws(() => client.scopeFilterOf("sa1", { role: "superadmin", branchId: null }), /no branch/i);
+        assert.throws(() => client.scopeFilterOf("host1", { role: "host" }), /may not list users/i);
+        assert.throws(() => client.scopeFilterOf("user1", {}), /may not list users/i);
+    });
+
     console.log("\n==================================================");
     console.log(`TOTAL TESTS: ${passedCount + failedCount} | PASSED: ${passedCount} | FAILED: ${failedCount}`);
     console.log("==================================================");

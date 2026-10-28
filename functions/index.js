@@ -1121,6 +1121,7 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         cpPoints: 0,
         combatPoints: 0,
         status: "offline",
+        role: "user",
         badges: [],
         recentVisitors: [],
         profileFrame: "",
@@ -11697,7 +11698,7 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
             } else if (callerRole === "admin") {
                 const noOtherAdmin = !tData.adminId || tData.adminId === callerUid;
                 const noOtherBranch = !tData.branchId || tData.branchId === cData.branchId;
-                const canManage = targetRole === "agency" || targetRole === "host";
+                const canManage = targetRole === "agency" || targetRole === "host" || targetRole === "user";
                 if (noOtherAdmin && noOtherBranch && canManage) {
                     isEligible = true;
                 }
@@ -11899,7 +11900,7 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
 
     const now = admin.firestore.FieldValue.serverTimestamp();
     const targetUserRef = db.collection("users").doc(targetUid);
-    const previousRole = tData.role || "host";
+    const previousRole = tData.role || "user";
     const previousTags = Array.isArray(tData.tags) ? [...tData.tags] : [];
     let adminCode = reusableRoleCode(tData.roleCode, "admin");
 
@@ -12183,12 +12184,12 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
     }
 
     const oldData = oldAdminDoc.data();
-    const oldRestoredRole = oldData.previousRole || "host";
+    const oldRestoredRole = oldData.previousRole || "user";
     const oldRestoredTags = Array.isArray(oldData.previousTags) 
         ? oldData.previousTags 
         : (oldData.tags || []).filter(t => t !== "Admin");
 
-    const newPreviousRole = nData.role || "host";
+    const newPreviousRole = nData.role || "user";
     const newPreviousTags = Array.isArray(nData.tags) ? [...nData.tags] : [];
 
     const now = admin.firestore.FieldValue.serverTimestamp();
@@ -12570,29 +12571,68 @@ exports.deactivateAgency = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("failed-precondition", "Target user is not an agency.");
     }
 
-    const hostsSnap = await db.collection("users").where("agencyId", "==", agencyUid).limit(1000).get();
+    // The agency document is keyed by its own id, not by the owner's uid, so a
+    // bare update of agencies/{agencyUid} silently misses (or fails) for real
+    // agencies. Resolve the real doc from the owner profile, then by ownerUid.
+    let agencyRef = null;
+    if (agencyData.agencyId) {
+        const directRef = db.collection("agencies").doc(agencyData.agencyId);
+        const directSnap = await directRef.get();
+        if (directSnap.exists) agencyRef = directRef;
+    }
+    if (!agencyRef) {
+        const agencySnap = await db.collection("agencies").where("ownerUid", "==", agencyUid).limit(1).get();
+        if (!agencySnap.empty) agencyRef = agencySnap.docs[0].ref;
+    }
 
+    // Historical data links hosts by BOTH shapes: the agency document id (what
+    // addHost/createAgency write) and the owner uid (what hierarchyScope uses).
+    // Release every match, or deactivation leaves half the roster attached.
+    const hostRefs = new Map();
+    for (const value of new Set([agencyUid, agencyRef?.id].filter(Boolean))) {
+        const snap = await db.collection("users").where("agencyId", "==", value).limit(1000).get();
+        snap.docs.forEach(d => { if (d.id !== agencyUid) hostRefs.set(d.id, d.ref); });
+    }
+
+    const now = admin.firestore.FieldValue.serverTimestamp();
     const batch = db.batch();
-    hostsSnap.docs.forEach(d => batch.update(d.ref, { agencyId: null }));
+    hostRefs.forEach(ref => batch.update(ref, { agencyId: null }));
     batch.update(db.collection("users").doc(agencyUid), {
         isAgencyOwner: false,
         role: "host",
-        roleUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+        agencyId: null,
+        tags: admin.firestore.FieldValue.arrayRemove("Agency"),
+        roleUpdatedAt: now
     });
+    if (agencyRef) {
+        batch.update(agencyRef, {
+            isActive: false,
+            status: "deactivated",
+            deactivatedAt: now,
+            deactivatedBy: uid,
+            updatedAt: now
+        });
+    }
     const auditRef = db.collection("audit_logs").doc();
     batch.set(auditRef, {
         id: auditRef.id,
         actorUid: uid,
         actorRole: caller.role,
         action: "DEACTIVATE_AGENCY",
-        targetId: agencyUid,
-        details: { releasedHosts: hostsSnap.size, agencyName: agencyData.displayName || "" },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        targetId: agencyData.agencyId || (agencyRef ? agencyRef.id : agencyUid),
+        details: {
+            releasedHosts: hostRefs.size,
+            agencyName: agencyData.displayName || "",
+            ownerUid: agencyUid,
+            agencyDocumentUpdated: !!agencyRef,
+            softDelete: true
+        },
+        timestamp: now
     });
     await batch.commit();
 
-    console.log(`[HB_PMS] Agency ${agencyUid} deactivated by ${uid}; released ${hostsSnap.size} hosts`);
-    return { success: true, releasedHosts: hostsSnap.size };
+    console.log(`[HB_PMS] Agency ${agencyData.agencyId || agencyUid} deactivated by ${uid}; released ${hostRefs.size} hosts`);
+    return { success: true, releasedHosts: hostRefs.size, agencyId: agencyData.agencyId || (agencyRef ? agencyRef.id : null) };
 });
 
 /**

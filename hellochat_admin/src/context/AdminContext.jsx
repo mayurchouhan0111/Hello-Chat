@@ -13,7 +13,7 @@ export const AdminProvider = ({ children }) => {
   const [isAgencyOwner, setIsAgencyOwner] = useState(false);
 
   // HB-PMS Hierarchy Properties
-  const [role, setRole] = useState('host');
+  const [role, setRole] = useState('user');
   const [isOwner, setIsOwner] = useState(false);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [isAdminRole, setIsAdminRole] = useState(false);
@@ -59,7 +59,7 @@ export const AdminProvider = ({ children }) => {
           setUserData(null);
           setIsAdmin(false);
           setIsAgencyOwner(false);
-          setRole('host');
+          setRole('user');
           setIsOwner(false);
           setIsSuperAdmin(false);
           setIsAdminRole(false);

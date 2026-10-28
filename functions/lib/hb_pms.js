@@ -14,11 +14,11 @@
 
 const { HttpsError } = require("firebase-functions/v2/https");
 
-/** The 5 tiers, lowest authority first. */
-const HB_TIERS = ["host", "agency", "admin", "superadmin", "owner"];
+/** The 6 tiers, lowest authority first. `user` is a plain registered member. */
+const HB_TIERS = ["user", "host", "agency", "admin", "superadmin", "owner"];
 
 /** Privilege level per tier. Used for "may this tier manage that tier" checks. */
-const HB_RANK = { host: 0, agency: 1, admin: 2, superadmin: 3, owner: 4 };
+const HB_RANK = { user: -1, host: 0, agency: 1, admin: 2, superadmin: 3, owner: 4 };
 
 /**
  * Financial policy defaults - the single source of truth.
@@ -102,13 +102,16 @@ function validateSalarySlabs(slabs) {
  * checks while a stale SuperAdmin tag over-granted elsewhere.
  */
 function normalizeTier(data) {
-    if (!data) return "host";
+    if (!data) return "user";
     const tags = data.tags || [];
     if (data.role === "owner" || tags.includes("Owner")) return "owner";
     if (data.role === "superadmin" || tags.includes("SuperAdmin")) return "superadmin";
     if (data.role === "admin" || tags.includes("Admin")) return "admin";
     if (data.role === "agency" || data.isAgencyOwner === true || tags.includes("Agency")) return "agency";
-    return "host";
+    // A registered user is NOT automatically a host. Only an explicit role/tag
+    // grants host tier; everything else stays the lower `user` tier.
+    if (data.role === "host" || data.isHost === true || tags.includes("Host")) return "host";
+    return "user";
 }
 
 /** Round to cents. Money must never enter a ledger with sub-cent precision. */
@@ -175,7 +178,7 @@ function canManageTier(callerTier, targetTier) {
  *   Super Admin -> branchId == me  (own branch only, never a peer branch)
  *   Admin       -> adminId  == me  (my agencies + their hosts)
  *   Agency      -> agencyId == me  (my hosts)
- *   Host        -> __selfOnly      (personal rows only)
+ *   User / Host -> __selfOnly      (personal rows only)
  */
 function hierarchyScope(h) {
     switch (h.role) {
