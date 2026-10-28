@@ -11,6 +11,36 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-10-29 (Room Support Weekly Salary Failure Fix, Catch-up Payout, & Production Deployment)
+- **What Client Asked / Problem**:
+  - The Wednesday room support salary distribution failed for closing week 2026-W43.
+  - Three distinct issues caused the failure:
+    1. Sunday lock rolled back for every room because `lockRoomSupportCycles` wrote history records before reading partners and room documents within the same Firestore transaction (Firestore strictly disallows reads after writes).
+    2. Wednesday salary distribution failed with `FAILED_PRECONDITION` because the collection-group index on `weeks.distributionStatus` was missing.
+    3. Partner week IDs had format mismatches (`week_2026-10-25` vs `2026-W43`), preventing assigned partners from matching.
+  - Additionally, 6 rooms hit coin targets (generating ~723M coins), but none met the full partner slot requirement. Client approved paying the room owners + the 1 valid assigned partner (79,669,100 diamonds across 7 rewards).
+- **What We Did**:
+  1. **Catch-up Payout & Verification**:
+     - Completed and independently verified payout for 7 rewards totaling 79,669,100 diamonds.
+     - Marked all 6 historical W43 week records as `distributed` to guarantee idempotency and prevent double payouts.
+     - Backed up all audit logs and verified balances.
+  2. **Transaction Fix in Cloud Functions (`functions/index.js`)**:
+     - Re-ordered operations in `lockRoomSupportCycles` so `partnersSnap` and `roomSnap` are read *before* any transaction writes, resolving transaction rollback.
+     - Implemented `normalizeRoomSupportWeekId` to seamlessly handle both ISO format (`2026-W43`) and legacy format (`week_YYYY-MM-DD`).
+     - Added safeguards against stale cycles re-awarding older weeks.
+  3. **Firestore Collection-Group Index (`firebase/firestore.indexes.json`)**:
+     - Added the missing collection-group index for `weeks.distributionStatus`.
+  4. **Regression Testing (`functions/test_room_support_salary.js`)**:
+     - Created and executed a 6-scenario automated test suite verifying normalization, partner matching, coin extraction, transaction ordering, and index definitions (100% pass rate).
+  5. **Production Deployment**:
+     - Successfully deployed Cloud Functions and Firestore collection-group index to production. Verified collection-group and collection queries against live Firestore.
+- **Files Touched**:
+  - `firebase/firestore.indexes.json`
+  - `functions/index.js`
+  - `functions/test_room_support_salary.js`
+  - `PROJECT_WORKLOG.md`
+- **Status**: Completed
+
 ### Date: 2026-10-28 (Hello-PMS Unique Role Codes, Hierarchy Migration Audit, Backfill Script, Emulator E2E Suite, Security Rules, & Full Production Deployment)
 - **What Client Asked / Problem**:
   - The client requested the completion of the 4 remaining handover tasks for Hello-PMS (Firebase Project: `hellochat-e8965`):

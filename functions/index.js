@@ -8047,7 +8047,7 @@ exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
         let activeWeekId = null;
         if (!historySnap.empty) {
             achievedLevel = historySnap.docs[0].data().achievedLevel || 0;
-            activeWeekId = historySnap.docs[0].id;
+            activeWeekId = normalizeRoomSupportWeekId(historySnap.docs[0].id);
         }
 
         const cycleRef = db.collection("room_support_cycles").doc(roomId);
@@ -8058,7 +8058,7 @@ exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
             achievedLevel = Math.max(achievedLevel, cycleLevel);
             if (!activeWeekId && cycleData.lastWeekAchievedAt) {
                 const d = cycleData.lastWeekAchievedAt.toDate ? cycleData.lastWeekAchievedAt.toDate() : new Date();
-                activeWeekId = `week_${d.toISOString().slice(0, 10)}`;
+                activeWeekId = getIsoWeekId(d);
             }
         }
 
@@ -8069,7 +8069,7 @@ exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
         if (!activeWeekId) {
             const prevSunday = new Date(now);
             prevSunday.setUTCDate(now.getUTCDate() - (utcDay === 0 ? 0 : utcDay));
-            activeWeekId = `week_${prevSunday.toISOString().slice(0, 10)}`;
+            activeWeekId = getIsoWeekId(prevSunday);
         }
 
         // Allow minimum Level 1 (4 partner slots) if initial setup/testing
@@ -8176,6 +8176,31 @@ function getWeekEndUtc(date = new Date()) {
     return new Date(d.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
 }
 
+function normalizeRoomSupportWeekId(weekId) {
+    if (!weekId || typeof weekId !== "string") return "";
+    if (/^\d{4}-W\d{2}$/.test(weekId)) return weekId;
+    const legacy = /^week_(\d{4})-(\d{2})-(\d{2})$/.exec(weekId);
+    if (!legacy) return weekId.trim();
+    return getIsoWeekId(new Date(Date.UTC(Number(legacy[1]), Number(legacy[2]) - 1, Number(legacy[3]))));
+}
+
+function isRoomSupportPartnerForWeek(partner, weekId) {
+    if (!partner || !partner.cycleWeekId) return false;
+    return normalizeRoomSupportWeekId(partner.cycleWeekId) === normalizeRoomSupportWeekId(weekId);
+}
+
+function getFinalizedRoomSupportCoins(cycleData, closingWeekId, nextWeekId) {
+    if (!cycleData) return 0;
+    const cycleWeekId = normalizeRoomSupportWeekId(cycleData.weekId);
+    if (cycleWeekId === closingWeekId) return Number(cycleData.totalCoins) || 0;
+    if (cycleWeekId === nextWeekId) return Number(cycleData.lastWeekCoins) || 0;
+    return 0;
+}
+
+exports.normalizeRoomSupportWeekId = normalizeRoomSupportWeekId;
+exports.isRoomSupportPartnerForWeek = isRoomSupportPartnerForWeek;
+exports.getFinalizedRoomSupportCoins = getFinalizedRoomSupportCoins;
+
 /** Weekly cycle lock (Sunday 23:59 UTC) — locks current week, calculates level achieved */
 exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZone('UTC').onRun(async (context) => {
     const cyclesSnap = await db.collection("room_support_cycles").where("status", "==", "accumulating").get();
@@ -8186,6 +8211,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
         closingDate.setUTCDate(closingDate.getUTCDate() - 1); // target Sunday
     }
     const closingWeekId = getIsoWeekId(closingDate);
+    const nextWeekId = getIsoWeekId(new Date(closingDate.getTime() + 86400000));
     const weekEndMs = getWeekEndUtc(closingDate).getTime();
     const weekEnd = admin.firestore.Timestamp.fromMillis(weekEndMs);
     const weekStart = admin.firestore.Timestamp.fromMillis(weekEndMs - 7 * 24 * 60 * 60 * 1000 + 1);
@@ -8210,12 +8236,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                 }
 
                 // 2. Accurate Coin Extraction: if a gift already rolled cycle into new week, read saved lastWeekCoins
-                let finalizedCoins = 0;
-                if (cycleData.weekId === closingWeekId) {
-                    finalizedCoins = cycleData.totalCoins || 0;
-                } else {
-                    finalizedCoins = cycleData.lastWeekCoins || 0;
-                }
+                const finalizedCoins = getFinalizedRoomSupportCoins(cycleData, closingWeekId, nextWeekId);
                 const achievedLevel = ROOM_SUPPORT.calculateLevel(finalizedCoins);
 
                 const levelConfig = achievedLevel > 0 ? ROOM_SUPPORT.levels[achievedLevel - 1] : null;
@@ -8223,6 +8244,11 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                 const partnerReward = levelConfig ? levelConfig.partnerReward : 0;
                 const totalReward = levelConfig ? levelConfig.totalReward : 0;
                 const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
+
+                const partnersSnap = await transaction.get(
+                    db.collection("room_support_cycles").doc(roomId).collection("partners")
+                );
+                const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
 
                 // 3. Write historical week record
                 transaction.set(historyRef, {
@@ -8244,7 +8270,6 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                 // 4. Partner collection protection:
                 // Only delete partners assigned during or before the closing week.
                 // NEVER delete partners assigned during Monday or Tuesday of the open fill-in window!
-                const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
                 partnersSnap.forEach(pDoc => {
                     const pData = pDoc.data();
                     const assignedAtMs = pData.assignedAt?.toMillis ? pData.assignedAt.toMillis() : (pData.assignedAt ? new Date(pData.assignedAt).getTime() : 0);
@@ -8262,9 +8287,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
                 };
 
-                // Only reset totalCoins & level if the cycle doc has NOT yet rolled over to the new week
-                if (cycleData.weekId === closingWeekId) {
-                    const nextWeekId = getIsoWeekId(new Date(closingDate.getTime() + 86400000));
+                if (normalizeRoomSupportWeekId(cycleData.weekId) !== nextWeekId) {
                     updates.totalCoins = 0;
                     updates.level = 0;
                     updates.weekId = nextWeekId;
@@ -8275,7 +8298,6 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                 transaction.update(doc.ref, updates);
 
                 // 6. Update room ranking snapshot
-                const roomSnap = await transaction.get(db.collection("rooms").doc(roomId));
                 const roomName = roomSnap.exists ? (roomSnap.data().name || roomSnap.data().title || "Room") : "Room";
                 const rankingRef = db.collection("room_support_rankings").doc("rankings").collection("rooms").doc(roomId);
                 transaction.set(rankingRef, {
@@ -8351,8 +8373,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             const validPartners = partnersSnap.docs.filter(pDoc => {
                 const p = pDoc.data();
                 if (p.paid === true || p.status === "paid") return false;
-                if (p.cycleWeekId && p.cycleWeekId !== weekDoc.id) return false;
-                return true;
+                return isRoomSupportPartnerForWeek(p, weekDoc.id);
             });
             const assignedCount = validPartners.length;
 
