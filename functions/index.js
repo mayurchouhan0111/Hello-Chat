@@ -11105,7 +11105,8 @@ async function loadFinancialPolicy() {
  * A dangling agency link is ignored so legacy users can still spend their own
  * balance, but a review that must debit the agency side fails loudly instead.
  * A Host's agencyId is a roster link, not wallet ownership, so the agency
- * document is spendable only by an Agency/Admin tier user who owns it.
+ * document is spendable only by an Agency/Admin tier user who owns it and the
+ * agency is active (suspended/deactivated funds stay locked for audit).
  */
 async function readCommissionSources(transaction, userRef, userDoc, agencyId) {
     const userData = userDoc.data();
@@ -11113,7 +11114,11 @@ async function readCommissionSources(transaction, userRef, userDoc, agencyId) {
     let agencyDoc = null;
     if (agencyId && (tier === "agency" || tier === "admin")) {
         const snap = await transaction.get(db.collection("agencies").doc(agencyId));
-        if (snap.exists && snap.data().ownerUid === userRef.id) agencyDoc = snap;
+        if (snap.exists && snap.data().ownerUid === userRef.id &&
+            snap.data().isActive !== false && snap.data().status !== "deactivated" &&
+            snap.data().status !== "suspended") {
+            agencyDoc = snap;
+        }
     }
     return {
         userRef,
@@ -12698,17 +12703,48 @@ exports.releaseHostFromAgency = functions.https.onCall(async (payload, context) 
     }
 
     const previousAgency = data.agencyId;
-    await ref.update({
-        agencyId: null,
-        roleUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-    await db.collection("audit_logs").add({
-        actorUid: uid,
-        actorRole: caller.role,
-        action: "RELEASE_HOST_FROM_AGENCY",
-        targetId: hostUid,
-        details: { previousAgency },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+
+    // Legacy data stores either the agency document id or the owner uid in
+    // `agencyId`; resolve both so the roster cannot keep a released host.
+    let agencyRef = db.collection("agencies").doc(previousAgency);
+    if (!(await agencyRef.get()).exists) {
+        const byOwner = await db.collection("agencies")
+            .where("ownerUid", "==", previousAgency).limit(1).get();
+        agencyRef = byOwner.empty ? null : byOwner.docs[0].ref;
+    }
+
+    await db.runTransaction(async (transaction) => {
+        const now = admin.firestore.FieldValue.serverTimestamp();
+
+        // READS FIRST: Firestore forbids reads after writes.
+        const agencySnap = agencyRef ? await transaction.get(agencyRef) : null;
+
+        transaction.update(ref, { agencyId: null, roleUpdatedAt: now });
+
+        if (agencySnap && agencySnap.exists) {
+            const aData = agencySnap.data();
+            const hostUids = Array.isArray(aData.hostUids) ? aData.hostUids : [];
+            const wasListed = hostUids.includes(hostUid);
+            const count = Number.isFinite(aData.hostCount)
+                ? Math.max(0, aData.hostCount - (wasListed ? 1 : 0))
+                : Math.max(0, hostUids.length - (wasListed ? 1 : 0));
+            transaction.update(agencyRef, {
+                hostUids: admin.firestore.FieldValue.arrayRemove(hostUid),
+                hostCount: count,
+                updatedAt: now
+            });
+        }
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "RELEASE_HOST_FROM_AGENCY",
+            targetId: hostUid,
+            details: { previousAgency },
+            timestamp: now
+        });
     });
     return { success: true, hostUid, releasedFrom: previousAgency };
 });
@@ -12765,6 +12801,8 @@ exports.deactivateAgency = functions.https.onCall(async (payload, context) => {
         batch.update(agencyRef, {
             isActive: false,
             status: "deactivated",
+            hostUids: [],
+            hostCount: 0,
             deactivatedAt: now,
             deactivatedBy: uid,
             updatedAt: now

@@ -16,10 +16,12 @@ const {
     doc,
     getDoc,
     setDoc,
+    updateDoc,
     collection,
     query,
     where,
     getDocs,
+    arrayUnion,
 } = require("firebase/firestore");
 
 let passedCount = 0;
@@ -101,6 +103,7 @@ async function main() {
 
     const agencyDb = testEnv.authenticatedContext("agencyA").firestore();
     const normalDb = testEnv.authenticatedContext("normalUser").firestore();
+    const hostDb = testEnv.authenticatedContext("hostB").firestore();
 
     await runTest("agency can get its own host", async () => {
         await assertSucceeds(getDoc(doc(agencyDb, "users", "hostA")));
@@ -164,6 +167,30 @@ async function main() {
         }, { merge: true }));
         await assertFails(setDoc(doc(agencyDb, "agencies", "agencyDocA"), {
             usdCommissionBalance: 999999,
+        }, { merge: true }));
+    });
+
+    await runTest("legacy agency-client roster update still succeeds", async () => {
+        await assertSucceeds(updateDoc(doc(agencyDb, "agencies", "agencyDocA"), {
+            hostUids: arrayUnion("legacyHost"),
+        }));
+    });
+
+    await runTest("legacy agency-client create with ledger fields is rejected", async () => {
+        await assertFails(setDoc(doc(normalDb, "agencies", "legacyAgency"), {
+            name: "Legacy Agency",
+            ownerUid: "normalUser",
+            hostUids: ["normalUser"],
+            commissionRate: 0.1,
+            totalBeansEarned: 0,
+            beansBalance: 0,
+            isActive: true,
+        }));
+    });
+
+    await runTest("legacy agency-client self-leave is rejected", async () => {
+        await assertFails(setDoc(doc(hostDb, "users", "hostB"), {
+            agencyId: null,
         }, { merge: true }));
     });
 

@@ -158,14 +158,16 @@ npm --prefix hellochat_admin run build
 Expected as of the current branch:
 
 - `test_hb_pms.js`: 12 passed, 0 failed.
-- Rules + role/hierarchy: 13/13 and 30/30 passed.
+- Rules + role/hierarchy: 16/16 and 30/30 passed.
 - Wallet authorization: a Host or non-owner Agency staffer with an `agencyId`
   cannot spend the agency balance; only the agency owner can.
-- Flutter targeted tests: all passed.
-- Full `flutter test` is not green on this branch and is not the deploy gate:
-  6 unrelated failures in chat combo folding, room-support tiers, and the
-  VAP 12-vs-13 gift catalog, plus the suite did not finish within 10 minutes.
-  None touch the commission-wallet files.
+- Flutter targeted tests: 9/9 passed.
+- Emulator UAT automation: happy paths 8/8 and edge cases 8/8 passed.
+- Full `flutter test` is not green on this branch and is not the deploy gate.
+  Run one file at a time: 49 of 53 files pass (371 tests). The same 6 failures
+  exist on base `2ebe5c4` (chat combo, room-support tiers, VAP 12-vs-13), and
+  `test/svga_player_widget_test.dart` hangs on base too. None touch the
+  commission-wallet files.
 - `flutter analyze`: 2 pre-existing errors in
   `integration_test/app_device_test.dart` because the `integration_test`
   dependency is commented out in `pubspec.yaml`; the deployable `lib/` code has
@@ -211,7 +213,7 @@ firebase --project "$PROJECT_ID" deploy --only hosting:hellochat_admin
 Smoke after Hosting:
 
 - [ ] Admin site loads with no console errors.
-- [ ] Sign in as each of the four Admins and confirm the panel opens.
+- [ ] Sign in as each of the six Admin-role accounts and confirm the panel opens.
 - [ ] Open Commission Wallet for an account with `agencyId`; legacy + agency
       values are shown.
 - [ ] Open the Commission Wallet for a user without `agencyId`; legacy-only
@@ -272,8 +274,8 @@ Immediately after rules:
 - [ ] Gift catalog is still readable.
 - [ ] Room read/create/join flows still work.
 - [ ] Host roster shows 3 explicit hosts and 101 Normal Users.
-- [ ] Four Admins open their panels; role codes are one each of
-      `10000`, `10001`, `10003`, `10005`.
+- [ ] Six Admin-role accounts open their panels; role codes are one each of
+      `10000`-`10005`.
 - [ ] Agency isolation: Agency A cannot read Agency B hosts/wallet.
 - [ ] Owner withdrawal queue still loads; no live request is modified.
 - [ ] Monitor Functions logs for 15 minutes: no permission-denied or

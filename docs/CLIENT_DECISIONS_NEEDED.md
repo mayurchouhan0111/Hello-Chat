@@ -1,9 +1,23 @@
 ﻿# Client Decisions Needed Before Production Rollout
 
 Status: **NOT EXECUTED - NO PRODUCTION DATA HAS BEEN CHANGED**
-Source: read-only audit of `hellochat-e8965` on 2026-10-28
-Audit baseline: old `2ebe5c4`, newer `1011b8f`; 118 users, 2 agencies,
-1 branch.
+Source: read-only audit of `hellochat-e8965` on 2026-10-29
+Current read-only counts: 120 users, 377 rooms, 2 agency documents, 1 branch.
+
+## Two-minute summary
+
+The core code paths are ready for UAT, but the production data is not clean. 101 accounts
+have no role/host marker and become Normal Users. `8xS6...` owns an agency but
+has no Agency role or owner flag; it can read the agency wallet through a
+direct screen but cannot spend or withdraw from it. Eight users point at
+missing/wrong agency IDs. Two agencies and several staff accounts have missing
+hierarchy links. The release deliberately does not repair any of this.
+
+The core emulator UAT is executable now; fixture/UI gaps are listed as U1-U5.
+Production UAT is **read-only** and cannot
+exercise an Agency role plus valid agency document because no such account
+exists. The Owner must choose Keep / Repair / Defer for D1-D7 before production
+rollout is scored complete.
 
 The deploy changes role resolution and agency commission handling. The items
 below are data inconsistencies that this branch deliberately does **not**
@@ -14,15 +28,18 @@ repair. Each needs an Owner decision before UAT or rollout is scored complete.
 ### Finding
 
 The new resolver reads `role`, then tags, then `isAgencyOwner`, then
-`isHost`. Accounts with none of those signals are Normal Users. The audit found
-101 users with no explicit role/host signal; all 101 are currently shown as
-Hosts and become `user` in the new model.
+`isHost`. Accounts with none of those signals are Normal Users. Current
+read-only data: 101 unmarked accounts (no role and no host/agency signal) plus
+2 explicit `role: user` accounts.
 
-- Before: `user 0`, `host 104`, `agency 3`, `admin 6`, `superadmin 2`, `owner 3`.
-- After: `user 101`, `host 3`, `agency 3`, `admin 6`, `superadmin 2`, `owner 3`.
-- All 101 changes are `host -> user`; no other tier changed.
+- Current data: `role` counts are `user 2`, `undefined 103`, `host 3`,
+  `admin 6`, `agency 2`, `owner 3`, `superadmin 1` (120 total).
+- New tier counts: `user 103`, `host 3`, `agency 3`, `admin 6`,
+  `superadmin 2`, `owner 3`.
+- The 101 unmarked accounts become Normal Users. No other role is changed by
+  this release.
 
-The 3 remaining explicit Hosts are:
+The 3 explicit Hosts are:
 
 | Hello ID | UID | Name | Agency link |
 |---|---|---|---|
@@ -30,12 +47,30 @@ The 3 remaining explicit Hosts are:
 | `8039546587` | `7onb5B5ZdbMbskb9yMYO8avvffl2` | `Panel Host Two` | `lnmsVutlHiO7GDTkRmhRPvs5Y8J2` (missing) |
 | `4792863199` | `HfJJhQau7XfdrFXyhtjpCkyRKTw2` | `Panel Host` | `lnms...` (missing) |
 
-No production account currently has BOTH an Agency role AND a valid agency document. `HgrLl9ubSmcZ0LdWi05MS0jHGvu1` is an Admin who owns `VO4...`; `8xS6BOlqjhMWuN9v7lxqoVulqan2` is a Normal User who owns `pUOz...`. The Admin path can use the admin panel; the Normal User owner cannot use the Agency/commission role path until this is decided.`n`nHigh-impact example inside the 101: `8xS6BOlqjhMWuN9v7lxqoVulqan2`
-(Hello `6114943995`, name `hello`) owns agency
-`pUOzQAMTYQlvrTsxCVlC`, but has `role: null`, no tags, and
-`isAgencyOwner: false`. It becomes a Normal User while still being the agency
-document owner. Its agency wallet will not be reachable through the normal
-Agency/Admin role path.
+No production account has BOTH an Agency role AND a valid agency document.
+`HgrLl9ubSmcZ0LdWi05MS0jHGvu1` is an Admin who owns `VO4...`;
+`8xS6BOlqjhMWuN9v7lxqoVulqan2` is a Normal User who owns `pUOz...`.
+
+High-impact example: `8xS6BOlqjhMWuN9v7lxqoVulqan2` (Hello `6114943995`,
+name `hello`) owns active agency `pUOzQAMTYQlvrTsxCVlC` (`ownerUid` matches),
+but has no `role`, no tags, and `isAgencyOwner: false`. It resolves to Normal
+User. The Agency Portal is not linked from its profile. A direct
+`/agency-portal` or `/commission-wallet` route can still render the agency
+document because the rules allow the owner to read it, but the commission
+callables refuse withdrawals/agency spending at Normal-User tier. This is a
+visibility/ownership mismatch, not a path to withdraw funds.
+
+### Impact on the 101 (production data + code)
+
+- **Room ownership: retained.** Rooms keyed by `ownerUid` are not changed by
+  the role migration. 203 rooms are owned by accounts currently in the
+  user tier (this includes the 2 genuine users, so it is not exactly 101).
+- **Salary eligibility: retained.** `isSalaryEligible` only excludes Super
+  Admins. 45 `salaryStatus` documents belong to user-tier accounts and remain.
+- **Gift receiving: retained.** Gift delivery does not check the receiver's
+  Host role; the 101 can still receive gifts and beans.
+- **Lost:** Host roster presence and Host-specific surfaces. They do not lose
+  rooms, salary progress, or gift receiving.
 
 ### Options
 
@@ -56,7 +91,7 @@ silently promote all 101.
 ### Risk if deferred
 
 - The Host roster will show 3, not 104. This is a client-visible change.
-- `8xS6...` may be unable to use the agency wallet/portal.
+- `8xS6...` can read some agency data but cannot withdraw or spend it.
 - Named real Hosts who lost access will file support tickets.
 
 ## D2. Eight invalid `agencyId` links
@@ -172,8 +207,9 @@ wallet. Support may confuse this with a bug.
 
 The current implementation is **soft delete**: `deactivateAgency` marks the
 agency `isActive: false`, sets status `deactivated`, records
-`deactivatedAt`/`deactivatedBy`, releases linked Hosts, and keeps balances.
-There is no agency hard-delete callable in this branch.
+`deactivatedAt`/`deactivatedBy`, releases linked Hosts, clears the roster
+(`hostUids`/`hostCount`), and keeps balances. There is no agency hard-delete
+callable in this branch.
 
 ### Options
 
@@ -224,26 +260,40 @@ deploy is stable and with a full reconciliation.
 Some users see legacy + agency balances combined; two sources remain. A future
 migration will need to handle already-withdrawn legacy balances.
 
-## D7. Confirm the four Admin role codes
+## D7. Confirm the six Admin role codes
 
 ### Finding
 
-The UAT plan expects the four Admins to hold exactly one each of `10000`,
-`10001`, `10003`, `10005`. The read-only audit confirms the four Admin
-accounts but does not expose a verified account-to-code mapping:
+The read-only audit found six accounts with `role: admin`, all under
+`branch-prod-1`, holding one code each from `10000` to `10005`:
 
-| Hello ID | UID | Current role | Agency link |
+| Hello ID | UID | Role code | Agency link |
 |---|---|---|---|
-| `3607188625` | `HgrLl9ubSmcZ0LdWi05MS0jHGvu1` | Admin | owns `VO4...` |
-| `1805742773` | `aRdHp4qLLKdd8qUoVTcgTcpZpKf2` | Admin | none |
-| `3485703221` | `lDLp5QDDbXRzfT14qEAr4SauR0G3` | Admin | points at a user UID |
-| `100003` | `PhFe53EOGzRxricZKawdA4DARcz2` | Admin | none |
+| `3607188625` | `HgrLl9ubSmcZ0LdWi05MS0jHGvu1` | `10000` | owns `VO4...` |
+| `3485703221` | `lDLp5QDDbXRzfT14qEAr4SauR0G3` | `10001` | points at a user UID |
+| `5621916410` | `pc6mVRnBCVOTV9nM5J7FErJ5WZc2` | `10002` | none; tags include Agency |
+| `1805742773` | `aRdHp4qLLKdd8qUoVTcgTcpZpKf2` | `10003` | none |
+| `1887819976` | `hjntivA2pmasR8sE8QXGvABujNy2` | `10004` | none |
+| `100003` | `PhFe53EOGzRxricZKawdA4DARcz2` | `10005` | none |
 
 ### Decision required
 
-Confirm which Hello ID should hold each expected code. If the actual codes
-differ, update the UAT expected values before testing; do not rewrite role codes
-to match the document.
+Confirm the account-to-code mapping is correct for UAT. If a code is wrong,
+record the correction in the UAT plan; do not rewrite production role codes to
+match a document.
+
+## UAT blockers that are not data decisions
+
+These are code/UI/test-fixture gaps found during the UAT audit. They do not
+need a production data decision, but they affect what can be scored.
+
+| ID | Gap | Effect | Recommendation |
+|---|---|---|---|
+| U1 | No atomic host-transfer action. | F1 is remove + add, not one transfer. | Test the two-step flow; add a transfer callable only if the client requires one step. |
+| U2 | `removeHost` clears `agencyId` but not `role`/`isHost`. | Removed Host can still see Host surfaces; F2's old expectation is false. | Decide whether removal should demote or only unlink. Do not change silently. |
+| U3 | Flutter router has no role guard. | Direct `/commission-wallet`/`/agency-portal` routes can open. Backend rules/callables still protect data and money. | Treat as a UX hardening item; do not claim routes are redirected. |
+| U4 | Missing fixtures: reseller, legacy withdrawal, mini-game config, push/FCM. | E8, E9, G7, G9 cannot be scored on the emulator. | Prepare staging fixtures or mark those rows blocked. |
+| U5 | Crafted-write rows B5, B6, C2, C7, E10 have no client UI. | A non-developer tester cannot execute them. | Use the automated rules tests as security evidence. |
 
 ## Approval record
 
