@@ -24,6 +24,8 @@ class RocketCompletionVapOverlay extends ConsumerStatefulWidget {
 
 class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVapOverlay> {
   bool _showVariant2 = false;
+  // Guard against duplicate completion signals (MethodChannel + watchdog race).
+  bool _dismissed = false;
 
   @override
   void initState() {
@@ -61,7 +63,7 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
     final variant = needsSequence ? (_showVariant2 ? 2 : 1) : 1;
     final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: variant);
 
-    return Positioned.fill(
+    return SizedBox.expand(
       child: Material(
         color: Colors.transparent,
         child: Stack(
@@ -73,9 +75,16 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
               fit: BoxFit.contain,
               loop: false,
               onComplete: () {
+                // Guard: prevent double invocation when both MethodChannel
+                // onVideoComplete and the safety watchdog fire in the same
+                // Choreographer sync-barrier window.
+                if (_dismissed) return;
                 if (needsSequence && !_showVariant2) {
+                  // Advance to variant 2; _dismissed intentionally NOT set here
+                  // so the second clip can also complete normally.
                   setState(() => _showVariant2 = true);
                 } else {
+                  _dismissed = true;
                   Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
                 }
               },

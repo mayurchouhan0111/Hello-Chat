@@ -41,6 +41,9 @@ String? _resolveTopUid(dynamic room) {
 }
 
 class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
+  // Guard against duplicate completion signals (MethodChannel + watchdog race).
+  bool _dismissed = false;
+
   @override
   Widget build(BuildContext context) {
     final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
@@ -73,6 +76,11 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
               fit: BoxFit.contain,
               loop: false,
               onComplete: () {
+                // Guard: prevent double invocation when both MethodChannel
+                // onVideoComplete and the safety watchdog fire in the same
+                // Choreographer sync-barrier window.
+                if (_dismissed) return;
+                _dismissed = true;
                 Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
               },
             ),
