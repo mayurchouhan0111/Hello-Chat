@@ -252,7 +252,11 @@ class VapView(
                 invoke("onVideoDestroy", mapOf("ticket" to currentTicket, "id" to currentPlayId))
             }
 
-            override fun onVideoRender(frameIndex: Int, config: AnimConfig?) {}
+            override fun onVideoRender(frameIndex: Int, config: AnimConfig?) {
+                if (config != null && config.totalFrames > 0 && frameIndex >= config.totalFrames - 1) {
+                    dispatchVideoComplete()
+                }
+            }
 
             override fun onVideoStart() {
                 hasCompleted = false

@@ -207,6 +207,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
         var outputDone = false
         var frameIndex = 0
         var isLoop = false
+        var emptyOutputCount = 0
 
         try {
             while (!outputDone) {
@@ -231,12 +232,27 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
                 }
 
                 val status = decoder.dequeueOutputBuffer(bufferInfo, timeoutUsec)
+                val totalFrames = player.configManager.config?.totalFrames ?: 0
                 when {
-                    status == MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
+                    status == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                        if (inputDone) {
+                            emptyOutputCount++
+                            // MediaTek / vendor bug safeguard: after input reaches EOS, if the decoder
+                            // returns INFO_TRY_AGAIN_LATER consecutively or has decoded all frames,
+                            // the stream is complete. Do not hang in a busy loop!
+                            if (emptyOutputCount >= 5 || (totalFrames > 0 && frameIndex >= totalFrames)) {
+                                Log.i(TAG, "decode: EOS reached via output buffer drain (frames=$frameIndex, total=$totalFrames)")
+                                outputDone = true
+                            }
+                        }
+                    }
                     status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> outputFormat = decoder.outputFormat
                     status >= 0 -> {
+                        emptyOutputCount = 0
                         var loop = 0
-                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                        val isEosBuffer = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0)
+                        val isLastFrame = (totalFrames > 0 && frameIndex + 1 >= totalFrames && inputDone)
+                        if (isEosBuffer || isLastFrame) {
                             loop = --playLoop
                             player.playLoop = playLoop
                             outputDone = playLoop <= 0
@@ -353,28 +369,29 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
 
             try {
                 textureToRelease?.setOnFrameAvailableListener(null)
-                render?.clearFrame()
-                render?.swapBuffers()
+                renderToRelease?.clearFrame()
+                renderToRelease?.swapBuffers()
                 speedControlUtil.reset()
                 player.pluginManager.onRelease()
             } catch (e: Throwable) {
                 ALog.e(TAG, "release prep exception: $e", e)
             }
 
+            // Immediately mark stopped and fire onVideoComplete so UI hides the frame instantaneously!
+            isRunning = false
+            onVideoComplete()
+
             activeReleaseFuture = releaseExecutor.schedule({
                 try { decoder?.stop() } catch (e: Throwable) { Log.w(TAG, "decoder.stop: $e") }
                 try { decoder?.release() } catch (e: Throwable) { Log.w(TAG, "decoder.release: $e") }
                 try { extractor?.release() } catch (e: Throwable) { Log.w(TAG, "extractor.release: $e") }
-                try { Thread.sleep(150) } catch (_: Throwable) {}
                 try { surfaceToRelease?.release() } catch (e: Throwable) { Log.w(TAG, "surface.release: $e") }
                 try { textureToRelease?.release() } catch (e: Throwable) { Log.w(TAG, "texture.release: $e") }
                 renderThread.handler?.post {
                     try { renderToRelease?.releaseTexture() } catch (e: Throwable) { Log.w(TAG, "releaseTexture: $e") }
-                    isRunning = false
-                    onVideoComplete()
                     if (needDestroy) destroyInner()
                 }
-            }, RELEASE_GRACE_MS, TimeUnit.MILLISECONDS)
+            }, 50L, TimeUnit.MILLISECONDS)
         }
     }
 

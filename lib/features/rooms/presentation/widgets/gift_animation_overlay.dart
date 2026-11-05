@@ -1254,12 +1254,17 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
 
+    // Immediately stop and clear persistent controller
+    try {
+      _persistentVapController?.stop();
+    } catch (_) {}
+
     setState(() {
       _currentFullScreenAnim = null;
     });
 
-    // 100ms grace window for GPU surface reset before picking the next queued gift
-    _transitionTimer = Timer(const Duration(milliseconds: 100), () {
+    // 30ms grace window for GPU surface reset before picking the next queued gift
+    _transitionTimer = Timer(const Duration(milliseconds: 30), () {
       if (mounted) {
         _isFullScreenPlaying = false;
         _checkNextFullScreenAnimation();

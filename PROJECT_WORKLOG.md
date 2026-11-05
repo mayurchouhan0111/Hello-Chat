@@ -5197,3 +5197,16 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **Direct Physical Device Deployment**:
   - Target Device: `1374223603000CJ` (Physical Android Device)
   - Streamed Install via ADB: SUCCESS (`Performing Streamed Install -> Success`)
+
+
+### Production Release Build & Native VAP Pipeline Optimization (2026-11-05 17:30:00)
+- **Problem**: During longer animations (e.g., `Shadow Knight` / `gift_14.vap`), the device log revealed `OpenGLRenderer: Davey! duration=6883ms` and the watchdog had to force completion. MediaTek hardware decoders (`c2.mtk.avc.decoder`) dropped `BUFFER_FLAG_END_OF_STREAM` on buffer drain, trapping `SafeHardDecoder` in an infinite busy loop (`dequeueOutputBuffer` returning `INFO_TRY_AGAIN_LATER`) that starved the CPU for 6.8 seconds until the safety timer fired. Additionally, `onVideoComplete()` was artificially delayed by 500ms inside the background codec teardown scheduler.
+- **Root Cause & Fix**:
+  1. **EOS Output Buffer Drain Guard (`SafeHardDecoder.kt`)**: Added consecutive empty output drain detection (`emptyOutputCount >= 5` or `frameIndex >= totalFrames`) when `inputDone == true`, cleanly terminating the decode loop without busy-spinning on vendor decoders.
+  2. **Zero-Delay Pre-Emptive Completion (`VapView.kt`)**: Added last-frame completion trigger in `onVideoRender` (`frameIndex >= totalFrames - 1`) to immediately set `alpha = 0f` and `visibility = INVISIBLE` the exact millisecond the final frame is rendered.
+  3. **Decoupled Asynchronous Teardown (`SafeHardDecoder.kt`)**: Moved `onVideoComplete()` directly to the render thread frame-clear block, decoupling user-facing completion from background `releaseExecutor` codec destruction.
+  4. **Active Controller Reset (`gift_animation_overlay.dart`)**: Called `_persistentVapController?.stop()` directly upon completion and reduced transition window to 30ms for seamless transitions between animations.
+- **Build & Deployment**:
+  - `flutter build apk --release` SUCCESS (Exit Code 0, 767,434,476 bytes).
+  - Deployed to `D:\UnHuman\Apps\Hello Chat\hellochat\app-release.apk` and `build\app\outputs\apk\release\app-release.apk`.
+  - Installed and cold-launched on device `1374223603000CJ` (PID `5492`, `topResumedActivity`).
