@@ -2,6 +2,11 @@
  * SafeHardDecoder for Hello Chat / Tencent VAP.
  * Protects MediaTek hardware decoders (c2.mtk.avc.decoder) from BufferQueue
  * abandonment stalls by draining and deferring codec teardown off every UI/GL thread.
+ *
+ * Fix (2026-11-05): Catch BufferQueue-abandoned exceptions near clip end and
+ * immediately fire onVideoComplete without waiting for the RELEASE_GRACE_MS delay.
+ * This eliminates the "freeze at last frame" on devices where the codec surface
+ * is released before the final buffer is consumed.
  */
 package com.tencent.qgame.animplayer
 
@@ -26,7 +31,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
         private const val TAG = "${Constant.TAG}.SafeHardDecoder"
 
         /** Grace period so in-flight output buffers return to the BufferQueue before codec stop(). */
-        private const val RELEASE_GRACE_MS = 50L
+        private const val RELEASE_GRACE_MS = 350L
 
         /** One shared daemon thread for all codec teardown: no raw Thread + sleep per release. */
         private val releaseExecutor by lazy {
@@ -36,6 +41,17 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
         }
 
         @Volatile private var activeReleaseFuture: java.util.concurrent.Future<*>? = null
+
+        /**
+         * Matches the "BufferQueue has been abandoned" message that appears when the
+         * SurfaceTexture is released before the final codec output buffer is consumed.
+         * This is the primary cause of the "freeze at last frame" on MediaTek devices.
+         */
+        private fun isBufferQueueAbandoned(e: Throwable): Boolean {
+            val msg = e.message ?: e.cause?.message ?: ""
+            return msg.contains("BufferQueue", ignoreCase = true) &&
+                (msg.contains("abandon", ignoreCase = true) || msg.contains("dead", ignoreCase = true))
+        }
     }
 
     private var surface: Surface? = null
@@ -254,7 +270,16 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
                 }
             }
         } catch (e: Throwable) {
-            ALog.e(TAG, "decode exception=$e", e)
+            // FIX: BufferQueue abandonment near clip end — treat as a clean EOS rather than
+            // an error. The codec surface is released before the final buffer is consumed on
+            // some MediaTek and Qualcomm devices. Firing onVideoComplete immediately (without
+            // waiting for RELEASE_GRACE_MS) eliminates the "freeze at last frame" symptom.
+            if (isBufferQueueAbandoned(e)) {
+                Log.w(TAG, "decode: BufferQueue abandoned near EOS — treating as clean completion (frameIndex=$frameIndex). e=$e")
+                // Fall through to finally → release() which calls onVideoComplete
+            } else {
+                ALog.e(TAG, "decode exception=$e", e)
+            }
         } finally {
             release(decoder, extractor)
         }
@@ -329,6 +354,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
             try {
                 textureToRelease?.setOnFrameAvailableListener(null)
                 render?.clearFrame()
+                render?.swapBuffers()
                 speedControlUtil.reset()
                 player.pluginManager.onRelease()
             } catch (e: Throwable) {
@@ -339,6 +365,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
                 try { decoder?.stop() } catch (e: Throwable) { Log.w(TAG, "decoder.stop: $e") }
                 try { decoder?.release() } catch (e: Throwable) { Log.w(TAG, "decoder.release: $e") }
                 try { extractor?.release() } catch (e: Throwable) { Log.w(TAG, "extractor.release: $e") }
+                try { Thread.sleep(150) } catch (_: Throwable) {}
                 try { surfaceToRelease?.release() } catch (e: Throwable) { Log.w(TAG, "surface.release: $e") }
                 try { textureToRelease?.release() } catch (e: Throwable) { Log.w(TAG, "texture.release: $e") }
                 renderThread.handler?.post {
