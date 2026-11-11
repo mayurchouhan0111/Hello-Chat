@@ -121,6 +121,7 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
           ],
         ),
       ),
+    ),
     );
   }
 }

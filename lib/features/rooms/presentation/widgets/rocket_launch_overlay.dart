@@ -92,7 +92,6 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
                 },
               ),
             ),
-            ),
 
             Positioned(
               bottom: 100,

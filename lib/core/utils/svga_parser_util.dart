@@ -685,37 +685,6 @@ class SvgaParserUtil {
     return getLocalVapDurationMs(cleanPath);
   }
 
-  /// Pre-parses all known local VAP / MP4 assets asynchronously and warms up the cache.
-  static Future<void> warmupVapDurations() async {
-    const known = [
-      'assets/animations/gifts/219667/video.mp4',
-      'assets/animations/gifts/251779/video.mp4',
-      'assets/animations/gifts/256006/video.mp4',
-      'assets/animations/gifts/2529/video.mp4',
-      'assets/animations/gifts/169522/video.mp4',
-      'assets/animations/gifts/tencent-VAP-music/video.mp4',
-      'assets/animations/gifts/lucky gifts bell vap/lucky gifts bell vap/video.mp4',
-      'assets/animations/gifts/normal gift/lucky gift dates/video.mp4',
-      'assets/gifts-vap/vap_gift_1.vap',
-      'assets/gifts-vap/vap_gift_2.vap',
-      'assets/gifts-vap/vap_gift_3.vap',
-      'assets/gifts-vap/vap_gift_4.vap',
-      'assets/gifts-vap/vap_gift_5.vap',
-      'assets/gifts-vap/vap_gift_6.vap',
-      'assets/gifts-vap/vap_gift_7.vap',
-      'assets/gifts-vap/vap_gift_8.vap',
-      'assets/gifts-vap/vap_gift_9.vap',
-      'assets/gifts-vap/vap_gift_10.vap',
-      'assets/gifts-vap/vap_gift_11.vap',
-      'assets/gifts-vap/vap_gift_12.vap',
-    ];
-    for (final p in known) {
-      try {
-        await getRealOrFallbackVapDurationMs(p);
-      } catch (_) {}
-    }
-  }
-
   /// Returns exact encoded duration in ms for local bundled MP4/VAP files (table fallback).
   static int getLocalVapDurationMs(String path) {
     final lower = path.toLowerCase();

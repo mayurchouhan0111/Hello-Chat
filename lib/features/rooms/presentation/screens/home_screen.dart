@@ -924,8 +924,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     memCacheHeight: 420,
                     width: double.infinity,
                     height: double.infinity,
-                    memCacheWidth: 350,
-                    memCacheHeight: 350,
                   ),
                 ),
                 // User Count Top Right
