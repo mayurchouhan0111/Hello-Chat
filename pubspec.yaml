@@ -154,8 +154,11 @@ flutter:
     - assets/animations/VAP/
     - assets/lucky gift dates/
     - assets/fonts/
-    - assets/stickers/HotCherry-1779517555688/
-    - assets/stickers/UtyaDuck-1779516899467/
+    - assets/stickers/
+    - assets/stickers/audio_party/
+    - assets/stickers/party_mascots/
+    - assets/stickers/cuppy/
+    - assets/stickers/chibi_emotes/
     - assets/svga/
     - assets/VIP/VIP 1/
     - assets/VIP/VIP 2/VIP 2/
