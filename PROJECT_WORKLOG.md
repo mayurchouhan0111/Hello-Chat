@@ -6611,3 +6611,38 @@ ightarrow$ "Set or Reset Password" screen directly on the physical phone (`auth_
   - `lib/features/profile/presentation/screens/reset_password_screen.dart` (Invalidate profile stream upon password change)
   - `test/progressive_password_migration_test.dart` (Comprehensive automated unit & widget test suite)
   - `PROJECT_WORKLOG.md` (Updated)
+
+---
+
+### Date: 2026-11-11 (Emulator Tests Reapplied on Main After Worktree Merge)
+
+- **What Client Asked / Problem**:
+  Reapply the emulator-backed backend fixes onto the new consolidated `main` code (room redesign merge) without losing the newly merged functions.
+
+- **What We Did**:
+  1. **Firestore rules re-hardened** (`firebase/firestore.rules`):
+     - Chat message writes now require participation **and** `!isChatBlocked(chatId)` using `chatOtherUid`/`isChatBlocked` helpers over both users' `blockedUids` (server-side block enforcement; client `checkChatBlock` is advisory).
+     - `relationship_requests` locked to `allow write: if false`; all transitions go through `sendFriendRequest`/`acceptFriendRequest`/`rejectFriendRequest`.
+     - `cp_invites` locked to `allow write: if false`; `sendCPInvite`/`acceptCPInvite` own the lifecycle and atomic `cp_relationships` write.
+  2. **Dead duplicate `redeemReferralCode` removed again** from the merged `functions/index.js` (the early +50 Beans-to-invitee version; the live version pays 50 Diamonds to invitee and 100 Beans to referrer, matching the invite UI).
+  3. **Functions-emulator compatibility** reapplied across the merged file: imported `{ FieldValue, Timestamp, FieldPath }` from `firebase-admin/firestore` and replaced all `admin.firestore.*` static uses (firebase-tools' admin stub loses statics on bound functions inside the emulator).
+  4. **Preserved newly merged functions** (`clearRoomMessages`, `distributeRoomSupportRewards`, `retryFailedSalaryPayout`) by editing the merged file rather than restoring the old stash copy.
+  5. **Emulator suites kept** at `functions/test/emulator/firestore_rules.test.cjs` (25 tests) and `functions/test/emulator/functions.test.cjs` (14 tests).
+
+- **Verification**:
+  `firebase emulators:exec --only firestore,functions,auth --project demo-hellochat "node functions/test/emulator/firestore_rules.test.cjs && node functions/test/emulator/functions.test.cjs"`
+  - **39/39 passing** (25 rules + 14 functions).
+  - `node --check functions/index.js` passes.
+  - Release APK built/installed on Vivo V2132; new room UI confirmed (background, circular seats, VIP entry banner, new bottom bar); VAP entry animations loaded with no crash.
+
+- **Files Touched**:
+  - `firebase/firestore.rules`
+  - `functions/index.js`
+  - `functions/test/emulator/firestore_rules.test.cjs`
+  - `functions/test/emulator/functions.test.cjs`
+  - `PROJECT_WORKLOG.md`
+
+- **Notes / Gaps**:
+  - Stash `stash@{0}` held the pre-merge WIP snapshot; dropped after this reapplication was verified.
+  - The `HotCherry`/`UtyaDuck` build warning came from stale build artifacts during the merge; current `pubspec.yaml` references only the four sticker folders that exist on disk.
+  - **Deployed to production (`hellochat-e8965`)**: `firestore:rules` (compiled + released) and the nine touched callables (`checkChatBlock`, `redeemReferralCode`, `sendCPInvite`, `acceptCPInvite`, `sendFriendRequest`, `acceptFriendRequest`, `rejectFriendRequest`, `sendGiftWithCombo`, `withdrawBeans`) — all successful.

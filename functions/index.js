@@ -3,6 +3,7 @@ const { onValueUpdated } = require("firebase-functions/v2/database");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const { defineString, defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const { FieldValue, Timestamp, FieldPath } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 
 if (!admin.apps.length) {
@@ -393,7 +394,7 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
     const nowMs = Date.now();
     const frameValidityMs = ROCKET_SYSTEM.frameValidityMs[level] || 24 * 60 * 60 * 1000;
     const frameAsset = ROCKET_SYSTEM.frameAsset;
-    const frameExpiresAt = admin.firestore.Timestamp.fromMillis(nowMs + frameValidityMs);
+    const frameExpiresAt = Timestamp.fromMillis(nowMs + frameValidityMs);
 
     const rewardWinners = [
         { uid: sortedContributors[0]?.[0], rebate: rewards.king, rank: 1, amount: sortedContributors[0]?.[1] || 0 },
@@ -407,8 +408,8 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
         if (winner.uid && winner.uid !== "SYSTEM_ADMIN") {
             const userRef = db.collection("users").doc(winner.uid);
             transaction.update(userRef, {
-                diamondBalance: admin.firestore.FieldValue.increment(winner.rebate),
-                xp: admin.firestore.FieldValue.increment(rewards.xp),
+                diamondBalance: FieldValue.increment(winner.rebate),
+                xp: FieldValue.increment(rewards.xp),
                 profileFrame: frameAsset
             });
 
@@ -429,7 +430,7 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
                 category: "frame",
                 earnedFrom: "rocket_event",
                 rocketLevel: level + 1,
-                awardedAt: admin.firestore.FieldValue.serverTimestamp(),
+                awardedAt: FieldValue.serverTimestamp(),
                 expiresAt: frameExpiresAt,
                 isEquipped: true,
                 isActive: true
@@ -446,7 +447,7 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
                 xp: rewards.xp,
                 frameAsset: frameAsset,
                 frameExpiresAt: frameExpiresAt,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                timestamp: FieldValue.serverTimestamp()
             });
 
             // Persist winner notification into user's inbox (atomic with rewards)
@@ -456,7 +457,7 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
                 title: `🚀 Rocket Reward - TOP ${winner.rank}`,
                 body: `Congratulations! You ranked TOP ${winner.rank} in the Rocket event and won ${winner.rebate.toLocaleString()} 💎 + ${rewards.xp} XP + Rocket Frame!`,
                 read: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
                 data: {
                     route: "/room",
                     roomId: roomId,
@@ -486,24 +487,24 @@ async function processRocketLaunch(transaction, roomId, level, roomData, senderU
         roomName: roomData.name || "Live Room",
         level: level + 1,
         kingUid: sortedContributors[0]?.[0] || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     // 3. Update Room State
     const roomUpdate = {
-        rocketLevel: admin.firestore.FieldValue.increment(1),
+        rocketLevel: FieldValue.increment(1),
         rocketFuel: 0,
         lastRocketResults: {
             top3: sortedContributors.map(([uid, amount]) => ({ uid, amount })),
             level: level + 1,
-            rewardedAt: admin.firestore.FieldValue.serverTimestamp(),
+            rewardedAt: FieldValue.serverTimestamp(),
         }
     };
 
     // 🚀 If we just finished Level 5 (level was 4), set 5-minute cooldown and reset contributions for next 5-rocket cycle!
     if (level === 4) {
         const cooldownMinutes = 5;
-        const cooldownUntil = admin.firestore.Timestamp.fromMillis(Date.now() + cooldownMinutes * 60 * 1000);
+        const cooldownUntil = Timestamp.fromMillis(Date.now() + cooldownMinutes * 60 * 1000);
         roomUpdate.rocketCooldownUntil = cooldownUntil;
         roomUpdate.rocketStatus = "cooldown";
         roomUpdate.rocketContributions = {}; // Reset ONLY after Rocket 5!
@@ -629,8 +630,8 @@ async function processRocketFueling(transaction, roomId, roomRef, roomData, send
             currentFuel += remainingCost;
 
             transaction.update(roomRef, {
-                rocketFuel: admin.firestore.FieldValue.increment(remainingCost),
-                [`rocketContributions.${senderUid}`]: admin.firestore.FieldValue.increment(remainingCost)
+                rocketFuel: FieldValue.increment(remainingCost),
+                [`rocketContributions.${senderUid}`]: FieldValue.increment(remainingCost)
             });
             remainingCost = 0;
         }
@@ -683,7 +684,7 @@ exports.updateRocketSettings = functions.https.onCall(async (data, context) => {
 
     await db.collection("system_configs").doc("rocket_settings").set({
         targets: sanitizedTargets,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         updatedBy: context.auth.uid
     }, { merge: true });
 
@@ -864,9 +865,9 @@ function processSvipPointsForRecharge(transaction, userRef, userData, usdAmount)
         transaction.update(userRef, {
             svipLevel: highestQualified,
             svipPoints: 0, // SPEC RULE: Must reset to 0 upon immediate upgrade
-            svipCycleStartDate: admin.firestore.Timestamp.fromDate(now),
-            svipCycleEndDate: admin.firestore.Timestamp.fromDate(newCycleEnd),
-            svipUpgradedAt: admin.firestore.FieldValue.serverTimestamp()
+            svipCycleStartDate: Timestamp.fromDate(now),
+            svipCycleEndDate: Timestamp.fromDate(newCycleEnd),
+            svipUpgradedAt: FieldValue.serverTimestamp()
         });
 
         // Record in upgrade history
@@ -878,8 +879,8 @@ function processSvipPointsForRecharge(transaction, userRef, userData, usdAmount)
             triggerUsdRecharge: usdAmount,
             cyclePointsEarned: currentPoints,
             cyclePointsAfterReset: 0,
-            cycleEndDate: admin.firestore.Timestamp.fromDate(newCycleEnd),
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            cycleEndDate: Timestamp.fromDate(newCycleEnd),
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // Add in-app notification
@@ -888,7 +889,7 @@ function processSvipPointsForRecharge(transaction, userRef, userData, usdAmount)
             title: "🎉 SVIP Upgrade!",
             message: `Congratulations! You have been promoted to SVIP ${highestQualified}! Enjoy your exclusive 60-day elite privileges.`,
             type: "svip_upgrade",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             isRead: false
         });
     } else {
@@ -898,8 +899,8 @@ function processSvipPointsForRecharge(transaction, userRef, userData, usdAmount)
         };
         // If user is SVIP > 0 and cycle dates not set, initialize 60 days
         if (currentLevel > 0 && !userData.svipCycleEndDate) {
-            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
-            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(new Date(now.getTime() + sixtyDaysMs));
+            updates.svipCycleStartDate = Timestamp.fromDate(now);
+            updates.svipCycleEndDate = Timestamp.fromDate(new Date(now.getTime() + sixtyDaysMs));
         }
         transaction.update(userRef, updates);
     }
@@ -1005,7 +1006,7 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
         totalBeansEarned: 0,
         completedLevels: [],
         currentLevel: 0,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     };
 
     const newTotalBeans = (status.totalBeansEarned || 0) + beansReceived;
@@ -1020,7 +1021,7 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
     if (newlyReachedLevels.length === 0) {
         transaction.set(statusRef, { 
             totalBeansEarned: newTotalBeans,
-            lastUpdated: admin.firestore.FieldValue.serverTimestamp() 
+            lastUpdated: FieldValue.serverTimestamp() 
         }, { merge: true });
         return;
     }
@@ -1031,7 +1032,7 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
         totalBeansEarned: newTotalBeans,
         completedLevels: completedLevels,
         currentLevel: newlyReachedLevels[newlyReachedLevels.length - 1].level,
-        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        lastUpdated: FieldValue.serverTimestamp()
     }, { merge: true });
 
     // FINANCIAL INTEGRITY: Automatic USD host salary payouts are permanently DISABLED.
@@ -1051,9 +1052,9 @@ async function processSalaryMilestones(transaction, hostUid, beansReceived, prel
                 amount: Math.floor(lv.target * split.agency),
                 type: "agency",
                 level: lv.level,
-                scheduledDate: admin.firestore.Timestamp.fromDate(biWeeklyPayoutDate),
+                scheduledDate: Timestamp.fromDate(biWeeklyPayoutDate),
                 status: "pending",
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: FieldValue.serverTimestamp()
             });
         }
     }
@@ -1072,7 +1073,7 @@ exports.onUserUpdate = functions.firestore.document("users/{uid}").onUpdate(asyn
         const nextLevel = calculateIDLevel(newXP);
         if (nextLevel !== (after.level || 1)) {
             updates.level = nextLevel;
-            updates.lastLevelUp = admin.firestore.FieldValue.serverTimestamp();
+            updates.lastLevelUp = FieldValue.serverTimestamp();
         }
     }
 
@@ -1096,7 +1097,7 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
     return userRef.set({
         uid: uid,
         helloId: helloId,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         phoneNumber: phoneNumber || null,
         email: email || null,
         username: "", // empty, user must set this in profile setup
@@ -1156,7 +1157,7 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         tags: [],
         vipTier: "none",
         isBanned: false,
-        lastActive: admin.firestore.FieldValue.serverTimestamp(),
+        lastActive: FieldValue.serverTimestamp(),
     });
 });
 
@@ -1213,7 +1214,7 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
             }
         }
 
-        transaction.set(usernameRef, { uid: uid, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+        transaction.set(usernameRef, { uid: uid, createdAt: FieldValue.serverTimestamp() });
         transaction.update(userRef, {
             ...helloIdUpdates,
             username: cleanUsername,
@@ -1223,82 +1224,11 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
             bio: bio || "",
             country: country || "",
             profilePhotoUrl: profilePhotoUrl || "",
-            lastActive: admin.firestore.FieldValue.serverTimestamp(),
+            lastActive: FieldValue.serverTimestamp(),
         });
 
 
         return { success: true };
-    });
-});
-
-/**
- * 3b. Redeem Referral Code (Invite & Earn Reward)
- */
-exports.redeemReferralCode = functions.https.onCall(async (data, context) => {
-    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
-
-    const uid = context.auth.uid;
-    const rawCode = (data.code || "").trim().toUpperCase();
-
-    if (!rawCode) {
-        throw new functions.https.HttpsError("invalid-argument", "Please enter a valid invite code.");
-    }
-
-    return db.runTransaction(async (transaction) => {
-        const userRef = db.collection("users").doc(uid);
-        const userDoc = await transaction.get(userRef);
-
-        if (!userDoc.exists) {
-            throw new functions.https.HttpsError("not-found", "User profile not found.");
-        }
-
-        const userData = userDoc.data() || {};
-        if (userData.referredBy) {
-            throw new functions.https.HttpsError("already-exists", "You have already redeemed an invite code.");
-        }
-
-        // Prevent self referral
-        if (userData.referralCode === rawCode || uid.substring(0, 6).toUpperCase() === rawCode) {
-            throw new functions.https.HttpsError("invalid-argument", "You cannot redeem your own invite code.");
-        }
-
-        // Find referrer matching referralCode
-        const referrerQuery = await db.collection("users").where("referralCode", "==", rawCode).limit(1).get();
-        if (referrerQuery.empty) {
-            throw new functions.https.HttpsError("not-found", "Invalid referral code. No user found with this code.");
-        }
-
-        const referrerDoc = referrerQuery.docs[0];
-        const referrerUid = referrerDoc.id;
-        const referrerRef = db.collection("users").doc(referrerUid);
-
-        // Award +100 Beans to Referrer & +50 Beans to Invitee
-        const referrerReward = 100;
-        const inviteeReward = 50;
-
-        transaction.update(referrerRef, {
-            beansBalance: admin.firestore.FieldValue.increment(referrerReward),
-            referralCount: admin.firestore.FieldValue.increment(1),
-        });
-
-        transaction.update(userRef, {
-            beansBalance: admin.firestore.FieldValue.increment(inviteeReward),
-            referredBy: referrerUid,
-            referredByCode: rawCode,
-        });
-
-        // Inbox Notification for Referrer
-        const notifRef = db.collection("users").doc(referrerUid).collection("inbox_messages").doc();
-        transaction.set(notifRef, {
-            title: "🎉 Friend Joined via Your Code!",
-            body: `A new friend used your invite code (${rawCode})! You received +${referrerReward} Beans reward.`,
-            type: "reward",
-            read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            data: { route: "/invite-get-coins" }
-        });
-
-        return { success: true, message: `Bonus claimed! You received ${inviteeReward} Beans.` };
     });
 });
 
@@ -1323,7 +1253,7 @@ exports.adminBanUser = functions.https.onCall(async (data, context) => {
         adminUid: context.auth.uid,
         action: isBanned ? "BAN_USER" : "UNBAN_USER",
         targetId: targetUid,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return { success: true };
@@ -1376,7 +1306,7 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
         tx.update(userRef, {
             vipTier: "none",
             vipExpiry: null,
-            diamondBalance: admin.firestore.FieldValue.increment(refundAmount),
+            diamondBalance: FieldValue.increment(refundAmount),
             profileFrame: ""
         });
 
@@ -1388,7 +1318,7 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
             targetHelloId: helloId,
             refundedDiamonds: refundAmount,
             reason: reason || "Admin VIP revocation refund",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
     });
 
@@ -1423,7 +1353,7 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
             title: "Diamond Balance Adjusted 💎",
             body: `Your diamond balance has been adjusted by ${amount >= 0 ? "+" : ""}${amount.toLocaleString()} diamonds.`,
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: { reason: reason || "Manual Adjustment", route: "/wallet" }
         });
 
@@ -1434,7 +1364,7 @@ exports.adminAdjustBalance = functions.https.onCall(async (data, context) => {
             amount: amount,
             targetId: targetUid,
             reason: reason || "Manual Adjustment",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         return { success: true, newBalance: currentBalance + amount };
@@ -1471,7 +1401,7 @@ exports.adminAdjustBeans = functions.https.onCall(async (data, context) => {
             title: "Beans Balance Adjusted 🫘",
             body: `Your beans balance has been adjusted by ${amount >= 0 ? "+" : ""}${amount.toLocaleString()} beans.`,
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: { reason: reason || "Manual Earnings Adjustment", route: "/wallet" }
         });
 
@@ -1480,7 +1410,7 @@ exports.adminAdjustBeans = functions.https.onCall(async (data, context) => {
         transaction.set(txRef, {
             type: "gift_received", // Representing an incoming benefit
             amount: amount,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: reason || "Earnings Adjustment by Admin",
         });
 
@@ -1492,7 +1422,7 @@ exports.adminAdjustBeans = functions.https.onCall(async (data, context) => {
             amount: amount,
             targetId: targetUid,
             reason: reason || "Manual Earnings Adjustment",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         return { success: true, newBalance: currentBalance + amount };
@@ -1530,7 +1460,7 @@ exports.adminUpdateUserTags = functions.https.onCall(async (data, context) => {
         action: "UPDATE_USER_TAGS",
         targetId: targetUid,
         details: { tags },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return { success: true };
@@ -1563,7 +1493,7 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
 
     for (const doc of usersSnap.docs) {
         batch.update(doc.ref, {
-            diamondBalance: admin.firestore.FieldValue.increment(amount)
+            diamondBalance: FieldValue.increment(amount)
         });
 
         const inboxRef = db.collection("users").doc(doc.id).collection("inbox_messages").doc();
@@ -1572,7 +1502,7 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
             title: "Global Reward Distribution 🎉",
             body: `You received ${amount.toLocaleString()} diamonds as a global reward!`,
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: { route: "/wallet" }
         });
 
@@ -1597,7 +1527,7 @@ exports.distributeGlobalReward = functions.https.onCall(async (data, context) =>
         amount: amount,
         totalUsers: totalUsers,
         reason: reason || "Global Reward",
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return {
@@ -1637,17 +1567,17 @@ exports.followUser = functions.https.onCall(async (data, context) => {
         const reverseFollowDoc = await transaction.get(reverseFollowRef);
         const isMutual = reverseFollowDoc.exists;
 
-        const timestamp = admin.firestore.FieldValue.serverTimestamp();
+        const timestamp = FieldValue.serverTimestamp();
 
         transaction.set(subFollowerRef, { followedAt: timestamp });
         transaction.set(subFollowingRef, { followedAt: timestamp });
 
-        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(1) };
-        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(1) };
+        const updatesFollower = { followingCount: FieldValue.increment(1) };
+        const updatesTarget = { followerCount: FieldValue.increment(1) };
 
         if (isMutual) {
-            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(1);
-            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(1);
+            updatesFollower.friendsCount = FieldValue.increment(1);
+            updatesTarget.friendsCount = FieldValue.increment(1);
         }
 
         transaction.update(followerRef, updatesFollower);
@@ -1686,12 +1616,12 @@ exports.unfollowUser = functions.https.onCall(async (data, context) => {
         transaction.delete(subFollowerRef);
         transaction.delete(subFollowingRef);
 
-        const updatesFollower = { followingCount: admin.firestore.FieldValue.increment(-1) };
-        const updatesTarget = { followerCount: admin.firestore.FieldValue.increment(-1) };
+        const updatesFollower = { followingCount: FieldValue.increment(-1) };
+        const updatesTarget = { followerCount: FieldValue.increment(-1) };
 
         if (wasMutual) {
-            updatesFollower.friendsCount = admin.firestore.FieldValue.increment(-1);
-            updatesTarget.friendsCount = admin.firestore.FieldValue.increment(-1);
+            updatesFollower.friendsCount = FieldValue.increment(-1);
+            updatesTarget.friendsCount = FieldValue.increment(-1);
         }
 
         transaction.update(followerRef, updatesFollower);
@@ -1729,7 +1659,7 @@ exports.createRoom = functions.https.onCall(async (data, context) => {
         hourlyRank: 1, // Default to 1 or 99
         isTrending: false,
         newsStatus: null,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         endedAt: null,
         status: "active",
         admins: [uid],
@@ -1773,9 +1703,9 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
                 if (banExpiry.toDate() <= new Date()) {
                     // Ban expired — allow join
                     const banExpiryDelete = {};
-                    banExpiryDelete["banExpiries." + uid] = admin.firestore.FieldValue.delete();
+                    banExpiryDelete["banExpiries." + uid] = FieldValue.delete();
                     transaction.update(roomRef, {
-                        bannedUids: admin.firestore.FieldValue.arrayRemove([uid]),
+                        bannedUids: FieldValue.arrayRemove([uid]),
                         ...banExpiryDelete
                     });
                 } else {
@@ -1807,8 +1737,8 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
         if (!participantDoc.exists) {
             transaction.set(participantRef, {
                 uid: uid,
-                joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-                lastActive: admin.firestore.FieldValue.serverTimestamp(),
+                joinedAt: FieldValue.serverTimestamp(),
+                lastActive: FieldValue.serverTimestamp(),
                 seatIndex: seatIndex,
                 isMuted: false,
                 role: role,
@@ -1823,11 +1753,11 @@ exports.joinRoom = functions.https.onCall(async (data, context) => {
                 uid: uid,
                 text: `${userData.displayName || "User"} joined the room`,
                 type: 'system',
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                createdAt: FieldValue.serverTimestamp(),
             });
         } else {
             transaction.update(participantRef, {
-                lastActive: admin.firestore.FieldValue.serverTimestamp(),
+                lastActive: FieldValue.serverTimestamp(),
             });
         }
 
@@ -1863,7 +1793,7 @@ exports.leaveRoom = functions.https.onCall(async (data, context) => {
         if (uid === roomData.ownerUid) {
             transaction.update(roomRef, {
                 status: "ended",
-                endedAt: admin.firestore.FieldValue.serverTimestamp(),
+                endedAt: FieldValue.serverTimestamp(),
                 currentUsersCount: 0
             });
             // Optionally: transaction.delete(participantRef);
@@ -1917,10 +1847,10 @@ function trackRoomGiftLeaderboard(transaction, roomId, senderUid, totalCost, sen
             .collection("gift_leaderboard").doc(period)
             .collection(bucket).doc(senderUid);
         transaction.set(ref, {
-            amount: admin.firestore.FieldValue.increment(totalCost),
+            amount: FieldValue.increment(totalCost),
             name: senderName,
             photoUrl: senderPhoto,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     }
 }
@@ -1950,13 +1880,13 @@ function trackUserSenderRanking(transaction, targetUid, senderUid, totalCost, se
             .collection(bucket).doc(senderUid);
         transaction.set(ref, {
             senderUid: senderUid,
-            amount: admin.firestore.FieldValue.increment(totalCost),
+            amount: FieldValue.increment(totalCost),
             displayName: senderName,
             profilePhotoUrl: senderPhoto,
             gender: gender,
             level: level,
             vipTier: vipTier,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     }
 }
@@ -2292,23 +2222,23 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const senderMonthly = (senderInfo.lastMonthlySentDate === thisMonthStr) ? (senderInfo.monthlyDiamondsSent || 0) : 0;
 
             const senderUpdate = {
-                diamondBalance: admin.firestore.FieldValue.increment(luckyRefundTotal - totalCost),
-                totalDiamondsSpent: admin.firestore.FieldValue.increment(totalCost),
-                totalDiamondsSent: admin.firestore.FieldValue.increment(totalCost),
+                diamondBalance: FieldValue.increment(luckyRefundTotal - totalCost),
+                totalDiamondsSpent: FieldValue.increment(totalCost),
+                totalDiamondsSent: FieldValue.increment(totalCost),
                 dailyDiamondsSent: senderDaily + totalCost,
                 weeklyDiamondsSent: senderWeekly + totalCost,
                 monthlyDiamondsSent: senderMonthly + totalCost,
                 lastDailySentDate: todayStr,
                 lastWeeklySentDate: thisWeekStr,
                 lastMonthlySentDate: thisMonthStr,
-                xp: admin.firestore.FieldValue.increment(senderXP),
-                benchXP: admin.firestore.FieldValue.increment(senderXP),
-                dailyXP: admin.firestore.FieldValue.increment(senderXP),
-                weeklyXP: admin.firestore.FieldValue.increment(senderXP),
-                monthlyXP: admin.firestore.FieldValue.increment(senderXP),
+                xp: FieldValue.increment(senderXP),
+                benchXP: FieldValue.increment(senderXP),
+                dailyXP: FieldValue.increment(senderXP),
+                weeklyXP: FieldValue.increment(senderXP),
+                monthlyXP: FieldValue.increment(senderXP),
             };
             if (luckyRefundTotal > 0) {
-                senderUpdate.totalWinningEarned = admin.firestore.FieldValue.increment(luckyRefundTotal);
+                senderUpdate.totalWinningEarned = FieldValue.increment(luckyRefundTotal);
             }
             transaction.update(senderRef, senderUpdate);
 
@@ -2322,7 +2252,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 quantity: qty * targets.length,
                 toUid: targets.length === 1 ? targets[0] : "multiple",
                 roomId: roomId || "",
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `Sent ${qty}x ${giftData.name || 'Gift'}${targets.length > 1 ? ` to ${targets.length} users` : ''}`
             });
 
@@ -2353,8 +2283,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                         agencySharePercent = 0.1;
                         const agencyBeans = Math.floor(perTargetCost * agencySharePercent);
                         transaction.update(db.collection("agencies").doc(agencyId), {
-                            beansBalance: admin.firestore.FieldValue.increment(agencyBeans),
-                            totalBeansEarned: admin.firestore.FieldValue.increment(agencyBeans)
+                            beansBalance: FieldValue.increment(agencyBeans),
+                            totalBeansEarned: FieldValue.increment(agencyBeans)
                         });
                     }
                     beansEarned = Math.floor(perTargetCost * hostSharePercent);
@@ -2369,19 +2299,19 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     const receiverMonthly = (receiverData.lastMonthlyReceivedDate === thisMonthStr) ? (receiverData.monthlyBeansReceived || 0) : 0;
 
                     transaction.update(db.collection("users").doc(t), {
-                        beansBalance: admin.firestore.FieldValue.increment(beansEarned),
-                        totalBeansReceived: admin.firestore.FieldValue.increment(beansEarned),
+                        beansBalance: FieldValue.increment(beansEarned),
+                        totalBeansReceived: FieldValue.increment(beansEarned),
                         dailyBeansReceived: receiverDaily + beansEarned,
                         weeklyBeansReceived: receiverWeekly + beansEarned,
                         monthlyBeansReceived: receiverMonthly + beansEarned,
                         lastDailyReceivedDate: todayStr,
                         lastWeeklyReceivedDate: thisWeekStr,
                         lastMonthlyReceivedDate: thisMonthStr,
-                        totalDiamondsReceived: admin.firestore.FieldValue.increment(perTargetCost),
-                        princeXP: admin.firestore.FieldValue.increment(receiverXP),
-                        dailyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
-                        weeklyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
-                        monthlyPrinceXP: admin.firestore.FieldValue.increment(receiverXP),
+                        totalDiamondsReceived: FieldValue.increment(perTargetCost),
+                        princeXP: FieldValue.increment(receiverXP),
+                        dailyPrinceXP: FieldValue.increment(receiverXP),
+                        weeklyPrinceXP: FieldValue.increment(receiverXP),
+                        monthlyPrinceXP: FieldValue.increment(receiverXP),
                     });
 
                     // 📝 Log Receiver Transaction in real-time history
@@ -2394,7 +2324,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                         quantity: qty,
                         fromUid: senderUid,
                         roomId: roomId || "",
-                        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                        timestamp: FieldValue.serverTimestamp(),
                         description: `Received ${qty}x ${giftData.name || 'Gift'} from ${senderDoc.data()?.displayName || 'User'}`
                     });
 
@@ -2407,8 +2337,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 if (isMoment === true) {
                     const momentRef = db.collection("moments").doc(roomId);
                     const userMediaRef = db.collection("users").doc(t).collection("media").doc(roomId);
-                    transaction.set(momentRef, { giftCount: admin.firestore.FieldValue.increment(qty) }, { merge: true });
-                    transaction.set(userMediaRef, { giftCount: admin.firestore.FieldValue.increment(qty) }, { merge: true });
+                    transaction.set(momentRef, { giftCount: FieldValue.increment(qty) }, { merge: true });
+                    transaction.set(userMediaRef, { giftCount: FieldValue.increment(qty) }, { merge: true });
                 }
 
                 // 🎙️ Real-time Room Seat Received Diamonds Update & Combo Badge
@@ -2417,15 +2347,15 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     const participantDoc = participantByUid[t];
                     const existingCombo = (participantDoc && participantDoc.exists) ? (participantDoc.data().comboCount || 0) : 0;
                     const seatUpdate = {
-                        diamondsReceived: admin.firestore.FieldValue.increment(perTargetCost),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        diamondsReceived: FieldValue.increment(perTargetCost),
+                        updatedAt: FieldValue.serverTimestamp()
                     };
                     if (combo > 0 && combo >= existingCombo) {
                         seatUpdate.comboCount = combo;
                         seatUpdate.comboSenderUid = senderUid;
                         seatUpdate.comboGiftId = giftId;
                         seatUpdate.comboGiftName = giftData.name || "";
-                        seatUpdate.comboAt = admin.firestore.FieldValue.serverTimestamp();
+                        seatUpdate.comboAt = FieldValue.serverTimestamp();
                     }
                     transaction.set(roomParticipantRef, seatUpdate, { merge: true });
                 }
@@ -2464,7 +2394,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                         giftCategory: giftData.category || "",
                         durationMs: Number(giftData.durationMs) || 0,
                         text: `Sent to ${receiverName} x${qty}${combo > 1 ? ` · COMBO x${combo}` : ''}${luckyMultiplier > 0 ? ` 🎉 LUCKY WIN ${luckyMultiplier}X (+${luckyRewardCoins} Diamonds)!` : ''}`,
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: FieldValue.serverTimestamp(),
                         targetUid: t
                     });
 
@@ -2478,8 +2408,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                             const scoreField = `pkScores.${t}`;
                             const contributionField = `pkContributions.${side}.${senderUid}`;
                             transaction.update(roomRef, {
-                                [scoreField]: admin.firestore.FieldValue.increment(perTargetCost),
-                                [contributionField]: admin.firestore.FieldValue.increment(perTargetCost)
+                                [scoreField]: FieldValue.increment(perTargetCost),
+                                [contributionField]: FieldValue.increment(perTargetCost)
                             });
                         }
                     }
@@ -2510,7 +2440,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                         winningAmount: luckyRewardCoins,
                         receiverBeans: beansEarned,
                         roomId: roomId || "",
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        createdAt: FieldValue.serverTimestamp()
                     });
                 }
 
@@ -2534,18 +2464,18 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                                 gender: senderDoc.data()?.gender || "female",
                                 level: senderDoc.data()?.level || 1,
                                 vipTier: senderDoc.data()?.vipTier || "none",
-                                points: admin.firestore.FieldValue.increment(totalPts),
-                                giftCount: admin.firestore.FieldValue.increment(qty),
-                                diamondsSpent: admin.firestore.FieldValue.increment(perTargetCost),
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                points: FieldValue.increment(totalPts),
+                                giftCount: FieldValue.increment(qty),
+                                diamondsSpent: FieldValue.increment(perTargetCost),
+                                updatedAt: FieldValue.serverTimestamp()
                             }, { merge: true });
 
                             const eventRef = db.collection("gift_events").doc(ev.id);
                             transaction.set(eventRef, {
-                                totalEventPoints: admin.firestore.FieldValue.increment(totalPts),
-                                totalGiftsSent: admin.firestore.FieldValue.increment(qty),
-                                totalDiamondsSpent: admin.firestore.FieldValue.increment(perTargetCost),
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                totalEventPoints: FieldValue.increment(totalPts),
+                                totalGiftsSent: FieldValue.increment(qty),
+                                totalDiamondsSpent: FieldValue.increment(perTargetCost),
+                                updatedAt: FieldValue.serverTimestamp()
                             }, { merge: true });
                         }
                     }
@@ -2575,21 +2505,21 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     const battleRef = db.collection("families").doc(senderFamilyId)
                         .collection("battles").doc(battleId);
                     transaction.update(battleRef, {
-                        [scoreField]: admin.firestore.FieldValue.increment(totalCost)
+                        [scoreField]: FieldValue.increment(totalCost)
                     });
 
                     const oppBattleRef = db.collection("families").doc(opponentFamilyId)
                         .collection("battles").doc(battleId);
                     transaction.update(oppBattleRef, {
-                        [scoreField]: admin.firestore.FieldValue.increment(totalCost)
+                        [scoreField]: FieldValue.increment(totalCost)
                     });
 
                     const memberRef = db.collection("families").doc(senderFamilyId)
                         .collection("members").doc(senderUid);
                     transaction.update(memberRef, {
-                        combatPoints: admin.firestore.FieldValue.increment(totalCost),
-                        contribution: admin.firestore.FieldValue.increment(totalCost),
-                        memberXP: admin.firestore.FieldValue.increment(Math.floor(totalCost / 500)),
+                        combatPoints: FieldValue.increment(totalCost),
+                        contribution: FieldValue.increment(totalCost),
+                        memberXP: FieldValue.increment(Math.floor(totalCost / 500)),
                     });
 
                     console.log(`[FAMILY_BATTLE] User ${senderUid} contributed ${totalCost} diamonds to family ${senderFamilyId} battle score`);
@@ -2626,7 +2556,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 weekId: cycleWeekId,
                 lastWeekCoins: isSameWeekCycle ? (cycleData.lastWeekCoins || 0) : (cycleData.totalCoins || 0),
                 lastWeekLevel: isSameWeekCycle ? (cycleData.lastWeekLevel || 0) : (cycleData.level || 0),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                updatedAt: FieldValue.serverTimestamp()
             }, { merge: true });
 
             if (roomDoc.exists) {
@@ -2647,7 +2577,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                 else if (newDaily >= 1000) calculatedStarRating = 1;
 
                 transaction.update(roomRef, {
-                    totalDiamondsSent: admin.firestore.FieldValue.increment(totalCost),
+                    totalDiamondsSent: FieldValue.increment(totalCost),
                     dailyDiamondsSent: newDaily,
                     weeklyDiamondsSent: roomWeekly + totalCost,
                     monthlyDiamondsSent: roomMonthly + totalCost,
@@ -2655,7 +2585,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     lastWeeklySentDate: thisWeekStr,
                     lastMonthlySentDate: thisMonthStr,
                     starRating: calculatedStarRating,
-                    starRatingUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    starRatingUpdatedAt: FieldValue.serverTimestamp(),
                     weeklyEarnings: prevWeeklyEarnings + totalCost,
                     weekId: cycleWeekId
                 });
@@ -2754,7 +2684,7 @@ exports.distributeGiftEventRewards = functions.region("us-central1").https.onCal
 
             // 1. Diamonds reward
             if (matchedTier.diamonds && Number(matchedTier.diamonds) > 0) {
-                userUpdates.diamondBalance = admin.firestore.FieldValue.increment(Number(matchedTier.diamonds));
+                userUpdates.diamondBalance = FieldValue.increment(Number(matchedTier.diamonds));
                 const txRef = db.collection("diamond_transactions").doc();
                 batch.set(txRef, {
                     userId: p.uid,
@@ -2762,7 +2692,7 @@ exports.distributeGiftEventRewards = functions.region("us-central1").https.onCal
                     amount: Number(matchedTier.diamonds),
                     description: `Gift Event Reward: Rank ${rank} in ${eventData.title || 'Event'}`,
                     eventId: eventId,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    createdAt: FieldValue.serverTimestamp()
                 });
             }
 
@@ -2776,14 +2706,14 @@ exports.distributeGiftEventRewards = functions.region("us-central1").https.onCal
                     type: "frame",
                     frameUrl: matchedTier.frameUrl,
                     title: matchedTier.badgeTitle || "Event Champion Frame",
-                    expiresAt: admin.firestore.Timestamp.fromDate(expiry),
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    expiresAt: Timestamp.fromDate(expiry),
+                    createdAt: FieldValue.serverTimestamp()
                 });
             }
 
             // 3. Badge / Medal reward
             if (matchedTier.badgeTitle) {
-                userUpdates.badges = admin.firestore.FieldValue.arrayUnion(matchedTier.badgeTitle);
+                userUpdates.badges = FieldValue.arrayUnion(matchedTier.badgeTitle);
             }
 
             if (Object.keys(userUpdates).length > 0) {
@@ -2797,7 +2727,7 @@ exports.distributeGiftEventRewards = functions.region("us-central1").https.onCal
     const eventRef = db.collection("gift_events").doc(eventId);
     batch.update(eventRef, {
         distributed: true,
-        distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+        distributedAt: FieldValue.serverTimestamp(),
         distributedBy: context.auth.uid
     });
 
@@ -2876,7 +2806,7 @@ exports.invitePKChallenge = onCall({
                 senderName: senderDoc.data()?.displayName || "Host",
                 receiverUid: targetUid,
                 status: "pending",
-                expiresAt: admin.firestore.Timestamp.fromMillis(expiresAt),
+                expiresAt: Timestamp.fromMillis(expiresAt),
                 durationSeconds: durationSeconds || 300
             },
             pkPhase: "none"
@@ -2891,8 +2821,8 @@ exports.invitePKChallenge = onCall({
             roomId: roomId,
             roomName: roomData.name || "Live Room",
             status: "pending",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            expiresAt: admin.firestore.Timestamp.fromMillis(expiresAt)
+            createdAt: FieldValue.serverTimestamp(),
+            expiresAt: Timestamp.fromMillis(expiresAt)
         });
 
         return { success: true };
@@ -2925,8 +2855,8 @@ exports.sendRoomInvitation = onCall({
         roomId: roomId,
         roomName: roomDoc.data()?.name || "Live Room",
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 60 * 60 * 1000) // 1 hour
+        createdAt: FieldValue.serverTimestamp(),
+        expiresAt: Timestamp.fromMillis(Date.now() + 60 * 60 * 1000) // 1 hour
     });
 
     return { success: true };
@@ -2973,8 +2903,8 @@ exports.respondToPKChallenge = onCall({
 
             transaction.update(roomRef, {
                 pkActive: true,
-                pkStartTime: admin.firestore.FieldValue.serverTimestamp(),
-                pkEndTime: admin.firestore.Timestamp.fromMillis(endTime),
+                pkStartTime: FieldValue.serverTimestamp(),
+                pkEndTime: Timestamp.fromMillis(endTime),
                 pkScores: { [leftUid]: 0, [rightUid]: 0 },
                 pkTeams: { [leftUid]: "left", [rightUid]: "right" },
                 pkContributions: { left: {}, right: {} },
@@ -2985,7 +2915,7 @@ exports.respondToPKChallenge = onCall({
             return { success: true, accepted: true };
         } else {
             transaction.update(roomRef, {
-                pkChallenge: admin.firestore.FieldValue.delete()
+                pkChallenge: FieldValue.delete()
             });
             return { success: true, accepted: false };
         }
@@ -3036,7 +2966,7 @@ async function internalEndPKBattle(roomId, forcedWinnerUid = null) {
             rightScore: rightScore,
             top3Left: getTop3(contributions.left),
             top3Right: getTop3(contributions.right),
-            endedAt: admin.firestore.Timestamp.now()
+            endedAt: Timestamp.now()
         };
 
         transaction.update(roomRef, {
@@ -3044,13 +2974,13 @@ async function internalEndPKBattle(roomId, forcedWinnerUid = null) {
             pkWinnerUid: winnerUid,
             pkWinnerData: pkWinnerData,
             pkPhase: "finished",
-            pkEndedAt: admin.firestore.FieldValue.serverTimestamp(),
+            pkEndedAt: FieldValue.serverTimestamp(),
         });
 
         if (winnerUid) {
             const rewardXP = Math.floor((leftScore + rightScore) * 0.1) + 100;
             transaction.update(db.collection("users").doc(winnerUid), {
-                princeXP: admin.firestore.FieldValue.increment(rewardXP)
+                princeXP: FieldValue.increment(rewardXP)
             });
         }
 
@@ -3094,7 +3024,7 @@ exports.endRoom = functions.https.onCall(async (data, context) => {
 
     await roomRef.update({
         status: "ended",
-        endedAt: admin.firestore.FieldValue.serverTimestamp(),
+        endedAt: FieldValue.serverTimestamp(),
     });
 
     return { success: true };
@@ -3123,7 +3053,7 @@ exports.clearRoomMessages = functions.https.onCall(async (data, context) => {
     }
 
     await roomRef.update({
-        messagesClearedAt: admin.firestore.FieldValue.serverTimestamp(),
+        messagesClearedAt: FieldValue.serverTimestamp(),
     });
 
     console.log(`[CLEAR_MESSAGES] Room ${roomId} messages cleared by ${uid}`);
@@ -3140,7 +3070,7 @@ exports.requestMic = functions.https.onCall(async (data, context) => {
     const { roomId } = data;
 
     const requestRef = db.collection("rooms").doc(roomId).collection("micRequests").doc(uid);
-    await requestRef.set({ requestedAt: admin.firestore.FieldValue.serverTimestamp() });
+    await requestRef.set({ requestedAt: FieldValue.serverTimestamp() });
 
     return { success: true };
 });
@@ -3184,8 +3114,8 @@ exports.onCreateRoom = functions.firestore.document("rooms/{roomId}").onCreate(a
 
     // Auto-add owner as host participant
     await db.collection("rooms").doc(roomId).collection("participants").doc(ownerUid).set({
-        joinedAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastActive: admin.firestore.FieldValue.serverTimestamp(),
+        joinedAt: FieldValue.serverTimestamp(),
+        lastActive: FieldValue.serverTimestamp(),
         seatIndex: 0,
         isMuted: false,
         role: "host",
@@ -3197,15 +3127,15 @@ exports.onCreateRoom = functions.firestore.document("rooms/{roomId}").onCreate(a
     const nextSunday = new Date(now);
     nextSunday.setUTCDate(now.getUTCDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
     nextSunday.setUTCHours(23, 59, 59, 0);
-    const weekEnd = admin.firestore.Timestamp.fromDate(nextSunday);
+    const weekEnd = Timestamp.fromDate(nextSunday);
 
     await db.collection("room_support_cycles").doc(roomId).set({
         totalCoins: 0,
         level: 1,
         status: "accumulating",
-        weekStart: admin.firestore.FieldValue.serverTimestamp(),
+        weekStart: FieldValue.serverTimestamp(),
         weekEnd: weekEnd,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
 });
 
@@ -3223,7 +3153,7 @@ exports.onParticipantChange = functions.firestore.document("rooms/{roomId}/parti
         await db.collection("hostLiveSessions").doc(uid).set({
             uid,
             roomId,
-            startedAt: admin.firestore.FieldValue.serverTimestamp()
+            startedAt: FieldValue.serverTimestamp()
         });
     }
     // Delete: close the session and credit whole minutes of live time.
@@ -3257,8 +3187,8 @@ exports.onParticipantChange = functions.firestore.document("rooms/{roomId}/parti
                     liveMinutesTotal: (base.liveMinutesTotal || 0) + minutes,
                     liveSessionsTotal: (base.liveSessionsTotal || 0) + 1,
                     liveMinutesByDay: byDay,
-                    lastSessionEndedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    lastSessionEndedAt: FieldValue.serverTimestamp(),
+                    updatedAt: FieldValue.serverTimestamp()
                 }, { merge: true });
                 transaction.delete(sessionRef);
             });
@@ -3278,7 +3208,7 @@ exports.onParticipantChange = functions.firestore.document("rooms/{roomId}/parti
  * Automated termination when time expires.
  */
 exports.autoEndPKBattles = functions.pubsub.schedule('every 1 minutes').onRun(async (context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const roomsSnap = await db.collection("rooms")
         .where("pkActive", "==", true)
         .where("pkEndTime", "<=", now)
@@ -3638,9 +3568,9 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
         releaseDate.setDate(releaseDate.getDate() + 30);
 
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(-price + immediateCredit),
+            diamondBalance: FieldValue.increment(-price + immediateCredit),
             vipTier: tierData.name,
-            vipExpiry: admin.firestore.Timestamp.fromDate(expiry),
+            vipExpiry: Timestamp.fromDate(expiry),
             vipSnapshot: {
                 originalTier: userData.vipTier || "none",
                 originalExpiry: userData.vipExpiry || null,
@@ -3648,7 +3578,7 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
                 originalEntryAnimation: userData.entryAnimation || "",
                 originalBadgeIcon: userData.badgeIcon || "",
                 originalHelloId: userData.helloId || null,
-                purchasedAt: admin.firestore.Timestamp.now(),
+                purchasedAt: Timestamp.now(),
                 tier: tierData.name
             }
         });
@@ -3656,10 +3586,10 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
         const pendingRef = userRef.collection("pending_credits").doc();
         transaction.set(pendingRef, {
             amount: delayedCredit,
-            releaseDate: admin.firestore.Timestamp.fromDate(releaseDate),
+            releaseDate: Timestamp.fromDate(releaseDate),
             status: "pending", type: "vip_retention_bonus",
             description: `20% Retention Bonus for ${tierData.name}`,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
 
         const txRef = userRef.collection("transactions").doc();
@@ -3668,7 +3598,7 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
             amount: price,
             immediateCredit: immediateCredit,
             delayedCredit: delayedCredit,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Purchased ${tierData.name} Monthly Subscription (80/20 Split)`
         });
 
@@ -3692,7 +3622,7 @@ exports.purchaseVIP = functions.https.onCall(async (data, context) => {
         title: `VIP Activated — ${result.tierData.name} 👑`,
         body: `Welcome to ${result.tierData.name}! You received an instant ${result.immediateCredit.toLocaleString()} diamond credit.`,
         read: false,
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: Timestamp.now(),
         data: { tier: result.tierData.name, route: "/wallet" }
     });
 
@@ -3752,13 +3682,13 @@ exports.distributeWeeklySalary = functions.https.onCall(async (data, context) =>
 
         const userRef = db.collection("users").doc(ownerUid);
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(hostShare)
+            diamondBalance: FieldValue.increment(hostShare)
         });
 
         if (agencyId) {
             const agencyRef = db.collection("agencies").doc(agencyId);
             transaction.update(agencyRef, {
-                balance: admin.firestore.FieldValue.increment(agencyShare)
+                balance: FieldValue.increment(agencyShare)
             });
         }
 
@@ -3769,7 +3699,7 @@ exports.distributeWeeklySalary = functions.https.onCall(async (data, context) =>
             amount: hostShare,
             totalEarnings: weeklyEarnings,
             target: weeklyTarget,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             agencyId: agencyId || null
         });
 
@@ -3782,7 +3712,7 @@ exports.distributeWeeklySalary = functions.https.onCall(async (data, context) =>
         title: "Weekly Salary Paid 💰",
         body: `Your weekly salary of ${result.amount.toLocaleString()} diamonds has been deposited.`,
         read: false,
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: Timestamp.now(),
         data: { route: "/wallet" }
     });
 
@@ -3850,7 +3780,7 @@ async function deliverBroadcast(announcementId, title, message, filters = {}, im
         title: title,
         body: message,
         read: false,
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: Timestamp.now(),
         data: {
             announcementId: announcementId
         }
@@ -3900,7 +3830,7 @@ exports.sendGlobalPush = functions.firestore.document("global_announcements/{id}
         return snapshot.ref.update({
             pushStatus: "sent",
             successCount: result.successCount,
-            sentAt: admin.firestore.Timestamp.now()
+            sentAt: Timestamp.now()
         });
     } catch (err) {
         console.error("Broadcast Delivery Error:", err);
@@ -3912,7 +3842,7 @@ exports.sendGlobalPush = functions.firestore.document("global_announcements/{id}
 });
 
 exports.processScheduledBroadcasts = functions.pubsub.schedule("every 5 minutes").onRun(async (context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const scheduledSnap = await db.collection("global_announcements")
         .where("pushStatus", "==", "scheduled")
         .where("scheduledAt", "<=", now)
@@ -3931,7 +3861,7 @@ exports.processScheduledBroadcasts = functions.pubsub.schedule("every 5 minutes"
             await doc.ref.update({
                 pushStatus: "sent",
                 successCount: result.successCount,
-                sentAt: admin.firestore.Timestamp.now()
+                sentAt: Timestamp.now()
             });
         } catch (err) {
             console.error(`Scheduled broadcast ${doc.id} delivery failed:`, err);
@@ -4159,7 +4089,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             transaction.set(privateStatsRef, {
                 roundId: currentRoundId,
                 outcome: roundResult,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: FieldValue.serverTimestamp()
             });
 
             // Update global stats
@@ -4275,7 +4205,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 game: "spin_wheel",
                 balanceBefore: balance - unclaimedPrize,
                 balanceAfter: finalBalance,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `Lucky Spin Win (Round #${prevRoundId})`
             });
             console.log(`[SpinWheel] Auto-settled previous round ${prevRoundId} win: +${unclaimedPrize} for ${uid}`);
@@ -4290,7 +4220,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 game: "spin_wheel",
                 balanceBefore: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().balanceBefore : (balance + deltaBet),
                 balanceAfter: balance,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `Lucky Spin Bet (Round #${currentRoundId})`
             }, { merge: true });
         }
@@ -4345,7 +4275,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 balanceAfter: finalBalance,
                 orderId: (existingLogDoc && existingLogDoc.exists) ? existingLogDoc.data().orderId : `NLOT_${currentRoundId}_${uid.substring(0, 5)}_${now}`,
                 createdAt: now,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                timestamp: FieldValue.serverTimestamp()
             }, { merge: true });
 
             console.log(`[SpinWheel] Committed game_history for uid: ${uid}, round: ${currentRoundId}, S/N: ${currentBetCount}, totalBet: ${totalBet}`);
@@ -4493,7 +4423,7 @@ exports.syncSpinWheelRound = functions.region("us-central1").https.onCall(async 
                 transaction.set(privateStatsRef, {
                     roundId: currentRoundId,
                     outcome: generatedOutcome,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    createdAt: FieldValue.serverTimestamp()
                 }, { merge: true });
 
                 transaction.set(db.collection("game_rounds").doc(String(currentRoundId)), {
@@ -4584,7 +4514,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 lastTxnId: winTxnId
             };
             if (roundResult && roundResult.type === "pizza") {
-                updates.badges = admin.firestore.FieldValue.arrayUnion("jackpot_winner");
+                updates.badges = FieldValue.arrayUnion("jackpot_winner");
             }
             transaction.update(userRef, updates);
 
@@ -4597,7 +4527,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 balanceAfter: newBalance,
                 seq: newSeq,
                 txnId: winTxnId,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `Lucky Spin Win (Round #${roundId})`
             });
         } else {
@@ -4614,7 +4544,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 balanceAfter: newBalance,
                 seq: newSeq,
                 txnId: winTxnId,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `Lucky Spin Settlement (Round #${roundId} - Loss)`
             });
         }
@@ -4634,7 +4564,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             multiplier: roundResult ? roundResult.multiplier : 0,
             emoji: roundResult ? roundResult.emoji : "",
             balanceAfter: newBalance,
-            settledAt: admin.firestore.FieldValue.serverTimestamp()
+            settledAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
         // Record completed round in public recentResults, update previous winner, and update game_rounds status to ROUND_SETTLED
@@ -4727,9 +4657,9 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 uid: uid,
                 name: userName,
                 avatar: userAvatar,
-                totalBets: admin.firestore.FieldValue.increment(settledWager),
-                totalWinnings: admin.firestore.FieldValue.increment(prize),
-                amount: admin.firestore.FieldValue.increment(prize),
+                totalBets: FieldValue.increment(settledWager),
+                totalWinnings: FieldValue.increment(prize),
+                amount: FieldValue.increment(prize),
                 updatedAt: Date.now()
             }, { merge: true });
         }
@@ -4761,7 +4691,7 @@ exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async
         todayPizzaHits: 0,
         topWinnerName: "None",
         topWinnerAmount: 0,
-        lastReset: admin.firestore.FieldValue.serverTimestamp()
+        lastReset: FieldValue.serverTimestamp()
     }, { merge: true });
 
     // Clear daily players leaderboard
@@ -4828,7 +4758,7 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
                 game: "lucky_draw",
                 balanceBefore: balance - betAmount,
                 balanceAfter: finalBalance,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: "Lucky Draw Win"
             });
         }
@@ -4839,7 +4769,7 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
             game: "lucky_draw",
             balanceBefore: balance,
             balanceAfter: balance - betAmount,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: "Lucky Draw Bet"
         });
 
@@ -4853,7 +4783,7 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
             isWin: isWin,
             balanceBefore: balance,
             balanceAfter: finalBalance,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         console.log(`[LUCKY] User:${uid} Bet:${betAmount} Won:${isWin} Prize:${prize}`);
@@ -5018,7 +4948,7 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
                 game: "yummy_bingo",
                 balanceBefore: currentBalance - totalBet,
                 balanceAfter: newBalance,
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: "Yummy Bingo Win"
             });
         }
@@ -5029,14 +4959,14 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
             game: "yummy_bingo",
             balanceBefore: currentBalance,
             balanceAfter: currentBalance - totalBet,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: "Yummy Bingo Bet"
         });
 
         // Update games meta / jackpot
         transaction.set(metaRef, {
             jackpot: nextJackpot,
-            lastPlayedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastPlayedAt: FieldValue.serverTimestamp(),
             lastWinnerUid: totalWin > 0 ? uid : (metaDoc.exists ? (metaDoc.data().lastWinnerUid || null) : null),
             lastWinnerAmount: totalWin > 0 ? totalWin : (metaDoc.exists ? (metaDoc.data().lastWinnerAmount || 0) : 0),
         }, { merge: true });
@@ -5059,7 +4989,7 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
             balanceAfter: newBalance,
             roomId: roomId,
             matrix: matrix,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         console.log(`[YUMMY_BINGO] User:${uid} Bet:${totalBet} Win:${totalWin} Net:${netDelta} Jackpot:${wonJackpot}`);
@@ -5086,12 +5016,12 @@ exports.playYummyBingo = functions.https.onCall(async (data, context) => {
  */
 exports.onParticipantCreate = functions.firestore.document("rooms/{roomId}/participants/{uid}").onCreate(async (snapshot, context) => {
     const roomRef = db.collection("rooms").doc(context.params.roomId);
-    return roomRef.update({ currentUsersCount: admin.firestore.FieldValue.increment(1) });
+    return roomRef.update({ currentUsersCount: FieldValue.increment(1) });
 });
 
 exports.onParticipantDelete = functions.firestore.document("rooms/{roomId}/participants/{uid}").onDelete(async (snapshot, context) => {
     const roomRef = db.collection("rooms").doc(context.params.roomId);
-    return roomRef.update({ currentUsersCount: admin.firestore.FieldValue.increment(-1) });
+    return roomRef.update({ currentUsersCount: FieldValue.increment(-1) });
 });
 
 
@@ -5129,9 +5059,9 @@ exports.interactWithDino = functions.region("us-central1").https.onCall(async (d
                 throw new functions.https.HttpsError("failed-precondition", "Insufficient diamonds.");
             }
 
-            updateUserData.diamondBalance = admin.firestore.FieldValue.increment(-cost);
+            updateUserData.diamondBalance = FieldValue.increment(-cost);
             updatePetData.health = 1.0;
-            updatePetData.lastFed = admin.firestore.FieldValue.serverTimestamp();
+            updatePetData.lastFed = FieldValue.serverTimestamp();
             updatePetData.xp = (petData.xp || 0) + 10;
         } else if (action === 'play') {
             const lastPlayed = (petData.lastPlayed?._seconds || 0) * 1000;
@@ -5140,7 +5070,7 @@ exports.interactWithDino = functions.region("us-central1").https.onCall(async (d
             }
 
             updatePetData.energy = 1.0;
-            updatePetData.lastPlayed = admin.firestore.FieldValue.serverTimestamp();
+            updatePetData.lastPlayed = FieldValue.serverTimestamp();
             updatePetData.xp = (petData.xp || 0) + 5;
         } else {
             throw new functions.https.HttpsError("invalid-argument", "Invalid pet action.");
@@ -5158,7 +5088,7 @@ exports.interactWithDino = functions.region("us-central1").https.onCall(async (d
         updatePetData.stage = newStage;
 
         // Finalize User XP synchronously
-        updateUserData.xp = admin.firestore.FieldValue.increment(action === 'feed' ? 10 : 5);
+        updateUserData.xp = FieldValue.increment(action === 'feed' ? 10 : 5);
 
         transaction.update(userRef, updateUserData);
         transaction.update(petRef, updatePetData);
@@ -5200,11 +5130,11 @@ exports.seedEconomy = functions.region("us-central1").https.onCall(async (data, 
     const batch = db.batch();
     vipTiers.forEach(v => {
         const ref = db.collection("vip_tiers").doc(v.tierId);
-        batch.set(ref, { ...v, isActive: true, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+        batch.set(ref, { ...v, isActive: true, createdAt: FieldValue.serverTimestamp() });
     });
     nobleTiers.forEach(n => {
         const ref = db.collection("noble_tiers").doc(n.tierId);
-        batch.set(ref, { ...n, isActive: true, createdAt: admin.firestore.FieldValue.serverTimestamp() });
+        batch.set(ref, { ...n, isActive: true, createdAt: FieldValue.serverTimestamp() });
     });
 
     await batch.commit();
@@ -5245,8 +5175,8 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
         const diamondsToReceive = Math.floor(amount / 3);
 
         transaction.update(userRef, {
-            beansBalance: admin.firestore.FieldValue.increment(-amount),
-            diamondBalance: admin.firestore.FieldValue.increment(diamondsToReceive)
+            beansBalance: FieldValue.increment(-amount),
+            diamondBalance: FieldValue.increment(diamondsToReceive)
         });
 
         // Log transaction
@@ -5255,7 +5185,7 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
             type: "exchange",
             amount: -amount,
             receivedAmount: diamondsToReceive,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Exchanged ${amount} Beans for ◈ ${diamondsToReceive} Diamonds.`,
         });
 
@@ -5272,7 +5202,7 @@ exports.convertBeansToDiamonds = functions.region("us-central1").https.onCall(as
  * Runs daily to release matured retention bonuses.
  */
 exports.processScheduledCredits = functions.pubsub.schedule('every 24 hours').onRun(async (context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
 
     // 1. Query all pending credits that are due
     const snapshot = await db.collectionGroup("pending_credits")
@@ -5298,13 +5228,13 @@ exports.processScheduledCredits = functions.pubsub.schedule('every 24 hours').on
             await db.runTransaction(async (transaction) => {
                 // Update Balance
                 transaction.update(userRef, {
-                    diamondBalance: admin.firestore.FieldValue.increment(creditData.amount)
+                    diamondBalance: FieldValue.increment(creditData.amount)
                 });
 
                 // Mark as claimed
                 transaction.update(doc.ref, {
                     status: "claimed",
-                    claimedAt: admin.firestore.FieldValue.serverTimestamp()
+                    claimedAt: FieldValue.serverTimestamp()
                 });
 
                 // Log Transaction
@@ -5312,7 +5242,7 @@ exports.processScheduledCredits = functions.pubsub.schedule('every 24 hours').on
                 transaction.set(txRef, {
                     type: "bonus_release",
                     amount: creditData.amount,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                    timestamp: FieldValue.serverTimestamp(),
                     description: `Automated release of ${creditData.amount} VIP Retention Bonus.`
                 });
             });
@@ -5376,7 +5306,7 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
 
         // Deduct beans immediately
         transaction.update(targetRef, {
-            beansBalance: admin.firestore.FieldValue.increment(-amount)
+            beansBalance: FieldValue.increment(-amount)
         });
 
         // Log request in global withdrawals collection for Admin
@@ -5391,8 +5321,8 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
             method: method || "Bank Transfer",
             accountDetails: accountDetails || "",
             status: "pending",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp()
         });
 
         // Log transaction in User's personal history
@@ -5402,7 +5332,7 @@ exports.withdrawBeans = functions.region("us-central1").https.onCall(async (data
             amount: -amount,
             isAgency: isAgency || false,
             status: "pending",
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Withdrawal request of ${amount} Beans initiated${isAgency ? " (Agency)" : ""}.`,
         });
 
@@ -5608,7 +5538,7 @@ exports.adminApproveWithdrawal = functions.https.onCall(async (data, context) =>
         transaction.update(withdrawalRef, {
             status: "approved",
             adminNote: note || "",
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         });
 
         return { success: true };
@@ -5644,19 +5574,19 @@ exports.adminRejectWithdrawal = functions.https.onCall(async (data, context) => 
         if (isAgency && withdrawalData.agencyId) {
             const agencyRef = db.collection("agencies").doc(withdrawalData.agencyId);
             transaction.update(agencyRef, {
-                beansBalance: admin.firestore.FieldValue.increment(amount)
+                beansBalance: FieldValue.increment(amount)
             });
         } else {
             const userRef = db.collection("users").doc(uid);
             transaction.update(userRef, {
-                beansBalance: admin.firestore.FieldValue.increment(amount)
+                beansBalance: FieldValue.increment(amount)
             });
         }
 
         transaction.update(withdrawalRef, {
             status: "rejected",
             rejectReason: reason || "Rejected by Admin",
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         });
 
         return { success: true };
@@ -5746,13 +5676,13 @@ exports.redeemReferralCode = functions.https.onCall(async (data, context) => {
         // Update newcomer
         transaction.update(userRef, {
             referredBy: referrerUid,
-            diamondBalance: admin.firestore.FieldValue.increment(newcomerReward)
+            diamondBalance: FieldValue.increment(newcomerReward)
         });
 
         // Update referrer
         transaction.update(referrerDoc.ref, {
-            beansBalance: admin.firestore.FieldValue.increment(referrerReward),
-            totalReferralEarnings: admin.firestore.FieldValue.increment(referrerReward)
+            beansBalance: FieldValue.increment(referrerReward),
+            totalReferralEarnings: FieldValue.increment(referrerReward)
         });
 
         // Log transaction for newcomer
@@ -5761,7 +5691,7 @@ exports.redeemReferralCode = functions.https.onCall(async (data, context) => {
             type: "referral_bonus",
             amount: newcomerReward,
             currency: "diamonds",
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Welcome bonus for using code ${code}`
         });
 
@@ -5799,7 +5729,7 @@ exports.sendCPInvite = functions.https.onCall(async (data, context) => {
         senderName: senderDoc.data().displayName,
         senderAvatar: senderDoc.data().profilePhotoUrl,
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     // Write to target's Official Inbox
@@ -5810,7 +5740,7 @@ exports.sendCPInvite = functions.https.onCall(async (data, context) => {
         title: "CP Request Received 💖",
         body: pushMsg,
         read: false,
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: Timestamp.now(),
         data: { route: "/love-house", inviteId: inviteId }
     });
 
@@ -5879,8 +5809,8 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             intimacy: 0,
             level: 1,
             anniversaryDate: todayStr,
-            startedAt: admin.firestore.Timestamp.now(),
-            lastActivityAt: admin.firestore.Timestamp.now(),
+            startedAt: Timestamp.now(),
+            lastActivityAt: Timestamp.now(),
             intimacyBreakdown: { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }
         });
 
@@ -5892,7 +5822,7 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             title: "CP Request Accepted 💕",
             body: acceptMsg,
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: { route: "/love-house", relationshipId }
         });
 
@@ -5902,7 +5832,7 @@ exports.acceptCPInvite = functions.https.onCall(async (data, context) => {
             title: "CP Relationship Started 💕",
             body: `Congratulations! You are now CP partners with ${senderDoc.data().displayName || "Partner"}. Your anniversary starts today!`,
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: { route: "/love-house", relationshipId }
         });
 
@@ -5955,7 +5885,7 @@ exports.purchasePrestigeItem = functions.https.onCall(async (data, context) => {
 
         // 1. Deduct Diamonds
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(-itemData.price)
+            diamondBalance: FieldValue.increment(-itemData.price)
         });
 
         // 2. Add to User Vault
@@ -5966,8 +5896,8 @@ exports.purchasePrestigeItem = functions.https.onCall(async (data, context) => {
         transaction.set(vaultRef, {
             ...itemData,
             id: itemId,
-            purchasedAt: admin.firestore.FieldValue.serverTimestamp(),
-            expiryDate: admin.firestore.Timestamp.fromDate(expiryDate),
+            purchasedAt: FieldValue.serverTimestamp(),
+            expiryDate: Timestamp.fromDate(expiryDate),
             isEquipped: false
         });
 
@@ -6165,11 +6095,11 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
     const now = Date.now();
     
     // 1. Threshold for ROOM cleanup (5 minutes - generous to prevent false disconnections)
-    const roomThreshold = admin.firestore.Timestamp.fromMillis(now - 5 * 60 * 1000);
+    const roomThreshold = Timestamp.fromMillis(now - 5 * 60 * 1000);
     // 2. Threshold for GLOBAL OFFLINE (5 minutes)
-    const globalThreshold = admin.firestore.Timestamp.fromMillis(now - 5 * 60 * 1000);
+    const globalThreshold = Timestamp.fromMillis(now - 5 * 60 * 1000);
     // 3. Threshold for HOST transfer (10 minutes - hosts should stay unless truly gone)
-    const hostTransferThreshold = admin.firestore.Timestamp.fromMillis(now - 10 * 60 * 1000);
+    const hostTransferThreshold = Timestamp.fromMillis(now - 10 * 60 * 1000);
 
     console.log(`[PRESENCE] Starting Global & Room Cleanup. Time: ${new Date(now).toISOString()}`);
 
@@ -6181,7 +6111,7 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
             console.log(`[PRESENCE] Inactive empty room detected: ${roomDoc.id} (Keeping active)`);
             // await roomDoc.ref.update({ 
             //     status: "ended", 
-            //     endedAt: admin.firestore.FieldValue.serverTimestamp(),
+            //     endedAt: FieldValue.serverTimestamp(),
             //     currentUsersCount: 0 
             // });
             continue;
@@ -6220,7 +6150,7 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
                 await remaining.docs[0].ref.update({ role: 'host' });
             } else {
                 console.log(`[PRESENCE] Host left empty room ${roomDoc.id}. Keeping room open.`);
-                // await roomDoc.ref.update({ status: "ended", endedAt: admin.firestore.FieldValue.serverTimestamp() });
+                // await roomDoc.ref.update({ status: "ended", endedAt: FieldValue.serverTimestamp() });
             }
         }
     }
@@ -6237,7 +6167,7 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
         usersSnap.docs.forEach(doc => {
             batch.update(doc.ref, { 
                 status: "offline",
-                tags: admin.firestore.FieldValue.arrayRemove("online")
+                tags: FieldValue.arrayRemove("online")
             });
         });
         await batch.commit();
@@ -6247,7 +6177,7 @@ exports.cleanupInactiveParticipants = functions.pubsub.schedule("every 1 minutes
     // PART C: Official Recharge History 90-Day Retention Pruning
     // Strictly retains the last 3 months (90 days) and deletes records older than 3 months
     try {
-        const ninetyDaysAgo = admin.firestore.Timestamp.fromMillis(now - (90 * 24 * 60 * 60 * 1000));
+        const ninetyDaysAgo = Timestamp.fromMillis(now - (90 * 24 * 60 * 60 * 1000));
         const oldRechargesSnap = await db.collectionGroup("official_recharges")
             .where("timestamp", "<", ninetyDaysAgo)
             .limit(100)
@@ -6280,14 +6210,14 @@ exports.onPresenceChanged = onValueUpdated("status/{uid}", async (event) => {
         const userSnap = await userRef.get();
         const activeRoomId = userSnap.data()?.activeRoomId;
 
-        await userRef.update({ status: "offline", lastActive: admin.firestore.FieldValue.serverTimestamp() });
+        await userRef.update({ status: "offline", lastActive: FieldValue.serverTimestamp() });
 
         if (activeRoomId) {
             const participantRef = db.collection("rooms").doc(activeRoomId).collection("participants").doc(uid);
             await participantRef.delete();
         }
     } else {
-        await userRef.update({ status: "online", lastActive: admin.firestore.FieldValue.serverTimestamp() });
+        await userRef.update({ status: "online", lastActive: FieldValue.serverTimestamp() });
     }
     return null;
 });
@@ -6310,7 +6240,7 @@ exports.onParticipantRemoved = functions.firestore.document("rooms/{roomId}/part
             console.log(`[LIFECYCLE] Room ${roomId} empty. (Keeping room active)`);
             // transaction.update(roomRef, { 
             //     status: "ended", 
-            //     endedAt: admin.firestore.FieldValue.serverTimestamp(),
+            //     endedAt: FieldValue.serverTimestamp(),
             //     currentUsersCount: 0,
             //     pkActive: false,
             //     pkChallenge: null
@@ -6387,7 +6317,7 @@ exports.syncUserRoomPresence = functions.firestore.document("users/{uid}").onUpd
                     transaction.delete(participantRef);
                     if (roomSnap.exists) {
                         transaction.update(oldRoomRef, {
-                            currentUsersCount: admin.firestore.FieldValue.increment(-1)
+                            currentUsersCount: FieldValue.increment(-1)
                         });
                     }
                 }
@@ -6421,15 +6351,15 @@ exports.addComment = functions.https.onCall(async (data, context) => {
         commentId: commentId,
         userId: commenterUid,
         text: text.trim(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
     };
 
     return db.runTransaction(async (transaction) => {
         transaction.set(commentRef, commentData);
-        transaction.update(userMediaRef, { commentsCount: admin.firestore.FieldValue.increment(1) });
+        transaction.update(userMediaRef, { commentsCount: FieldValue.increment(1) });
         
         if (isMoment) {
-            transaction.update(momentRef, { commentsCount: admin.firestore.FieldValue.increment(1) });
+            transaction.update(momentRef, { commentsCount: FieldValue.increment(1) });
         }
 
         return { success: true, commentId: commentId };
@@ -6454,16 +6384,16 @@ exports.toggleLike = functions.https.onCall(async (data, context) => {
 
     return db.runTransaction(async (transaction) => {
         if (isLiking) {
-            transaction.set(likeRef, { likedAt: admin.firestore.FieldValue.serverTimestamp() });
-            transaction.update(userMediaRef, { likesCount: admin.firestore.FieldValue.increment(1) });
+            transaction.set(likeRef, { likedAt: FieldValue.serverTimestamp() });
+            transaction.update(userMediaRef, { likesCount: FieldValue.increment(1) });
             if (isMoment) {
-                transaction.update(momentRef, { likesCount: admin.firestore.FieldValue.increment(1) });
+                transaction.update(momentRef, { likesCount: FieldValue.increment(1) });
             }
         } else {
             transaction.delete(likeRef);
-            transaction.update(userMediaRef, { likesCount: admin.firestore.FieldValue.increment(-1) });
+            transaction.update(userMediaRef, { likesCount: FieldValue.increment(-1) });
             if (isMoment) {
-                transaction.update(momentRef, { likesCount: admin.firestore.FieldValue.increment(-1) });
+                transaction.update(momentRef, { likesCount: FieldValue.increment(-1) });
             }
         }
         return { success: true, isLiked: isLiking };
@@ -6489,7 +6419,7 @@ exports.createMediaPost = functions.https.onCall(async (data, context) => {
         imageUrl: imageUrl,
         tag: tag,
         caption: caption || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         likesCount: 0,
         commentsCount: 0,
         giftCount: 0,
@@ -6502,7 +6432,7 @@ exports.createMediaPost = functions.https.onCall(async (data, context) => {
             transaction.set(momentRef, mediaData);
         }
         transaction.update(db.collection("users").doc(uid), {
-            lastActive: admin.firestore.FieldValue.serverTimestamp()
+            lastActive: FieldValue.serverTimestamp()
         });
     });
 });
@@ -6522,7 +6452,7 @@ exports.adminSetResellerStatus = functions.https.onCall(async (data, context) =>
     const { targetUid, isReseller } = data;
     await db.collection("users").doc(targetUid).update({
         isReseller: isReseller,
-        walletBalance: isReseller ? 0 : admin.firestore.FieldValue.delete()
+        walletBalance: isReseller ? 0 : FieldValue.delete()
     });
     // Mirror into the `resellers` projection: the app's merchant list reads it
     // (public read rule), and `users` no longer exposes whatsapp/coin fields.
@@ -6537,7 +6467,7 @@ exports.adminSetResellerStatus = functions.https.onCall(async (data, context) =>
             whatsapp_number: t.whatsappNumber || t.phoneNumber || "",
             coin_balance: t.coinBalance || t.diamondStock || 0,
             status: "ACTIVE",
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     }
     return { success: true };
@@ -6605,7 +6535,7 @@ exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context)
 
         transaction.update(resellerRef, { 
             walletBalance: newBalance,
-            lastWalletUpdate: admin.firestore.FieldValue.serverTimestamp()
+            lastWalletUpdate: FieldValue.serverTimestamp()
         });
 
         // 1. Immutable Admin Audit Log
@@ -6624,7 +6554,7 @@ exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context)
             balanceAfter: newBalance,
             reason: reason.trim(),
             requestId: requestId || null,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 2. User Transaction History Record
@@ -6641,7 +6571,7 @@ exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context)
             balanceBefore: currentBalance,
             balanceAfter: newBalance,
             status: "completed",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // Set idempotency guard
@@ -6650,7 +6580,7 @@ exports.adminAdjustResellerWallet = functions.https.onCall(async (data, context)
                 adminUid: context.auth.uid,
                 targetUid: targetUid,
                 amount: cleanDelta,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: FieldValue.serverTimestamp()
             });
         }
 
@@ -6680,7 +6610,7 @@ exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
         }
         transaction.update(resellerRef, {
             walletBalance: currentWallet - pkgData.price,
-            diamondStock: admin.firestore.FieldValue.increment(pkgData.diamonds)
+            diamondStock: FieldValue.increment(pkgData.diamonds)
         });
         const txRef = db.collection("transactions").doc();
         transaction.set(txRef, {
@@ -6691,7 +6621,7 @@ exports.buyDiamondPackage = functions.https.onCall(async (data, context) => {
             diamonds: pkgData.diamonds,
             type: "RESELLER_BUY_DIAMONDS",
             status: "completed",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
         return { success: true };
     });
@@ -6710,7 +6640,7 @@ exports.updateDiamondPackage = functions.https.onCall(async (data, context) => {
             diamonds: parseInt(diamonds),
             price: parseFloat(price),
             isDeleted: false,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     }
     return { success: true };
@@ -7032,7 +6962,7 @@ async function archiveMonthlyLeaderboard(targetMonthKey) {
         await db.collection("monthly_leaderboard_history").doc(monthKey).set({
             monthKey: monthKey,
             monthName: monthName,
-            archivedAt: admin.firestore.FieldValue.serverTimestamp(),
+            archivedAt: FieldValue.serverTimestamp(),
             topSenders: topSenders,
             topReceivers: topReceivers,
             topRooms: topRooms,
@@ -7233,7 +7163,7 @@ exports.purchaseDiamondsWithWallet = functions.region("us-central1").https.onCal
         transaction.update(userRef, {
             walletBalance: newWallet,
             diamondBalance: currentDiamonds + parsedDiamonds,
-            lastWalletUpdate: admin.firestore.FieldValue.serverTimestamp()
+            lastWalletUpdate: FieldValue.serverTimestamp()
         });
 
         // Set idempotency guard
@@ -7242,7 +7172,7 @@ exports.purchaseDiamondsWithWallet = functions.region("us-central1").https.onCal
                 uid: uid,
                 diamonds: parsedDiamonds,
                 price: expectedPrice,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: FieldValue.serverTimestamp()
             });
         }
 
@@ -7256,7 +7186,7 @@ exports.purchaseDiamondsWithWallet = functions.region("us-central1").https.onCal
             diamondsAwarded: parsedDiamonds,
             balanceBefore: currentWallet,
             balanceAfter: newWallet,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Paid \$${expectedPrice.toFixed(2)} from Wallet for ${parsedDiamonds} Diamonds`,
             status: "completed"
         });
@@ -7316,12 +7246,12 @@ exports.calculateFamilyCombatPoints = functions.firestore
                 if (familyId) {
                     const memberRef = db.collection('families').doc(familyId).collection('members').doc(senderUid);
                     await memberRef.update({
-                        combatPoints: admin.firestore.FieldValue.increment(senderCombat),
-                        memberXP: admin.firestore.FieldValue.increment(senderCombat),
+                        combatPoints: FieldValue.increment(senderCombat),
+                        memberXP: FieldValue.increment(senderCombat),
                     }).catch(() => {});
                     await db.collection('families').doc(familyId).update({
-                        totalCombatPoints: admin.firestore.FieldValue.increment(senderCombat),
-                        currentMonthPoints: admin.firestore.FieldValue.increment(senderCombat),
+                        totalCombatPoints: FieldValue.increment(senderCombat),
+                        currentMonthPoints: FieldValue.increment(senderCombat),
                     }).catch(() => {});
                 }
             }
@@ -7335,12 +7265,12 @@ exports.calculateFamilyCombatPoints = functions.firestore
                 if (familyId) {
                     const memberRef = db.collection('families').doc(familyId).collection('members').doc(recipientUid);
                     await memberRef.update({
-                        combatPoints: admin.firestore.FieldValue.increment(receiverCombat),
-                        memberXP: admin.firestore.FieldValue.increment(receiverCombat),
+                        combatPoints: FieldValue.increment(receiverCombat),
+                        memberXP: FieldValue.increment(receiverCombat),
                     }).catch(() => {});
                     await db.collection('families').doc(familyId).update({
-                        totalCombatPoints: admin.firestore.FieldValue.increment(receiverCombat),
-                        currentMonthPoints: admin.firestore.FieldValue.increment(receiverCombat),
+                        totalCombatPoints: FieldValue.increment(receiverCombat),
+                        currentMonthPoints: FieldValue.increment(receiverCombat),
                     }).catch(() => {});
                 }
             }
@@ -7462,7 +7392,7 @@ exports.sendFamilyBattleRequest = functions.https.onCall(async (data, context) =
         status: 'pending',
         cost: cost,
         senderUid: uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
     });
 
     return { success: true, requestId: reqRef.id };
@@ -7505,11 +7435,11 @@ exports.joinFamilyBattle = functions.https.onCall(async (data, context) => {
     await db.runTransaction(async (tx) => {
         tx.update(db.collection('users').doc(uid), {
             currentActiveBattleId: battleId,
-            battleJoinTime: admin.firestore.FieldValue.serverTimestamp(),
+            battleJoinTime: FieldValue.serverTimestamp(),
         });
         if (!participantList.includes(uid)) {
             tx.update(battleRef, {
-                participantUserList: admin.firestore.FieldValue.arrayUnion(uid),
+                participantUserList: FieldValue.arrayUnion(uid),
             });
         }
     });
@@ -7595,7 +7525,7 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
     }
     for (const chunk of userChunks) {
         const usersSnap = await db.collection('users')
-            .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
+            .where(FieldPath.documentId(), 'in', chunk)
             .where('currentActiveBattleId', '!=', null)
             .limit(1)
             .get();
@@ -7610,7 +7540,7 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
 
     // All validations passed — create battle in transaction
     const battleId = db.collection('families').doc(challengerFamilyId).collection('battles').doc().id;
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const durationSeconds = 180;
 
     await db.runTransaction(async (transaction) => {
@@ -7660,7 +7590,7 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
             opponentName: opponentFamily.name || '',
             createdBy: context.auth.uid,
             participantCount: allMemberUids.length,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
         });
     });
 
@@ -7726,18 +7656,18 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
         const oppFamilyId = isA ? battle.familyBId : battle.familyAId;
         const oppBattleRef = db.collection('families').doc(oppFamilyId).collection('battles').doc(battleId);
 
-        transaction.update(battleRef, { [field]: admin.firestore.FieldValue.increment(tapPoints) });
+        transaction.update(battleRef, { [field]: FieldValue.increment(tapPoints) });
         const oppDoc = await transaction.get(oppBattleRef);
         if (oppDoc.exists) {
-            transaction.update(oppBattleRef, { [field]: admin.firestore.FieldValue.increment(tapPoints) });
+            transaction.update(oppBattleRef, { [field]: FieldValue.increment(tapPoints) });
         }
 
         // Update member combatPoints, contribution, lastTapAt
         transaction.update(userMemberRef, {
-            combatPoints: admin.firestore.FieldValue.increment(tapPoints),
-            contribution: admin.firestore.FieldValue.increment(tapPoints),
-            memberXP: admin.firestore.FieldValue.increment(Math.floor(tapPoints / 500)),
-            lastTapAt: admin.firestore.FieldValue.serverTimestamp(),
+            combatPoints: FieldValue.increment(tapPoints),
+            contribution: FieldValue.increment(tapPoints),
+            memberXP: FieldValue.increment(Math.floor(tapPoints / 500)),
+            lastTapAt: FieldValue.serverTimestamp(),
         });
     });
 
@@ -7780,7 +7710,7 @@ exports.autoLevelUpFamily = functions.firestore
  * Also clears currentActiveBattleId from all participants.
  */
 exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRun(async (context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const battlesSnap = await db.collectionGroup('battles')
         .where('status', '==', 'active')
         .get();
@@ -7801,7 +7731,7 @@ exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRu
 
         if (!startedAt) continue;
 
-        const expiresAt = new admin.firestore.Timestamp(
+        const expiresAt = new Timestamp(
             startedAt.seconds + duration,
             startedAt.nanoseconds
         );
@@ -7831,7 +7761,7 @@ exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRu
             });
             if (winnerId) {
                 batch.update(db.collection('families').doc(winnerId), {
-                    totalBattlePoints: admin.firestore.FieldValue.increment(500),
+                    totalBattlePoints: FieldValue.increment(500),
                 });
             }
 
@@ -7846,7 +7776,7 @@ exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRu
             ];
             for (const uid of allUids) {
                 batch.update(db.collection('users').doc(uid), {
-                    currentActiveBattleId: admin.firestore.FieldValue.delete(),
+                    currentActiveBattleId: FieldValue.delete(),
                 });
             }
 
@@ -7862,7 +7792,7 @@ exports.autoEndFamilyBattles = functions.pubsub.schedule('every 1 minutes').onRu
                 winnerId,
                 totalPoints: aPts + bPts,
                 participantCount: allUids.length,
-                endedAt: admin.firestore.FieldValue.serverTimestamp(),
+                endedAt: FieldValue.serverTimestamp(),
             });
 
             await batch.commit();
@@ -7901,7 +7831,7 @@ exports.createFamily = functions.https.onCall(async (data, context) => {
         name, tag: (tag || '').toUpperCase(), description: description || '', notice: notice || '',
         ownerId: uid, avatarUrl: avatarUrl || null, bannerUrl: null,
         memberUids: [uid], level: 1, totalBattlePoints: 0, totalCombatPoints: 0,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
         category: 'Social', rank: 0, joinMode: joinMode || 'free',
         levelRequirement: levelRequirement || 0, country: country || '',
         monthlyTarget: 3000000, currentMonthPoints: 0,
@@ -7911,7 +7841,7 @@ exports.createFamily = functions.https.onCall(async (data, context) => {
     batch.set(familyRef.collection('members').doc(uid), {
         familyId: familyRef.id, userId: uid, role: 'owner',
         memberLevel: 1, memberXP: 0, combatPoints: 0, contribution: 0,
-        joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+        joinedAt: FieldValue.serverTimestamp(),
     });
 
     batch.update(db.collection('users').doc(uid), { familyId: familyRef.id, isFamilyOwner: true });
@@ -7945,10 +7875,10 @@ exports.approveJoinRequest = functions.https.onCall(async (data, context) => {
 
     const batch = db.batch();
     batch.update(db.collection('familyJoinRequests').doc(requestId), { status: 'accepted' });
-    batch.update(familyDoc.ref, { memberUids: admin.firestore.FieldValue.arrayUnion([userId]) });
+    batch.update(familyDoc.ref, { memberUids: FieldValue.arrayUnion([userId]) });
     batch.set(familyDoc.ref.collection('members').doc(userId), {
         familyId, userId, role: 'member', memberLevel: 1, memberXP: 0,
-        combatPoints: 0, contribution: 0, joinedAt: admin.firestore.FieldValue.serverTimestamp(),
+        combatPoints: 0, contribution: 0, joinedAt: FieldValue.serverTimestamp(),
     });
     batch.update(db.collection('users').doc(userId), { familyId, isFamilyOwner: false });
 
@@ -7977,7 +7907,7 @@ exports.kickMember = functions.https.onCall(async (data, context) => {
     }
 
     const batch = db.batch();
-    batch.update(familyDoc.ref, { memberUids: admin.firestore.FieldValue.arrayRemove([userId]) });
+    batch.update(familyDoc.ref, { memberUids: FieldValue.arrayRemove([userId]) });
     batch.delete(familyDoc.ref.collection('members').doc(userId));
     batch.update(db.collection('users').doc(userId), { familyId: null, isFamilyOwner: false });
 
@@ -8011,7 +7941,7 @@ async function calculateAndStoreRankings(period) {
             rank: rank,
             level: data.level || 1,
             period: period,
-            calculatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            calculatedAt: FieldValue.serverTimestamp(),
         });
         rank++;
     });
@@ -8043,7 +7973,7 @@ exports.seedRoomSupportConfigs = functions.https.onRequest(async (req, res) => {
     const configRef = db.collection("room_support_configs").doc("settings");
     await configRef.set({
         levels: ROOM_SUPPORT.levels,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
     res.status(200).send({ success: true, message: "Room support 20-tier configs seeded successfully." });
 });
@@ -8144,7 +8074,7 @@ exports.assignRoomPartner = functions.https.onCall(async (data, context) => {
             paid: false,
             displayName: partnerUserData.displayName || partnerUserData.username || "Partner",
             photoUrl: partnerUserData.profilePhotoUrl || "",
-            assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+            assignedAt: FieldValue.serverTimestamp(),
             share: levelConfig.partnerReward
         });
 
@@ -8248,8 +8178,8 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
     const closingWeekId = getIsoWeekId(closingDate);
     const nextWeekId = getIsoWeekId(new Date(closingDate.getTime() + 86400000));
     const weekEndMs = getWeekEndUtc(closingDate).getTime();
-    const weekEnd = admin.firestore.Timestamp.fromMillis(weekEndMs);
-    const weekStart = admin.firestore.Timestamp.fromMillis(weekEndMs - 7 * 24 * 60 * 60 * 1000 + 1);
+    const weekEnd = Timestamp.fromMillis(weekEndMs);
+    const weekStart = Timestamp.fromMillis(weekEndMs - 7 * 24 * 60 * 60 * 1000 + 1);
 
     console.log(`[ROOM_SUPPORT] Starting Sunday cycle lock for closing week ${closingWeekId} (${cyclesSnap.size} cycles)...`);
 
@@ -8299,7 +8229,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                     requiredPartners,
                     distributionStatus: achievedLevel >= 1 ? "pending" : "no_target_met",
                     status: "closed",
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    createdAt: FieldValue.serverTimestamp()
                 });
 
                 // 4. Partner collection protection:
@@ -8318,8 +8248,8 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                     lastWeekCoins: finalizedCoins,
                     lastWeekLevel: achievedLevel,
                     lastWeekReward: totalReward,
-                    lastWeekAchievedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    lastWeekAchievedAt: FieldValue.serverTimestamp(),
+                    updatedAt: FieldValue.serverTimestamp()
                 };
 
                 if (normalizeRoomSupportWeekId(cycleData.weekId) !== nextWeekId) {
@@ -8327,7 +8257,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                     updates.level = 0;
                     updates.weekId = nextWeekId;
                     updates.status = "accumulating";
-                    updates.weekStart = admin.firestore.FieldValue.serverTimestamp();
+                    updates.weekStart = FieldValue.serverTimestamp();
                 }
 
                 transaction.update(doc.ref, updates);
@@ -8340,7 +8270,7 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').timeZon
                     roomName,
                     totalCoins: finalizedCoins,
                     level: achievedLevel,
-                    lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    lastUpdated: FieldValue.serverTimestamp()
                 });
             });
             console.log(`[ROOM_SUPPORT] Successfully locked room ${roomId} for ${closingWeekId}`);
@@ -8394,7 +8324,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             if (achievedLevel < 1) {
                 await weekDoc.ref.update({
                     distributionStatus: "no_target_met",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    updatedAt: FieldValue.serverTimestamp()
                 });
                 // Reset/clear any partners assigned
                 const stalePartners = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
@@ -8410,7 +8340,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             if (!levelConfig) {
                 await weekDoc.ref.update({
                     distributionStatus: "invalid_level",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    updatedAt: FieldValue.serverTimestamp()
                 });
                 continue;
             }
@@ -8434,14 +8364,14 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 await weekDoc.ref.update({
                     distributionStatus: "expired",
                     expirationReason: `Required ${requiredPartners} partners, but only ${assignedCount} assigned by Tuesday deadline.`,
-                    expiredAt: admin.firestore.FieldValue.serverTimestamp()
+                    expiredAt: FieldValue.serverTimestamp()
                 });
                 // Auto-reset / clear expired partners from active Salary List
                 if (!partnersSnap.empty) {
                     const batch = db.batch();
                     partnersSnap.docs.forEach(pDoc => {
                         const archRef = weekDoc.ref.collection("archived_partners").doc(pDoc.id);
-                        batch.set(archRef, { ...pDoc.data(), status: "expired", expiredAt: admin.firestore.FieldValue.serverTimestamp() });
+                        batch.set(archRef, { ...pDoc.data(), status: "expired", expiredAt: FieldValue.serverTimestamp() });
                         batch.delete(pDoc.ref);
                     });
                     await batch.commit();
@@ -8532,8 +8462,8 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 const userSnap = await transaction.get(userRef);
                 if (userSnap.exists) {
                     transaction.update(userRef, {
-                        diamondBalance: admin.firestore.FieldValue.increment(winningReward.amount),
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        diamondBalance: FieldValue.increment(winningReward.amount),
+                        updatedAt: FieldValue.serverTimestamp()
                     });
                 }
 
@@ -8549,7 +8479,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     amount: winningReward.amount,
                     coinsTarget: winningReward.coinsTarget,
                     supersededCount: candidates.length - 1,
-                    distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    distributedAt: FieldValue.serverTimestamp(),
                     status: "success"
                 });
 
@@ -8566,14 +8496,14 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     amount: winningReward.amount,
                     weekId: winningReward.weekId,
                     status: "success",
-                    distributionDate: admin.firestore.FieldValue.serverTimestamp(),
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    distributionDate: FieldValue.serverTimestamp(),
+                    createdAt: FieldValue.serverTimestamp()
                 });
 
                 // Update winning week history
                 transaction.update(winningReward.weekDocRef, {
                     distributionStatus: "distributed",
-                    distributedAt: admin.firestore.FieldValue.serverTimestamp()
+                    distributedAt: FieldValue.serverTimestamp()
                 });
 
                 // Archive and delete partner doc if partner
@@ -8586,7 +8516,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                         amount: winningReward.amount,
                         paid: true,
                         status: "paid",
-                        paidAt: admin.firestore.FieldValue.serverTimestamp()
+                        paidAt: FieldValue.serverTimestamp()
                     });
                     transaction.delete(winningReward.partnerDocRef);
                 }
@@ -8605,7 +8535,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     roomId: winningReward.roomId,
                     weekId: winningReward.weekId,
                     description: salaryDesc,
-                    timestamp: admin.firestore.FieldValue.serverTimestamp()
+                    timestamp: FieldValue.serverTimestamp()
                 });
 
                 // Send in-app official salary notification with deterministic doc ID to guarantee idempotency
@@ -8628,7 +8558,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     reason: `Achieving Level ${winningReward.level} Room Support Goal as ${winningReward.role}.`,
                     status: "Received",
                     read: false,
-                    createdAt: admin.firestore.Timestamp.now(),
+                    createdAt: Timestamp.now(),
                     data: {
                         roomId: winningReward.roomId,
                         weekId: winningReward.weekId,
@@ -8687,7 +8617,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     weekId: winningReward.weekId,
                     errorMessage: err.message || String(err),
                     status: "failed",
-                    failedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    failedAt: FieldValue.serverTimestamp(),
                     resolved: false
                 }, { merge: true });
                 console.log(`[ROOM_SUPPORT] Logged failed transaction ${failedDocId} for admin recovery.`);
@@ -8777,8 +8707,8 @@ exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) =
             const userSnap = await transaction.get(userRef);
             if (userSnap.exists) {
                 transaction.update(userRef, {
-                    diamondBalance: admin.firestore.FieldValue.increment(amount),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    diamondBalance: FieldValue.increment(amount),
+                    updatedAt: FieldValue.serverTimestamp()
                 });
             }
 
@@ -8792,7 +8722,7 @@ exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) =
                 level,
                 amount,
                 coinsTarget: target || 0,
-                distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+                distributedAt: FieldValue.serverTimestamp(),
                 status: "success",
                 retriedByAdmin: context.auth.uid
             });
@@ -8810,15 +8740,15 @@ exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) =
             amount,
             weekId,
             status: "success",
-            distributionDate: admin.firestore.FieldValue.serverTimestamp(),
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            distributionDate: FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             isRetry: true,
             retriedBy: context.auth.uid
         }, { merge: true });
 
         transaction.update(failedRef, {
             resolved: true,
-            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolvedAt: FieldValue.serverTimestamp(),
             resolvedBy: context.auth.uid,
             status: "resolved"
         });
@@ -8851,7 +8781,7 @@ exports.cleanupCompletedRoomSupportPartners = functions.https.onCall(async (data
  * Server time endpoint for countdown sync — returns server timestamp to avoid clock drift.
  */
 exports.getServerTime = functions.https.onCall(async (data, context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     return { serverTime: now.toMillis() };
 });
 
@@ -8898,7 +8828,7 @@ exports.cleanupRoomGiftLeaderboard = functions.pubsub.schedule("0 3 * * *").onRu
  */
 exports.scheduledVIPExpiryCheck = functions.pubsub.schedule('0 0 * * *').onRun(async (context) => {
     console.log("[VIP_EXPIRY_CRON] Checking for expired VIP users...");
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const snapshot = await db.collection("users")
@@ -8923,8 +8853,8 @@ exports.scheduledVIPExpiryCheck = functions.pubsub.schedule('0 0 * * *').onRun(a
         try {
             const updates = {
                 vipTier: "none",
-                vipExpiry: admin.firestore.FieldValue.delete(),
-                vipSnapshot: admin.firestore.FieldValue.delete(),
+                vipExpiry: FieldValue.delete(),
+                vipSnapshot: FieldValue.delete(),
                 profileFrame: snapshotData.originalProfileFrame || userData.profileFrame || "",
                 entryAnimation: snapshotData.originalEntryAnimation || userData.entryAnimation || "",
                 badgeIcon: snapshotData.originalBadgeIcon || userData.badgeIcon || ""
@@ -8940,7 +8870,7 @@ exports.scheduledVIPExpiryCheck = functions.pubsub.schedule('0 0 * * *').onRun(a
             // Log expiry transaction
             await userRef.collection("transactions").add({
                 type: "vip_expiry",
-                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                timestamp: FieldValue.serverTimestamp(),
                 description: `VIP ${userData.vipTier || ""} expired, account restored to normal state.`
             });
 
@@ -9012,7 +8942,7 @@ exports.claimVIPDailyReward = functions.https.onCall(async (data, context) => {
 
         // 5. Credit reward
         transaction.update(userRef, {
-            beansBalance: admin.firestore.FieldValue.increment(beanReward),
+            beansBalance: FieldValue.increment(beanReward),
             lastVipClaim: todayStr
         });
 
@@ -9022,7 +8952,7 @@ exports.claimVIPDailyReward = functions.https.onCall(async (data, context) => {
             type: "reward",
             amount: beanReward,
             currency: "beans",
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: "Daily VIP Reward (" + vipTier + ")"
         });
 
@@ -9132,7 +9062,7 @@ exports.roomKickUser = functions.https.onCall(async (data, context) => {
         let banExpiry = null;
         const banDuration = typeof duration === 'number' && duration > 0 ? duration : null;
         if (banDuration) {
-            banExpiry = admin.firestore.Timestamp.fromDate(new Date(Date.now() + banDuration * 60 * 1000));
+            banExpiry = Timestamp.fromDate(new Date(Date.now() + banDuration * 60 * 1000));
         }
 
         // Perform kick
@@ -9140,7 +9070,7 @@ exports.roomKickUser = functions.https.onCall(async (data, context) => {
         const banExpiriesUpdate = {};
         banExpiriesUpdate[targetUid] = banExpiry;
         transaction.update(roomRef, {
-            bannedUids: admin.firestore.FieldValue.arrayUnion([targetUid]),
+            bannedUids: FieldValue.arrayUnion([targetUid]),
             banExpiries: banExpiriesUpdate
         });
         transaction.delete(participantRef);
@@ -9160,7 +9090,7 @@ exports.roomKickUser = functions.https.onCall(async (data, context) => {
             uid: requesterUid,
             text: msgText,
             type: "system",
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
 
         // Log to room_kick_logs subcollection
@@ -9173,7 +9103,7 @@ exports.roomKickUser = functions.https.onCall(async (data, context) => {
             reason: reason || "",
             banDuration: banDuration,
             banExpiry: banExpiry,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
 
         return { success: true };
@@ -9208,10 +9138,10 @@ exports.roomUnbanUser = functions.https.onCall(async (data, context) => {
     }
 
     const banExpiryDelete = {};
-    banExpiryDelete["banExpiries." + targetUid] = admin.firestore.FieldValue.delete();
+    banExpiryDelete["banExpiries." + targetUid] = FieldValue.delete();
 
     await db.collection("rooms").doc(roomId).update({
-        bannedUids: admin.firestore.FieldValue.arrayRemove([targetUid]),
+        bannedUids: FieldValue.arrayRemove([targetUid]),
         ...banExpiryDelete
     });
 
@@ -9225,7 +9155,7 @@ exports.roomUnbanUser = functions.https.onCall(async (data, context) => {
  */
 exports.autoUnbanExpiredBans = functions.pubsub.schedule('every 5 minutes').onRun(async (context) => {
     console.log("[AUTO_UNBAN_CRON] Checking for expired bans...");
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     let processed = 0;
 
     const roomsSnapshot = await db.collection("rooms")
@@ -9256,11 +9186,11 @@ exports.autoUnbanExpiredBans = functions.pubsub.schedule('every 5 minutes').onRu
                 const roomRef = db.collection("rooms").doc(roomDoc.id);
                 const deleteFields = {};
                 for (const uid of uidsToRemove) {
-                    deleteFields["banExpiries." + uid] = admin.firestore.FieldValue.delete();
+                    deleteFields["banExpiries." + uid] = FieldValue.delete();
                 }
                 await roomRef.update({
                     ...deleteFields,
-                    bannedUids: admin.firestore.FieldValue.arrayRemove(uidsToRemove)
+                    bannedUids: FieldValue.arrayRemove(uidsToRemove)
                 });
                 processed += uidsToRemove.length;
                 console.log("[AUTO_UNBAN_CRON] Room " + roomDoc.id + ": unbanned " + uidsToRemove.length + " user(s)");
@@ -9329,9 +9259,9 @@ exports.claimVipDailyReward = functions.https.onCall(async (data, context) => {
         }
 
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(diamonds),
-            xp: admin.firestore.FieldValue.increment(xp),
-            lastDailyClaim: admin.firestore.Timestamp.fromDate(now)
+            diamondBalance: FieldValue.increment(diamonds),
+            xp: FieldValue.increment(xp),
+            lastDailyClaim: Timestamp.fromDate(now)
         });
 
         // Add a transaction record
@@ -9339,7 +9269,7 @@ exports.claimVipDailyReward = functions.https.onCall(async (data, context) => {
         transaction.set(txRef, {
             type: "reward",
             amount: diamonds,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Daily VIP Reward Claimed (${vipTier})`
         });
 
@@ -9407,7 +9337,7 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
             .get();
 
         pendingSnap.forEach((doc) => {
-            transaction.update(doc.ref, { status: "cancelled", cancelledAt: admin.firestore.Timestamp.fromDate(now) });
+            transaction.update(doc.ref, { status: "cancelled", cancelledAt: Timestamp.fromDate(now) });
         });
 
         // Revert cosmetics from snapshot if available
@@ -9420,7 +9350,7 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
             badgeIcon: snapshot.originalBadgeIcon || "",
             helloId: snapshot.originalHelloId || targetData.helloId,
             vipSnapshot: null, // clear snapshot
-            diamondBalance: admin.firestore.FieldValue.increment(refundAmount)
+            diamondBalance: FieldValue.increment(refundAmount)
         });
 
         // Log transaction
@@ -9428,7 +9358,7 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
         transaction.set(txRef, {
             type: "refund",
             amount: refundAmount,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp(),
             description: `Revoked ${vipTier} subscription. Pro-rated refund of ${refundAmount} diamonds credited (${remainingDays} days remaining).`
         });
 
@@ -9529,7 +9459,7 @@ exports.sendFriendRequest = functions.https.onCall(async (data, context) => {
         status: "pending",
         senderName: senderData?.displayName || "Unknown",
         senderAvatar: senderData?.profilePhotoUrl || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     try { await sendPush(targetUid, "Friend Request 👋", `${senderData?.displayName || "Someone"} wants to be your friend!`, { type: "FRIEND_REQUEST", requestId }); } catch (_) {}
@@ -9561,8 +9491,8 @@ exports.acceptFriendRequest = functions.https.onCall(async (data, context) => {
         const senderRef = db.collection("users").doc(reqData.senderUid);
         const targetRef = db.collection("users").doc(reqData.targetUid);
 
-        transaction.update(senderRef, { friendsCount: admin.firestore.FieldValue.increment(1) });
-        transaction.update(targetRef, { friendsCount: admin.firestore.FieldValue.increment(1) });
+        transaction.update(senderRef, { friendsCount: FieldValue.increment(1) });
+        transaction.update(targetRef, { friendsCount: FieldValue.increment(1) });
 
         const relationshipId = `${reqData.senderUid}_${reqData.targetUid}`;
         transaction.set(db.collection("relationships").doc(relationshipId), {
@@ -9571,8 +9501,8 @@ exports.acceptFriendRequest = functions.https.onCall(async (data, context) => {
             status: "active",
             intimacy: 0,
             level: 1,
-            startedAt: admin.firestore.Timestamp.now(),
-            lastActivityAt: admin.firestore.Timestamp.now(),
+            startedAt: Timestamp.now(),
+            lastActivityAt: Timestamp.now(),
             intimacyBreakdown: { giftPoints: 0, diamondPoints: 0, activityPoints: 0 }
         });
 
@@ -9635,12 +9565,12 @@ exports.removeFriend = functions.https.onCall(async (data, context) => {
             throw new functions.https.HttpsError("permission-denied", "Not part of this relationship.");
         }
 
-        transaction.update(relRef, { status: "ended", endedAt: admin.firestore.Timestamp.now() });
+        transaction.update(relRef, { status: "ended", endedAt: Timestamp.now() });
 
         const otherUid = participants.find(p => p !== uid);
         if (otherUid) {
-            transaction.update(db.collection("users").doc(uid), { friendsCount: admin.firestore.FieldValue.increment(-1) });
-            transaction.update(db.collection("users").doc(otherUid), { friendsCount: admin.firestore.FieldValue.increment(-1) });
+            transaction.update(db.collection("users").doc(uid), { friendsCount: FieldValue.increment(-1) });
+            transaction.update(db.collection("users").doc(otherUid), { friendsCount: FieldValue.increment(-1) });
         }
 
         return { success: true };
@@ -9668,7 +9598,7 @@ exports.dissolveCP = functions.https.onCall(async (data, context) => {
             throw new functions.https.HttpsError("permission-denied", "Not part of this relationship.");
         }
 
-        transaction.update(relRef, { status: "ended", endedAt: admin.firestore.Timestamp.now() });
+        transaction.update(relRef, { status: "ended", endedAt: Timestamp.now() });
 
         for (const pUid of participants) {
             const userDoc = await transaction.get(db.collection("users").doc(pUid));
@@ -9682,9 +9612,9 @@ exports.dissolveCP = functions.https.onCall(async (data, context) => {
                               currentFrame.includes("couple");
 
             const updates = {
-                partnerUid: admin.firestore.FieldValue.delete(),
-                partnerName: admin.firestore.FieldValue.delete(),
-                partnerAvatar: admin.firestore.FieldValue.delete(),
+                partnerUid: FieldValue.delete(),
+                partnerName: FieldValue.delete(),
+                partnerAvatar: FieldValue.delete(),
                 cpLevel: 0,
                 cpPoints: 0
             };
@@ -9760,7 +9690,7 @@ exports.updateIntimacy = functions.https.onCall(async (data, context) => {
         transaction.update(relRef, {
             intimacy: newIntimacy,
             level: newLevel,
-            lastActivityAt: admin.firestore.Timestamp.now(),
+            lastActivityAt: Timestamp.now(),
             intimacyBreakdown: newBreakdown
         });
 
@@ -9774,7 +9704,7 @@ exports.updateIntimacy = functions.https.onCall(async (data, context) => {
         }
         if (newlyGranted.length > 0) {
             transaction.update(relRef, {
-                rewardsGranted: admin.firestore.FieldValue.arrayUnion(newlyGranted)
+                rewardsGranted: FieldValue.arrayUnion(newlyGranted)
             });
         }
 
@@ -9850,7 +9780,7 @@ exports.calculateRelationshipRankings = functions.https.onCall(async (data, cont
             level: rel.level || 1,
             period: period,
             rank: index + 1,
-            calculatedAt: admin.firestore.Timestamp.now()
+            calculatedAt: Timestamp.now()
         });
     });
 
@@ -9890,7 +9820,7 @@ exports.resetDailyRelationshipRankings = functions.pubsub.schedule("0 0 * * *").
                 level: rel.level || 1,
                 period: period,
                 rank: index + 1,
-                calculatedAt: admin.firestore.Timestamp.now()
+                calculatedAt: Timestamp.now()
             });
         });
     }
@@ -9907,7 +9837,7 @@ exports.resetDailyRelationshipRankings = functions.pubsub.schedule("0 0 * * *").
  * Get active events for the current time
  */
 async function getActiveEvents(type) {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     let query = db.collection("dynamic_events")
         .where("isActive", "==", true)
         .where("startDate", "<=", now)
@@ -9947,14 +9877,14 @@ async function processRechargeBonusInline(uid, amount) {
         const userRef = db.collection("users").doc(uid);
         const userUpdates = {};
         if (totalBonus > 0) {
-            userUpdates.diamondBalance = admin.firestore.FieldValue.increment(totalBonus);
-            userUpdates[`event_bonuses.${event.id}`] = admin.firestore.FieldValue.increment(totalBonus);
+            userUpdates.diamondBalance = FieldValue.increment(totalBonus);
+            userUpdates[`event_bonuses.${event.id}`] = FieldValue.increment(totalBonus);
         }
 
         // Automatic Activation of Frame Reward with Validity Countdown
         const validityDays = matchedPackage?.validityDays || (amount >= 100 ? 14 : (amount >= 10 ? 7 : (amount >= 5 ? 3 : 1)));
         const frameUrl = matchedPackage?.frameUrl || 'assets/images/super/super-admin.svga';
-        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000));
+        const expiresAt = Timestamp.fromDate(new Date(Date.now() + validityDays * 24 * 60 * 60 * 1000));
 
         userUpdates.profileFrame = frameUrl;
         userUpdates.rechargeFrameExpiresAt = expiresAt;
@@ -9967,7 +9897,7 @@ async function processRechargeBonusInline(uid, amount) {
                 type: "event_bonus", amount: totalBonus, currency: "diamonds",
                 eventId: event.id, eventName: event.title || "Bonus Event",
                 description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
-                timestamp: admin.firestore.Timestamp.now()
+                timestamp: Timestamp.now()
             });
         }
     }
@@ -10016,18 +9946,18 @@ async function trackRechargeMilestoneInline(uid, paidAmount, bonusAmount = 0) {
             // Credit diamonds reward
             if ((ms.rewardType === "diamonds" || ms.rewardType === "coins") && (ms.rewardAmount || 0) > 0) {
                 batch.update(userRef, {
-                    diamondBalance: admin.firestore.FieldValue.increment(ms.rewardAmount)
+                    diamondBalance: FieldValue.increment(ms.rewardAmount)
                 });
             }
             // Unlock asset rewards (Avatar Frame, Entry Effect, Chat Bubble)
             if (ms.frameUrl) {
-                batch.update(userRef, { unlockedAvatarFrames: admin.firestore.FieldValue.arrayUnion(ms.frameUrl) });
+                batch.update(userRef, { unlockedAvatarFrames: FieldValue.arrayUnion(ms.frameUrl) });
             }
             if (ms.entryEffectUrl) {
-                batch.update(userRef, { unlockedEntryEffects: admin.firestore.FieldValue.arrayUnion(ms.entryEffectUrl) });
+                batch.update(userRef, { unlockedEntryEffects: FieldValue.arrayUnion(ms.entryEffectUrl) });
             }
             if (ms.chatBubbleUrl) {
-                batch.update(userRef, { unlockedChatBubbles: admin.firestore.FieldValue.arrayUnion(ms.chatBubbleUrl) });
+                batch.update(userRef, { unlockedChatBubbles: FieldValue.arrayUnion(ms.chatBubbleUrl) });
             }
         }
     }
@@ -10035,7 +9965,7 @@ async function trackRechargeMilestoneInline(uid, paidAmount, bonusAmount = 0) {
     batch.set(progressRef, {
         uid, eventId: event.id, progress: currentProgress,
         claimedMilestones: [...claimedMilestones, ...newlyClaimed],
-        updatedAt: admin.firestore.Timestamp.now()
+        updatedAt: Timestamp.now()
     }, { merge: true });
     await batch.commit();
 
@@ -10077,8 +10007,8 @@ exports.processRechargeBonus = functions.https.onCall(async (data, context) => {
     if (totalBonus > 0) {
         const userRef = db.collection("users").doc(uid);
         await userRef.update({
-            beansBalance: admin.firestore.FieldValue.increment(totalBonus),
-            [`event_bonuses.${event.id}`]: admin.firestore.FieldValue.increment(totalBonus)
+            beansBalance: FieldValue.increment(totalBonus),
+            [`event_bonuses.${event.id}`]: FieldValue.increment(totalBonus)
         });
 
         await db.collection("users").doc(uid).collection("transactions").add({
@@ -10088,7 +10018,7 @@ exports.processRechargeBonus = functions.https.onCall(async (data, context) => {
             eventId: event.id,
             eventName: event.title || "Bonus Event",
             description: `Bonus from ${event.title || "Recharge Bonus Event"}`,
-            timestamp: admin.firestore.Timestamp.now()
+            timestamp: Timestamp.now()
         });
     }
 
@@ -10146,8 +10076,8 @@ exports.trackRechargeMilestone = functions.https.onCall(async (data, context) =>
             if (rewardType === "coins" && rewardAmount > 0) {
                 const userRef = db.collection("users").doc(uid);
                 batch.update(userRef, {
-                    beansBalance: admin.firestore.FieldValue.increment(rewardAmount),
-                    [`event_milestone_rewards.${event.id}.${ms.id}`]: admin.firestore.FieldValue.increment(rewardAmount)
+                    beansBalance: FieldValue.increment(rewardAmount),
+                    [`event_milestone_rewards.${event.id}.${ms.id}`]: FieldValue.increment(rewardAmount)
                 });
             }
         }
@@ -10159,7 +10089,7 @@ exports.trackRechargeMilestone = functions.https.onCall(async (data, context) =>
         eventId: event.id,
         progress: currentProgress,
         claimedMilestones: [...claimedMilestones, ...newlyClaimed],
-        updatedAt: admin.firestore.Timestamp.now()
+        updatedAt: Timestamp.now()
     }, { merge: true });
 
     await batch.commit();
@@ -10208,13 +10138,13 @@ exports.claimMilestoneReward = functions.https.onCall(async (data, context) => {
     const rewardAmount = ms.rewardAmount || 0;
     if (rewardAmount > 0) {
         await db.collection("users").doc(uid).update({
-            beansBalance: admin.firestore.FieldValue.increment(rewardAmount)
+            beansBalance: FieldValue.increment(rewardAmount)
         });
     }
 
     await progressRef.update({
-        claimedMilestones: admin.firestore.FieldValue.arrayUnion([milestoneId]),
-        updatedAt: admin.firestore.Timestamp.now()
+        claimedMilestones: FieldValue.arrayUnion([milestoneId]),
+        updatedAt: Timestamp.now()
     });
 
     return { success: true, rewardAmount, milestoneId };
@@ -10270,7 +10200,7 @@ exports.uploadBanner = functions.https.onCall(async (data, context) => {
         isActive: isActive !== false,
         priority: priority || 100,
         createdBy: context.auth.uid,
-        createdAt: admin.firestore.Timestamp.now()
+        createdAt: Timestamp.now()
     });
 
     return { success: true, bannerId: bid };
@@ -10287,8 +10217,8 @@ exports.seedEventSystem = functions.https.onCall(async (data, context) => {
         throw new HttpsError("permission-denied", "Admin only.");
     }
 
-    const now = admin.firestore.Timestamp.now();
-    const future = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+    const now = Timestamp.now();
+    const future = Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
 
     // Seed a sample recharge bonus event
     const bonusEventRef = db.collection("dynamic_events").doc("sample_bonus_event");
@@ -10420,7 +10350,7 @@ async function sendOfficialRewardMessage(uid, { type = "reward", title, body, re
         reason: reason || "Official Reward",
         status,
         read: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 }
 exports.sendOfficialRewardMessage = sendOfficialRewardMessage;
@@ -10458,7 +10388,7 @@ exports.sendAdminBroadcast = functions.https.onCall(async (data, context) => {
             imageUrl: imageUrl || null,
             linkUrl: linkUrl || null,
             read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
         const fcmToken = uDoc.data()?.fcmToken;
         if (fcmToken) {
@@ -10491,8 +10421,8 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
 
     await userRef.update({
         vipTier: 0,
-        vipExpiry: admin.firestore.FieldValue.delete(),
-        diamondBalance: admin.firestore.FieldValue.increment(refundAmount || 0)
+        vipExpiry: FieldValue.delete(),
+        diamondBalance: FieldValue.increment(refundAmount || 0)
     });
 
     await sendOfficialRewardMessage(targetUid, {
@@ -10524,7 +10454,7 @@ async function sendOfficialRewardMessage(targetUid, rewardData) {
             reason: rewardData.reason || "Official System Event",
             status: rewardData.status || "Received",
             read: false,
-            createdAt: admin.firestore.Timestamp.now(),
+            createdAt: Timestamp.now(),
             data: rewardData.data || { route: "/wallet" }
         });
         await sendPush(targetUid, rewardData.title || "Official Reward", rewardData.body || "", { route: "/inbox", type: "OFFICIAL_REWARD" });
@@ -10592,10 +10522,10 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     let txId = "";
     await db.runTransaction(async (transaction) => {
         transaction.update(senderRef, {
-            diamondStock: admin.firestore.FieldValue.increment(-parsedAmount)
+            diamondStock: FieldValue.increment(-parsedAmount)
         });
         transaction.update(targetRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(totalCredited)
+            diamondBalance: FieldValue.increment(totalCredited)
         });
 
         const txRef = db.collection("reseller_transactions").doc();
@@ -10610,7 +10540,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             amount: parsedAmount,
             bonusAmount: bonusAmount,
             totalCredited: totalCredited,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 1. Dedicated Official Recharge Record (Separated from bonuses and gifts)
@@ -10626,8 +10556,8 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             transactionId: txId,
             sellerName: sellerName,
             sellerId: sellerId,
-            rechargeDateTime: admin.firestore.FieldValue.serverTimestamp(),
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            rechargeDateTime: FieldValue.serverTimestamp(),
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 2. Separate General Transaction: Official Diamond Recharge
@@ -10641,7 +10571,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             sellerName: sellerName,
             sellerId: sellerId,
             orderId: txId,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 3. Separate General Transaction: Recharge Event Bonus
@@ -10653,7 +10583,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             currency: "diamonds",
             description: `Recharge Event 200% Bonus (+${bonusAmount.toLocaleString()} Diamonds)`,
             orderId: `${txId}_bonus`,
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 4. Notification 1: Official Recharge Confirmation (Pure ASCII, no ï¼\x80)
@@ -10667,7 +10597,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             reason: `Official Diamond Recharge (${parsedAmount.toLocaleString()} diamonds)`,
             status: "Received",
             read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             data: {
                 sellerName: sellerName,
                 sellerId: sellerId,
@@ -10688,7 +10618,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             reason: `Recharge Event 200% Bonus (${bonusAmount.toLocaleString()} diamonds)`,
             status: "Received",
             read: false,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             data: {
                 sellerName: sellerName,
                 sellerId: sellerId,
@@ -10807,7 +10737,7 @@ exports.sendFamilyBattleRequest = functions.https.onCall(async (data, context) =
         imageUrl: imageUrl || "",
         senderUid: uid,
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     console.log(`[FAMILY_BATTLE] Battle request created: ${reqRef.id} (${challengerFamilyId} vs ${opponentFamilyId})`);
@@ -10860,7 +10790,7 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
     const cData = challengerDoc.data();
     const oData = opponentDoc.data();
     const battleId = db.collection("families").doc(challengerId).collection("battles").doc().id;
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const durationSeconds = 300; // 5 minute standard duration
 
     const battlePayload = {
@@ -10942,15 +10872,15 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
             battleId: battleId,
             diamondCount: diamondAmount,
             pointsConverted: diamondAmount, // 1:1 Ratio
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
 
         // 2. Increment Battle Points on both mirrored battle docs
         const pointsField = isFamilyA ? "familyAPoints" : "familyBPoints";
         const mirrorRef = db.collection("families").doc(opponentFamilyId).collection("battles").doc(battleId);
 
-        transaction.update(battleRef, { [pointsField]: admin.firestore.FieldValue.increment(diamondAmount) });
-        transaction.update(mirrorRef, { [pointsField]: admin.firestore.FieldValue.increment(diamondAmount) });
+        transaction.update(battleRef, { [pointsField]: FieldValue.increment(diamondAmount) });
+        transaction.update(mirrorRef, { [pointsField]: FieldValue.increment(diamondAmount) });
 
         // 3. Dynamic Family Level Progression & In-Flight Capacity Scaling
         const familyRef = db.collection("families").doc(familyId);
@@ -10961,10 +10891,10 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
             const newCapacity = getMemberCapacityForLevel(newLevel);
 
             transaction.update(familyRef, {
-                totalCombatPoints: admin.firestore.FieldValue.increment(diamondAmount),
-                totalBattlePoints: admin.firestore.FieldValue.increment(diamondAmount),
-                totalDiamonds: admin.firestore.FieldValue.increment(diamondAmount),
-                currentMonthPoints: admin.firestore.FieldValue.increment(diamondAmount),
+                totalCombatPoints: FieldValue.increment(diamondAmount),
+                totalBattlePoints: FieldValue.increment(diamondAmount),
+                totalDiamonds: FieldValue.increment(diamondAmount),
+                currentMonthPoints: FieldValue.increment(diamondAmount),
                 level: newLevel,
                 memberLimit: newCapacity
             });
@@ -10974,11 +10904,11 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
         const memberRef = familyRef.collection("members").doc(uid);
         transaction.set(memberRef, {
             userId: uid,
-            combatPoints: admin.firestore.FieldValue.increment(diamondAmount),
-            totalBattlePoints: admin.firestore.FieldValue.increment(diamondAmount),
-            totalDiamondsSent: admin.firestore.FieldValue.increment(diamondAmount),
-            contribution: admin.firestore.FieldValue.increment(diamondAmount),
-            memberXP: admin.firestore.FieldValue.increment(diamondAmount)
+            combatPoints: FieldValue.increment(diamondAmount),
+            totalBattlePoints: FieldValue.increment(diamondAmount),
+            totalDiamondsSent: FieldValue.increment(diamondAmount),
+            contribution: FieldValue.increment(diamondAmount),
+            memberXP: FieldValue.increment(diamondAmount)
         }, { merge: true });
 
         // 5. Update MVP Top Contributor Micro-Leaderboard Profile
@@ -10988,9 +10918,9 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
             displayName: displayName,
             avatarUrl: avatarUrl,
             userLevel: level,
-            battlePoints: admin.firestore.FieldValue.increment(diamondAmount),
-            diamondsGifted: admin.firestore.FieldValue.increment(diamondAmount),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            battlePoints: FieldValue.increment(diamondAmount),
+            diamondsGifted: FieldValue.increment(diamondAmount),
+            updatedAt: FieldValue.serverTimestamp()
         }, { merge: true });
     });
 
@@ -11001,7 +10931,7 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
  * 4. Scheduled Auto-Termination of Expired Family Battles
  */
 exports.autoEndFamilyBattles = functions.pubsub.schedule("every 1 minutes").onRun(async (context) => {
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     
     // Find active family battles that have exceeded duration
     const families = await db.collection("families").get();
@@ -11082,7 +11012,7 @@ exports.scheduledFamilyRankings = functions.pubsub.schedule("every 24 hours").on
             pts: pts,
             rank: rank,
             period: "daily",
-            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            updatedAt: FieldValue.serverTimestamp()
         });
         rank++;
     }
@@ -11167,7 +11097,7 @@ exports.updateFinancialPolicies = functions.https.onCall(async (data, context) =
 
     const updates = {
         ...merged,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         updatedBy: uid,
     };
 
@@ -11179,7 +11109,7 @@ exports.updateFinancialPolicies = functions.https.onCall(async (data, context) =
         actorRole: uData.role || "owner",
         action: "UPDATE_FINANCIAL_POLICIES",
         details: updates,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     console.log(`[FINANCIAL_POLICY] Updated by Owner ${uid}:`, updates);
@@ -11244,9 +11174,9 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
 
     if (!agencyLedgerExists) {
         transaction.update(agencyRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(agencyCommissionUSD),
-            totalCommissionEarned: admin.firestore.FieldValue.increment(agencyCommissionUSD),
-            totalRechargeGenerated: admin.firestore.FieldValue.increment(usdAmount)
+            usdCommissionBalance: FieldValue.increment(agencyCommissionUSD),
+            totalCommissionEarned: FieldValue.increment(agencyCommissionUSD),
+            totalRechargeGenerated: FieldValue.increment(usdAmount)
         });
         transaction.set(agencyLedgerRef, {
             txId: agencyLedgerRef.id,
@@ -11259,16 +11189,16 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
             commissionRate: agencyRate,
             commissionUSD: agencyCommissionUSD,
             type: "agency_commission",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
     }
 
     if (adminId && adminLedgerRef && !adminLedgerExists) {
         const adminRef = db.collection("users").doc(adminId);
         transaction.update(adminRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(adminCommissionUSD),
-            totalCommissionEarned: admin.firestore.FieldValue.increment(adminCommissionUSD),
-            totalRechargeGenerated: admin.firestore.FieldValue.increment(usdAmount)
+            usdCommissionBalance: FieldValue.increment(adminCommissionUSD),
+            totalCommissionEarned: FieldValue.increment(adminCommissionUSD),
+            totalRechargeGenerated: FieldValue.increment(usdAmount)
         });
         transaction.set(adminLedgerRef, {
             txId: adminLedgerRef.id,
@@ -11281,7 +11211,7 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
             commissionRate: adminRate,
             commissionUSD: adminCommissionUSD,
             type: "admin_commission",
-            timestamp: admin.firestore.FieldValue.serverTimestamp()
+            timestamp: FieldValue.serverTimestamp()
         });
     }
 
@@ -11388,7 +11318,7 @@ exports.convertCommissionToDiamonds = functions.https.onCall(async (data, contex
     const rate = policy.usdToDiamondRate || DEFAULT_FINANCIAL_POLICIES.usdToDiamondRate;
     const diamondsReceived = Math.floor(parsedUSD * rate);
 
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const userRef = db.collection("users").doc(uid);
     // Optional client-supplied idempotency key: a retry after a committed
     // attempt returns {duplicate:true} instead of converting a second time.
@@ -11422,12 +11352,12 @@ exports.convertCommissionToDiamonds = functions.https.onCall(async (data, contex
 
         // Deduct USD from both legacy and agency sources, credit Diamonds once.
         transaction.update(userRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD),
-            diamondBalance: admin.firestore.FieldValue.increment(diamondsReceived)
+            usdCommissionBalance: FieldValue.increment(-debit.userDebitUSD),
+            diamondBalance: FieldValue.increment(diamondsReceived)
         });
         if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
             transaction.update(sources.agencyDoc.ref, {
-                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD)
+                usdCommissionBalance: FieldValue.increment(-debit.agencyDebitUSD)
             });
         }
 
@@ -11506,7 +11436,7 @@ exports.transferCommissionToReseller = functions.https.onCall(async (data, conte
         throw new functions.https.HttpsError("invalid-argument", "You cannot transfer commission to yourself.");
     }
 
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const senderRef = db.collection("users").doc(senderUid);
     const targetRef = db.collection("users").doc(targetUid);
     const trfRef = db.collection("commission_reseller_transfers").doc();
@@ -11538,11 +11468,11 @@ exports.transferCommissionToReseller = functions.https.onCall(async (data, conte
 
         // Deduct from both legacy and agency commission sources.
         transaction.update(senderRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD)
+            usdCommissionBalance: FieldValue.increment(-debit.userDebitUSD)
         });
         if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
             transaction.update(sources.agencyDoc.ref, {
-                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD)
+                usdCommissionBalance: FieldValue.increment(-debit.agencyDebitUSD)
             });
         }
 
@@ -11552,7 +11482,7 @@ exports.transferCommissionToReseller = functions.https.onCall(async (data, conte
         // which is why the credit lands there instead of the orphaned
         // usdResellerBalance field that nothing ever spends.
         transaction.update(targetRef, {
-            walletBalance: admin.firestore.FieldValue.increment(parsedUSD)
+            walletBalance: FieldValue.increment(parsedUSD)
         });
 
         // Log Transfer
@@ -11617,7 +11547,7 @@ exports.submitCommissionWithdrawal = functions.https.onCall(async (data, context
     }
 
     const reqRef = db.collection("commission_withdrawals").doc();
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const userRef = db.collection("users").doc(uid);
     const guardRef = clientRequestId
         ? db.collection("idempotency").doc(`withdraw_${uid}_${String(clientRequestId)}`)
@@ -11648,13 +11578,13 @@ exports.submitCommissionWithdrawal = functions.https.onCall(async (data, context
 
         // Lock funds into pendingWithdrawalBalance on the same sources.
         transaction.update(userRef, {
-            usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.userDebitUSD),
-            pendingWithdrawalBalance: admin.firestore.FieldValue.increment(debit.userDebitUSD)
+            usdCommissionBalance: FieldValue.increment(-debit.userDebitUSD),
+            pendingWithdrawalBalance: FieldValue.increment(debit.userDebitUSD)
         });
         if (debit.agencyDebitUSD > 0 && sources.agencyDoc) {
             transaction.update(sources.agencyDoc.ref, {
-                usdCommissionBalance: admin.firestore.FieldValue.increment(-debit.agencyDebitUSD),
-                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(debit.agencyDebitUSD)
+                usdCommissionBalance: FieldValue.increment(-debit.agencyDebitUSD),
+                pendingWithdrawalBalance: FieldValue.increment(debit.agencyDebitUSD)
             });
         }
 
@@ -11708,7 +11638,7 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
     }
 
     const reqRef = db.collection("commission_withdrawals").doc(requestId);
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
 
     await db.runTransaction(async (transaction) => {
         // Status + amount read INSIDE the transaction: replaying a review (or
@@ -11773,13 +11703,13 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
         } else if (action === "pay") {
             // Money moves only here: locked pending -> settled withdrawn.
             transaction.update(userRef, {
-                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-userDebitUSD),
-                totalWithdrawnUSD: admin.firestore.FieldValue.increment(userDebitUSD)
+                pendingWithdrawalBalance: FieldValue.increment(-userDebitUSD),
+                totalWithdrawnUSD: FieldValue.increment(userDebitUSD)
             });
             if (agencyDebitUSD > 0 && agencyDoc) {
                 transaction.update(agencyDoc.ref, {
-                    pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-agencyDebitUSD),
-                    totalWithdrawnUSD: admin.firestore.FieldValue.increment(agencyDebitUSD)
+                    pendingWithdrawalBalance: FieldValue.increment(-agencyDebitUSD),
+                    totalWithdrawnUSD: FieldValue.increment(agencyDebitUSD)
                 });
             }
             transaction.update(reqRef, {
@@ -11790,13 +11720,13 @@ exports.reviewCommissionWithdrawal = functions.https.onCall(async (data, context
         } else if (action === "reject") {
             // Refund locked pending balance back to the exact sources.
             transaction.update(userRef, {
-                pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-userDebitUSD),
-                usdCommissionBalance: admin.firestore.FieldValue.increment(userDebitUSD)
+                pendingWithdrawalBalance: FieldValue.increment(-userDebitUSD),
+                usdCommissionBalance: FieldValue.increment(userDebitUSD)
             });
             if (agencyDebitUSD > 0 && agencyDoc) {
                 transaction.update(agencyDoc.ref, {
-                    pendingWithdrawalBalance: admin.firestore.FieldValue.increment(-agencyDebitUSD),
-                    usdCommissionBalance: admin.firestore.FieldValue.increment(agencyDebitUSD)
+                    pendingWithdrawalBalance: FieldValue.increment(-agencyDebitUSD),
+                    usdCommissionBalance: FieldValue.increment(agencyDebitUSD)
                 });
             }
             transaction.update(reqRef, {
@@ -11951,7 +11881,7 @@ exports.provisionBranch = functions.https.onCall(async (data, context) => {
     const saData = saDoc.data();
 
     const branchRef = db.collection("branches").doc();
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
         const saCode = reusableRoleCode(saData.roleCode, "superadmin") ||
@@ -12064,7 +11994,7 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         }
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const updates = {
         role: newRole,
         roleUpdatedAt: now
@@ -12091,7 +12021,7 @@ exports.assignHierarchyRole = functions.https.onCall(async (data, context) => {
         }
         updates.branchId = cData.branchId || `branch_${callerUid}`;
         updates.superAdminId = callerUid;
-        updates.tags = admin.firestore.FieldValue.arrayUnion("Admin");
+        updates.tags = FieldValue.arrayUnion("Admin");
     } else if (callerRole === "admin") {
         // Spec §11/§5.8: Admins assign Agencies; Hosts are recruited by Agencies.
         if (newRole !== "agency") {
@@ -12258,7 +12188,7 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
         );
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const targetUserRef = db.collection("users").doc(targetUid);
     const previousRole = tData.role || "user";
     const previousTags = Array.isArray(tData.tags) ? [...tData.tags] : [];
@@ -12269,7 +12199,7 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
 
         transaction.update(targetUserRef, {
             role: "admin",
-            tags: admin.firestore.FieldValue.arrayUnion("Admin"),
+            tags: FieldValue.arrayUnion("Admin"),
             branchId: callerBranchId,
             superAdminId: superAdminUid,
             roleCode: adminCode,
@@ -12446,7 +12376,7 @@ exports.removeAdmin = functions.https.onCall(async (data, context) => {
         ? tData.previousTags 
         : (tData.tags || []).filter(t => t !== "Admin");
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
         transaction.update(targetRef, {
@@ -12457,8 +12387,8 @@ exports.removeAdmin = functions.https.onCall(async (data, context) => {
             adminId: null,
             appointedBy: null,
             appointedAt: null,
-            previousRole: admin.firestore.FieldValue.delete(),
-            previousTags: admin.firestore.FieldValue.delete(),
+            previousRole: FieldValue.delete(),
+            previousTags: FieldValue.delete(),
             roleUpdatedAt: now
         });
 
@@ -12552,7 +12482,7 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
     const newPreviousRole = nData.role || "user";
     const newPreviousTags = Array.isArray(nData.tags) ? [...nData.tags] : [];
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const newTargetRef = db.collection("users").doc(newTargetUid);
     let newAdminCode = reusableRoleCode(nData.roleCode, "admin");
 
@@ -12568,8 +12498,8 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
             adminId: null,
             appointedBy: null,
             appointedAt: null,
-            previousRole: admin.firestore.FieldValue.delete(),
-            previousTags: admin.firestore.FieldValue.delete(),
+            previousRole: FieldValue.delete(),
+            previousTags: FieldValue.delete(),
             roleUpdatedAt: now
         });
 
@@ -12578,7 +12508,7 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
         //    caller never writes a null branch onto the new admin)
         transaction.update(newTargetRef, {
             role: "admin",
-            tags: admin.firestore.FieldValue.arrayUnion("Admin"),
+            tags: FieldValue.arrayUnion("Admin"),
             branchId: oldData.branchId || branchId,
             superAdminId: oldData.superAdminId || callerUid,
             roleCode: newAdminCode,
@@ -12845,7 +12775,7 @@ exports.manageHostProfile = functions.https.onCall(async (payload, context) => {
         action: "MANAGE_HOST_PROFILE",
         targetId: hostUid,
         details: { monthlyTargetBeans: Number(beansTarget) },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
     return { success: true, hostUid, beansTarget: Number(beansTarget) };
 });
@@ -12912,7 +12842,7 @@ exports.releaseHostFromAgency = functions.https.onCall(async (payload, context) 
     }
 
     await db.runTransaction(async (transaction) => {
-        const now = admin.firestore.FieldValue.serverTimestamp();
+        const now = FieldValue.serverTimestamp();
 
         // READS FIRST: Firestore forbids reads after writes.
         const agencySnap = agencyRef ? await transaction.get(agencyRef) : null;
@@ -12927,7 +12857,7 @@ exports.releaseHostFromAgency = functions.https.onCall(async (payload, context) 
                 ? Math.max(0, aData.hostCount - (wasListed ? 1 : 0))
                 : Math.max(0, hostUids.length - (wasListed ? 1 : 0));
             transaction.update(agencyRef, {
-                hostUids: admin.firestore.FieldValue.arrayRemove(hostUid),
+                hostUids: FieldValue.arrayRemove(hostUid),
                 hostCount: count,
                 updatedAt: now
             });
@@ -12985,14 +12915,14 @@ exports.deactivateAgency = functions.https.onCall(async (payload, context) => {
         snap.docs.forEach(d => { if (d.id !== agencyUid) hostRefs.set(d.id, d.ref); });
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const batch = db.batch();
     hostRefs.forEach(ref => batch.update(ref, { agencyId: null }));
     batch.update(db.collection("users").doc(agencyUid), {
         isAgencyOwner: false,
         role: "host",
         agencyId: null,
-        tags: admin.firestore.FieldValue.arrayRemove("Agency"),
+        tags: FieldValue.arrayRemove("Agency"),
         roleUpdatedAt: now
     });
     if (agencyRef) {
@@ -13227,7 +13157,7 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
 
     const agencyRef = db.collection("agencies").doc();
     const agencyId = agencyRef.id;
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     const rate = Number(commissionRate);
     const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : 0.1;
     let agencyCode = reusableRoleCode(ownerData.roleCode, "agency");
@@ -13269,7 +13199,7 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
             adminId: adminId,
             branchId: branchId || null,
             superAdminId: superAdminId || null,
-            tags: admin.firestore.FieldValue.arrayUnion("Agency"),
+            tags: FieldValue.arrayUnion("Agency"),
             roleUpdatedAt: now
         });
 
@@ -13331,7 +13261,7 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
         }
     }
 
-    const updates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+    const updates = { updatedAt: FieldValue.serverTimestamp() };
     if (description !== undefined) updates.description = String(description).trim();
     if (contactPhone !== undefined) updates.contactPhone = String(contactPhone).trim();
     if (country !== undefined) updates.country = String(country).trim();
@@ -13352,7 +13282,7 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
         action: "UPDATE_AGENCY",
         targetId: agencyId,
         details: updates,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return { success: true, agencyId };
@@ -13391,7 +13321,7 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
         }
 
         // WRITES AFTER ALL READS:
-        const now = admin.firestore.FieldValue.serverTimestamp();
+        const now = FieldValue.serverTimestamp();
         transaction.update(agencyRef, {
             isActive: isActive,
             status: status,
@@ -13466,11 +13396,11 @@ exports.addHost = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("failed-precondition", `This user is already signed to agency "${hostData.agencyId}". Release them first.`);
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
     await db.runTransaction(async (transaction) => {
         transaction.update(agencyRef, {
-            hostUids: admin.firestore.FieldValue.arrayUnion(hostUid),
-            hostCount: admin.firestore.FieldValue.increment(hostData.agencyId === agencyId ? 0 : 1),
+            hostUids: FieldValue.arrayUnion(hostUid),
+            hostCount: FieldValue.increment(hostData.agencyId === agencyId ? 0 : 1),
             updatedAt: now
         });
 
@@ -13518,12 +13448,12 @@ exports.removeHost = functions.https.onCall(async (payload, context) => {
     }
 
     const hostRef = db.collection("users").doc(hostUid);
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
 
     await db.runTransaction(async (transaction) => {
         transaction.update(agencyRef, {
-            hostUids: admin.firestore.FieldValue.arrayRemove(hostUid),
-            hostCount: admin.firestore.FieldValue.increment(-1),
+            hostUids: FieldValue.arrayRemove(hostUid),
+            hostCount: FieldValue.increment(-1),
             updatedAt: now
         });
 
@@ -13599,7 +13529,7 @@ exports.adminUpdateResellerDetails = functions.https.onCall(async (payload, cont
     const resellerProjection = {
         reseller_id: helloId || targetUid,
         user_id: targetUid,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp()
     };
     if (display !== null) resellerProjection.name = display;
     if (updates.coinBalance !== undefined) resellerProjection.coin_balance = updates.coinBalance;
@@ -13613,7 +13543,7 @@ exports.adminUpdateResellerDetails = functions.https.onCall(async (payload, cont
         action: "UPDATE_RESELLER",
         targetId: targetUid,
         details: { display, updates },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
     await batch.commit();
     return { success: true, targetUid };
@@ -13649,7 +13579,7 @@ exports.issueRechargeOrder = functions.https.onCall(async (payload, context) => 
         paymentRef: String(paymentRef).trim(),
         status: "pending",
         issuedBy: caller.uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
     await db.collection("audit_logs").add({
         actorUid: caller.uid,
@@ -13657,7 +13587,7 @@ exports.issueRechargeOrder = functions.https.onCall(async (payload, context) => 
         action: "ISSUE_RECHARGE_ORDER",
         targetId: orderRef.id,
         details: { targetUid, diamonds: dia, usd: amountUSD, gateway },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
     return { success: true, orderId: orderRef.id };
 });
@@ -13698,16 +13628,16 @@ async function consumePendingRecharge({ transaction, rechargeRef, policy, actorU
 
     const currentMonthly = (userData.monthlyRecharge || 0) + amount;
     transaction.update(userRef, {
-        diamondBalance: admin.firestore.FieldValue.increment(amount),
+        diamondBalance: FieldValue.increment(amount),
         monthlyRecharge: currentMonthly,
-        totalRechargeGenerated: admin.firestore.FieldValue.increment(usd)
+        totalRechargeGenerated: FieldValue.increment(usd)
     });
     processSvipPointsForRecharge(transaction, userRef, userData, usd);
 
     transaction.update(rechargeRef, {
         status: "approved",
         approvedBy: actorUid,
-        approvedAt: admin.firestore.FieldValue.serverTimestamp()
+        approvedAt: FieldValue.serverTimestamp()
     });
 
     const txRef = userRef.collection("transactions").doc();
@@ -13716,7 +13646,7 @@ async function consumePendingRecharge({ transaction, rechargeRef, policy, actorU
         amount,
         packageId: r.gateway || r.packageId || "ORDER",
         rechargeId: rechargeRef.id,
-        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        timestamp: FieldValue.serverTimestamp(),
         monthlyRechargeTotal: currentMonthly
     });
     transaction.set(db.collection("audit_logs").doc(), {
@@ -13725,7 +13655,7 @@ async function consumePendingRecharge({ transaction, rechargeRef, policy, actorU
         action,
         targetId: rechargeRef.id,
         details: { targetUid: r.uid, amount, usd },
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return {
@@ -13795,7 +13725,7 @@ exports.backfillPublicUsers = functions.https.onCall(async (payload, context) =>
                     whatsapp_number: ud.whatsappNumber || ud.phoneNumber || "",
                     coin_balance: ud.coinBalance || ud.diamondStock || 0,
                     status: "ACTIVE",
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    updatedAt: FieldValue.serverTimestamp()
                 });
             }
         }
@@ -13855,7 +13785,7 @@ exports.recordProfileVisit = onCall({ region: "us-central1" }, async (request) =
             if (visitors.length > 5) visitors.length = 5;
         }
         transaction.update(targetRef, {
-            visitorCount: admin.firestore.FieldValue.increment(1),
+            visitorCount: FieldValue.increment(1),
             recentVisitors: visitors
         });
     });
@@ -13916,8 +13846,8 @@ exports.processGoldCoinRecharge = onCall({ region: "us-central1" }, async (reque
         const cycleEndDate = new Date(now.getTime() + sixtyDaysMs);
 
         const updates = {
-            totalRechargeUsd: admin.firestore.FieldValue.increment(usd),
-            lastRechargeAt: admin.firestore.FieldValue.serverTimestamp(),
+            totalRechargeUsd: FieldValue.increment(usd),
+            lastRechargeAt: FieldValue.serverTimestamp(),
         };
 
         let isUpgraded = false;
@@ -13925,8 +13855,8 @@ exports.processGoldCoinRecharge = onCall({ region: "us-central1" }, async (reque
             isUpgraded = true;
             updates.svipLevel = targetLevel;
             updates.svipPoints = 0; // RESET TO 0 UPON INSTANT UPGRADE
-            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
-            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(cycleEndDate);
+            updates.svipCycleStartDate = Timestamp.fromDate(now);
+            updates.svipCycleEndDate = Timestamp.fromDate(cycleEndDate);
 
             // Reset SVIP 6 removal request count if entering SVIP 6
             if (targetLevel === 6) {
@@ -13943,15 +13873,15 @@ exports.processGoldCoinRecharge = onCall({ region: "us-central1" }, async (reque
                 pointsBefore: currentPoints,
                 pointsEarned: pointsEarned,
                 pointsAfterReset: 0,
-                cycleStartDate: admin.firestore.Timestamp.fromDate(now),
-                cycleEndDate: admin.firestore.Timestamp.fromDate(cycleEndDate),
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                cycleStartDate: Timestamp.fromDate(now),
+                cycleEndDate: Timestamp.fromDate(cycleEndDate),
+                timestamp: FieldValue.serverTimestamp()
             });
         } else {
             updates.svipPoints = newPoints;
             if (!userData.svipCycleStartDate && currentLevel > 0) {
-                updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(now);
-                updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(cycleEndDate);
+                updates.svipCycleStartDate = Timestamp.fromDate(now);
+                updates.svipCycleEndDate = Timestamp.fromDate(cycleEndDate);
             }
         }
 
@@ -13978,7 +13908,7 @@ exports.processGoldCoinRecharge = onCall({ region: "us-central1" }, async (reque
 exports.evaluateSvipCycles = onCall({ region: "us-central1" }, async (request) => {
     // Admin execution or scheduled trigger
     const now = new Date();
-    const nowTimestamp = admin.firestore.Timestamp.fromDate(now);
+    const nowTimestamp = Timestamp.fromDate(now);
     const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
 
     const snapshot = await db.collection("users")
@@ -14029,12 +13959,12 @@ exports.evaluateSvipCycles = onCall({ region: "us-central1" }, async (request) =
         const updates = {
             svipLevel: newLevel,
             svipPoints: 0, // MUST RESET TO 0 IN ALL SCENARIOS
-            svipLastEvaluatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            svipLastEvaluatedAt: FieldValue.serverTimestamp(),
         };
 
         if (newLevel > 0) {
-            updates.svipCycleStartDate = admin.firestore.Timestamp.fromDate(newCycleStart);
-            updates.svipCycleEndDate = admin.firestore.Timestamp.fromDate(newCycleEnd);
+            updates.svipCycleStartDate = Timestamp.fromDate(newCycleStart);
+            updates.svipCycleEndDate = Timestamp.fromDate(newCycleEnd);
         } else {
             updates.svipCycleStartDate = null;
             updates.svipCycleEndDate = null;
@@ -14052,7 +13982,7 @@ exports.evaluateSvipCycles = onCall({ region: "us-central1" }, async (request) =
                 newLevel: newLevel,
                 pointsEarnedInCycle: pointsEarned,
                 pointsAfterReset: 0,
-                timestamp: admin.firestore.FieldValue.serverTimestamp()
+                timestamp: FieldValue.serverTimestamp()
             });
         });
 
@@ -14095,8 +14025,8 @@ exports.claimSvipDailyReward = onCall({ region: "us-central1" }, async (request)
         }
 
         transaction.update(userRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(rewardAmount),
-            lastSvipRewardClaimAt: admin.firestore.FieldValue.serverTimestamp()
+            diamondBalance: FieldValue.increment(rewardAmount),
+            lastSvipRewardClaimAt: FieldValue.serverTimestamp()
         });
 
         const logRef = db.collection("svip_reward_logs").doc();
@@ -14104,7 +14034,7 @@ exports.claimSvipDailyReward = onCall({ region: "us-central1" }, async (request)
             uid: uid,
             svipLevel: svipLevel,
             rewardAmount: rewardAmount,
-            claimedAt: admin.firestore.FieldValue.serverTimestamp()
+            claimedAt: FieldValue.serverTimestamp()
         });
 
         return { success: true, rewardAmount: rewardAmount, svipLevel: svipLevel };
@@ -14149,7 +14079,7 @@ exports.requestTempIdSwap = onCall({ region: "us-central1" }, async (request) =>
         targetHelloId: parseInt(targetHelloId),
         idLength: len,
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     await sendPush(targetUid, "Temporary ID Target Request", `${requesterData.displayName} (SVIP ${svipLevel}) requested to temporarily use your ID Number.`);
@@ -14172,7 +14102,7 @@ exports.respondTempIdSwap = onCall({ region: "us-central1" }, async (request) =>
         if (reqData.status !== "pending") throw new HttpsError("failed-precondition", "Request already handled.");
 
         if (!accept) {
-            transaction.update(reqRef, { status: "rejected", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+            transaction.update(reqRef, { status: "rejected", respondedAt: FieldValue.serverTimestamp() });
             return { success: true, accepted: false };
         }
 
@@ -14188,10 +14118,10 @@ exports.respondTempIdSwap = onCall({ region: "us-central1" }, async (request) =>
             originalHelloId: requesterData.originalHelloId || originalId,
             helloId: targetId,
             isTempIdActive: true,
-            tempIdExpiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
+            tempIdExpiresAt: Timestamp.fromDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
         });
 
-        transaction.update(reqRef, { status: "accepted", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+        transaction.update(reqRef, { status: "accepted", respondedAt: FieldValue.serverTimestamp() });
 
         return { success: true, accepted: true, tempId: targetId };
     });
@@ -14223,8 +14153,8 @@ exports.svipGlobalKick = onCall({ region: "us-central1" }, async (request) => {
     // Execute Room Kick Out
     const roomRef = db.collection("rooms").doc(roomId);
     await roomRef.update({
-        [`kickedUsers.${targetUid}`]: admin.firestore.FieldValue.serverTimestamp(),
-        activeParticipants: admin.firestore.FieldValue.arrayRemove(targetUid)
+        [`kickedUsers.${targetUid}`]: FieldValue.serverTimestamp(),
+        activeParticipants: FieldValue.arrayRemove(targetUid)
     });
 
     console.log(`[SVIP6_GLOBAL_KICK] SVIP 6 ${kickerUid} kicked ${targetUid} from room ${roomId}`);
@@ -14253,13 +14183,13 @@ exports.lockCp = onCall({ region: "us-central1" }, async (request) => {
     else if (lockDuration === "7 Days") durationMs = 7 * 24 * 60 * 60 * 1000;
     else if (lockDuration === "30 Days") durationMs = 30 * 24 * 60 * 60 * 1000;
 
-    const expiresAt = durationMs > 0 ? admin.firestore.Timestamp.fromDate(new Date(Date.now() + durationMs)) : null;
+    const expiresAt = durationMs > 0 ? Timestamp.fromDate(new Date(Date.now() + durationMs)) : null;
 
     await cpRef.update({
         isLocked: true,
         lockDuration: lockDuration,
         lockedByUid: uid,
-        lockedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lockedAt: FieldValue.serverTimestamp(),
         lockExpiresAt: expiresAt
     });
 
@@ -14291,7 +14221,7 @@ exports.requestSvip6CpRemove = onCall({ region: "us-central1" }, async (request)
         requesterUid: requesterUid,
         targetUid: targetUid,
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     await sendPush(targetUid, "Locked CP Removal Request", `${requesterData.displayName} (SVIP 6) requested to unlock and remove your CP relationship.`);
@@ -14314,7 +14244,7 @@ exports.respondSvip6CpRemove = onCall({ region: "us-central1" }, async (request)
         if (reqData.status !== "pending") throw new HttpsError("failed-precondition", "Request already handled.");
 
         if (!accept) {
-            transaction.update(reqRef, { status: "rejected", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+            transaction.update(reqRef, { status: "rejected", respondedAt: FieldValue.serverTimestamp() });
             return { success: true, accepted: false };
         }
 
@@ -14324,10 +14254,10 @@ exports.respondSvip6CpRemove = onCall({ region: "us-central1" }, async (request)
 
         const requesterRef = db.collection("users").doc(reqData.requesterUid);
         transaction.update(requesterRef, {
-            svip6CpRemoveRequestsUsed: admin.firestore.FieldValue.increment(1)
+            svip6CpRemoveRequestsUsed: FieldValue.increment(1)
         });
 
-        transaction.update(reqRef, { status: "accepted", respondedAt: admin.firestore.FieldValue.serverTimestamp() });
+        transaction.update(reqRef, { status: "accepted", respondedAt: FieldValue.serverTimestamp() });
 
         return { success: true, accepted: true };
     });
@@ -14354,7 +14284,7 @@ exports.submitSvipBanner = onCall({ region: "us-central1" }, async (request) => 
         bannerText: bannerText || "",
         durationHours: durationHours || 24,
         status: "pending",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
+        createdAt: FieldValue.serverTimestamp()
     });
 
     return { success: true, bannerId: bannerRef.id };
@@ -14373,12 +14303,12 @@ exports.reviewSvipBanner = onCall({ region: "us-central1" }, async (request) => 
 
     const bannerData = bannerDoc.data();
     const durationMs = (bannerData.durationHours || 24) * 60 * 60 * 1000;
-    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + durationMs));
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + durationMs));
 
     await bannerRef.update({
         status: approve ? "approved" : "rejected",
         approvedBy: adminUid,
-        reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+        reviewedAt: FieldValue.serverTimestamp(),
         expiresAt: approve ? expiresAt : null
     });
 
@@ -14412,7 +14342,7 @@ exports.assignProtection = onCall({ region: "us-central1" }, async (request) => 
     }
 
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
 
     await db.runTransaction(async (transaction) => {
         const targetRef = db.collection("users").doc(targetUid);
@@ -14423,7 +14353,7 @@ exports.assignProtection = onCall({ region: "us-central1" }, async (request) => 
 
         const requesterRef = db.collection("users").doc(requesterUid);
         transaction.update(requesterRef, {
-            assignedProtectionUsers: admin.firestore.FieldValue.arrayUnion(targetUid)
+            assignedProtectionUsers: FieldValue.arrayUnion(targetUid)
         });
 
         const notifRef = targetRef.collection("notifications").doc();
@@ -14431,7 +14361,7 @@ exports.assignProtection = onCall({ region: "us-central1" }, async (request) => 
             title: "🛡️ Room Protection Granted!",
             message: `${requesterData.displayName || "An SVIP Member"} granted you 30-day Kick & Mute Protection in voice rooms!`,
             type: "svip_protection",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
             isRead: false
         });
     });
@@ -14469,7 +14399,7 @@ exports.assignFriendListHide = onCall({ region: "us-central1" }, async (request)
     }
 
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
 
     await db.runTransaction(async (transaction) => {
         const targetRef = db.collection("users").doc(effectiveTargetUid);
@@ -14482,7 +14412,7 @@ exports.assignFriendListHide = onCall({ region: "us-central1" }, async (request)
 
         const requesterRef = db.collection("users").doc(requesterUid);
         transaction.update(requesterRef, {
-            assignedFriendHideUsers: admin.firestore.FieldValue.arrayUnion(effectiveTargetUid)
+            assignedFriendHideUsers: FieldValue.arrayUnion(effectiveTargetUid)
         });
     });
 
@@ -14518,7 +14448,7 @@ exports.assignProfileHide = onCall({ region: "us-central1" }, async (request) =>
     }
 
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
+    const expiresAt = Timestamp.fromDate(new Date(Date.now() + thirtyDaysMs));
 
     await db.runTransaction(async (transaction) => {
         const targetRef = db.collection("users").doc(effectiveTargetUid);
@@ -14531,7 +14461,7 @@ exports.assignProfileHide = onCall({ region: "us-central1" }, async (request) =>
         if (effectiveTargetUid !== requesterUid) {
             const requesterRef = db.collection("users").doc(requesterUid);
             transaction.update(requesterRef, {
-                delegatedProfileHideUsers: admin.firestore.FieldValue.arrayUnion(effectiveTargetUid)
+                delegatedProfileHideUsers: FieldValue.arrayUnion(effectiveTargetUid)
             });
         }
     });
@@ -14572,11 +14502,11 @@ exports.adminAdjustSvipPoints = onCall({ region: "us-central1" }, async (request
         updatedLevel = Math.max(0, Math.min(6, parseInt(newLevel) || 0));
         updatedPoints = 0; // RESET TO 0 ON LEVEL CHANGE
         const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
-        updatedEndDate = admin.firestore.Timestamp.fromDate(new Date(Date.now() + sixtyDaysMs));
+        updatedEndDate = Timestamp.fromDate(new Date(Date.now() + sixtyDaysMs));
     } else if (action === "extend_validity") {
         const days = parseInt(extendDays) || 60;
         const currentMs = updatedEndDate ? updatedEndDate.toMillis() : Date.now();
-        updatedEndDate = admin.firestore.Timestamp.fromDate(new Date(currentMs + days * 24 * 60 * 60 * 1000));
+        updatedEndDate = Timestamp.fromDate(new Date(currentMs + days * 24 * 60 * 60 * 1000));
     }
 
     const updates = {
@@ -14601,7 +14531,7 @@ exports.adminAdjustSvipPoints = onCall({ region: "us-central1" }, async (request
         newLevel: updatedLevel,
         previousPoints: currentPoints,
         newPoints: updatedPoints,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
+        timestamp: FieldValue.serverTimestamp()
     });
 
     return { success: true, updatedPoints, updatedLevel };
@@ -14617,7 +14547,7 @@ exports.checkRoleAndExpiredFrames = functions.https.onCall(async (data, context)
     const adminUid = context.auth.uid;
     if (!(await isUserAdmin(adminUid))) throw new functions.https.HttpsError("permission-denied", "Admin only.");
 
-    const now = admin.firestore.Timestamp.now();
+    const now = Timestamp.now();
     const snap = await db.collection("users")
         .where("rechargeFrameExpiresAt", "<=", now)
         .get();
@@ -14627,7 +14557,7 @@ exports.checkRoleAndExpiredFrames = functions.https.onCall(async (data, context)
     for (const userDoc of snap.docs) {
         batch.update(userDoc.ref, {
             profileFrame: "",
-            rechargeFrameExpiresAt: admin.firestore.FieldValue.delete()
+            rechargeFrameExpiresAt: FieldValue.delete()
         });
         count++;
     }
@@ -14681,8 +14611,8 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
 
         // Deduct sender balance
         transaction.update(senderRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(-amount),
-            totalDiamondsSpent: admin.firestore.FieldValue.increment(amount)
+            diamondBalance: FieldValue.increment(-amount),
+            totalDiamondsSpent: FieldValue.increment(amount)
         });
 
         // Create Lucky Bag Document
@@ -14705,7 +14635,7 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
             claims: [],
             message: message || "Join and claim your Lucky Bag!",
             status: "active",
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
 
         // Push Global Lucky Bag Banner Notification across all rooms
@@ -14718,7 +14648,7 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
             message: `🎉 ${senderName} sent a Lucky Bag (${amount.toLocaleString()} 💎) in ${roomName}! Tap to Join & Claim Now!`,
             senderName,
             totalDiamonds: amount,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
+            createdAt: FieldValue.serverTimestamp()
         });
 
         return { success: true, bagId: bagRef.id, totalDiamonds: amount };
@@ -14762,7 +14692,7 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
 
         // Update Claimant Diamond Balance
         transaction.update(claimantRef, {
-            diamondBalance: admin.firestore.FieldValue.increment(rewardDiamonds)
+            diamondBalance: FieldValue.increment(rewardDiamonds)
         });
 
         const updatedClaimed = [...claimedUids, claimantUid];
@@ -14773,7 +14703,7 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
             claimedUids: updatedClaimed,
             remainingWinners: rewardPool.length,
             status: isDepleted ? "depleted" : "active",
-            claims: admin.firestore.FieldValue.arrayUnion({
+            claims: FieldValue.arrayUnion({
                 uid: claimantUid,
                 name: claimantDoc.data()?.displayName || "User",
                 avatar: claimantDoc.data()?.profilePhotoUrl || "",
@@ -15015,7 +14945,7 @@ exports.startTeenPattiRound = functions.https.onCall(async (data, context) => {
         // Deduct boot amount from each player atomically
         for (let i = 0; i < seatedPlayers.length; i++) {
             transaction.update(userRefs[i], {
-                diamondBalance: admin.firestore.FieldValue.increment(-bootAmount)
+                diamondBalance: FieldValue.increment(-bootAmount)
             });
         }
 
@@ -15125,7 +15055,7 @@ exports.teenPattiAction = functions.https.onCall(async (data, context) => {
 
                 const survivorUserRef = db.collection("users").doc(survivor.uid);
                 transaction.update(survivorUserRef, {
-                    diamondBalance: admin.firestore.FieldValue.increment(pot)
+                    diamondBalance: FieldValue.increment(pot)
                 });
 
                 transaction.update(tableRef, {
@@ -15176,7 +15106,7 @@ exports.teenPattiAction = functions.https.onCall(async (data, context) => {
 
             // Deduct balance
             transaction.update(userRef, {
-                diamondBalance: admin.firestore.FieldValue.increment(-finalCost)
+                diamondBalance: FieldValue.increment(-finalCost)
             });
 
             mySeat.bet = (mySeat.bet || 0) + finalCost;
@@ -15235,7 +15165,7 @@ exports.teenPattiAction = functions.https.onCall(async (data, context) => {
             if (bestContender) {
                 const winnerUserRef = db.collection("users").doc(bestContender.uid);
                 transaction.update(winnerUserRef, {
-                    diamondBalance: admin.firestore.FieldValue.increment(pot)
+                    diamondBalance: FieldValue.increment(pot)
                 });
             }
 
@@ -15303,9 +15233,9 @@ exports.roomAddAdmin = functions.https.onCall(async (data, context) => {
         }
 
         transaction.update(roomRef, {
-            admins: admin.firestore.FieldValue.arrayUnion(targetUid),
-            admin_ids: admin.firestore.FieldValue.arrayUnion(targetUid),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            admins: FieldValue.arrayUnion(targetUid),
+            admin_ids: FieldValue.arrayUnion(targetUid),
+            updatedAt: FieldValue.serverTimestamp(),
         });
 
         const participantRef = roomRef.collection("participants").doc(targetUid);
@@ -15324,7 +15254,7 @@ exports.roomAddAdmin = functions.https.onCall(async (data, context) => {
             action: "ADD_ADMIN",
             targetUid: targetUid,
             text: "User was assigned as Room Administrator",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
         });
 
         return { success: true, action: "ADD_ADMIN", targetUid };
@@ -15355,9 +15285,9 @@ exports.roomRemoveAdmin = functions.https.onCall(async (data, context) => {
         }
 
         transaction.update(roomRef, {
-            admins: admin.firestore.FieldValue.arrayRemove(targetUid),
-            admin_ids: admin.firestore.FieldValue.arrayRemove(targetUid),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            admins: FieldValue.arrayRemove(targetUid),
+            admin_ids: FieldValue.arrayRemove(targetUid),
+            updatedAt: FieldValue.serverTimestamp(),
         });
 
         const participantRef = roomRef.collection("participants").doc(targetUid);
@@ -15376,7 +15306,7 @@ exports.roomRemoveAdmin = functions.https.onCall(async (data, context) => {
             action: "REMOVE_ADMIN",
             targetUid: targetUid,
             text: "User was removed from Room Administrators",
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
         });
 
         return { success: true, action: "REMOVE_ADMIN", targetUid };

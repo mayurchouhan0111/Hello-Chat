@@ -84,6 +84,10 @@ service cloud.firestore {
         allow read: if request.auth != null && request.auth.uid == userId;
         allow write: if false;
       }
+      match /official_recharges/{rechargeId} {
+        allow read: if request.auth != null && (request.auth.uid == userId || isOwner());
+        allow write: if false;
+      }
       // Salary progress: the host reads OWN target progress and history. Writes stay
       // server-side (distributeWeeklySalary / salary crons) so a client cannot forge
       // target progress. Without this block both subcollections default-denied and
@@ -283,7 +287,12 @@ service cloud.firestore {
       
       match /messages/{msgId} {
         allow read: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
-        allow write: if request.auth != null && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        // Participant-only, and never while either side has blocked the other.
+        // checkChatBlock in the client is advisory; without this a modified
+        // client could write straight to /chats/{id}/messages and bypass blocks.
+        allow write: if request.auth != null &&
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+          !isChatBlocked(chatId);
       }
     }
 
@@ -644,9 +653,10 @@ service cloud.firestore {
     }
     match /relationship_requests/{requestId} {
       allow read: if request.auth != null && (request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || isAdmin());
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.senderUid;
-      allow update: if request.auth != null && request.auth.uid == resource.data.targetUid;
-      allow delete: if request.auth != null && request.auth.uid == resource.data.senderUid;
+      // All transitions run through the sendFriendRequest / acceptFriendRequest /
+      // rejectFriendRequest callables (dedupe, blocks, both-sided relationship
+      // writes). Direct client writes bypassed those checks.
+      allow write: if false;
     }
     match /relationship_levels/{levelId} {
       allow read: if true;
@@ -662,9 +672,10 @@ service cloud.firestore {
     }
     match /cp_invites/{inviteId} {
       allow read: if request.auth != null && (request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || isAdmin());
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.senderUid;
-      allow update: if request.auth != null && request.auth.uid == request.resource.data.targetUid;
-      allow delete: if request.auth != null && request.auth.uid == resource.data.senderUid;
+      // sendCPInvite / acceptCPInvite own the lifecycle; direct writes let a
+      // client skip the "already coupled" check and the atomic cp_relationships
+      // write.
+      allow write: if false;
     }
     // Couple (CP) relationships. This had NO match block, so Firestore's default
     // deny rejected the Couple leaderboard query (leaderboard_screen.dart) and the
@@ -785,6 +796,19 @@ service cloud.firestore {
 
     function selfData() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Returns the OTHER member of a two-person chat. If `participants` is
+    // malformed this errors and the rule denies - fail closed.
+    function chatOtherUid(chatId) {
+      return get(/databases/$(database)/documents/chats/$(chatId)).data.participants[0] == request.auth.uid
+        ? get(/databases/$(database)/documents/chats/$(chatId)).data.participants[1]
+        : get(/databases/$(database)/documents/chats/$(chatId)).data.participants[0];
+    }
+
+    function isChatBlocked(chatId) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('blockedUids', []).hasAny([chatOtherUid(chatId)])
+          || get(/databases/$(database)/documents/users/$(chatOtherUid(chatId))).data.get('blockedUids', []).hasAny([request.auth.uid]);
     }
 
     function isSelf(userId) {
