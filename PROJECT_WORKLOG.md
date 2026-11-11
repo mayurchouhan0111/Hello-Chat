@@ -11,6 +11,56 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-11 (Worktree Consolidation, Conflict Resolution, 57-Test Verification & Strict Single-Branch Enforcement)
+
+- **What Client Asked / Problem**:
+  - The client experienced confusion with multiple repositories, worktrees, and branches spread across different disk locations.
+  - The client specifically demanded: "i want that all the code shoud be pushed perfectly to the main barnch in the single bracnh make everthing updated ?" and "now will the antigraviyt also woek correctly wiht the main branch each time dont create any new barnch okay".
+  - Consolidate all 11 client modules and improvements into one single source of truth on the `main` branch.
+  - Enforce a strict single-branch workflow so Antigravity and any future agent sessions always work directly on `main` in `D:\UnHuman\Apps\Hello Chat\hellochat` without creating separate branches or phantom worktrees.
+
+- **What We Did**:
+  1. **Consolidated Single Source of Truth**:
+     - Fast-forwarded and merged all 11 modules from the `recharge_commission_system` branch directly into `main` inside the primary local repository (`D:\UnHuman\Apps\Hello Chat\hellochat`).
+     - Pruned and removed stale secondary worktrees.
+  2. **Resolved All 16 Merge Conflicts with Zero Regression**:
+     - `lib/core/models/room_model.dart`: Merged star rating fields and monthly rollover targets with `messagesClearedAt`.
+     - `functions/index.js`: Ensured the automated room support reward distribution schedule fires at Wednesday 6:00 AM Bangladesh Time (`0 6 * * 3`, `Asia/Dhaka`).
+     - `lib/features/rooms/presentation/screens/live_room_screen.dart`: Combined TopSnackBar elevation, exit debug logging, and overlay session ending.
+     - `lib/core/utils/svga_parser_util.dart`: Retained memory-pressure cache trimming and removed duplicate catalog warm-up declarations.
+     - `lib/core/widgets/svga_player.dart`: Kept pre-decoded audio playback and static image/shimmer fallback logic.
+     - `lib/features/diamonds/presentation/screens/wallet_screen.dart`, `agency_portal_screen.dart`, `super_admin_portal_screen.dart`: Preserved recharge statistics, monthly reports, and TopSnackBar notifications.
+     - `lib/features/rooms/presentation/widgets/rocket_completion_vap_overlay.dart` & `rocket_launch_overlay.dart`: Merged top user profile resolution with watchdog dismiss guards and TopSnackBar error handling.
+     - `PROJECT_WORKLOG.md`: Unified all 165 historical entries from both branches chronologically.
+  3. **Verified with 57 Passing Test Assertions**:
+     - Ran `flutter test test/full_11_modules_verification_test.dart test/progressive_password_migration_test.dart test/gift_duration_limits_test.dart test/top_snackbar_test.dart`.
+     - All 57 tests passed with 0 errors.
+  4. **Pushed to GitHub**:
+     - Pushed all merge and fix commits directly to `origin/main` (`https://github.com/mayurchouhan0111/Hello-Chat.git`).
+  5. **Enforced Strict Single-Branch Workflow**:
+     - Updated `.agents/AGENTS.md` and `.agents/rules/single-repository-workflow.md` to mandate that Antigravity always works directly on `main` in `D:\UnHuman\Apps\Hello Chat\hellochat` and never creates new feature/worktree branches.
+
+- **Files Touched**:
+  - `lib/core/models/room_model.dart`
+  - `functions/index.js`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/core/widgets/svga_player.dart`
+  - `lib/features/diamonds/presentation/screens/wallet_screen.dart`
+  - `lib/features/profile/presentation/screens/agency/agency_portal_screen.dart`
+  - `lib/features/profile/presentation/screens/agency/commission_wallet_screen.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/gift_panel.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_completion_vap_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_launch_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/room_star_progress_widget.dart`
+  - `lib/features/admin/presentation/screens/super_admin_portal_screen.dart`
+  - `.agents/AGENTS.md`
+  - `.agents/rules/single-repository-workflow.md`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-10 (Comprehensive 11-Module Audit, Edge-Case Hardening & Cross-Platform Verification)
 
 - **What Client Asked / Problem**:
