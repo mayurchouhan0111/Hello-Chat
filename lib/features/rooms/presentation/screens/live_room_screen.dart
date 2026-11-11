@@ -1987,29 +1987,40 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
             // "Say hi..." sub-capsule input
             Expanded(
-              child: GestureDetector(
-                onTap: () => _showRoomChatInputSheet(initialTab: 0),
-                child: Container(
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFEDF2F7),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Row(
-                    children: [
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          "Say hi...",
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: Color(0xFF718096), fontSize: 12),
+              child: Container(
+                height: 34,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEDF2F7),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => _showRoomChatInputSheet(initialTab: 0),
+                        behavior: HitTestBehavior.opaque,
+                        child: const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            "Say hi...",
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(color: Color(0xFF718096), fontSize: 12),
+                          ),
                         ),
                       ),
-                      Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 16),
-                      SizedBox(width: 6),
-                    ],
-                  ),
+                    ),
+                    GestureDetector(
+                      onTap: _showStickerSheet,
+                      behavior: HitTestBehavior.opaque,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        child: Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 18),
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                  ],
                 ),
               ),
             ),
