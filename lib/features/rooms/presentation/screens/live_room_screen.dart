@@ -1759,6 +1759,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                 fontWeight: FontWeight.w500,
                               ),
                               decoration: const InputDecoration(
+                                filled: false,
+                                fillColor: Colors.transparent,
                                 hintText: "Say something...",
                                 hintStyle: TextStyle(
                                   color: Color(0xFF8E7FA8),
@@ -1766,6 +1768,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                   fontWeight: FontWeight.w400,
                                 ),
                                 border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
                                 isDense: true,
                                 contentPadding: EdgeInsets.zero,
                               ),
