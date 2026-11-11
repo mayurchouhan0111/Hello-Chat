@@ -240,6 +240,9 @@ class VapController {
         ?.setMethodCallHandler((MethodCall call) => _handleNativeEvent(call));
   }
 
+  @visibleForTesting
+  void setChannelForTesting(MethodChannel channel) => _setChannel(channel);
+
   /// Sets event listeners for various animation events.
   void setAnimListener({
     OnFailed? onFailed,
@@ -266,60 +269,6 @@ class VapController {
   /// The ticket of the currently active or most recent play request.
   int get currentTicket => _currentTicket;
 
-  Timer? _startVerificationTimer;
-  int _retryAttempt = 0;
-  bool _hasStartedCurrentTicket = false;
-
-  void _cancelStartVerification() {
-    _startVerificationTimer?.cancel();
-    _startVerificationTimer = null;
-    _hasStartedCurrentTicket = true;
-    _retryAttempt = 0;
-  }
-
-  void _armStartVerification(String filePath, String? id, int ticket) {
-    _startVerificationTimer?.cancel();
-    _hasStartedCurrentTicket = false;
-    _retryAttempt = 0;
-
-    void scheduleCheck() {
-      _startVerificationTimer?.cancel();
-      _startVerificationTimer = Timer(const Duration(milliseconds: 1500), () async {
-        if (_channel == null || _currentTicket != ticket || _hasStartedCurrentTicket) {
-          return;
-        }
-        if (_retryAttempt < 4) {
-          _retryAttempt++;
-          debugPrint('[VAP_TRACE] startVerification retry: attempt $_retryAttempt/4, ticket=$ticket, id=$id');
-          try {
-            await __channel.invokeMethod('playFile', {
-              'filePath': filePath,
-              if (id != null) 'id': id,
-              'ticket': ticket,
-            });
-          } catch (e) {
-            debugPrint('[VAP_TRACE] startVerification retry error: $e');
-          }
-          if (_channel != null && _currentTicket == ticket && !_hasStartedCurrentTicket) {
-            scheduleCheck();
-          }
-        } else {
-          debugPrint('[VAP_TRACE] onFail: id=$id, ticket=$ticket, reason=startVerification failed after 4 retries (onStart never arrived within 1500ms)');
-          _cancelStartVerification();
-          _handleNativeEvent(MethodCall('onFailed', {
-            'errorCode': -1004,
-            'errorType': 'START_TIMEOUT',
-            'errorMsg': 'startVerification failed after 4 retries (onStart never arrived within 1500ms)',
-            'ticket': ticket,
-            if (id != null) 'id': id,
-          }));
-        }
-      });
-    }
-
-    scheduleCheck();
-  }
-
   /// Internal method to handle events from native platforms.
   Future<void> _handleNativeEvent(MethodCall call) async {
     final rawArgs = call.arguments is Map ? Map<String, dynamic>.from(call.arguments as Map) : null;
@@ -331,7 +280,6 @@ class VapController {
 
     switch (call.method) {
       case 'onFailed':
-        _cancelStartVerification();
         final args = rawArgs ?? {};
         final code = args['errorCode'] as int? ?? -1;
         final type = args['errorType'] as String? ?? 'ERROR';
@@ -341,11 +289,9 @@ class VapController {
         _onFailedWithDevice?.call(code, type, msg, device);
         break;
       case 'onVideoComplete':
-        _cancelStartVerification();
         _onVideoComplete?.call();
         break;
       case 'onVideoDestroy':
-        _cancelStartVerification();
         _onVideoDestroy?.call();
         break;
       case 'onVideoRender':
@@ -358,7 +304,6 @@ class VapController {
         }
         break;
       case 'onVideoStart':
-        _cancelStartVerification();
         final device = rawArgs?['device'] as String?;
         _onVideoStart?.call();
         _onVideoStartWithDevice?.call(device);
@@ -392,17 +337,11 @@ class VapController {
   Future<void> playFile(String filePath, [String? id, int? ticket]) async {
     final effectiveTicket = ticket ?? ++_currentTicket;
     _currentTicket = effectiveTicket;
-    _armStartVerification(filePath, id, effectiveTicket);
-    try {
-      await __channel.invokeMethod('playFile', {
-        'filePath': filePath,
-        if (id != null) 'id': id,
-        'ticket': effectiveTicket,
-      });
-    } catch (e) {
-      _cancelStartVerification();
-      rethrow;
-    }
+    await __channel.invokeMethod('playFile', {
+      'filePath': filePath,
+      if (id != null) 'id': id,
+      'ticket': effectiveTicket,
+    });
   }
 
   /// Plays a VAP animation from a Flutter asset.
@@ -430,7 +369,6 @@ class VapController {
   /// await controller.stop();
   /// ```
   Future<void> stop() async {
-    _cancelStartVerification();
     await __channel.invokeMethod('stop');
   }
 
@@ -667,7 +605,6 @@ class VapController {
   /// }
   /// ```
   Future<void> dispose() async {
-    _cancelStartVerification();
     _onSurfaceReady = null;
     try {
       await _channel?.invokeMethod('dispose');

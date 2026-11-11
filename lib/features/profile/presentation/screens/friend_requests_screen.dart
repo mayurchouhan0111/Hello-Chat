@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -103,14 +104,12 @@ class _RequestTile extends ConsumerWidget {
               try {
                 await ref.read(relationshipServiceProvider).acceptFriendRequest(request['id']);
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Friend request accepted!"), backgroundColor: Colors.green),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Friend request accepted!"), backgroundColor: Colors.green),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
                   );
                 }
               }
@@ -130,14 +129,12 @@ class _RequestTile extends ConsumerWidget {
               try {
                 await ref.read(relationshipServiceProvider).rejectFriendRequest(request['id']);
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Request rejected"), backgroundColor: Colors.orange),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Request rejected"), backgroundColor: Colors.orange),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
                   );
                 }
               }

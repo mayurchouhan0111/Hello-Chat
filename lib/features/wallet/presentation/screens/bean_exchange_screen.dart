@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/providers/auth_provider.dart';
@@ -24,7 +25,7 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
     final amount = int.tryParse(amountText) ?? 0;
     
     if (amount < 10) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Text("Exchange minimum: 10 Beans."),
         behavior: SnackBarBehavior.floating,
       ));
@@ -42,7 +43,7 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
 
       if (result.data['success']) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("✨ Exchange successful!"),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
@@ -53,7 +54,7 @@ class _BeanExchangeScreenState extends ConsumerState<BeanExchangeScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Exchange Error: $e"),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,

@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
-
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
-import 'package:dio/dio.dart';
-import '../../../../core/constants/app_keys.dart';
 
 class YouTubePanel extends ConsumerStatefulWidget {
   final String roomId;
-  const YouTubePanel({super.key, required this.roomId});
+  final bool isEmbedded;
+
+  const YouTubePanel({
+    super.key,
+    required this.roomId,
+    this.isEmbedded = false,
+  });
 
   @override
   ConsumerState<YouTubePanel> createState() => _YouTubePanelState();
@@ -20,18 +25,26 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   final TextEditingController _searchController = TextEditingController();
   late TabController _categoryController;
   final yt.YoutubeExplode _yt = yt.YoutubeExplode();
-  final Dio _dio = Dio();
-  
-  final List<String> _categories = ["Favourite", "Popular", "Music", "Movie", "Funny", "Gaming", "News"];
-  List<dynamic> _videos = []; // Changed to dynamic to handle API response
+
+  final List<String> _categories = [
+    "Popular",
+    "Music",
+    "Movie",
+    "Gaming",
+    "Funny",
+    "Favourite",
+    "News",
+  ];
+  List<dynamic> _videos = [];
   bool _isLoading = true;
-  
+
   @override
   void initState() {
     super.initState();
-    _categoryController = TabController(length: _categories.length, vsync: this, initialIndex: 1);
+    _categoryController = TabController(length: _categories.length, vsync: this, initialIndex: 0);
     _categoryController.addListener(() {
-      if (!_categoryController.indexIsChanging) {
+      if (!_categoryController.indexIsChanging && mounted) {
+        setState(() {});
         _fetchCategory(_categories[_categoryController.index]);
       }
     });
@@ -49,11 +62,15 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   Future<void> _fetchCategory(String category) async {
     String query;
     if (category == "Popular") {
-      query = "trending";
+      query = "trending music videos";
     } else if (category == "Favourite") {
-      query = "top music videos";
+      query = "top music hits 2026";
     } else if (category == "Music") {
-      query = "new music videos";
+      query = "new released song";
+    } else if (category == "Movie") {
+      query = "movie trailer scene";
+    } else if (category == "Gaming") {
+      query = "gaming highlights";
     } else {
       query = category;
     }
@@ -61,12 +78,12 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   }
 
   Future<void> _onSearch(String val) async {
-    if (val.isEmpty) return;
-    
-    // Check if it's a direct URL first
-    if (val.contains("youtube.com") || val.contains("youtu.be")) {
-       try {
-        final videoId = YoutubePlayerController.convertUrlToId(val);
+    final query = val.trim();
+    if (query.isEmpty) return;
+
+    if (query.contains("youtube.com") || query.contains("youtu.be")) {
+      try {
+        final videoId = YoutubePlayerController.convertUrlToId(query);
         if (videoId != null) {
           _onVideoTap(videoId);
           return;
@@ -74,242 +91,447 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
       } catch (_) {}
     }
 
-    _searchVideos(val);
+    _searchVideos(query);
   }
 
   Future<void> _searchVideos(String query) async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final searchList = await _yt.search.getVideos(query);
-      final List<dynamic> validVideos = [];
-      for (final v in searchList) {
-        try {
-          // Force evaluate each video to catch malformed entries (e.g. "Streamed" parsed as number)
-          final id = v.id.value;
-          if (id.isNotEmpty) validVideos.add(v);
-        } catch (_) {
-          debugPrint("Skipping malformed YouTube video entry");
-        }
-      }
+      final results = await _yt.search.search(query);
       if (mounted) {
         setState(() {
-          _videos = validVideos;
+          _videos = results.toList();
           _isLoading = false;
         });
       }
     } catch (e) {
-      debugPrint("YouTube Search Error: $e");
-      // Retry once after delay if rate-limited
-      if (e.toString().contains('RequestLimitExceeded') ||
-          e.toString().contains('rate limit') ||
-          e.toString().contains('429')) {
-        debugPrint("Rate limited on search — retrying after 2s...");
-        await Future.delayed(const Duration(seconds: 2));
-        try {
-          final retryList = await _yt.search.getVideos(query);
-          final List<dynamic> validVideos = [];
-          for (final v in retryList) {
-            try {
-              if (v.id.value.isNotEmpty) validVideos.add(v);
-            } catch (_) {}
-          }
-          if (mounted) {
-            setState(() {
-              _videos = validVideos;
-              _isLoading = false;
-            });
-          }
-          return;
-        } catch (_) {}
-      }
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('YouTube is rate-limiting requests. Please wait a moment and try again.'),
-            duration: Duration(seconds: 3),
+      }
+    }
+  }
+
+  void _onVideoTap(String videoId) async {
+    try {
+      await ref.read(roomServiceProvider).setYoutubeVideo(widget.roomId, videoId);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+            content: Row(
+              children: [
+                Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 20),
+                Gap(8),
+                Text(
+                  "Playing video in room...",
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            backgroundColor: Color(0xFFEF4444),
+            duration: Duration(seconds: 2),
           ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Failed to play: $e")),
         );
       }
     }
   }
 
-  bool _isSelecting = false;
-
-  void _onVideoTap(String videoId) async {
-    if (_isSelecting) return;
-    setState(() => _isSelecting = true);
-
-    debugPrint('👆 [YouTubePanel] Video Selected: $videoId. Skipping embed check to avoid rate limits...');
-    
-    await ref.read(roomServiceProvider).setYoutubeVideo(widget.roomId, videoId);
-    
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
-
-  Future<bool> _isVideoEmbeddable(String videoId) async {
-    return true;
+  String _formatDuration(Duration? duration) {
+    if (duration == null) return "HD";
+    final minutes = duration.inMinutes;
+    final seconds = duration.inSeconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: MediaQuery.of(context).size.height * 0.85,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      height: widget.isEmbedded ? null : MediaQuery.of(context).size.height * 0.85,
+      decoration: BoxDecoration(
+        color: widget.isEmbedded ? Colors.transparent : const Color(0xFF0F111E),
+        borderRadius: widget.isEmbedded ? null : const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         children: [
-          // 1. Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
-            child: Row(
-              children: [
-                const Icon(Icons.play_circle_filled_rounded, color: Colors.red, size: 32),
-                const Gap(8),
-                const Text(
-                  "YouTube",
-                  style: TextStyle(color: Colors.black, fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5),
-                ),
-                const Spacer(),
-                IconButton(
-                  onPressed: () {
-                    if (Navigator.canPop(context)) {
-                      Navigator.of(context).pop();
-                    }
-                  },
-                  icon: const Icon(Icons.close, color: Colors.black, size: 28),
-                  tooltip: 'Cancel',
-                ),
-              ],
+          // 1. Header (Standalone only)
+          if (!widget.isEmbedded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 6),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFFEF4444), size: 22),
+                  ),
+                  const Gap(10),
+                  const Text(
+                    "YouTube Stream",
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                  ),
+                ],
+              ),
             ),
-          ),
 
-          // 2. Search Bar
+          // 2. Modern Polished Dark Search Bar
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
             child: Container(
-              height: 48,
+              height: 46,
               decoration: BoxDecoration(
-                color: const Color(0xFFF1F5F9),
+                color: const Color(0xFF16192A),
                 borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.10),
+                  width: 1.0,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
               ),
               child: TextField(
                 controller: _searchController,
-                style: const TextStyle(color: Colors.black, fontSize: 16),
+                style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w500),
+                cursorColor: const Color(0xFFEF4444),
                 decoration: InputDecoration(
-                  hintText: "Search keywords or video link",
-                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
-                  prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B), size: 22),
-                  suffixIcon: _searchController.text.isNotEmpty 
-                    ? IconButton(
-                        icon: const Icon(Icons.cancel, color: Color(0xFF94A3B8), size: 20),
-                        onPressed: () {
-                          _searchController.clear();
-                          _fetchCategory("Popular");
-                        },
-                      )
-                    : null,
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  filled: true,
+                  fillColor: const Color(0xFF16192A),
+                  hintText: "Search songs, videos or paste link...",
+                  hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 12.5),
+                  prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFFEF4444), size: 20),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.cancel_rounded, color: Colors.white54, size: 18),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                            _fetchCategory(_categories[_categoryController.index]);
+                          },
+                        )
+                      : null,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                 ),
-                onChanged: (val) => setState(() {}),
+                onChanged: (_) => setState(() {}),
                 onSubmitted: _onSearch,
               ),
             ),
           ),
 
-          // 3. Category Tabs
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
+          // 3. Category Capsule Tabs (Smooth Pill Bar)
+          Container(
+            height: 38,
+            margin: const EdgeInsets.symmetric(vertical: 6),
             child: TabBar(
               controller: _categoryController,
               isScrollable: true,
-              indicatorColor: Colors.black,
-              indicatorSize: TabBarIndicatorSize.label,
-              labelPadding: const EdgeInsets.symmetric(horizontal: 8),
-              labelColor: Colors.black,
-              unselectedLabelColor: const Color(0xFF64748B),
-              labelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              unselectedLabelStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.normal),
+              tabAlignment: TabAlignment.start,
+              indicator: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFEF4444), Color(0xFFDC2626)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(19),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFEF4444).withValues(alpha: 0.45),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              indicatorSize: TabBarIndicatorSize.tab,
               dividerColor: Colors.transparent,
-              tabs: _categories.map((c) => Tab(text: c)).toList(),
+              labelPadding: const EdgeInsets.symmetric(horizontal: 4),
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white60,
+              tabs: _categories.asMap().entries.map((entry) {
+                final isSelected = _categoryController.index == entry.key;
+                return Tab(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: isSelected ? Colors.transparent : Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: isSelected ? Colors.transparent : Colors.white.withValues(alpha: 0.08),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Text(
+                      entry.value,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
           ),
-          const Divider(color: Color(0xFFF1F5F9), height: 1),
 
-          // 4. Video List or Loading
+          const Divider(color: Colors.white10, height: 1),
+
+          // 4. Video List with Modern Cards or Loading
           Expanded(
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator(color: Colors.red))
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 20),
-                  itemCount: _videos.length,
-                  separatorBuilder: (_, __) => const Gap(20),
-                  itemBuilder: (context, index) {
-                    final yt.Video video = _videos[index];
-                    return _buildVideoTile(video);
-                  },
-                ),
+            child: _isLoading
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          color: Color(0xFFEF4444),
+                          strokeWidth: 2.8,
+                        ),
+                        Gap(12),
+                        Text(
+                          "Loading YouTube streams...",
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  )
+                : _videos.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.search_off_rounded, color: Colors.white38, size: 42),
+                            ),
+                            const Gap(12),
+                            const Text(
+                              "No videos found",
+                              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                            const Gap(4),
+                            const Text(
+                              "Try another search term or paste a link",
+                              style: TextStyle(color: Colors.white54, fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: _videos.length,
+                        separatorBuilder: (_, __) => const Gap(10),
+                        itemBuilder: (context, index) {
+                          final yt.Video video = _videos[index];
+                          return _buildModernVideoCard(video);
+                        },
+                      ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildVideoTile(yt.Video video) {
+  Widget _buildModernVideoCard(yt.Video video) {
     final videoId = video.id.value;
     final title = video.title;
     final author = video.author;
     final thumbnailUrl = video.thumbnails.mediumResUrl;
+    final durationStr = _formatDuration(video.duration);
 
-    return InkWell(
-      onTap: () => _onVideoTap(videoId),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Thumbnail
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.network(
-                thumbnailUrl,
-                width: 150,
-                height: 85,
-                fit: BoxFit.cover,
-                errorBuilder: (c, e, s) => Container(color: Colors.black12, width: 150, height: 85),
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _onVideoTap(videoId),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.all(9),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFF16192A), Color(0xFF101322)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            const Gap(12),
-            // Info
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.08),
+              width: 1.0,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.35),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. High-Quality Thumbnail with Duration Badge
+              Stack(
                 children: [
-                   Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Color(0xFF1E293B), fontSize: 14, fontWeight: FontWeight.bold, height: 1.2),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: CachedNetworkImage(
+                      imageUrl: thumbnailUrl,
+                      width: 124,
+                      height: 74,
+                      fit: BoxFit.cover,
+                      placeholder: (context, url) => Container(
+                        width: 124,
+                        height: 74,
+                        color: const Color(0xFF1E2338),
+                        child: const Center(
+                          child: Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
+                        ),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        width: 124,
+                        height: 74,
+                        color: const Color(0xFF1E2338),
+                        child: const Center(
+                          child: Icon(Icons.play_arrow_rounded, color: Colors.white38, size: 28),
+                        ),
+                      ),
+                    ),
                   ),
-                  const Gap(6),
-                  Text(
-                    author,
-                    style: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
+
+                  // Duration Pill Overlay at bottom right
+                  Positioned(
+                    bottom: 5,
+                    right: 5,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.8),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(
+                        durationStr,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-            // Action
-            const Padding(
-              padding: EdgeInsets.only(left: 8, top: 2),
-              child: Icon(Icons.bookmark_border_rounded, color: Color(0xFF64748B), size: 24),
-            ),
-          ],
+              const Gap(12),
+
+              // 2. Video Title, Channel & Metadata
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        height: 1.3,
+                        letterSpacing: 0.1,
+                      ),
+                    ),
+                    const Gap(5),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.account_circle_outlined,
+                          size: 13,
+                          color: Colors.white38,
+                        ),
+                        const Gap(4),
+                        Expanded(
+                          child: Text(
+                            author,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const Gap(8),
+
+              // 3. Glowing Red Action Play Button
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFEF4444), Color(0xFFB91C1C)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFEF4444).withValues(alpha: 0.45),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.play_arrow_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

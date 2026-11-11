@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -100,8 +101,7 @@ class _AudioCallInviteListenerState extends ConsumerState<AudioCallInviteListene
         await voiceService.setBroadcasterRole();
         await roomService.respondToAudioCall(widget.roomId, myUid, true);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("You are now on the mic! (Seat $seatIndex)"), behavior: SnackBarBehavior.floating),
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("You are now on the mic! (Seat $seatIndex)"), behavior: SnackBarBehavior.floating),
           );
         }
       } catch (e) {

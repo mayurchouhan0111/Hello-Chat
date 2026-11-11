@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -175,8 +176,7 @@ class _EventBody extends ConsumerWidget {
   void _claimReward(BuildContext context, WidgetRef ref, String milestoneId, String eventId) async {
     final result = await ref.read(eventServiceProvider).claimMilestoneReward(eventId, milestoneId);
     if (result['success'] == true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Reward claimed! +${result['rewardAmount']}"), backgroundColor: Colors.green),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Reward claimed! +${result['rewardAmount']}"), backgroundColor: Colors.green),
       );
     }
   }

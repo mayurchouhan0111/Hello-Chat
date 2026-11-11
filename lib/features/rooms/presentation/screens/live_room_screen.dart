@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -51,6 +52,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/providers/room_reactions_provider.dart';
 
 import '../../../games/presentation/widgets/games_panel.dart';
+import '../../../games/presentation/widgets/unified_games_hub_sheet.dart';
 import '../widgets/room_star_progress_widget.dart';
 import '../widgets/room_settings_sheet.dart';
 import '../widgets/room_user_options_sheet.dart';
@@ -247,6 +249,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   void initState() {
     super.initState();
     
+    // Check if restoring an active ongoing room session (from minimize / PIP)
+    final overlayNotifier = ref.read(roomOverlayProvider.notifier);
+    final bool isRestoringSession = overlayNotifier.isRestoringSession(widget.roomId);
+    if (isRestoringSession) {
+      _hasShownMyOwnEntry = true;
+    }
+
     // 🛡️ Auto-Clear PIP: If we are entering a room, hide any existing minimized bubbles.
     Future.microtask(() => ref.read(roomOverlayProvider.notifier).clear());
     WidgetsBinding.instance.addObserver(this);
@@ -258,9 +267,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       try {
         final roomService = ref.read(roomServiceProvider);
         final authState = ref.read(authStateProvider).value;
-        
-        // Step 1: Join Firestore Room
-        await roomService.joinRoom(widget.roomId);
+        final isRestoring = ref.read(roomOverlayProvider.notifier).isRestoringSession(widget.roomId);
+
+        if (!isRestoring) {
+          // Register fresh active session and join room in Firestore
+          ref.read(roomOverlayProvider.notifier).registerActiveSession(widget.roomId);
+          await roomService.joinRoom(widget.roomId);
+        }
         if (!mounted) return;
         if (mounted) setState(() => _hasJoinedRoom = true);
         
@@ -443,6 +456,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       } else if (result == 'end') {
         _hasLeftRoom = true;
         debugPrint('🚪 [ROOM_EXIT] Reason: Host ended room for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
+        ref.read(roomOverlayProvider.notifier).endSession(widget.roomId);
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.endRoom(widget.roomId),
@@ -455,6 +469,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       } else if (result == 'leave') {
         _hasLeftRoom = true;
         debugPrint('🚪 [ROOM_EXIT] Reason: Host voluntary leave without ending roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
+        ref.read(roomOverlayProvider.notifier).endSession(widget.roomId);
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.leaveRoom(widget.roomId),
@@ -498,6 +513,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       } else if (result == 'leave') {
         _hasLeftRoom = true;
         debugPrint('🚪 [ROOM_EXIT] Reason: Listener voluntary leave for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
+        ref.read(roomOverlayProvider.notifier).endSession(widget.roomId);
         await Future.wait([
           voiceService.leaveRoom(),
           roomService.leaveRoom(widget.roomId),
@@ -553,7 +569,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
             if (!_isLeavingRoom && mounted && context.mounted) {
               debugPrint('🚪 [ROOM_EXIT] Reason: Host has ended room (room.status==ended) for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("The host has ended this room.")),
+                TopSnackBar(context: context, content: const Text("The host has ended this room.")),
               );
               if (GoRouter.of(context).canPop()) {
                 Future.microtask(() {
@@ -574,15 +590,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                
                if (status != prevStatus && mounted && context.mounted) {
                  if (status == 'rejected') {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                         content: Text("👉 The user has rejected the PK request"),
                         backgroundColor: Colors.redAccent,
                       ),
                     );
                  } else if (status == 'expired') {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("The PK challenge has expired.")),
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("The PK challenge has expired.")),
                     );
                  }
                }
@@ -641,8 +655,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               if (isBanned || isEnded) {
                 debugPrint('🚪 [ROOM_EXIT] Reason: User removed from participant list (isBanned=$isBanned, isEnded=$isEnded) for roomId=${widget.roomId}\nStack:\n${StackTrace.current}');
                 if (mounted && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                       content: Text(isBanned ? "You have been removed from the room." : "This room has ended."),
                       duration: const Duration(seconds: 3),
                     ),
@@ -828,7 +841,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                       SafeArea(
                         child: Column(
                           children: [
-                            _buildRoomAppBar(room),
+                            RepaintBoundary(child: _buildRoomAppBar(room)),
                             Expanded(
                               child: Column(
                                     children: [
@@ -846,7 +859,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                             );
                                             return KeyedSubtree(
                                               key: ValueKey('host_seat_${widget.roomId}_${room.isYoutubeActive}_${hostPart.diamondsReceived}'),
-                                              child: _buildHostSeat(hostPart, room, pts),
+                                              child: RepaintBoundary(child: _buildHostSeat(hostPart, room, pts)),
                                             );
                                           },
                                         ),
@@ -1055,7 +1068,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                               },
                             ),
                             const SizedBox(height: 6),
-                            RocketProgressWidget(room: room),
+                            RepaintBoundary(child: RocketProgressWidget(room: room)),
                           ],
                         ),
                       ),
@@ -1126,44 +1139,66 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   Widget _buildRoomBackground(RoomModel room) {
+    Widget backgroundWidget;
     // Background is driven strictly by Room Theme (or custom backgroundUrl), NEVER coverUrl!
     if (room.backgroundUrl.isNotEmpty) {
       if (room.backgroundUrl.startsWith('assets/')) {
-        return Image.asset(
+        backgroundWidget = Image.asset(
           room.backgroundUrl,
           fit: BoxFit.cover,
           cacheWidth: 1080,
           errorBuilder: (_, __, ___) => _buildFallbackTheme(room.theme),
         );
+      } else {
+        backgroundWidget = CachedNetworkImage(
+          imageUrl: room.backgroundUrl,
+          fit: BoxFit.cover,
+          memCacheWidth: 1080,
+          errorWidget: (_, __, ___) => _buildFallbackTheme(room.theme),
+        );
       }
-      return CachedNetworkImage(
-        imageUrl: room.backgroundUrl,
-        fit: BoxFit.cover,
-        memCacheWidth: 1080,
-        errorWidget: (_, __, ___) => _buildFallbackTheme(room.theme),
-      );
+    } else {
+      final theme = RoomThemeCatalog.getTheme(room.theme);
+      if (theme.assetPath != null && theme.assetPath!.isNotEmpty) {
+        backgroundWidget = Image.asset(
+          theme.assetPath!,
+          fit: BoxFit.cover,
+          cacheWidth: 1080,
+          errorBuilder: (_, __, ___) => _buildGradientBackground(theme.gradient),
+        );
+      } else if (theme.imageUrl != null && theme.imageUrl!.isNotEmpty) {
+        backgroundWidget = CachedNetworkImage(
+          imageUrl: theme.imageUrl!,
+          fit: BoxFit.cover,
+          memCacheWidth: 1080,
+          errorWidget: (_, __, ___) => _buildGradientBackground(theme.gradient),
+        );
+      } else {
+        backgroundWidget = _buildGradientBackground(theme.gradient);
+      }
     }
 
-    final theme = RoomThemeCatalog.getTheme(room.theme);
-    if (theme.assetPath != null && theme.assetPath!.isNotEmpty) {
-      return Image.asset(
-        theme.assetPath!,
-        fit: BoxFit.cover,
-        cacheWidth: 1080,
-        errorBuilder: (_, __, ___) => _buildGradientBackground(theme.gradient),
-      );
-    }
-
-    if (theme.imageUrl != null && theme.imageUrl!.isNotEmpty) {
-      return CachedNetworkImage(
-        imageUrl: theme.imageUrl!,
-        fit: BoxFit.cover,
-        memCacheWidth: 1080,
-        errorWidget: (_, __, ___) => _buildGradientBackground(theme.gradient),
-      );
-    }
-
-    return _buildGradientBackground(theme.gradient);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        backgroundWidget,
+        // Ambient readability scrim ensuring seats, controls, and text are always visible
+        Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.22),
+                Colors.black.withValues(alpha: 0.10),
+                Colors.black.withValues(alpha: 0.32),
+              ],
+              stops: const [0.0, 0.5, 1.0],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildGradientBackground(List<Color> gradient) {
@@ -1349,8 +1384,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                                     
                                     await ref.read(profileServiceProvider).toggleFollow(myUid, room.ownerUid);
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
+                                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                           content: Text("Followed ${room.name}'s Host!"),
                                           backgroundColor: const Color(0xFF8E54E9),
                                           behavior: SnackBarBehavior.floating,
@@ -1485,27 +1519,44 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.all(6),
+        padding: const EdgeInsets.all(7),
         decoration: BoxDecoration(
-          color: isClose ? Colors.redAccent.withOpacity(0.3) : Colors.black.withOpacity(0.2),
+          color: isClose ? const Color(0xFFEF4444).withValues(alpha: 0.25) : Colors.black.withValues(alpha: 0.35),
           shape: BoxShape.circle,
+          border: Border.all(
+            color: isClose ? const Color(0xFFEF4444).withValues(alpha: 0.4) : Colors.white.withValues(alpha: 0.12),
+            width: 0.8,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: isClose ? const Color(0xFFEF4444).withValues(alpha: 0.2) : Colors.black26,
+              blurRadius: 4,
+            ),
+          ],
         ),
-        child: Icon(icon, color: Colors.white, size: 18),
+        child: Icon(icon, color: Colors.white, size: 17),
       ),
     );
   }
 
   Widget _buildAppBarTag(String label, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.2),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.black.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.4), width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: color.withValues(alpha: 0.15),
+            blurRadius: 6,
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: 14),
+          Icon(icon, color: color, size: 13),
           const Gap(4),
           Text(label, style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
         ],
@@ -1829,8 +1880,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       if (pickedFile == null) return;
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Row(
               children: [
                 SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
@@ -1867,8 +1917,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Photo shared successfully! 🖼️"),
             backgroundColor: Color(0xFF10B981),
             duration: Duration(seconds: 2),
@@ -1878,8 +1927,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Failed to upload image: $e"),
             backgroundColor: Colors.redAccent,
           ),
@@ -2028,11 +2076,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 ),
               ),
             ),
-            const SizedBox(width: 3),
-
-            // Video / Camera icon
-            _buildPillIcon(Icons.videocam_rounded, const Color(0xFFFF3B30), _showYouTubePanel),
-            const SizedBox(width: 3),
+            const SizedBox(width: 4),
 
             // Speaker toggle (Room Mute: Mutes incoming audio for self)
             _buildPillIcon(
@@ -2051,39 +2095,35 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 }
               },
             ),
-            const SizedBox(width: 3),
+            const SizedBox(width: 4),
 
-            // Divider
-            Container(width: 1, height: 18, color: const Color(0xFFE2E8F0)),
-            const SizedBox(width: 3),
+            // Games Section Icon (Consolidated Hub: Games, YouTube, PK)
+            _buildPillIcon(Icons.sports_esports_rounded, const Color(0xFF6366F1), () => _showGamesPanel()),
+            const SizedBox(width: 4),
 
-            // Trophy / PK icon
-            _buildPillIcon(Icons.military_tech_rounded, const Color(0xFFFFCC00), _showPKPanel),
-            const SizedBox(width: 3),
-
-            // Games icon
-            _buildPillIcon(Icons.grid_view_rounded, const Color(0xFF64748B), _showGamesPanel),
-            const SizedBox(width: 3),
+            // Emoji / Sticker Icon
+            _buildPillIcon(Icons.sentiment_satisfied_alt_rounded, const Color(0xFFFF4081), _showStickerSheet),
+            const SizedBox(width: 4),
 
             // Rightmost glowing gift button
             Semantics(
               button: true,
               label: 'gift-button',
               child: GestureDetector(
-              onTap: _showGiftPanel,
-              child: Container(
-                width: 32, height: 32,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]),
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.4), blurRadius: 8),
-                  ],
+                onTap: _showGiftPanel,
+                child: Container(
+                  width: 34, height: 34,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.45), blurRadius: 8),
+                    ],
+                  ),
+                  child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
                 ),
-                child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
               ),
-            ),
             ),
           ],
         ),
@@ -2204,32 +2244,47 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   // Host label below avatar
                   Container(
                     margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: isOwnerOnline
-                            ? [const Color(0xFF00C853), const Color(0xFF00E676)]
-                            : [const Color(0xFF475569), const Color(0xFF64748B)],
+                            ? [const Color(0xFF059669), const Color(0xFF10B981)]
+                            : [const Color(0xFF334155), const Color(0xFF475569)],
                       ),
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isOwnerOnline
+                            ? const Color(0xFF34D399).withValues(alpha: 0.5)
+                            : Colors.white10,
+                        width: 0.8,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: isOwnerOnline
-                              ? const Color(0xFF00C853).withOpacity(0.4)
+                              ? const Color(0xFF059669).withValues(alpha: 0.35)
                               : Colors.black26,
                           blurRadius: 4,
-                          offset: const Offset(0, 2),
+                          offset: const Offset(0, 1),
                         ),
                       ],
                     ),
-                    child: Text(
-                      isOwnerOnline ? "Host" : "Offline",
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.5,
-                      ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isOwnerOnline) ...[
+                          const Icon(Icons.workspace_premium_rounded, size: 9, color: Color(0xFFFFD700)),
+                          const SizedBox(width: 3),
+                        ],
+                        Text(
+                          isOwnerOnline ? "Host" : "Offline",
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   // Owner name below Host label
@@ -2316,8 +2371,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
     // Only allow room owner to start PK
     if (room.ownerUid != myUid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Row(
             children: [
               const Icon(Icons.lock_outline_rounded, color: Colors.white, size: 20),
@@ -2397,7 +2451,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               onTap: () async {
                 Navigator.pop(context);
                 await ref.read(roomServiceProvider).setRoomPassword(widget.roomId, "1234");
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Room locked with default pass!")));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Room locked with default pass!")));
               },
             ),
             ListTile(
@@ -2406,7 +2460,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               onTap: () async {
                 Navigator.pop(context);
                 await ref.read(roomServiceProvider).muteAllSeats(widget.roomId);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("All speakers muted.")));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("All speakers muted.")));
               },
             ),
             ListTile(
@@ -2423,7 +2477,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
               title: const Text("Blacklist", style: TextStyle(color: Colors.redAccent)),
               onTap: () {
                  Navigator.pop(context);
-                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Blacklist UI coming soon.")));
+                 ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Blacklist UI coming soon.")));
               },
             ),
             const Gap(24),
@@ -2457,8 +2511,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   Navigator.pop(context);
                   await ref.read(roomServiceProvider).setRoomCapacity(widget.roomId, cap);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text("Room expanded to $cap seats!")),
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Room expanded to $cap seats!")),
                     );
                   }
                 },
@@ -2493,12 +2546,15 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     );
   }
 
-  void _showGamesPanel() {
+  void _showGamesPanel({int initialCategory = 0}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => GamesPanel(roomId: widget.roomId),
+      builder: (context) => UnifiedGamesHubSheet(
+        roomId: widget.roomId,
+        initialCategory: initialCategory,
+      ),
     );
   }
 
@@ -2547,8 +2603,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
     if (uid == null) return;
 
     if (index == 0 && room.ownerUid != uid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Only the room owner can take the host seat"),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
@@ -2801,7 +2856,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                 await ref.read(reportServiceProvider).submitReport(targetUid: room.roomId, reason: r);
                 if (context.mounted) {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Thanks for reporting. We will review this room shortly.")));
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Thanks for reporting. We will review this room shortly.")));
                 }
               },
             )),
@@ -2873,6 +2928,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   void _dismissRocketNotification() {
+    ref.read(isRocketActiveProvider(widget.roomId).notifier).state = true;
     _notificationTimer?.cancel();
     setState(() {
       _isRocketNotificationShowing = false;
@@ -3006,36 +3062,41 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
   Widget _buildRocketFlyingOverlay() {
     if (!_isRocketFlying) return const SizedBox.shrink();
-    return RepaintBoundary(
-      child: RocketLaunchOverlay(
-        level: _launchingLevel,
-        roomId: widget.roomId,
-        onComplete: () {
-          _triggerRocketHeartbeat();
-          setState(() {
-            _isRocketFlying = false;
-            _isRocketLaunching = true;
-          });
-        },
+    return Positioned.fill(
+      child: RepaintBoundary(
+        child: RocketLaunchOverlay(
+          level: _launchingLevel,
+          roomId: widget.roomId,
+          onComplete: () {
+            _triggerRocketHeartbeat();
+            setState(() {
+              _isRocketFlying = false;
+              _isRocketLaunching = true;
+            });
+          },
+        ),
       ),
     );
   }
 
   Widget _buildRocketOverlay() {
     if (!_isRocketLaunching) return const SizedBox.shrink();
-    return RepaintBoundary(
-      child: RocketCompletionVapOverlay(
-        level: _launchingLevel, 
-        roomId: widget.roomId,
-        onComplete: () {
-          _triggerRocketHeartbeat();
-          _landingCountdownNotifier.value = 6;
-          setState(() {
-            _isRocketLaunching = false;
-            _isRocketLanding = true;
-          });
-          _startLandingTimer();
-        },
+    return Positioned.fill(
+      child: RepaintBoundary(
+        child: RocketCompletionVapOverlay(
+          level: _launchingLevel, 
+          roomId: widget.roomId,
+          onComplete: () {
+            _triggerRocketHeartbeat();
+            ref.read(isRocketActiveProvider(widget.roomId).notifier).state = false;
+            _landingCountdownNotifier.value = 6;
+            setState(() {
+              _isRocketLaunching = false;
+              _isRocketLanding = true;
+            });
+            _startLandingTimer();
+          },
+        ),
       ),
     );
   }
@@ -3430,9 +3491,10 @@ class _HostRippleWidgetState extends ConsumerState<HostRippleWidget> with Single
 
   @override
   Widget build(BuildContext context) {
-    final speakingUids = ref.watch(speakingUidsProvider).value ?? [];
     final int agoraUid = widget.user.uid.hashCode & 0xFFFFFFFF;
-    final bool isSpeaking = speakingUids.contains(agoraUid);
+    final bool isSpeaking = ref.watch(
+      speakingUidsProvider.select((s) => (s.value ?? []).contains(agoraUid)),
+    );
 
     if (!isSpeaking) {
       if (_rippleController.isAnimating) {

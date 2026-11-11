@@ -5,12 +5,17 @@ import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/router/app_router.dart';
 import 'package:hello_chat/core/constants/app_colors.dart';
 import 'package:hello_chat/core/providers/auth_provider.dart';
+import 'package:hello_chat/core/providers/profile_provider.dart';
+import 'package:hello_chat/core/providers/overlay_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final userProfile = ref.watch(currentUserProfileProvider).valueOrNull;
+    final hasPassword = userProfile?.hasPassword == true;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
@@ -36,9 +41,57 @@ class SettingsScreen extends ConsumerWidget {
           ),
           _buildSettingsTile(
             context,
-            Icons.lock_outline_rounded,
-            "Reset Password",
-            onTap: () => context.push(AppRoutes.resetPassword),
+            hasPassword ? Icons.lock_outline_rounded : Icons.lock_open_rounded,
+            hasPassword ? "Change Password" : "Set Up Password",
+            subtitle: hasPassword
+                ? "Password login active and protecting account"
+                : "Not set · Enable instant password login",
+            trailingWidget: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: hasPassword
+                        ? const Color(0xFFE8F5E9)
+                        : const Color(0xFFFFF3E0),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: hasPassword
+                          ? const Color(0xFF81C784)
+                          : const Color(0xFFFFB74D),
+                      width: 0.8,
+                    ),
+                  ),
+                  child: Text(
+                    hasPassword ? "Active" : "Recommended",
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: hasPassword
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFFE65100),
+                    ),
+                  ),
+                ),
+                const Gap(6),
+                const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+              ],
+            ),
+            onTap: () {
+              if (hasPassword) {
+                context.push(AppRoutes.resetPassword);
+              } else {
+                context.push(
+                  AppRoutes.setPassword,
+                  extra: {
+                    'phone': userProfile?.phoneNumber,
+                    'isReset': false,
+                    'canSkip': true,
+                  },
+                );
+              }
+            },
           ),
           const Gap(24),
           _buildSectionHeader("PREFERENCES"),
@@ -90,7 +143,14 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSettingsTile(BuildContext context, IconData icon, String title, {VoidCallback? onTap}) {
+  Widget _buildSettingsTile(
+    BuildContext context,
+    IconData icon,
+    String title, {
+    String? subtitle,
+    Widget? trailingWidget,
+    VoidCallback? onTap,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
@@ -102,8 +162,11 @@ class SettingsScreen extends ConsumerWidget {
         onTap: onTap,
         leading: Icon(icon, color: AppColors.primary, size: 20),
         title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-        trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        subtitle: subtitle != null
+            ? Text(subtitle, style: TextStyle(fontSize: 11.5, color: Colors.grey[600]))
+            : null,
+        trailing: trailingWidget ?? const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
     );
@@ -140,7 +203,7 @@ class SettingsScreen extends ConsumerWidget {
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text("Log Out?", style: TextStyle(fontWeight: FontWeight.w900)),
-        content: const Text("Are you sure you want to leave? You'll need to verify your phone number again next time.", style: TextStyle(fontSize: 13, color: Colors.black54)),
+        content: const Text("Are you sure you want to log out? You can log back in anytime with your phone and password.", style: TextStyle(fontSize: 13, color: Colors.black54)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -149,6 +212,7 @@ class SettingsScreen extends ConsumerWidget {
           TextButton(
             onPressed: () {
               Navigator.pop(context); // Close dialog
+              ref.read(roomOverlayProvider.notifier).clear();
               ref.read(authServiceProvider).logout();
               // The global router will handle the redirect to Login
             },

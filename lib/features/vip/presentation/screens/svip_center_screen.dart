@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -38,8 +39,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
       if (res.data != null && res.data['success'] == true) {
         final amount = res.data['rewardAmount'];
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text('🎉 Claimed $amount Daily Diamonds!'),
               backgroundColor: Colors.amber[700],
             ),
@@ -48,8 +48,7 @@ class _SVIPCenterScreenState extends ConsumerState<SVIPCenterScreen> with Single
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text(e.toString().replaceAll('Exception:', '').trim()),
             backgroundColor: Colors.redAccent,
           ),

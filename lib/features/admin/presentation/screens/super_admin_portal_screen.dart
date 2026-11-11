@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gap/gap.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
@@ -24,7 +24,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   bool _isSearching = false;
   Map<String, dynamic>? _searchedUserData;
 
-  static const String webAdminUrl = 'https://hellochat-e8965.web.app';
+
 
   @override
   void dispose() {
@@ -32,27 +32,6 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     super.dispose();
   }
 
-  Future<void> _launchWebConsole() async {
-    final uri = Uri.parse(webAdminUrl);
-    try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && mounted) {
-        _copyConsoleUrl();
-      }
-    } catch (_) {
-      if (mounted) _copyConsoleUrl();
-    }
-  }
-
-  void _copyConsoleUrl() {
-    Clipboard.setData(const ClipboardData(text: webAdminUrl));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Web Admin Console URL copied to clipboard ($webAdminUrl)'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
 
   Future<void> _searchUser(String query) async {
     final cleanQuery = query.trim();
@@ -180,8 +159,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('✅ $targetName has been appointed as Admin for Branch $branchId'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
@@ -196,8 +174,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('Failed to appoint admin: $e'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -264,8 +241,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('Admin privileges revoked for $targetName'),
             behavior: SnackBarBehavior.floating,
           ),
@@ -278,8 +254,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Error: $e'), backgroundColor: Colors.redAccent),
         );
       }
     }
@@ -365,8 +340,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('✅ $oldAdminName has been successfully replaced by $newAdminName as Admin'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
@@ -375,8 +349,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to replace admin: $e'), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Failed to replace admin: $e'), backgroundColor: Colors.redAccent),
         );
       }
     }
@@ -735,8 +708,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                   GestureDetector(
                                     onTap: () {
                                       Clipboard.setData(ClipboardData(text: helloId));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Admin ID $helloId copied'), behavior: SnackBarBehavior.floating),
+                                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Admin ID $helloId copied'), behavior: SnackBarBehavior.floating),
                                       );
                                     },
                                     child: Row(
@@ -1390,6 +1362,12 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   @override
   Widget build(BuildContext context) {
     final userAsync = ref.watch(currentUserProfileProvider);
+    final headerUser = userAsync.valueOrNull;
+    final isSuperPortal = headerUser != null &&
+        (headerUser.isOwner ||
+            headerUser.isSuperAdmin ||
+            headerUser.tags.contains('SuperAdmin') ||
+            headerUser.role == 'superadmin');
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0D14),
@@ -1401,14 +1379,14 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Row(
+        title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.shield_rounded, color: Color(0xFF818CF8), size: 18),
-            Gap(6),
+            const Icon(Icons.shield_rounded, color: Color(0xFF818CF8), size: 18),
+            const Gap(6),
             Text(
-              'SUPER ADMIN PORTAL',
-              style: TextStyle(
+              isSuperPortal ? 'SUPER ADMIN PORTAL' : 'ADMIN PORTAL',
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 14,
                 fontWeight: FontWeight.w900,
@@ -1418,11 +1396,6 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.open_in_browser_rounded, color: Color(0xFF818CF8)),
-            tooltip: 'Open Web Admin Console',
-            onPressed: _launchWebConsole,
-          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
             tooltip: 'Refresh',
@@ -1442,13 +1415,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
             return const Center(child: Text("Not authenticated", style: TextStyle(color: Colors.white70)));
           }
 
-          final bool hasSuperAdminPrivilege = user.isSuperAdmin ||
-              user.tags.contains('SuperAdmin') ||
-              user.role == 'superadmin' ||
-              user.isOwner ||
-              user.role == 'owner';
-
-          if (!hasSuperAdminPrivilege) {
+          if (!user.isAdmin) {
             return Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
@@ -1463,7 +1430,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     ),
                     const Gap(8),
                     Text(
-                      "This portal requires the Super Admin role or tag.\nCurrent Role: ${user.role}",
+                      "This portal requires the Admin role or higher.\nCurrent Role: ${user.role}",
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: Colors.white60, fontSize: 13),
                     ),
@@ -1487,8 +1454,6 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 children: [
                   _buildExecutiveProfileCard(user, branchId, isApexOwner),
                   const Gap(16),
-                  _buildWebConsoleGatewayCard(),
-                  const Gap(16),
                   _buildOperationalMetricsGrid(branchId, isApexOwner),
                   const Gap(16),
                   _buildQuickActionHub(context, user),
@@ -1508,6 +1473,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
 
   // ── Executive Profile & Authority Card ─────────────────────
   Widget _buildExecutiveProfileCard(UserModel user, String branchId, bool isApexOwner) {
+    final badgeLabel = isApexOwner
+        ? 'APEX OWNER'
+        : (user.isSuperAdmin || user.tags.contains('SuperAdmin') || user.role == 'superadmin')
+            ? 'SUPER ADMIN'
+            : 'ADMIN';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -1566,7 +1536,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            isApexOwner ? 'APEX OWNER' : 'SUPER ADMIN',
+                            badgeLabel,
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 9,
@@ -1654,111 +1624,6 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     );
   }
 
-  // ── Web Admin Console Gateway Card (Testing System Entrypoint) ──
-  Widget _buildWebConsoleGatewayCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1E293B), Color(0xFF0F172A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF38BDF8).withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.dashboard_customize_rounded, color: Color(0xFF38BDF8), size: 20),
-              ),
-              const Gap(10),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Full Web Admin Console",
-                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
-                    ),
-                    Text(
-                      "29 Advanced Management Modules",
-                      style: TextStyle(color: Colors.white54, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  "Online",
-                  style: TextStyle(color: Color(0xFF38BDF8), fontSize: 10, fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const Gap(12),
-          const Text(
-            "Access comprehensive management for Users, Live Rooms, Gifts, SVIP Engine, Hierarchy & Branches, Financials, Moderation, and Audit Trail directly in browser.",
-            style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.4),
-          ),
-          const Gap(14),
-          Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: ElevatedButton.icon(
-                  onPressed: _launchWebConsole,
-                  icon: const Icon(Icons.launch_rounded, size: 16),
-                  label: const Text(
-                    "Launch Web Console",
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6366F1),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-              const Gap(8),
-              Expanded(
-                flex: 2,
-                child: OutlinedButton.icon(
-                  onPressed: _copyConsoleUrl,
-                  icon: const Icon(Icons.copy_rounded, size: 14),
-                  label: const Text(
-                    "Copy URL",
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    side: const BorderSide(color: Colors.white24),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
 
   // ── Operational Metrics Grid ──────────────────────────────
   Widget _buildOperationalMetricsGrid(String branchId, bool isApexOwner) {
@@ -1872,19 +1737,31 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           ),
           child: Column(
             children: [
+              if (user.isOwner ||
+                  user.isSuperAdmin ||
+                  user.tags.contains('SuperAdmin')) ...[
+                _buildActionTile(
+                  icon: Icons.admin_panel_settings_rounded,
+                  iconColor: const Color(0xFF818CF8),
+                  title: "Appoint & Manage Branch Admins",
+                  subtitle: "Appoint admins to supervise agencies & manage staff",
+                  onTap: () => _showBranchAdminsManagementSheet(context, user, user.branchId ?? 'branch-prod-1'),
+                ),
+                const Divider(color: Colors.white10, height: 1, indent: 56),
+              ],
               _buildActionTile(
-                icon: Icons.admin_panel_settings_rounded,
-                iconColor: const Color(0xFF818CF8),
-                title: "Appoint & Manage Branch Admins",
-                subtitle: "Appoint admins to supervise agencies & manage staff",
-                onTap: () => _showBranchAdminsManagementSheet(context, user, user.branchId ?? 'branch-prod-1'),
+                icon: Icons.analytics_rounded,
+                iconColor: const Color(0xFF10B981),
+                title: "Total Agency Recharge Statistics",
+                subtitle: "Combined monthly recharge & 3-month reports across all agencies",
+                onTap: () => _showAdminRechargeStatsSheet(context, user),
               ),
               const Divider(color: Colors.white10, height: 1, indent: 56),
               _buildActionTile(
                 icon: Icons.business_center_rounded,
                 iconColor: const Color(0xFFF59E0B),
-                title: "Agency Portal",
-                subtitle: "Monitor recruited hosts, performance & targets",
+                title: "Agency Management",
+                subtitle: "Appoint agencies, recruit hosts, edit or suspend",
                 onTap: () => context.push(AppRoutes.agencyPortal),
               ),
               const Divider(color: Colors.white10, height: 1, indent: 56),
@@ -2004,6 +1881,7 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF6366F1),
                   foregroundColor: Colors.white,
+                  minimumSize: const Size(64, 44),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
@@ -2202,6 +2080,189 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
               ),
             );
           }),
+        ],
+      ),
+    );
+  }
+}
+
+  void _showAdminRechargeStatsSheet(BuildContext context, UserModel user) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => _AdminRechargeStatsSheet(adminUid: user.uid),
+    );
+  }
+
+class _AdminRechargeStatsSheet extends StatefulWidget {
+  final String adminUid;
+  const _AdminRechargeStatsSheet({required this.adminUid});
+
+  @override
+  State<_AdminRechargeStatsSheet> createState() => _AdminRechargeStatsSheetState();
+}
+
+class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
+  bool _loading = true;
+  String _selectedMonth = '';
+  Map<String, dynamic>? _statsData;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchStats();
+  }
+
+  Future<void> _fetchStats([String? month]) async {
+    setState(() => _loading = true);
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('getAdminRechargeStats');
+      final res = await callable.call({
+        'adminId': widget.adminUid,
+        if (month != null && month.isNotEmpty) 'yearMonth': month,
+      });
+      final data = res.data as Map<dynamic, dynamic>?;
+      if (data != null) {
+        setState(() {
+          _statsData = Map<String, dynamic>.from(data);
+          _selectedMonth = _statsData!['yearMonth']?.toString() ?? '';
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final history = (_statsData?['monthlyHistory'] as List<dynamic>?) ?? [];
+    final agencies = (_statsData?['agencyBreakdown'] as List<dynamic>?) ?? [];
+    final combinedTotal = (_statsData?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36, height: 4,
+              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const Gap(16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text("Total Agency Recharge", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                  Gap(2),
+                  Text("Monthly statistics across all supervised agencies", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                ],
+              ),
+              IconButton(
+                icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+                onPressed: () => _fetchStats(_selectedMonth),
+              ),
+            ],
+          ),
+          const Gap(12),
+          // 3-Month Report History Selector
+          if (history.isNotEmpty) ...[
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: history.map((m) {
+                  final ym = (m as Map)['yearMonth']?.toString() ?? '';
+                  final isSel = ym == _selectedMonth;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(ym, style: TextStyle(color: isSel ? Colors.black : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                      selected: isSel,
+                      selectedColor: const Color(0xFF10B981),
+                      backgroundColor: const Color(0xFF1E293B),
+                      onSelected: (_) => _fetchStats(ym),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+            const Gap(14),
+          ],
+          if (_loading) ...[
+            const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))),
+          ] else ...[
+            // Combined Total Card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF064E3B), Color(0xFF022C22)]),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF059669)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("COMBINED AGENCIES RECHARGE", style: TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.bold)),
+                  const Gap(4),
+                  Text(
+                    "\$" + combinedTotal.toStringAsFixed(2),
+                    style: const TextStyle(color: Color(0xFF34D399), fontSize: 26, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
+                  ),
+                  const Gap(4),
+                  Text("Month: " + _selectedMonth + " (Starts fresh from zero on 1st of month)", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                ],
+              ),
+            ),
+            const Gap(16),
+            const Text("Agencies Breakdown", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+            const Gap(8),
+            Expanded(
+              child: agencies.isEmpty
+                  ? const Center(child: Text("No agencies found.", style: TextStyle(color: Colors.white54)))
+                  : ListView.separated(
+                      itemCount: agencies.length,
+                      separatorBuilder: (_, __) => const Gap(8),
+                      itemBuilder: (ctx, i) {
+                        final a = agencies[i] as Map;
+                        final name = a['name']?.toString() ?? 'Agency';
+                        final rUSD = (a['rechargeUSD'] as num?)?.toDouble() ?? 0.0;
+                        final hCount = (a['hostCount'] as num?)?.toInt() ?? 0;
+                        final status = a['status']?.toString() ?? 'active';
+                        return Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
+                          child: Row(
+                            children: [
+                              const CircleAvatar(backgroundColor: Color(0xFF0F172A), child: Icon(Icons.business_rounded, color: Color(0xFF10B981), size: 18)),
+                              const Gap(12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                                    Text(hCount.toString() + " hosts • " + status, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                  ],
+                                ),
+                              ),
+                              Text("\$" + rUSD.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold, fontSize: 14, fontFamily: 'monospace')),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
         ],
       ),
     );

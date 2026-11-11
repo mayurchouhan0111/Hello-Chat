@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/otp_screen.dart';
+import '../../features/auth/presentation/screens/set_password_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
 import '../../features/rooms/presentation/screens/search_screen.dart' as room_search;
 import '../../features/auth/presentation/screens/splash_screen.dart';
@@ -87,6 +88,7 @@ class AppRoutes {
   static const customGiftRequest = '/custom-gift-request';
   static const otpVerify       = '/otp-verify';
   static const forgotPassword  = '/forgot-password';
+  static const setPassword     = '/set-password';
   static const profileSetup    = '/profile-setup';
   static const resetPassword   = '/reset-password';
   static const editProfile     = '/edit-profile';
@@ -188,22 +190,18 @@ final routerProvider = Provider<GoRouter>((ref) {
       // Get the current user directly from the service
       final user = ref.read(authServiceProvider).currentUser;
       
-      final authRoutes = [
+      final unauthenticatedOnlyRoutes = [
         AppRoutes.login,
         AppRoutes.otpVerify,
         AppRoutes.emailAuth,
         AppRoutes.forgotPassword,
-        AppRoutes.resetPassword,
         AppRoutes.splash,
       ];
-      final isAuthRoute = authRoutes.contains(state.matchedLocation);
+      final isUnauthRoute = unauthenticatedOnlyRoutes.contains(state.matchedLocation);
 
       if (user == null) {
-        // 🔒 Unauthenticated: only allow auth routes
-        // Guard against transient null — if user was previously authenticated,
-        // Firebase Auth may be still restoring the session (e.g. after app resume).
-        // Wait briefly and recheck before redirecting to login.
-        if (lastKnownUser != null && !isAuthRoute) {
+        // 🔒 Unauthenticated: only allow unauthenticated routes
+        if (lastKnownUser != null && !isUnauthRoute) {
           await Future.delayed(const Duration(seconds: 1));
           final recheckUser = ref.read(authServiceProvider).currentUser;
           if (recheckUser != null) {
@@ -212,13 +210,13 @@ final routerProvider = Provider<GoRouter>((ref) {
           }
         }
         lastKnownUser = null;
-        return isAuthRoute ? null : AppRoutes.login;
+        return isUnauthRoute ? null : AppRoutes.login;
       }
 
       lastKnownUser = user;
 
-      // 🏠 Authenticated: If on login/splash/profile setup, force Home
-      if (isAuthRoute || state.matchedLocation == AppRoutes.profileSetup) {
+      // 🏠 Authenticated: If on login/splash/forgot-password, redirect to Home
+      if (isUnauthRoute) {
         debugPrint('--- [ROUTER: User Authenticated, Force Redirect to Home] ---');
         return AppRoutes.home;
       }
@@ -245,6 +243,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           return OtpScreen(
             verificationId: extra['verificationId'] ?? '',
             phone: extra['phone'] ?? '',
+            isRegistration: extra['isRegistration'] ?? false,
+            isPasswordReset: extra['isPasswordReset'] ?? false,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.setPassword,
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return SetPasswordScreen(
+            phone: extra['phone'],
+            isReset: extra['isReset'] ?? false,
+            canSkip: extra['canSkip'] ?? false,
           );
         },
       ),

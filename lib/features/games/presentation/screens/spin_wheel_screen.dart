@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hello_chat/core/widgets/premium_diamond.dart';
 import 'package:flutter/material.dart';
@@ -989,6 +990,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   int _countdown = 30;
   Timer? _timer;
   int _currentSegment = 0;
+  final ValueNotifier<int?> _currentSegmentNotifier = ValueNotifier<int?>(0);
+
+  void _updateSegment(int segment) {
+    _currentSegment = segment;
+    if (_currentSegmentNotifier.value != segment) {
+      _currentSegmentNotifier.value = segment;
+    }
+  }
   Map<String, int> _currentBets = {};
   Map<String, int> _betClickCounts = {};
   Map<String, int> _confirmedBets = {};
@@ -1228,8 +1237,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastConnectionNoticeMs < 4000) return;
     _lastConnectionNoticeMs = nowMs;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Text(message ?? 'Connection problem. Your bet was not placed.'),
         duration: const Duration(seconds: 3),
       ),
@@ -1249,8 +1257,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     if (!_walletManager.hasInitialBalance) {
       debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": wallet balance not synced yet.');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Syncing wallet…"),
             duration: Duration(seconds: 2),
           ),
@@ -1278,8 +1285,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // currentTotalBet here, that double-counts and caps bets at ~half balance.
     if (_selectedChipValue > totalPlayingPower) {
       debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (chip: $_selectedChipValue, available: $totalPlayingPower)');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Insufficient Diamonds & Stars for this bet"))
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds & Stars for this bet"))
       );
       return;
     }
@@ -1593,8 +1599,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         } else {
           userMessage = 'Bet for Round $submissionRoundId was not accepted. Please retry.';
         }
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(userMessage), duration: const Duration(seconds: 3)),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(userMessage), duration: const Duration(seconds: 3)),
         );
       }
 
@@ -1604,8 +1609,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         debugPrint('[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: cross-round transition to $_currentRoundId.');
         _reconcileSessionHistoryAfterFailure(submissionRoundId);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text('Round $submissionRoundId closed before your bet landed. It was not placed.'),
               duration: const Duration(seconds: 3),
             ),
@@ -1995,14 +1999,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (normalized < 0) normalized += 2 * math.pi;
       final int segment = (normalized / step).floor() % _segmentCount;
 
-      // Only call setState when the visual segment actually changes
+      _pointerAngle = currentAngle;
       if (segment != _currentSegment) {
-        setState(() {
-          _pointerAngle = currentAngle;
-          _currentSegment = segment;
-        });
-      } else {
-        _pointerAngle = currentAngle;
+        _updateSegment(segment);
       }
     });
 
@@ -2017,9 +2016,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final int segment = ((stepCount % _segmentCount) + _segmentCount) % _segmentCount;
         _pointerAngle = (animVal * (2 * math.pi / _segmentCount)) - (math.pi / 2);
         if (segment != _currentSegment) {
-          setState(() {
-            _currentSegment = segment;
-          });
+          _updateSegment(segment);
         }
       }
     });
@@ -2528,7 +2525,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
 
             _hasSpunForRound = _currentRoundId;
-            _currentSegment = targetIdx;
+            _updateSegment(targetIdx);
             _pointerAngle = (targetIdx * (2 * math.pi / (segmentsMap.length > 0 ? segmentsMap.length : 8))) - (math.pi / 2);
             _spinCompleted = true;
             _lastRoundWager = wager;
@@ -2655,7 +2652,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // rejects. Affordability uses CONFIRMED balance (before pending debits).
       final confirmedPower = _walletManager.confirmedBalance + (beans * 2 / 7).floor();
       if (confirmedPower < pendingUnconfirmedBet) {
-         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Insufficient Diamonds & Stars")));
+         ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds & Stars")));
          setState(() {
            _isSpinning = false;
            _isBetLocked = false;
@@ -2681,7 +2678,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         return;
       }
       setState(() {
-        _currentSegment = (_currentSegment + 1) % 8;
+        _updateSegment((_currentSegment + 1) % 8);
       });
     });
 
@@ -3010,7 +3007,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     setState(() {
       _spinCompleted = true;
-      _currentSegment = targetIdx;
+      _updateSegment(targetIdx);
       _pointerAngle = (targetIdx * (2 * math.pi / 8)) - (math.pi / 2);
       _isSpinning = false;
       _isProcessingSpin = false;
@@ -3422,6 +3419,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _spinFallbackTimer?.cancel();
     _idleController.dispose();
     _spinController.dispose();
+    _currentSegmentNotifier.dispose();
     _historyUpdateNotifier.dispose();
     _walletManager.exitBettingPhaseAndApplyDeferredCredits();
     // Do NOT clear bet state here so accepted bets persist if user leaves the screen before round completion
@@ -3586,18 +3584,23 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                 alignment: Alignment.center,
                                 clipBehavior: Clip.none,
                                 children: [
-                                  RepaintBoundary(
-                                    child: CustomPaint(
-                                      size: Size(360 * wheelScale, 420 * wheelScale), 
-                                      painter: PodsPainter(
-                                        items: items, 
-                                        activeIndex: _currentSegment, 
-                                        betClickCounts: _betClickCounts,
-                                        scale: wheelScale,
-                                        saladHits: statsAsync.value?['todaySaladHits'] ?? 0,
-                                        pizzaHits: statsAsync.value?['todayPizzaHits'] ?? 0,
-                                      ),
-                                    ),
+                                  ValueListenableBuilder<int?>(
+                                    valueListenable: _currentSegmentNotifier,
+                                    builder: (context, activeSeg, _) {
+                                      return RepaintBoundary(
+                                        child: CustomPaint(
+                                          size: Size(360 * wheelScale, 420 * wheelScale), 
+                                          painter: PodsPainter(
+                                            items: items, 
+                                            activeIndex: activeSeg, 
+                                            betClickCounts: _betClickCounts,
+                                            scale: wheelScale,
+                                            saladHits: statsAsync.value?['todaySaladHits'] ?? 0,
+                                            pizzaHits: statsAsync.value?['todayPizzaHits'] ?? 0,
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                   
                                   // Salad & Pizza Buttons
@@ -3677,10 +3680,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                                     );
                                   }),
 
-                                  IgnorePointer(
-                                    child: CustomPaint(
-                                      size: Size(360 * wheelScale, 420 * wheelScale), 
-                                      painter: GlowPointerPainter(activeIndex: _currentSegment, scale: wheelScale, segmentCount: _segmentCount)
+                                  RepaintBoundary(
+                                    child: IgnorePointer(
+                                      child: ValueListenableBuilder<int?>(
+                                        valueListenable: _currentSegmentNotifier,
+                                        builder: (context, activeSeg, _) {
+                                          return CustomPaint(
+                                            size: Size(360 * wheelScale, 420 * wheelScale), 
+                                            painter: GlowPointerPainter(
+                                              activeIndex: activeSeg, 
+                                              scale: wheelScale, 
+                                              segmentCount: _segmentCount,
+                                            ),
+                                          );
+                                        },
+                                      ),
                                     ),
                                   ),
                                   Positioned(
@@ -6165,8 +6179,7 @@ _buildSwapButton(isRefresh: true, scale: scale),
                           onTap: () {
                             Clipboard.setData(ClipboardData(text: h['orderId'].toString()));
                             HapticFeedback.lightImpact();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
+                            ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                 content: Text("Order ID copied to clipboard"),
                                 duration: Duration(seconds: 2),
                                 behavior: SnackBarBehavior.floating,
@@ -6650,6 +6663,21 @@ class PodsPainter extends CustomPainter {
     ..color = Colors.white.withOpacity(0.15)
     ..style = PaintingStyle.fill;
 
+  // Cached TextPainters to avoid CPU layout thrashing on every frame
+  static final Map<String, TextPainter> _textPainterCache = {};
+
+  static TextPainter _getOrCreatePainter(String key, TextSpan span) {
+    var p = _textPainterCache[key];
+    if (p == null) {
+      if (_textPainterCache.length > 120) {
+        _textPainterCache.clear();
+      }
+      p = TextPainter(text: span, textDirection: TextDirection.ltr)..layout();
+      _textPainterCache[key] = p;
+    }
+    return p;
+  }
+
   PodsPainter({required this.items, required this.activeIndex, required this.betClickCounts, this.scale = 1.0, this.saladHits = 0, this.pizzaHits = 0});
 
   @override
@@ -6674,13 +6702,19 @@ class PodsPainter extends CustomPainter {
           canvas.drawCircle(podCenter, 60 * scale, _glowPaint);
         }
 
-        // 4. Draw Emoji (Top)
-        final emojiPainter = TextPainter(text: TextSpan(text: items[i].emoji, style: TextStyle(fontSize: 32 * scale)), textDirection: TextDirection.ltr)..layout();
+        // 4. Draw Emoji (Top) - Cached TextPainter
+        final emojiKey = 'e_${items[i].emoji}_$scale';
+        final emojiPainter = _getOrCreatePainter(
+          emojiKey,
+          TextSpan(text: items[i].emoji, style: TextStyle(fontSize: 32 * scale)),
+        );
         emojiPainter.paint(canvas, podCenter - Offset(emojiPainter.width / 2, 25 * scale));
 
-        // 5. Draw Win Label (Bottom)
-        final labelPainter = TextPainter(
-          text: TextSpan(
+        // 5. Draw Win Label (Bottom) - Cached TextPainter
+        final labelKey = 'l_${items[i].multiplier}_${isHighlighted}_$scale';
+        final labelPainter = _getOrCreatePainter(
+          labelKey,
+          TextSpan(
             text: "win ${items[i].multiplier} times", 
             style: TextStyle(
               color: isHighlighted ? Colors.black : Colors.black87, 
@@ -6689,23 +6723,23 @@ class PodsPainter extends CustomPainter {
               shadows: isHighlighted ? [
                 const Shadow(color: Colors.white, blurRadius: 6),
                 const Shadow(color: Colors.amber, blurRadius: 2),
-              ] : null
-            )
-          ), 
-          textDirection: TextDirection.ltr
-        )..layout();
+              ] : null,
+            ),
+          ),
+        );
         labelPainter.paint(canvas, podCenter - Offset(labelPainter.width / 2, -15 * scale));
 
-        // 6. Draw Coin Icons (Dynamic based on Clicks)
+        // 6. Draw Coin Icons (Dynamic based on Clicks) - Cached TextPainter
         final clickCount = betClickCounts[items[i].name] ?? 0;
         if (clickCount > 0) {
-          final coinsPainter = TextPainter(
-            text: TextSpan(
+          final coinsKey = 'c_${clickCount.clamp(1, 3)}_$scale';
+          final coinsPainter = _getOrCreatePainter(
+            coinsKey,
+            TextSpan(
               text: "🪙" * clickCount.clamp(1, 3), // Max 3 coins
-              style: TextStyle(fontSize: 10 * scale)
-            ), 
-            textDirection: TextDirection.ltr
-          )..layout();
+              style: TextStyle(fontSize: 10 * scale),
+            ),
+          );
           coinsPainter.paint(canvas, podCenter - Offset(coinsPainter.width / 2, -25 * scale));
         }
 
@@ -6738,7 +6772,28 @@ class GlowPointerPainter extends CustomPainter {
   final int? activeIndex;
   final double scale;
   final int segmentCount;
+
+  static Paint? _cachedGlowPaint1;
+  static Paint? _cachedGlowPaint2;
+  static double? _cachedGlowScale;
+  static final Paint _whiteDotPaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.fill;
+
   GlowPointerPainter({required this.activeIndex, this.scale = 1.0, this.segmentCount = 8});
+
+  static void _ensurePaints(double scale) {
+    if (_cachedGlowScale != scale || _cachedGlowPaint1 == null || _cachedGlowPaint2 == null) {
+      _cachedGlowScale = scale;
+      _cachedGlowPaint1 = Paint()
+        ..color = const Color(0xFFFFD700).withOpacity(0.4)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 15 * scale);
+      _cachedGlowPaint2 = Paint()
+        ..color = Colors.white.withOpacity(0.6)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 8 * scale);
+    }
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     if (activeIndex == null) return;
@@ -6750,12 +6805,15 @@ class GlowPointerPainter extends CustomPainter {
     final double lightAngle = (activeIndex! * (2 * math.pi / (segmentCount > 0 ? segmentCount : 8))) - (math.pi / 2);
     final lightPos = Offset(center.dx + math.cos(lightAngle) * radiusX, center.dy + math.sin(lightAngle) * radiusY);
     
-    canvas.drawCircle(lightPos, 50 * scale, Paint()..color = const Color(0xFFFFD700).withOpacity(0.4)..maskFilter = MaskFilter.blur(BlurStyle.normal, 15 * scale));
-    canvas.drawCircle(lightPos, 40 * scale, Paint()..color = Colors.white.withOpacity(0.6)..maskFilter = MaskFilter.blur(BlurStyle.normal, 8 * scale));
-    canvas.drawCircle(lightPos, 4 * scale, Paint()..color = Colors.white);
+    _ensurePaints(scale);
+    canvas.drawCircle(lightPos, 50 * scale, _cachedGlowPaint1!);
+    canvas.drawCircle(lightPos, 40 * scale, _cachedGlowPaint2!);
+    canvas.drawCircle(lightPos, 4 * scale, _whiteDotPaint);
   }
-  @override bool shouldRepaint(covariant GlowPointerPainter oldDelegate) {
-    return oldDelegate.activeIndex != activeIndex || oldDelegate.scale != scale;
+
+  @override
+  bool shouldRepaint(covariant GlowPointerPainter oldDelegate) {
+    return oldDelegate.activeIndex != activeIndex || oldDelegate.scale != scale || oldDelegate.segmentCount != segmentCount;
   }
 }
 

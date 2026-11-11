@@ -6,12 +6,20 @@ class ChatService {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // --- Room Messages (Existing) ---
-  Stream<List<RoomMessage>> getMessagesStream(String roomId) {
+  Stream<List<RoomMessage>> getMessagesStream(String roomId, {DateTime? clearedAt}) {
     return _db.collection('rooms').doc(roomId).collection('messages')
       .orderBy('createdAt', descending: true)
       .limit(50)
       .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) => RoomMessage.fromMap(doc.data(), doc.id)).toList());
+      .map((snapshot) {
+        return snapshot.docs
+            .map((doc) => RoomMessage.fromMap(doc.data(), doc.id))
+            .where((msg) {
+              if (clearedAt == null) return true;
+              return msg.createdAt.isAfter(clearedAt);
+            })
+            .toList();
+      });
   }
 
   Future<void> sendTextMessage(String roomId, String uid, String text) async {

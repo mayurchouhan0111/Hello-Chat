@@ -40,6 +40,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
 
   void _startTimerIfNeeded() {
     if (_queueTimer != null && _queueTimer!.isActive) return;
+    if (_incomingQueue.isEmpty) return;
     _queueTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
       _processNextQueueItem();
     });
@@ -48,7 +49,9 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   @override
   void initState() {
     super.initState();
-    _startTimerIfNeeded();
+    if (_incomingQueue.isNotEmpty) {
+      _startTimerIfNeeded();
+    }
   }
 
   @override
@@ -69,7 +72,12 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   }
 
   void _reconcileMessages(List<RoomMessage> currentMessages, List<String> blocked) {
-    if (currentMessages.isEmpty) {
+    // Edge case: Chat was cleared (either empty, or all previous messages were removed in clear)
+    final bool isWholesaleCleared = _prevMessages.isNotEmpty &&
+        currentMessages.isNotEmpty &&
+        !currentMessages.any((cm) => _prevMessages.any((pm) => pm.msgId == cm.msgId));
+
+    if (currentMessages.isEmpty || isWholesaleCleared) {
       if (_visibleMessages.isNotEmpty || _incomingQueue.isNotEmpty || _prevMessages.isNotEmpty) {
         setState(() {
           _visibleMessages.clear();
@@ -79,7 +87,7 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
           _listKey = GlobalKey<AnimatedListState>();
         });
       }
-      return;
+      if (currentMessages.isEmpty) return;
     }
 
     final isFirstRun = _prevMessages.isEmpty;
@@ -198,10 +206,8 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   void _processNextQueueItem() {
     if (!mounted) return;
     if (_incomingQueue.isEmpty) {
-      if (_visibleMessages.length <= 3) {
-        _queueTimer?.cancel();
-        _queueTimer = null;
-      }
+      _queueTimer?.cancel();
+      _queueTimer = null;
       return;
     }
 
@@ -386,8 +392,8 @@ class RoomMessageTile extends ConsumerWidget {
           final u = user as UserModel;
           final allBadges = getBadgesForUser(u);
 
-          final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
-          final isRoomAdmin = roomData?.isUserAdmin(u.uid) ?? false;
+          final isRoomAdmin = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!).select((r) => r.value?.isUserAdmin(u.uid) ?? false)) : false;
+
 
           final filteredBadges = allBadges.where((b) {
             if (b is UserBadge) {
@@ -431,14 +437,17 @@ class RoomMessageTile extends ConsumerWidget {
           return Align(
             alignment: Alignment.centerLeft,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.74,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: bubbleImage != null 
                 ? BoxDecoration(
                     image: bubbleImage,
                   )
                 : BoxDecoration(
                     color: Colors.black.withOpacity(0.35),
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(14),
                   ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -448,15 +457,15 @@ class RoomMessageTile extends ConsumerWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: AppAvatar(
                       imageUrl: u.profilePhotoUrl,
-                      radius: 13,
+                      radius: 11,
                       vipTier: u.vipTier,
                       frameUrl: u.profileFrame,
                       userLevel: u.level,
                       tags: u.tags,
-                      frameMultiplier: 2.0,
+                      frameMultiplier: 1.8,
                     ),
                   ),
-                  const Gap(7),
+                  const Gap(6),
                   Flexible(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,7 +479,7 @@ class RoomMessageTile extends ConsumerWidget {
                                 return Padding(
                                   padding: const EdgeInsets.only(right: 3),
                                   child: SizedBox(
-                                    height: 18,
+                                    height: 15,
                                     child: FittedBox(
                                       fit: BoxFit.contain,
                                       child: UserBadge(
@@ -488,9 +497,9 @@ class RoomMessageTile extends ConsumerWidget {
                             }),
                             Builder(
                               builder: (context) {
-                                final roomData = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!)).value : null;
-                                final isRoomOwner = roomData?.ownerUid == u.uid;
-                                final isRoomAdmin = roomData?.isUserAdmin(u.uid) ?? false;
+                                final isRoomAdmin = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!).select((r) => r.value?.isUserAdmin(u.uid) ?? false)) : false;
+                                final isRoomOwner = roomId != null ? ref.watch(currentRoomStreamProvider(roomId!).select((r) => r.value?.ownerUid == u.uid)) : false;
+                      
 
                                 return Flexible(
                                   child: Row(
@@ -500,14 +509,14 @@ class RoomMessageTile extends ConsumerWidget {
                                         Padding(
                                           padding: const EdgeInsets.only(right: 4),
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFFFFD700),
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius: BorderRadius.circular(6),
                                             ),
                                             child: const Text(
                                               "Owner",
-                                              style: TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.w900),
+                                              style: TextStyle(color: Colors.black87, fontSize: 8.5, fontWeight: FontWeight.w900),
                                             ),
                                           ),
                                         )
@@ -515,15 +524,15 @@ class RoomMessageTile extends ConsumerWidget {
                                         Padding(
                                           padding: const EdgeInsets.only(right: 4),
                                           child: Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                                             decoration: BoxDecoration(
                                               color: const Color(0xFF00E5FF),
-                                              borderRadius: BorderRadius.circular(8),
+                                              borderRadius: BorderRadius.circular(6),
                                               boxShadow: const [BoxShadow(color: Color(0x6600E5FF), blurRadius: 4)],
                                             ),
                                             child: const Text(
                                               "Admin",
-                                              style: TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.w900),
+                                              style: TextStyle(color: Colors.black87, fontSize: 8.5, fontWeight: FontWeight.w900),
                                             ),
                                           ),
                                         ),
@@ -532,7 +541,7 @@ class RoomMessageTile extends ConsumerWidget {
                                           u.displayName,
                                           style: const TextStyle(
                                             color: Color(0xFF80D8FF),
-                                            fontSize: 12,
+                                            fontSize: 11,
                                             fontWeight: FontWeight.w700,
                                           ),
                                           overflow: TextOverflow.ellipsis,
@@ -550,9 +559,11 @@ class RoomMessageTile extends ConsumerWidget {
                           msg.text,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 13,
-                            height: 1.3,
+                            fontSize: 12,
+                            height: 1.25,
                           ),
+                          softWrap: true,
+                          overflow: TextOverflow.visible,
                         ),
                       ],
                     ),
@@ -662,53 +673,71 @@ class RoomMessageTile extends ConsumerWidget {
 
   Widget _buildStickerMessage(WidgetRef ref, RoomMessage msg) {
     final userAsync = ref.watch(cachedUserProfileProvider(msg.uid));
+    final u = userAsync.value;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: userAsync.when(
-        data: (user) {
-          if (user == null) return const SizedBox.shrink();
-          final u = user as UserModel;
-
-          return Align(
-            alignment: Alignment.centerLeft,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                AppAvatar(
-                  imageUrl: u.profilePhotoUrl,
-                  radius: 13,
-                  vipTier: u.vipTier,
-                  frameUrl: u.profileFrame,
-                  userLevel: u.level,
-                  tags: u.tags,
-                  frameMultiplier: 2.0,
-                ),
-                const Gap(8),
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.asset(
-                      msg.text,
-                      width: 90,
-                      height: 90,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 40),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 240),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppAvatar(
+                imageUrl: u?.profilePhotoUrl ?? '',
+                radius: 11,
+                vipTier: u?.vipTier ?? 'none',
+                frameUrl: u?.profileFrame,
+                userLevel: u?.level ?? 1,
+                tags: u?.tags ?? const [],
+                frameMultiplier: 1.8,
+              ),
+              const Gap(6),
+              if (u != null && u.displayName.isNotEmpty) ...[
+                Flexible(
+                  child: Text(
+                    "${u.displayName}: ",
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                const Gap(4),
               ],
-            ),
-          );
-        },
-        loading: () => const SizedBox.shrink(),
-        error: (_, __) => const SizedBox.shrink(),
+              Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                child: msg.text.startsWith('http')
+                    ? CachedNetworkImage(
+                        imageUrl: msg.text,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white54, size: 24),
+                      )
+                    : Image.asset(
+                        msg.text,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.sentiment_satisfied_alt_rounded, color: Colors.white54, size: 24),
+                      ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

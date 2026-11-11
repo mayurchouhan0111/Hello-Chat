@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -43,8 +44,7 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
   void _showInviteDialog() {
     final me = ref.read(currentUserProfileProvider).valueOrNull;
     if (me?.partnerUid != null && me!.partnerUid!.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("You or the recipient already have an active CP relationship."),
           backgroundColor: Colors.redAccent,
         ),
@@ -119,14 +119,12 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
                                         await ref.read(relationshipServiceProvider).sendCPInvite(u['uid'] as String);
                                         if (ctx.mounted) {
                                           Navigator.pop(ctx);
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(content: Text("CP Invite sent!"), backgroundColor: Colors.green),
+                                          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("CP Invite sent!"), backgroundColor: Colors.green),
                                           );
                                         }
                                       } catch (e) {
                                         if (ctx.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                                          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
                                           );
                                         }
                                       }
@@ -431,14 +429,12 @@ class _LoveHouseScreenState extends ConsumerState<LoveHouseScreen> {
                   await ref.read(relationshipServiceProvider).dissolveCP(rels.first.id);
                 }
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Partnership dissolved."), backgroundColor: Colors.orange),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Partnership dissolved."), backgroundColor: Colors.orange),
                   );
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
                   );
                 }
               }

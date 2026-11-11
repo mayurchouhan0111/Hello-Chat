@@ -604,10 +604,11 @@ class _SendButton extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: enabled ? onTap : null,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Stack(
+        child: RepaintBoundary(
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Stack(
             alignment: Alignment.center,
             children: [
               AnimatedBuilder(
@@ -673,6 +674,7 @@ class _SendButton extends StatelessWidget {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

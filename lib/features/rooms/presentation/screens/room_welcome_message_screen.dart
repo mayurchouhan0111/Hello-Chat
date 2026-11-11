@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -55,8 +56,7 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
     try {
       await ref.read(roomServiceProvider).updateRoomWelcomeMessage(widget.room.roomId, text);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Row(
               children: [
                 Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 20),
@@ -73,8 +73,7 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Failed to save: $e"),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,

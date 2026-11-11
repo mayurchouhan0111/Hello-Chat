@@ -74,6 +74,11 @@ class SafeAnimView(context: Context) : AnimView(context) {
 
     override fun startPlay(file: File) {
         installSafeDecoder()
+        val p = animPlayer
+        if (p != null && p.isRunning()) {
+            Log.w(TAG, "startPlay: player is running, stopping previous clip before starting")
+            runCatching { stopPlay() }
+        }
         super.startPlay(file)
     }
 
@@ -110,11 +115,7 @@ class SafeAnimView(context: Context) : AnimView(context) {
     }
 
     override fun removeView(view: View?) {
-        if (isDestroying) {
-            super.removeView(view)
-        } else {
-            Log.d(TAG, "removeView ignored to keep warm InnerTextureView surface alive")
-        }
+        super.removeView(view)
     }
 
     fun safeDestroy() {
@@ -224,9 +225,12 @@ class VapView(
                 val currentId = currentPlayId
                 val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
                 Log.e("VAP_TRACE", "onFail: id=$currentId, ticket=$ticket, code=$errorType, msg=$errorMsg, device=$deviceModel")
-                mainHandler.post {
-                    if (isDisposed) return@post
+                // FIX: postAtFrontOfQueue bypasses the Choreographer sync barrier so the
+                // alpha=0 hide and Dart callback are not delayed by pending sync messages.
+                mainHandler.postAtFrontOfQueue {
+                    if (isDisposed) return@postAtFrontOfQueue
                     animView.alpha = 0f
+                    animView.visibility = View.INVISIBLE
                     channel.invokeMethod(
                         "onFailed",
                         mapOf(
@@ -248,7 +252,11 @@ class VapView(
                 invoke("onVideoDestroy", mapOf("ticket" to currentTicket, "id" to currentPlayId))
             }
 
-            override fun onVideoRender(frameIndex: Int, config: AnimConfig?) {}
+            override fun onVideoRender(frameIndex: Int, config: AnimConfig?) {
+                if (config != null && config.totalFrames > 0 && frameIndex >= config.totalFrames - 1) {
+                    dispatchVideoComplete()
+                }
+            }
 
             override fun onVideoStart() {
                 hasCompleted = false
@@ -305,9 +313,14 @@ class VapView(
         val completedId = currentPlayId
         val ticket = currentTicket
         Log.i("VAP_TRACE", "onComplete: id=$completedId, ticket=$ticket")
-        mainHandler.post {
-            if (isDisposed) return@post
+        // FIX: postAtFrontOfQueue bypasses the Choreographer sync barrier.
+        // This ensures alpha=0 (hide last frame) and the Dart onVideoComplete callback
+        // are not delayed by pending sync messages — the primary cause of the
+        // "freeze at end" the user reported.
+        mainHandler.postAtFrontOfQueue {
+            if (isDisposed) return@postAtFrontOfQueue
             animView.alpha = 0f
+            animView.visibility = View.INVISIBLE
             channel.invokeMethod("onVideoComplete", mapOf("ticket" to ticket, "id" to completedId))
 
             // Trigger gated start if waiting for codec release
@@ -374,13 +387,14 @@ class VapView(
         val playTicket = ticket ?: ++ticketCounter
 
         // Idempotency: if this is a retry for the active clip that is already running, ignore it
-        if (ticket != null && ticket == currentTicket && currentPlayId == playId && isPlayingActive && animView.isRunning()) {
+        if (ticket != null && ticket == currentTicket && animView.isRunning()) {
             Log.i("VAP_TRACE", "playFile idempotent retry: id=$playId, ticket=$playTicket is already actively running, ignoring duplicate start")
             result?.success(null)
             return
         }
 
         currentTicket = playTicket
+        currentPlayId = playId
         if (filePath == null) {
             Log.w("VAP_TRACE", "playFile REFUSED: id=$playId, ticket=$playTicket, reason=filePath is null")
             result?.error("INVALID_PATH", "File path cannot be null", null)

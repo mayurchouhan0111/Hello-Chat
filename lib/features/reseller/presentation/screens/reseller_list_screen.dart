@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -18,8 +19,7 @@ class ResellerListScreen extends ConsumerWidget {
     String clean = phone.replaceAll(RegExp(r'[^\d+]'), '');
     if (clean.isEmpty) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Invalid WhatsApp phone number."),
             backgroundColor: Colors.redAccent,
           ),
@@ -49,8 +49,7 @@ class ResellerListScreen extends ConsumerWidget {
         await launchUrl(webUri, mode: LaunchMode.externalApplication);
       } else {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text("WhatsApp is not installed on this device or could not be opened."),
               backgroundColor: Colors.redAccent,
               duration: Duration(seconds: 3),
@@ -60,8 +59,7 @@ class ResellerListScreen extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Error opening WhatsApp: $e"),
             backgroundColor: Colors.redAccent,
             duration: const Duration(seconds: 3),
@@ -78,16 +76,14 @@ class ResellerListScreen extends ConsumerWidget {
   ) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please sign in to send messages.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please sign in to send messages.")),
       );
       return;
     }
 
     final targetUid = reseller.userId.isNotEmpty ? reseller.userId : reseller.resellerId;
     if (targetUid == currentUser.uid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("You cannot chat with yourself.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("You cannot chat with yourself.")),
       );
       return;
     }
@@ -108,8 +104,7 @@ class ResellerListScreen extends ConsumerWidget {
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Could not open chat: $e"),
             backgroundColor: Colors.redAccent,
           ),
@@ -474,8 +469,7 @@ class ResellerListScreen extends ConsumerWidget {
                           InkWell(
                             onTap: () {
                               Clipboard.setData(ClipboardData(text: reseller.resellerId));
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                              ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                   content: Text("ID copied to clipboard!"),
                                   duration: Duration(seconds: 1),
                                 ),

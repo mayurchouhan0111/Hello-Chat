@@ -139,7 +139,9 @@ class GiftAnimationController extends ChangeNotifier {
         resolvedFormat = 'svga';
       } else if (lower.contains('.vap') || lower.contains('.vpa') || lower.contains('.mp4') || lower.contains('.pag')) {
         resolvedFormat = 'vap';
-      } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.webp')) {
+      } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp')) {
+        resolvedFormat = 'image';
+      } else if (!lower.endsWith('.json')) {
         resolvedFormat = 'image';
       }
     }
@@ -268,55 +270,79 @@ class GiftAnimationOverlay extends ConsumerStatefulWidget {
 /// (which causes silent gift playback and UI thread lockups).
 /// Best-effort detection of an embedded audio track in an MP4/VAP container:
 /// walks top-level boxes to `moov`, then `moov > trak > mdia > hdlr` and
-/// checks for the `soun` handler type. Returns false when the file can't be
-/// read or parsed — callers then fall back to playing their own soundUrl.
+/// checks for the `soun` handler type using RandomAccessFile seeking.
+/// Does not load entire 20-30MB files into memory. Returns false when the file
+/// can't be read or parsed — callers then fall back to playing their own soundUrl.
 Future<bool> mp4HasAudioTrack(String path) async {
+  RandomAccessFile? raf;
   try {
-    final Uint8List bytes = await File(path).readAsBytes();
-    for (final (type, start, end) in _mp4Boxes(bytes, 0, bytes.length)) {
-      if (type != 'moov') continue;
-      for (final (t1, s1, e1) in _mp4Boxes(bytes, start, end)) {
-        if (t1 != 'trak') continue;
-        for (final (t2, s2, e2) in _mp4Boxes(bytes, s1, e1)) {
-          if (t2 != 'mdia') continue;
-          for (final (t3, s3, e3) in _mp4Boxes(bytes, s2, e2)) {
-            if (t3 == 'hdlr' &&
-                e3 - s3 >= 12 &&
-                String.fromCharCodes(bytes, s3 + 8, s3 + 12) == 'soun') {
-              return true;
-            }
-          }
-        }
-      }
-    }
+    final file = File(path);
+    if (!await file.exists()) return false;
+    final fileLength = await file.length();
+    if (fileLength < 16) return false;
+
+    raf = await file.open(mode: FileMode.read);
+    return await _hasAudioTrackInBoxes(raf, 0, fileLength);
+  } catch (e) {
     return false;
-  } catch (_) {
-    return false;
+  } finally {
+    try {
+      await raf?.close();
+    } catch (_) {}
   }
 }
 
-/// Yields `(type, payloadStart, payloadEnd)` for each box in `[start, end)`.
-/// Handles 64-bit largesize (`size == 1`) and to-EOF (`size == 0`) boxes;
-/// stops on malformed sizes instead of throwing.
-Iterable<(String, int, int)> _mp4Boxes(Uint8List bytes, int start, int end) sync* {
+Future<bool> _hasAudioTrackInBoxes(RandomAccessFile raf, int start, int end) async {
   int pos = start;
+  final headerBuffer = Uint8List(16);
+
   while (pos + 8 <= end) {
-    int size = (bytes[pos] << 24) | (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3];
-    int header = 8;
+    await raf.setPosition(pos);
+    final bytesRead = await raf.readInto(headerBuffer, 0, 8);
+    if (bytesRead < 8) break;
+
+    int size = (headerBuffer[0] << 24) |
+        (headerBuffer[1] << 16) |
+        (headerBuffer[2] << 8) |
+        headerBuffer[3];
+    final type = String.fromCharCodes(headerBuffer.sublist(4, 8));
+    int headerSize = 8;
+
     if (size == 1) {
-      if (pos + 16 > end) return;
+      if (pos + 16 > end) break;
+      final extraRead = await raf.readInto(headerBuffer, 8, 16);
+      if (extraRead < 8) break;
       size = 0;
       for (int i = 0; i < 8; i++) {
-        size = (size << 8) | bytes[pos + 8 + i];
+        size = (size << 8) | headerBuffer[8 + i];
       }
-      header = 16;
+      headerSize = 16;
     } else if (size == 0) {
       size = end - pos;
     }
-    if (size < header || pos + size > end) return;
-    yield (String.fromCharCodes(bytes, pos + 4, pos + 8), pos + header, pos + size);
+
+    if (size < headerSize || pos + size > end) break;
+
+    final payloadStart = pos + headerSize;
+    final payloadEnd = pos + size;
+
+    if (type == 'moov' || type == 'trak' || type == 'mdia') {
+      if (await _hasAudioTrackInBoxes(raf, payloadStart, payloadEnd)) {
+        return true;
+      }
+    } else if (type == 'hdlr') {
+      if (payloadEnd - payloadStart >= 12) {
+        await raf.setPosition(payloadStart + 8);
+        final hdlrType = await raf.read(4);
+        if (hdlrType.length == 4 && String.fromCharCodes(hdlrType) == 'soun') {
+          return true;
+        }
+      }
+    }
+
     pos += size;
   }
+  return false;
 }
 
 class _GiftAudioPool {
@@ -406,6 +432,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final Set<String> _processedEventIds = {};
   bool _initialHistorySeeded = false;
   int _joinTimeServerMs = 0;
+  late final DateTime _mountTimestamp;
 
   /// True while the app is backgrounded: gift queues are cleared and new
   /// gifts are dropped (already marked processed, so nothing replays).
@@ -612,6 +639,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     super.initState();
     _joinTimeServerMs = ServerTimeService.serverNowMs;
     ServerTimeService.sync();
+    // Record overlay mount timestamp with 2-second grace for initial history isolation
+    _mountTimestamp = DateTime.now().subtract(const Duration(seconds: 2));
     WidgetsBinding.instance.addObserver(this);
     // Configure global audio context once so individual players never incur platform latency
     try {
@@ -652,9 +681,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _gifts = gifts;
         });
       }
-      // Pre-cache all bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
-      Future.delayed(const Duration(milliseconds: 600), () {
-        for (final spec in GiftVapCatalog.all) {
+      // Pre-cache bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        for (final spec in GiftVapCatalog.all.take(3)) {
           VapAnimation.preCache(spec.assetPath);
         }
         for (final g in _gifts) {
@@ -729,6 +758,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           resolvedFormat = 'svga';
         } else if (lower.contains('.vap') || lower.contains('.vpa') || lower.contains('.mp4') || lower.contains('.pag')) {
           resolvedFormat = 'vap';
+        } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp')) {
+          resolvedFormat = 'image';
+        } else if (!lower.endsWith('.json')) {
+          resolvedFormat = 'image';
         }
       }
 
@@ -816,13 +849,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       ServerTimeService.calibrateWithServerTimestamp(messages.first.createdAt);
     }
 
-    // On room entry, seed the entire existing history as already processed so
-    // joining (or re-mounting the overlay, e.g. PK toggling) never replays
-    // gifts that were sent before we started watching.
+    // On room entry, seed existing historical messages created before mount
+    // so joining never replays older gifts. Genuinely new gifts arriving at
+    // or after mount are preserved and played for all participants.
     if (!_initialHistorySeeded) {
       _initialHistorySeeded = true;
       for (final m in messages) {
-        _processedMessageIds.add(m.msgId);
+        if (m.createdAt.isBefore(_mountTimestamp)) {
+          _processedMessageIds.add(m.msgId);
+        }
       }
     }
 
@@ -973,8 +1008,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         format = 'vap';
       } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp') || lower.contains('.gif') || format == 'image') {
         format = 'image';
-      } else if (format.isEmpty) {
-        format = 'json';
+      } else if (format.isEmpty || (format == 'json' && !lower.endsWith('.json') && localLottie == null)) {
+        format = lower.endsWith('.json') ? 'json' : 'image';
       }
 
       if (durationMs <= 0 && (format == 'vap' || localVap != null)) {
@@ -1100,6 +1135,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
         debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
+        // Re-arm from actual decode-start with a tighter budget.
+        // Devices that never fire onVideoStart still fall back to the initial +900 ms budget.
+        final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
+        if (clipMs > 0 && _isFullScreenPlaying) {
+          _armFullScreenSafetyTimer(clipMs + 400, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 400ms");
+        }
       },
       onVideoStartWithDevice: (device) {
         if (device != null && device.isNotEmpty) {
@@ -1108,6 +1150,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
         debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
+        // Re-arm from actual decode-start (device-variant callback path).
+        final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
+        if (clipMs > 0 && _isFullScreenPlaying) {
+          _armFullScreenSafetyTimer(clipMs + 400, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 400ms");
+        }
       },
       onVideoComplete: () {
         debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
@@ -1270,6 +1318,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
   void _checkNextFullScreenAnimation() {
     if (!mounted || _isFullScreenPlaying) return;
+    if (ref.read(isRocketActiveProvider(widget.roomId))) {
+      debugPrint("[GiftQueue] Rocket animation is active, holding full-screen gifts");
+      return;
+    }
 
     // Priority queue: luxury before small/medium, only one full-screen animation at a time
     _ActiveGiftAnimation? nextAnim;
@@ -1309,11 +1361,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // embedded AAC, so their empty catalog soundUrl never even triggers the
       // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
 
-      // Duration safety cap
-      final int duration = anim.durationMs > 0
-          ? anim.durationMs
-          : (anim.tier == 'LUXURY' ? 16000 : 10000);
-      _armFullScreenSafetyTimer(math.max(duration + 6000, 25000), ticket);
+      // Duration safety cap: 900 ms covers the worst observed cold-start TTFF
+      // (~840 ms) while halving the previous 2000 ms freeze window.
+      final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
+      _armFullScreenSafetyTimer(duration + 900, ticket);
       debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       Future<VapController?> getController() async {
@@ -1436,6 +1487,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       debugPrint("[VAP_TRACE] _onFullScreenAnimationFinished dropped: ticket $ticket < current $_currentFullScreenTicket");
       return;
     }
+    // Guard: prevent double transition when both onVideoComplete and the watchdog
+    // fire in the same Choreographer sync-barrier window.
+    if (!_isFullScreenPlaying && _currentFullScreenAnim == null) {
+      debugPrint("[VAP_TRACE] _onFullScreenAnimationFinished no-op: already dismissed (ticket=$ticket)");
+      return;
+    }
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
     _releaseFallbackTimer?.cancel();
@@ -1473,14 +1530,19 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       return;
     }
 
+    // Immediately stop and clear persistent controller
+    try {
+      _persistentVapController?.stop();
+    } catch (_) {}
+
     setState(() {
       _currentFullScreenAnim = null;
+      _isFullScreenPlaying = false;
     });
 
-    // 100ms grace window for GPU surface reset before picking the next queued gift
-    _transitionTimer = Timer(const Duration(milliseconds: 100), () {
+    // 30ms grace window for GPU surface reset before picking the next queued gift
+    _transitionTimer = Timer(const Duration(milliseconds: 30), () {
       if (mounted && !_isAppPaused) {
-        _isFullScreenPlaying = false;
         _checkNextFullScreenAnimation();
       }
     });
@@ -1519,6 +1581,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       }
     });
 
+    ref.listen(isRocketActiveProvider(widget.roomId), (prev, isRocket) {
+      if (prev == true && isRocket == false) {
+        _checkNextFullScreenAnimation();
+      }
+    });
     ref.listen(roomMessagesProvider(widget.roomId), (previous, next) {
       if (next.hasValue && next.value != null) {
         _handleMessages(next.value!);
@@ -1600,14 +1667,23 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ...seatWidgets,
 
         // Layer 2: Persistent VAP Player (created on room enter, warm and persistent, released on room exit)
+        // Offstage(offstage: true) completely cuts painting & layer compositing when idle so the room runs
+        // at full 60 FPS without PlatformView texture layer overhead during scrolling/chat interactions.
         Positioned.fill(
           child: IgnorePointer(
+            ignoring: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
             child: RepaintBoundary(
-              child: VapView(
-                scaleType: ScaleType.fitCenter,
-                repeat: 0,
-                mute: kMuteVapAudio,
-                onViewCreated: _setupPersistentVapController,
+              child: Offstage(
+                offstage: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
+                child: TickerMode(
+                  enabled: _isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap',
+                  child: VapView(
+                    scaleType: ScaleType.fitCenter,
+                    repeat: 0,
+                    mute: kMuteVapAudio,
+                    onViewCreated: _setupPersistentVapController,
+                  ),
+                ),
               ),
             ),
           ),
@@ -1617,7 +1693,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         if (_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format != 'vap')
           _buildNonVapAnimationItem(_currentFullScreenAnim!),
 
-        // Layer 4: Combo Overlay banner (rendered above VAP player, internally self-isolated in RepaintBoundary)
+        // Layer 4: Combo Overlay banner (direct child of Stack, self-isolating)
         GiftComboOverlay(roomId: widget.roomId),
       ],
     );
@@ -1771,10 +1847,9 @@ class _SeatGiftFlightState extends State<_SeatGiftFlight> with SingleTickerProvi
 
   @override
   Widget build(BuildContext context) {
+    final center = widget.to;
     // When flight finishes or if flight is disabled, render pure Positioned without any Transform.
-    // This guarantees SVGA and VAP native platform views render with 100% fidelity without texture blanking.
     if (!widget.animateFlight || _controller.isCompleted) {
-      final center = widget.to;
       return Positioned(
         left: center.dx - widget.size / 2,
         top: center.dy - widget.size / 2,
@@ -1784,25 +1859,32 @@ class _SeatGiftFlightState extends State<_SeatGiftFlight> with SingleTickerProvi
       );
     }
 
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final t = _flightCurve.value;
-        final center = _computePosition(t);
-        final scale = _scaleAnimation.value;
+    // Hardware-accelerated flight: Positioned stays static at destination to avoid per-frame Stack.performLayout.
+    // Movement is performed purely via GPU Transform.translate.
+    return Positioned(
+      left: center.dx - widget.size / 2,
+      top: center.dy - widget.size / 2,
+      width: widget.size,
+      height: widget.size,
+      child: AnimatedBuilder(
+        animation: _controller,
+        child: widget.child,
+        builder: (context, child) {
+          final t = _flightCurve.value;
+          final currentPos = _computePosition(t);
+          final scale = _scaleAnimation.value;
+          final offset = currentPos - widget.to;
 
-        return Positioned(
-          left: center.dx - widget.size / 2,
-          top: center.dy - widget.size / 2,
-          width: widget.size,
-          height: widget.size,
-          child: Transform.scale(
-            alignment: Alignment.center,
-            scale: scale,
-            child: widget.child,
-          ),
-        );
-      },
+          return Transform.translate(
+            offset: offset,
+            child: Transform.scale(
+              alignment: Alignment.center,
+              scale: scale,
+              child: child,
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -2245,7 +2327,7 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     }
 
     // 2. VAP / VPA / MP4 / PAG alpha-video format.
-    if (widget.animation.tier != 'NORMAL' &&
+    if (
         (lowerUrl.contains('.vap') ||
         lowerUrl.contains('.vpa') ||
         lowerUrl.contains('.mp4') ||

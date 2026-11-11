@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import 'dart:ui';
 import '../../../../core/providers/profile_provider.dart';
 import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/widgets/app_avatar.dart';
+import '../widgets/password_migration_prompt_card.dart';
 
 class MyProfileScreen extends ConsumerWidget {
   const MyProfileScreen({super.key});
@@ -38,6 +40,7 @@ class MyProfileScreen extends ConsumerWidget {
                 RepaintBoundary(child: _buildHeader(context, userData)),
                 const Gap(12),
                 RepaintBoundary(child: _buildStatsRow(userData, context)),
+                PasswordMigrationPromptCard(userData: userData),
                 const Gap(16),
                 RepaintBoundary(child: _buildShortcutCards(context, userData)),
                 const Gap(16),
@@ -243,8 +246,7 @@ class MyProfileScreen extends ConsumerWidget {
           GestureDetector(
             onTap: () {
               Clipboard.setData(ClipboardData(text: userData.displayId));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("ID ${userData.displayId} copied"), behavior: SnackBarBehavior.floating),
+              ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("ID ${userData.displayId} copied"), behavior: SnackBarBehavior.floating),
               );
             },
             child: Row(

@@ -417,12 +417,24 @@ class RoomService with BaseFirebaseService {
   }
 
   Future<void> setRoomCapacity(String roomId, int capacity) async {
-if (!kRoomCapacityOptions.contains(capacity)) {
+    if (!kRoomCapacityOptions.contains(capacity)) {
       throw Exception("Invalid capacity. Allowed values: ${kRoomCapacityOptions.join(', ')}.");
     }
     await _db.collection('rooms').doc(roomId).update({
       'capacity': capacity,
     });
+    // Defensive edge case: If capacity reduced, unseat any participants above new capacity
+    try {
+      final overCap = await _db
+          .collection('rooms')
+          .doc(roomId)
+          .collection('participants')
+          .where('seatIndex', isGreaterThanOrEqualTo: capacity)
+          .get();
+      for (final doc in overCap.docs) {
+        await doc.reference.update({'seatIndex': -1, 'role': 'audience'});
+      }
+    } catch (_) {}
   }
 
   // ⚔️ Professional PK Battle Management
@@ -687,21 +699,9 @@ if (!kRoomCapacityOptions.contains(capacity)) {
   }
 
   Future<void> clearRoomMessages(String roomId) async {
-    final messages = await _db.collection('rooms').doc(roomId).collection('messages').get();
-    if (messages.docs.isEmpty) return;
-
-    final chunks = <List<QueryDocumentSnapshot<Map<String, dynamic>>>>[];
-    for (var i = 0; i < messages.docs.length; i += 400) {
-      chunks.add(messages.docs.sublist(i, i + 400 > messages.docs.length ? messages.docs.length : i + 400));
-    }
-
-    for (var chunk in chunks) {
-      final batch = _db.batch();
-      for (var doc in chunk) {
-        batch.delete(doc.reference);
-      }
-      await batch.commit();
-    }
+    await _db.collection('rooms').doc(roomId).update({
+      'messagesClearedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<void> updateRoomWelcomeMessage(String roomId, String welcomeMessage) async {

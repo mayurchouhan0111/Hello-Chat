@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hello_chat/providers/user_provider.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
-import '../../../../core/constants/app_strings.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../../core/services/auth_service.dart';
 
 class EmailAuthScreen extends ConsumerStatefulWidget {
   const EmailAuthScreen({super.key});
@@ -28,8 +29,7 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
     final password = _passwordController.text.trim();
 
     if (identifier.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter identifier and password")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please enter identifier and password")),
       );
       return;
     }
@@ -39,10 +39,8 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
     String finalIdentifier = identifier;
     // Check if it's a phone number (start with + or is all digits)
     if (RegExp(r'^\+?[0-9]{7,15}$').hasMatch(identifier)) {
-      // Normalize phone number to pseudo-email
-      finalIdentifier = identifier.startsWith('+') 
-          ? "$identifier@phone.hellochat.app" 
-          : "+$identifier@phone.hellochat.app";
+      // Normalize phone number to pseudo-email using centralized normalizer
+      finalIdentifier = AuthService.phoneToEmail(identifier);
     }
 
     try {
@@ -65,8 +63,7 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll("Exception:", ""))),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString().replaceAll("Exception:", ""))),
         );
       }
     }

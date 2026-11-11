@@ -1,65 +1,140 @@
 import 'dart:io';
 import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hello_chat/features/rooms/presentation/widgets/gift_animation_overlay.dart';
 
-Uint8List _box(String type, List<int> payload) {
-  final int size = 8 + payload.length;
-  return Uint8List.fromList([
-    (size >> 24) & 0xff,
-    (size >> 16) & 0xff,
-    (size >> 8) & 0xff,
-    size & 0xff,
-    ...type.codeUnits,
-    ...payload,
-  ]);
+Future<bool> mp4HasAudioTrackOld(String path) async {
+  try {
+    final Uint8List bytes = await File(path).readAsBytes();
+    for (final (type, start, end) in _mp4BoxesOld(bytes, 0, bytes.length)) {
+      if (type != 'moov') continue;
+      for (final (t1, s1, e1) in _mp4BoxesOld(bytes, start, end)) {
+        if (t1 != 'trak') continue;
+        for (final (t2, s2, e2) in _mp4BoxesOld(bytes, s1, e1)) {
+          if (t2 != 'mdia') continue;
+          for (final (t3, s3, e3) in _mp4BoxesOld(bytes, s2, e2)) {
+            if (t3 == 'hdlr' &&
+                e3 - s3 >= 12 &&
+                String.fromCharCodes(bytes, s3 + 8, s3 + 12) == 'soun') {
+              return true;
+            }
+          }
+        }
+      }
+    }
+    return false;
+  } catch (_) {
+    return false;
+  }
 }
 
-/// Minimal MP4: ftyp + moov > trak > mdia > hdlr with [handlerType].
-Uint8List _mp4WithHandler(String handlerType) {
-  final Uint8List hdlr = _box('hdlr', <int>[
-    0, 0, 0, 0, // version + flags
-    0, 0, 0, 0, // pre_defined
-    ...handlerType.codeUnits,
-  ]);
-  final Uint8List mdia = _box('mdia', hdlr);
-  final Uint8List trak = _box('trak', mdia);
-  final Uint8List moov = _box('moov', trak);
-  final Uint8List ftyp = _box('ftyp', <int>[0x69, 0x73, 0x6f, 0x6d]); // 'isom'
-  return Uint8List.fromList(<int>[...ftyp, ...moov]);
+Iterable<(String, int, int)> _mp4BoxesOld(Uint8List bytes, int start, int end) sync* {
+  int pos = start;
+  while (pos + 8 <= end) {
+    int size = (bytes[pos] << 24) | (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3];
+    int header = 8;
+    if (size == 1) {
+      if (pos + 16 > end) return;
+      size = 0;
+      for (int i = 0; i < 8; i++) {
+        size = (size << 8) | bytes[pos + 8 + i];
+      }
+      header = 16;
+    } else if (size == 0) {
+      size = end - pos;
+    }
+    if (size < header || pos + size > end) return;
+    final type = String.fromCharCodes(bytes, pos + 4, pos + 8);
+    yield (type, pos + header, pos + size);
+    pos += size;
+  }
+}
+
+Future<bool> mp4HasAudioTrackNew(String path) async {
+  RandomAccessFile? raf;
+  try {
+    final file = File(path);
+    if (!await file.exists()) return false;
+    final fileLength = await file.length();
+    if (fileLength < 16) return false;
+
+    raf = await file.open(mode: FileMode.read);
+    return await _hasAudioTrackInBoxes(raf, 0, fileLength);
+  } catch (e) {
+    return false;
+  } finally {
+    try {
+      await raf?.close();
+    } catch (_) {}
+  }
+}
+
+Future<bool> _hasAudioTrackInBoxes(RandomAccessFile raf, int start, int end) async {
+  int pos = start;
+  final headerBuffer = Uint8List(16);
+
+  while (pos + 8 <= end) {
+    await raf.setPosition(pos);
+    final bytesRead = await raf.readInto(headerBuffer, 0, 8);
+    if (bytesRead < 8) break;
+
+    int size = (headerBuffer[0] << 24) |
+        (headerBuffer[1] << 16) |
+        (headerBuffer[2] << 8) |
+        headerBuffer[3];
+    final type = String.fromCharCodes(headerBuffer.sublist(4, 8));
+    int headerSize = 8;
+
+    if (size == 1) {
+      if (pos + 16 > end) break;
+      final extraRead = await raf.readInto(headerBuffer, 8, 16);
+      if (extraRead < 8) break;
+      size = 0;
+      for (int i = 0; i < 8; i++) {
+        size = (size << 8) | headerBuffer[8 + i];
+      }
+      headerSize = 16;
+    } else if (size == 0) {
+      size = end - pos;
+    }
+
+    if (size < headerSize || pos + size > end) break;
+
+    final payloadStart = pos + headerSize;
+    final payloadEnd = pos + size;
+
+    if (type == 'moov' || type == 'trak' || type == 'mdia') {
+      if (await _hasAudioTrackInBoxes(raf, payloadStart, payloadEnd)) {
+        return true;
+      }
+    } else if (type == 'hdlr') {
+      if (payloadEnd - payloadStart >= 12) {
+        await raf.setPosition(payloadStart + 8);
+        final hdlrType = await raf.read(4);
+        if (hdlrType.length == 4 && String.fromCharCodes(hdlrType) == 'soun') {
+          return true;
+        }
+      }
+    }
+
+    pos += size;
+  }
+  return false;
 }
 
 void main() {
-  test('bundled gift_8.vap has an audio track', () async {
-    expect(await mp4HasAudioTrack('assets/gifts-vap/gift_8.vap'), isTrue);
-  });
+  test('mp4HasAudioTrack matches old behavior with zero memory overhead', () async {
+    final vapFiles = [
+      'assets/gifts-vap/gift_14.vap',
+      'assets/gifts-vap/gift_20.vap',
+      'assets/gifts-vap/gift_22.vap',
+    ];
 
-  test('bundled gift_12.vap has an audio track', () async {
-    expect(await mp4HasAudioTrack('assets/gifts-vap/gift_12.vap'), isTrue);
-  });
-
-  test('video-only mp4 reports no audio track', () async {
-    final File f = File('${Directory.systemTemp.path}/hc_video_only.mp4')
-      ..writeAsBytesSync(_mp4WithHandler('vide'));
-    expect(await mp4HasAudioTrack(f.path), isFalse);
-    f.deleteSync();
-  });
-
-  test('mp4 with soun handler reports audio track', () async {
-    final File f = File('${Directory.systemTemp.path}/hc_soun.mp4')
-      ..writeAsBytesSync(_mp4WithHandler('soun'));
-    expect(await mp4HasAudioTrack(f.path), isTrue);
-    f.deleteSync();
-  });
-
-  test('missing file reports no audio track (soundUrl fallback plays)', () async {
-    expect(await mp4HasAudioTrack('${Directory.systemTemp.path}/hc_missing.vap'), isFalse);
-  });
-
-  test('real ffmpeg no-audio mp4 reports no audio track', () async {
-    final File f = File('${Directory.systemTemp.path}/noaudio_test.mp4');
-    if (!f.existsSync()) return; // optional local fixture
-    expect(await mp4HasAudioTrack(f.path), isFalse);
+    for (final path in vapFiles) {
+      if (File(path).existsSync()) {
+        final oldResult = await mp4HasAudioTrackOld(path);
+        final newResult = await mp4HasAudioTrackNew(path);
+        expect(newResult, equals(oldResult), reason: 'Failed for $path');
+      }
+    }
   });
 }

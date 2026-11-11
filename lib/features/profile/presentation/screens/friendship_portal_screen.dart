@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
@@ -619,15 +620,13 @@ class _FriendshipPortalScreenState extends ConsumerState<FriendshipPortalScreen>
               try {
                 await ref.read(relationshipServiceProvider).removeFriend(friendship.id);
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Friend removed."), backgroundColor: Colors.orange),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Friend removed."), backgroundColor: Colors.orange),
                   );
                   Navigator.pop(context); // Go back to previous screen
                 }
               } catch (e) {
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
                   );
                 }
               }

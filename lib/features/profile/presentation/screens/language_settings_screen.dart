@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
@@ -54,14 +55,12 @@ class _LanguageSettingsScreenState extends ConsumerState<LanguageSettingsScreen>
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("App language updated to $langName"), duration: const Duration(seconds: 1)),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("App language updated to $langName"), duration: const Duration(seconds: 1)),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
         );
       }
     }

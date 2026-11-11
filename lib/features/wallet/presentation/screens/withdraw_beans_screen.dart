@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -168,8 +169,7 @@ class _WithdrawBeansScreenState extends ConsumerState<WithdrawBeansScreen> {
   }
 
   void _showCuteNotification(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Row(
           children: [
             Icon(

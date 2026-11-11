@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -59,15 +60,13 @@ class _VerificationScreenState extends ConsumerState<VerificationScreen> {
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Verification submitted successfully!")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Verification submitted successfully!")),
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString()}")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: ${e.toString()}")),
         );
       }
     } finally {

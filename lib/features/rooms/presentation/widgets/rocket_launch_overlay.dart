@@ -10,12 +10,14 @@ class RocketLaunchOverlay extends ConsumerStatefulWidget {
   final int level;
   final String roomId;
   final VoidCallback onComplete;
+  final VoidCallback? onError;
 
   const RocketLaunchOverlay({
     super.key,
     required this.level,
     required this.roomId,
     required this.onComplete,
+    this.onError,
   });
 
   @override
@@ -42,6 +44,8 @@ String? _resolveTopUid(dynamic room) {
 
 class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
   String? _profileImageUrl;
+  // Guard against duplicate completion signals (MethodChannel + watchdog race).
+  bool _dismissed = false;
 
   @override
   void initState() {
@@ -77,10 +81,17 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
                 profileImageUrl: _profileImageUrl,
                 fit: BoxFit.contain,
                 loop: false,
+                onError: widget.onError,
                 onComplete: () {
+                  // Guard: prevent double invocation when both MethodChannel
+                  // onVideoComplete and the safety watchdog fire in the same
+                  // Choreographer sync-barrier window.
+                  if (_dismissed) return;
+                  _dismissed = true;
                   Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
                 },
               ),
+            ),
             ),
 
             Positioned(

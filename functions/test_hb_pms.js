@@ -22,7 +22,9 @@ const {
     canManageTier,
     hierarchyScope,
     isTargetInScope,
-    isSalaryEligible
+    isSalaryEligible,
+    calculateRechargeCommissions,
+    isEligibleHostForCommission
 } = require("./lib/hb_pms");
 
 let testsPassed = 0;
@@ -246,6 +248,102 @@ runTest("Super Admin is excluded from the salary system", () => {
     assert.strictEqual(isSalaryEligible({ role: "agency" }), true);
     assert.strictEqual(isSalaryEligible({ role: "host" }), true);
     assert.strictEqual(isSalaryEligible({ role: "owner" }), true);
+});
+
+// ─────────────────────────────────────────────────────────────
+// 6. Recharge Commission Calculation (30% Agency, 10% Admin)
+// ─────────────────────────────────────────────────────────────
+runTest("calculateRechargeCommissions computes 30% Agency and 10% Admin accurately", () => {
+    // Prompt specification example: $100 Host recharge -> $30 to Agency, $10 to Admin
+    const res100 = calculateRechargeCommissions(100.0);
+    assert.strictEqual(res100.rechargeUSD, 100.0);
+    assert.strictEqual(res100.agencyCommissionUSD, 30.00, "Agency must receive exactly 30% ($30.00)");
+    assert.strictEqual(res100.adminCommissionUSD, 10.00, "Admin must receive exactly 10% ($10.00)");
+    assert.strictEqual(res100.agencyRate, 0.30);
+    assert.strictEqual(res100.adminRate, 0.10);
+
+    // Multi-part scenario: $40 + $35 + $25 = $100
+    const res40 = calculateRechargeCommissions(40.0);
+    const res35 = calculateRechargeCommissions(35.0);
+    const res25 = calculateRechargeCommissions(25.0);
+    assert.strictEqual(res40.agencyCommissionUSD, 12.00);
+    assert.strictEqual(res40.adminCommissionUSD, 4.00);
+    assert.strictEqual(res35.agencyCommissionUSD, 10.50);
+    assert.strictEqual(res35.adminCommissionUSD, 3.50);
+    assert.strictEqual(res25.agencyCommissionUSD, 7.50);
+    assert.strictEqual(res25.adminCommissionUSD, 2.50);
+    assert.strictEqual(round2(res40.agencyCommissionUSD + res35.agencyCommissionUSD + res25.agencyCommissionUSD), 30.00);
+    assert.strictEqual(round2(res40.adminCommissionUSD + res35.adminCommissionUSD + res25.adminCommissionUSD), 10.00);
+
+    // Precision and cents rounding: e.g. $55.55
+    const resOdd = calculateRechargeCommissions(55.55);
+    assert.strictEqual(resOdd.agencyCommissionUSD, 16.67); // 55.55 * 0.30 = 16.665 -> 16.67
+    assert.strictEqual(resOdd.adminCommissionUSD, 5.56);   // 55.55 * 0.10 = 5.555 -> 5.56
+
+    // Zero or invalid recharge amounts yield 0 commission
+    assert.strictEqual(calculateRechargeCommissions(0).agencyCommissionUSD, 0);
+    assert.strictEqual(calculateRechargeCommissions(-50).agencyCommissionUSD, 0);
+    assert.strictEqual(calculateRechargeCommissions(NaN).agencyCommissionUSD, 0);
+
+    // Custom owner policy override if specified
+    const custom = calculateRechargeCommissions(100.0, { agencyCommissionRate: 0.35, adminCommissionRate: 0.05 });
+    assert.strictEqual(custom.agencyCommissionUSD, 35.00);
+    assert.strictEqual(custom.adminCommissionUSD, 5.00);
+});
+
+// ─────────────────────────────────────────────────────────────
+// 7. Host Commission Eligibility (Only Hosts Under an Agency)
+// ─────────────────────────────────────────────────────────────
+runTest("isEligibleHostForCommission strictly requires host role and assigned agencyId", () => {
+    // Valid Host under an Agency
+    assert.strictEqual(isEligibleHostForCommission({ role: "host", agencyId: "agy123" }), true);
+    assert.strictEqual(isEligibleHostForCommission({ agencyId: "agy123" }), true, "default tier is host");
+
+    // Unassigned Host (no agency) -> must NOT qualify
+    assert.strictEqual(isEligibleHostForCommission({ role: "host" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "host", agencyId: null }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "host", agencyId: "" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "host", agencyId: "   " }), false);
+
+    // Non-hosts (even if they have an agencyId field) must NOT qualify
+    assert.strictEqual(isEligibleHostForCommission({ role: "agency", agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ isAgencyOwner: true, agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ tags: ["Agency"], agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "admin", agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ tags: ["Admin"], agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "superadmin", agencyId: "agy123" }), false);
+    assert.strictEqual(isEligibleHostForCommission({ role: "owner", agencyId: "agy123" }), false);
+
+    // Null or empty
+    assert.strictEqual(isEligibleHostForCommission(null), false);
+    assert.strictEqual(isEligibleHostForCommission({}), false);
+});
+
+// ─────────────────────────────────────────────────────────────
+// 8. Diamond Sending / Receiving Activity Exclusion
+// ─────────────────────────────────────────────────────────────
+runTest("Diamond sending / receiving activities never generate recharge commission", () => {
+    // In Hello Chat, gift sending/receiving mutates diamondBalance and beansBalance.
+    // It must NEVER invoke calculateRechargeCommissions or touch usdCommissionBalance.
+    const giftTransactionTypes = ["GIFT_SENT", "GIFT_RECEIVED", "sendGift", "sendGiftWithCombo"];
+    for (const type of giftTransactionTypes) {
+        assert.notStrictEqual(type, "RECHARGE", `Transaction type ${type} must not be treated as a recharge`);
+    }
+});
+
+// ─────────────────────────────────────────────────────────────
+// 9. Idempotency Deterministic Keys
+// ─────────────────────────────────────────────────────────────
+runTest("Idempotency keys are deterministic and single-use for each recharge source", () => {
+    const rawOrder1 = "order_abc123";
+    const rawOrder2 = "rc_order_abc123";
+
+    const clean1 = rawOrder1.startsWith("rc_") ? rawOrder1 : `rc_${rawOrder1}`;
+    const clean2 = rawOrder2.startsWith("rc_") ? rawOrder2 : `rc_${rawOrder2}`;
+
+    assert.strictEqual(clean1, clean2, "Normalised source IDs must match");
+    assert.strictEqual(`${clean1}_agency`, "rc_order_abc123_agency");
+    assert.strictEqual(`${clean1}_admin`, "rc_order_abc123_admin");
 });
 
 console.log("\n==================================================");

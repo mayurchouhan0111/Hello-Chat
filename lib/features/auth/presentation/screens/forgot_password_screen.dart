@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,8 @@ import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
 import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/services/auth_service.dart';
+import '../../../../core/router/app_router.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -25,8 +28,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     final identifier = _emailController.text.trim();
 
     if (identifier.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter your email or phone number")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please enter your email or phone number")),
       );
       return;
     }
@@ -34,8 +36,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     setState(() => _isLoading = true);
 
     // Check if it's a phone number
-    if (RegExp(r'^\+?[0-9]{7,15}$').hasMatch(identifier)) {
-      final phone = identifier.startsWith('+') ? identifier : "+$identifier";
+    final cleanDigits = identifier.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (RegExp(r'^\+?[0-9]{7,15}$').hasMatch(cleanDigits)) {
+      final phone = AuthService.normalizePhone(cleanDigits);
       _showPhoneResetOTP(phone);
     } else {
       // Standard Email Reset
@@ -44,15 +47,13 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         
         if (mounted) {
           setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Password reset email sent! Please check your inbox.")),
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Password reset email sent! Please check your inbox.")),
           );
           Navigator.pop(context);
         }
       } catch (e) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll("Exception:", ""))),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString().replaceAll("Exception:", ""))),
         );
       }
     }
@@ -65,7 +66,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
         verificationCompleted: (PhoneAuthCredential credential) {},
         verificationFailed: (FirebaseAuthException e) {
           setState(() => _isLoading = false);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message ?? "Failed")));
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.message ?? "Failed")));
         },
         codeSent: (String verificationId, int? resendToken) {
           setState(() => _isLoading = false);
@@ -75,7 +76,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
       );
     } catch (e) {
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString())));
     }
   }
 
@@ -115,10 +116,10 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
                   smsCode: pin,
                 );
                 await ref.read(authServiceProvider).signInWithCredential(credential);
-                _showNewPasswordDialog();
+                _showNewPasswordDialog(phone);
               } catch (e) {
                 setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invalid OTP")));
+                ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Invalid OTP")));
               }
             },
             child: const Text("VERIFY"),
@@ -128,7 +129,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     );
   }
 
-  void _showNewPasswordDialog() {
+  void _showNewPasswordDialog(String phone) {
     final passController = TextEditingController();
     showDialog(
       context: context,
@@ -152,7 +153,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
             onPressed: () async {
               final pass = passController.text.trim();
               if (pass.length < 6) {
-                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Too short")));
+                 ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: const Text("Password must be at least 6 characters")));
                  return;
               }
               
@@ -160,18 +161,15 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
               setState(() => _isLoading = true);
               
               try {
-                await ref.read(authServiceProvider).updatePassword(pass);
-                // Also update the pseudo-email if we want to be thorough, but usually 
-                // just updating current password works if the accounts are linked.
-                // For unlinked accounts, we might need a custom backend.
+                await ref.read(authServiceProvider).setupPasswordForUser(pass, phone: phone);
                 
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Password updated successfully!")));
-                  context.go('/login');
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: const Text("Password updated successfully!")));
+                  context.go(AppRoutes.login);
                 }
               } catch (e) {
                 setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+                ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString())));
               }
             },
             child: const Text("SAVE PASSWORD"),

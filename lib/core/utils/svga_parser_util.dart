@@ -140,7 +140,7 @@ class SvgaParserUtil {
   // Cache of raw bytes to avoid redundant file I/O
   static final Map<String, Uint8List> _byteCache = {};
   static final List<String> _cacheKeys = [];
-  static const int _maxCacheSize = 60;
+  static const int _maxCacheSize = 20;
 
   // Cache of parsed MovieEntity objects to avoid CPU-heavy parsing & image decoding on every load
   static final Map<String, MovieEntity> _movieCache = {};
@@ -419,12 +419,33 @@ class SvgaParserUtil {
     return null;
   }
 
+  /// Pre-warms or registers bundled VAP durations from the catalog into memory
+  static void warmupVapDurations() {
+    for (final spec in GiftVapCatalog.all) {
+      if (kDebugMode && spec.durationMs <= 0) {
+        debugPrint('[VAP] Invalid duration for gift ${spec.giftId}');
+      }
+    }
+  }
+
   /// Maps remote VAP / MP4 gift URLs or IDs to local VAP asset paths if available
   static String? getLocalVapPath(String urlOrFile, {String? giftId, String? giftName}) {
     final lower = urlOrFile.toLowerCase();
     final lowerId = (giftId ?? '').toLowerCase();
     final lowerName = (giftName ?? '').toLowerCase();
 
+    if (giftId != null && giftId.isNotEmpty) {
+      final spec = GiftVapCatalog.byId(giftId);
+      if (spec != null) return spec.assetPath;
+    }
+    for (final spec in GiftVapCatalog.all) {
+      if ((lowerName.isNotEmpty && spec.name.toLowerCase() == lowerName) ||
+          (lowerId.isNotEmpty && spec.giftId.toLowerCase() == lowerId) ||
+          lower.contains(spec.giftId.toLowerCase()) ||
+          lower.contains(spec.assetPath.toLowerCase())) {
+        return spec.assetPath;
+      }
+    }
     if (urlOrFile.startsWith('assets/') && (lower.endsWith('.mp4') || lower.endsWith('.vap'))) {
       return urlOrFile;
     }

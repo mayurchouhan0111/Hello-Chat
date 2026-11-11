@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -595,14 +596,12 @@ class _VIPCarouselScreenState extends ConsumerState<VIPCarouselScreen>
     try {
       await ref.read(vipServiceProvider).purchaseVip(tier.tierId);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Successfully subscribed to ${tier.name}! 👑')),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Successfully subscribed to ${tier.name}! 👑')),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Purchase failed: $e')),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Purchase failed: $e')),
         );
       }
     }

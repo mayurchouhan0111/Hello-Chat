@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
@@ -70,17 +71,17 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
     final maxLimit = isAdminRole ? 12 : 999;
 
     if (uid == widget.room.ownerUid) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Room owner cannot be added as administrator")));
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Room owner cannot be added as administrator")));
       return;
     }
 
     if (list.length >= maxLimit) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isAdminRole ? "Maximum 12 administrators" : "Maximum moderators reached")));
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(isAdminRole ? "Maximum 12 administrators" : "Maximum moderators reached")));
       return;
     }
 
     if (list.contains(uid)) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("User is already a${isAdminRole ? 'n administrator' : ' moderator'}")));
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("User is already a${isAdminRole ? 'n administrator' : ' moderator'}")));
       return;
     }
 
@@ -91,7 +92,7 @@ class _AdminSearchScreenState extends ConsumerState<AdminSearchScreen> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(isAdminRole ? "Administrator added" : "Moderator added")));
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(isAdminRole ? "Administrator added" : "Moderator added")));
       Navigator.pop(context);
     }
   }

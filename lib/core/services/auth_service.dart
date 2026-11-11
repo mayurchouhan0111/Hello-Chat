@@ -90,6 +90,84 @@ class AuthService {
 
   // 7. Update Password (must be logged in)
   Future<void> updatePassword(String newPassword) async {
-    await _auth.currentUser?.updatePassword(newPassword);
+    await setupPasswordForUser(newPassword);
+  }
+
+  // 8. Phone normalizer & phone-to-email utility
+  static String normalizePhone(String phone, {String countryCode = '880'}) {
+    String clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (clean.startsWith('+')) {
+      return clean;
+    }
+    // Strip leading zeros (e.g., 01712345678 -> 1712345678)
+    clean = clean.replaceFirst(RegExp(r'^0+'), '');
+    final code = countryCode.replaceAll('+', '');
+    // If number already contains the country code digits without '+'
+    if (clean.startsWith(code) && clean.length > code.length + 6) {
+      return '+$clean';
+    }
+    return '+$code$clean';
+  }
+
+  static String phoneToEmail(String phone) {
+    final clean = normalizePhone(phone);
+    return '$clean@phone.hellochat.app';
+  }
+
+  // 9. Login with Phone and Password (no OTP needed for returning users)
+  Future<UserCredential> loginWithPhonePassword(String phone, String password) async {
+    final email = phoneToEmail(phone);
+    return await _auth.signInWithEmailAndPassword(email: email, password: password);
+  }
+
+  // 10. Securely link or set password for current user
+  Future<void> setupPasswordForUser(String password, {String? phone}) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception("No authenticated user");
+
+    final targetPhone = (phone != null && phone.isNotEmpty) ? phone : user.phoneNumber;
+    if (targetPhone != null && targetPhone.isNotEmpty) {
+      final email = phoneToEmail(targetPhone);
+      try {
+        final credential = EmailAuthProvider.credential(email: email, password: password);
+        await user.linkWithCredential(credential);
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'provider-already-linked') {
+          await user.updatePassword(password);
+        } else if (e.code == 'credential-already-in-use' || e.code == 'email-already-in-use') {
+          try {
+            await user.updatePassword(password);
+          } catch (_) {
+            rethrow;
+          }
+        } else {
+          try {
+            await user.updatePassword(password);
+          } catch (_) {
+            rethrow;
+          }
+        }
+      } catch (_) {
+        await user.updatePassword(password);
+      }
+      try {
+        await _db.collection('users').doc(user.uid).set({
+          'hasPassword': true,
+          'phoneEmail': email,
+          'phoneNumber': normalizePhone(targetPhone),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (dbErr) {
+        debugPrint("Error writing hasPassword flag to firestore: $dbErr");
+      }
+    } else {
+      await user.updatePassword(password);
+      try {
+        await _db.collection('users').doc(user.uid).set({
+          'hasPassword': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      } catch (_) {}
+    }
   }
 }

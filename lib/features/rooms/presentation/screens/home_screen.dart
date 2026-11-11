@@ -203,7 +203,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                             viewportFraction: 1.0,
                             enlargeCenterPage: false,
                             autoPlay: true,
-                            onPageChanged: (index, reason) => setState(() => _currentBannerIndex = index),
                           ),
                           items: banners.map((banner) => Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -907,7 +906,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildImageGridItem(RoomModel room) {
-    return GestureDetector(
+    return RepaintBoundary(
+      child: GestureDetector(
       onTap: () => RoomNavigationHelper.joinRoom(context, ref, room.roomId, preloadedRoom: room),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -920,6 +920,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   child: CachedNetworkImage(
                     imageUrl: room.coverUrl.isEmpty ? "https://picsum.photos/seed/${room.roomId}/400" : room.coverUrl,
                     fit: BoxFit.cover,
+                    memCacheWidth: 360,
+                    memCacheHeight: 420,
                     width: double.infinity,
                     height: double.infinity,
                     memCacheWidth: 350,
@@ -978,7 +980,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-    );
+    ));
   }
 
   void _handleBannerAction(BuildContext context, BannerModel banner) {

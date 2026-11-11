@@ -85,27 +85,50 @@ class AppToast {
     ToastType type = ToastType.info,
     Duration duration = const Duration(seconds: 3),
   }) {
-    final messenger = rootScaffoldMessengerKey.currentState ?? ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-
-    messenger.clearSnackBars();
-    messenger.showSnackBar(
-      SnackBar(
-        content: _ToastWidget(
-          title: title,
-          message: message,
-          type: type,
-          onDismiss: () => messenger.hideCurrentSnackBar(),
-        ),
-        behavior: SnackBarBehavior.floating,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        duration: duration,
-        padding: EdgeInsets.zero,
-      ),
-    );
+    showOverlay(context, message: message, title: title, type: type, duration: duration);
   }
+}
+
+/// Calculates the exact top margin required to position a floating SnackBar
+/// at the top of the viewport (just beneath the status bar/app bar).
+EdgeInsets topSnackBarMargin(BuildContext context, {double extraTop = 0}) {
+  final mq = MediaQuery.maybeOf(context);
+  final screenHeight = mq?.size.height ?? 800.0;
+  final topPadding = (mq?.padding.top ?? 40.0) + extraTop;
+  return EdgeInsets.only(
+    bottom: (screenHeight - (topPadding + 76.0)).clamp(0.0, screenHeight),
+    left: 16.0,
+    right: 16.0,
+  );
+}
+
+/// A SnackBar subclass that automatically positions itself at the top of the screen
+/// ensuring full visibility, immunity to bottom sheets/keyboards, and full SnackBarAction functionality.
+class TopSnackBar extends SnackBar {
+  TopSnackBar({
+    super.key,
+    required super.content,
+    required BuildContext context,
+    super.backgroundColor,
+    super.elevation = 6,
+    super.shape,
+    super.action,
+    super.actionOverflowThreshold,
+    super.showCloseIcon,
+    super.closeIconColor,
+    super.duration = const Duration(seconds: 4),
+    super.animation,
+    super.onVisible,
+    super.dismissDirection = DismissDirection.up,
+    super.clipBehavior = Clip.hardEdge,
+    SnackBarBehavior? behavior,
+    EdgeInsetsGeometry? margin,
+    EdgeInsetsGeometry? padding,
+  }) : super(
+          behavior: behavior ?? SnackBarBehavior.floating,
+          margin: margin ?? topSnackBarMargin(context),
+          padding: padding,
+        );
 }
 
 class _ToastWidget extends StatelessWidget {
@@ -272,6 +295,6 @@ class _ToastWidget extends StatelessWidget {
           ),
         ),
       ),
-    ).animate().slideY(begin: 0.3, end: 0, duration: 250.ms, curve: Curves.easeOutBack).fadeIn(duration: 200.ms);
+    ).animate().slideY(begin: -0.3, end: 0, duration: 250.ms, curve: Curves.easeOutBack).fadeIn(duration: 200.ms);
   }
 }

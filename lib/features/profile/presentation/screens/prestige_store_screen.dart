@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
@@ -213,9 +214,9 @@ class _PrestigeStoreScreenState extends ConsumerState<PrestigeStoreScreen> with 
               Navigator.pop(context);
               try {
                 await ref.read(profileServiceProvider).purchasePrestigeItem(item['id']);
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Successfully acquired: ${item['name']}")));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Successfully acquired: ${item['name']}")));
               } catch (e) {
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Purchase failed: $e")));
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Purchase failed: $e")));
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.tealAccent),
@@ -233,7 +234,7 @@ class _PrestigeStoreScreenState extends ConsumerState<PrestigeStoreScreen> with 
       child: TextButton(
         onPressed: () async {
            await ref.read(profileServiceProvider).feedPrestigeItems();
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Admin: Boutique Inventory Synchronized!")));
+           ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Admin: Boutique Inventory Synchronized!")));
         },
         child: const Text("INITIALIZE ADMIN REPOSITORY", style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold, fontSize: 10, letterSpacing: 1.5)),
       ),

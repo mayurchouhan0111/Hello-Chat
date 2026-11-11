@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -49,8 +50,7 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
   bool _isActionLoading = false;
 
   void _showCuteSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Row(
           children: [
             Icon(isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded, color: Colors.white, size: 20),
@@ -450,9 +450,9 @@ class _ProfileDetailScreenState extends ConsumerState<ProfileDetailScreen> with 
               onTap: () {
                 if (userData.helloId != null) {
                   Clipboard.setData(ClipboardData(text: userData.displayId));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID Copied to Clipboard")));
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("ID Copied to Clipboard")));
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("ID is still pending...")));
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("ID is still pending...")));
                 }
               },
               child: Container(
@@ -2141,8 +2141,7 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
   final Set<String> _sentFriendReqs = {};
 
   void _showCuteSnackBar(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Row(
           children: [
             Icon(isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded, color: Colors.white, size: 20),
@@ -2309,7 +2308,7 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
                     }
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error opening chat: $e")));
+                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error opening chat: $e")));
                     }
                   }
                 },

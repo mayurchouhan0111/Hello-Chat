@@ -1,10 +1,13 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/core/models/message_model.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/gift_animation_overlay.dart';
 import 'package:hello_chat/features/games/presentation/screens/spin_wheel_screen.dart';
+import 'package:tancent_vap/tancent_vap.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   group('Gift Animation System Tier Resolution', () {
     test('Normal gifts correctly resolve tier to NORMAL', () {
       final gift = GiftModel(
@@ -362,6 +365,33 @@ void main() {
       expect(normalizeFoodKey('Kebab 15x'), equals('kebab'));
       expect(normalizeFoodKey('Meat 45x'), equals('steak'));
       expect(normalizeFoodKey('Carrot 5x'), equals('carrot'));
+    });
+  });
+
+  group('VapController Single Playback Invariants', () {
+    test('playFile invokes MethodChannel exactly once without auto-retrying or repeating', () async {
+      final controller = VapController();
+      final List<MethodCall> methodCalls = [];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(const MethodChannel('vap_view_999'), (call) async {
+        methodCalls.add(call);
+        return null;
+      });
+
+      controller.setChannelForTesting(const MethodChannel('vap_view_999'));
+      await controller.playFile('/path/to/animation.mp4', 'anim_1', 1);
+
+      expect(methodCalls.length, equals(1));
+      expect(methodCalls.first.method, equals('playFile'));
+      expect(methodCalls.first.arguments['filePath'], equals('/path/to/animation.mp4'));
+      expect(methodCalls.first.arguments['id'], equals('anim_1'));
+      expect(methodCalls.first.arguments['ticket'], equals(1));
+
+      // Wait 2.0 seconds (previously, 1500ms watchdog timer would have fired extra retries)
+      await Future<void>.delayed(const Duration(milliseconds: 2000));
+
+      // Still exactly 1 call! No duplicate attempts, no repeating!
+      expect(methodCalls.length, equals(1));
     });
   });
 }

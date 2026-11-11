@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -47,8 +48,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
   Future<void> _setupProfile() async {
     final user = ref.read(authStateProvider).value;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Error: User session not found.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: User session not found.")),
       );
       return;
     }
@@ -58,15 +58,13 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     final bio = _bioController.text.trim();
 
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill in your name")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please fill in your name")),
       );
       return;
     }
 
     if (_imageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select a profile photo")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please select a profile photo")),
       );
       return;
     }
@@ -97,8 +95,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Setup Failed: ${e.toString().replaceAll("Exception:", "")}")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Setup Failed: ${e.toString().replaceAll("Exception:", "")}")),
         );
       }
     }

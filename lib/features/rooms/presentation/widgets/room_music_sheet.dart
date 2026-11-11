@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:file_picker/file_picker.dart';
@@ -59,15 +60,13 @@ class _RoomMusicSheetState extends ConsumerState<RoomMusicSheet> with SingleTick
           }
         });
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Added ${result.files.length} audio files.")),
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Added ${result.files.length} audio files.")),
           );
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error picking files: $e")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error picking files: $e")),
         );
       }
     }
@@ -252,7 +251,7 @@ class _RoomMusicSheetState extends ConsumerState<RoomMusicSheet> with SingleTick
                     ? GestureDetector(
                         onTap: () {
                           ref.read(musicPlayerProvider.notifier).addToPlaylist(track);
-                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Added ${track.name} to playlist.")));
+                          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Added ${track.name} to playlist.")));
                         },
                         child: Container(
                           padding: const EdgeInsets.all(6),

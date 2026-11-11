@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -533,7 +534,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                 try {
                   await ref.read(vipServiceProvider).purchaseNoble(tier);
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                       content: Text('Successfully subscribed to ${tier.name}!'),
                       backgroundColor: const Color(0xFF1A6B3A),
                       behavior: SnackBarBehavior.floating,
@@ -541,7 +542,7 @@ class _NobleHallScreenState extends ConsumerState<NobleHallScreen>
                   }
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                       content: Text('Purchase failed: $e'),
                       backgroundColor: const Color(0xFF6B1A1A),
                       behavior: SnackBarBehavior.floating,

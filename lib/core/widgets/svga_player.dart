@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:hello_chat/core/utils/svga_static_util.dart';
 
 class _SkeletonShimmer extends StatefulWidget {
   final BoxFit fit;
@@ -66,6 +67,7 @@ class SvgaPlayer extends StatefulWidget {
   final Size? maxRenderSize;
   final bool pauseWhenInvisible;
   final bool playAudio;
+  final bool showShimmer;
 
   const SvgaPlayer({
     super.key,
@@ -78,6 +80,7 @@ class SvgaPlayer extends StatefulWidget {
     this.maxRenderSize,
     this.pauseWhenInvisible = false,
     this.playAudio = false,
+    this.showShimmer = false,
   });
 
   @override
@@ -297,8 +300,10 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
         _audioPlayer?.stop();
         _loadAnimation();
       }
-    } else if (_controller?.videoItem == null && !_hasError) {
+    } else if (_controller?.videoItem == null && !_hasError && !_isLoading) {
       _loadAnimation();
+    } else if (widget.loop && _controller != null && _controller!.videoItem != null && !_controller!.isAnimating && !_isScrolling) {
+      _controller!.repeat();
     }
   }
 
@@ -323,12 +328,29 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   }
 
   Widget _buildFallback() {
+    // 1. Explicit fallback image if provided
     if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
       return Image.asset(
         widget.fallbackImagePath!,
         fit: widget.fit,
         errorBuilder: (_, __, ___) => const SizedBox.shrink(),
       );
+    }
+    // 2. Mapped static image fallback (PNG/WebP) for bundled SVGA assets
+    final cleanAsset = widget.assetPath?.trim();
+    if (cleanAsset != null && cleanAsset.isNotEmpty) {
+      final staticFallback = SvgaStaticUtil.staticPathForSvga(cleanAsset);
+      if (staticFallback.isNotEmpty && staticFallback != cleanAsset) {
+        return Image.asset(
+          staticFallback,
+          fit: widget.fit,
+          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+        );
+      }
+    }
+    // 3. Only show rectangular shimmer if explicitly opted-in (e.g. card skeletons)
+    if (widget.showShimmer && !_hasError) {
+      return _SkeletonShimmer(fit: widget.fit);
     }
     return const SizedBox.shrink();
   }
@@ -337,6 +359,14 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     if (_hasError || _controller == null || _controller!.videoItem == null || _isLoading) {
       return _buildFallback();
+    }
+
+    if (widget.loop && _controller != null && !_controller!.isAnimating && !_isScrolling) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.loop && _controller != null && !_controller!.isAnimating && !_isScrolling) {
+          _controller!.repeat();
+        }
+      });
     }
 
     final playerWidget = RepaintBoundary(

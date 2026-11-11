@@ -82,34 +82,60 @@ class SeatGrid extends ConsumerWidget {
     final myProfile = currentUid != null ? ref.watch(userProfileProvider(currentUid)).value : null;
     
     int crossAxisCount = 4;
-    double avatarRadius = capacity == 8 ? 24 : (capacity <= 12 ? 22 : 20);
-    double iconSize = capacity == 8 ? 20 : (capacity <= 12 ? 18 : 16);
-    double fontSize = capacity == 8 ? 10 : (capacity <= 12 ? 9 : 8);
+    double avatarRadius = 26;
+    double iconSize = 22;
+    double fontSize = 10;
 
     if (isYoutubeActive) {
       avatarRadius = 20;
       iconSize = 16;
       fontSize = 9;
-      if (capacity == 16) {
+      if (capacity >= 16) {
         crossAxisCount = 8;
-        avatarRadius = 14;
-        iconSize = 12;
-        fontSize = 7;
+        avatarRadius = 16;
+        iconSize = 13;
+        fontSize = 7.5;
       } else if (capacity >= 12) {
         crossAxisCount = 6;
       } else if (capacity == 10) {
         crossAxisCount = 5;
       }
     } else {
-      if (capacity >= 12) {
-        crossAxisCount = 6;
+      if (capacity == 8) {
+        crossAxisCount = 4; // 2 rows of 4
+        avatarRadius = 28;
+        iconSize = 24;
+        fontSize = 11;
+      } else if (capacity == 9) {
+        crossAxisCount = 4; // 2 rows of 4 (+ host)
+        avatarRadius = 27;
+        iconSize = 23;
+        fontSize = 10.5;
+      } else if (capacity == 12) {
+        crossAxisCount = 4; // 3 rows of 4
+        avatarRadius = 25;
+        iconSize = 21;
+        fontSize = 10;
+      } else if (capacity == 13) {
+        crossAxisCount = 4; // 3 rows of 4 (+ host)
+        avatarRadius = 25;
+        iconSize = 21;
+        fontSize = 10;
+      } else if (capacity >= 16) {
+        crossAxisCount = 4; // 4 rows of 4
+        avatarRadius = 23;
+        iconSize = 19;
+        fontSize = 9.5;
       } else if (capacity == 10) {
         crossAxisCount = 5;
+        avatarRadius = 24;
+        iconSize = 20;
+        fontSize = 10;
       }
     }
 
     final bool showHostInGrid = isYoutubeActive;
-    final itemCount = showHostInGrid ? capacity : capacity - 1;
+    final itemCount = (showHostInGrid ? capacity : capacity - 1).clamp(0, 16);
  
     return Padding(
       padding: isYoutubeActive 
@@ -236,8 +262,9 @@ class OccupiedSeatWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final liveUserAsync = ref.watch(userProfileProvider(participant.uid));
     final liveUser = liveUserAsync.valueOrNull ?? userProfile;
-    final roomData = ref.watch(currentRoomStreamProvider(roomId)).value;
-    final isParticipantAdmin = roomData?.isUserAdmin(participant.uid) ?? false;
+    final isParticipantAdmin = roomId.isNotEmpty ? ref.watch(currentRoomStreamProvider(roomId).select((r) => r.value?.isUserAdmin(participant.uid) ?? false)) : false;
+
+
 
     final user = liveUser ?? UserModel(
       uid: participant.uid,
@@ -273,7 +300,9 @@ class OccupiedSeatWidget extends ConsumerWidget {
             height: radius * 2,
             child: Builder(
               builder: (context) {
-                final displayFrame = user.profileFrame;
+                final displayFrame = user.profileFrame.isNotEmpty 
+                    ? user.profileFrame 
+                    : participant.profileFrame;
 
                 return Stack(
                   alignment: Alignment.center,
@@ -285,17 +314,18 @@ class OccupiedSeatWidget extends ConsumerWidget {
                       clipBehavior: Clip.none,
                       children: [
                         OverflowBox(
-                          maxWidth: radius * 2.5,
-                          maxHeight: radius * 2.5,
+                          maxWidth: radius * 4.0,
+                          maxHeight: radius * 4.0,
                           child: AppAvatar(
                             imageUrl: photoUrl,
                             frameUrl: displayFrame,
                             vipTier: user.vipTier,
+                            svipLevel: user.svipLevel,
                             userLevel: user.level,
                             tags: user.tags,
                             radius: radius,
                             showFrame: true,
-                            frameMultiplier: 1.5,
+                            frameMultiplier: 1.6,
                           ),
                         ),
                         if (participant.isMuted)
@@ -440,9 +470,10 @@ class SpeakingBorderWidget extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final speakingUids = ref.watch(speakingUidsProvider).value ?? [];
     final int agoraUid = user.uid.hashCode & 0xFFFFFFFF;
-    final bool isSpeaking = speakingUids.contains(agoraUid);
+    final bool isSpeaking = ref.watch(
+      speakingUidsProvider.select((asyncVal) => (asyncVal.value ?? []).contains(agoraUid)),
+    );
     final hasFrame = user.profileFrame.isNotEmpty && user.profileFrame.toLowerCase() != 'none';
 
     if (!isSpeaking) return const SizedBox.shrink();
@@ -559,24 +590,36 @@ class EmptySeatWidget extends StatelessWidget {
             width: radius * 2,
             height: radius * 2,
             decoration: BoxDecoration(
-              color: isLocked ? Colors.black38 : Colors.white.withOpacity(0.12),
+              color: isLocked ? const Color(0xFF1E1E2D).withValues(alpha: 0.85) : const Color(0xFF0F172A).withValues(alpha: 0.65),
               shape: BoxShape.circle,
-              border: Border.all(color: isLocked ? Colors.redAccent.withOpacity(0.3) : Colors.white10, width: 1.5),
+              border: Border.all(
+                color: isLocked ? Colors.redAccent.withValues(alpha: 0.45) : Colors.white.withValues(alpha: 0.22),
+                width: 1.6,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Icon(
               isLocked ? Icons.lock_rounded : Icons.chair_alt_rounded, 
-              color: isLocked ? Colors.redAccent.withOpacity(0.7) : Colors.white38, 
+              color: isLocked ? Colors.redAccent.withValues(alpha: 0.85) : Colors.white.withValues(alpha: 0.65), 
               size: iconSize * (isLocked ? 0.9 : 1.0)
             ),
           ),
           const SizedBox(height: 4),
-          SizedBox(
-            height: fontSize + 4,
-            child: Center(
-              child: isLocked 
-                  ? Text("Locked", style: TextStyle(color: Colors.redAccent.withOpacity(0.6), fontSize: fontSize, fontWeight: FontWeight.bold))
-                  : Text(index == 0 ? "Owner" : "$index", style: TextStyle(color: Colors.white70, fontSize: fontSize, fontWeight: FontWeight.bold)),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.55),
+              borderRadius: BorderRadius.circular(8),
             ),
+            child: isLocked 
+                ? Text("Locked", style: TextStyle(color: Colors.redAccent.withValues(alpha: 0.85), fontSize: fontSize, fontWeight: FontWeight.bold))
+                : Text(index == 0 ? "Owner" : "$index", style: TextStyle(color: Colors.white, fontSize: fontSize, fontWeight: FontWeight.bold)),
           ),
         ],
       ),

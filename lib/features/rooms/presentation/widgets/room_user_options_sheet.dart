@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -215,8 +216,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                     onLongPress: () {
                       final idToCopy = u.displayId;
                       Clipboard.setData(ClipboardData(text: idToCopy));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text("ID $idToCopy copied"), behavior: SnackBarBehavior.floating),
+                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("ID $idToCopy copied"), behavior: SnackBarBehavior.floating),
                       );
                     },
                     child: Row(
@@ -440,8 +440,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               onTap: () async {
                                 final svipLevel = u.svipLevel ?? 0;
                                 if (svipLevel >= 4 || u.isSvipProtected == true) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text("This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed."),
                                       backgroundColor: Colors.amber,
                                     ),
@@ -460,7 +459,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               onTap: () async {
                                 Navigator.pop(context);
                                 await ref.read(roomServiceProvider).setSingerRole(widget.roomId, u.uid, !widget.participant.isSinger);
-                                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(widget.participant.isSinger ? "Singer role removed." : "Singer role granted.")));
+                                if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(widget.participant.isSinger ? "Singer role removed." : "Singer role granted.")));
                               }
                             ),
                             if (viewerIsOwner && u.uid != roomData?.ownerUid) ...[
@@ -476,16 +475,14 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                     if (targetIsAdmin) {
                                       await ref.read(roomServiceProvider).removeAdmin(widget.roomId, u.uid);
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text("Room Admin removed successfully.")),
+                                        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Room Admin removed successfully.")),
                                         );
                                       }
                                     } else {
                                       final adminCount = roomData?.admins.where((id) => id != roomData.ownerUid).length ?? 0;
                                       if (adminCount >= 12) {
                                         if (context.mounted) {
-                                          ScaffoldMessenger.of(context).showSnackBar(
-                                            const SnackBar(
+                                          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                               content: Text("Maximum limit of 12 Room Admins reached."),
                                               backgroundColor: Colors.redAccent,
                                             ),
@@ -495,15 +492,13 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                       }
                                       await ref.read(roomServiceProvider).addAdmin(widget.roomId, u.uid);
                                       if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text("User assigned as Room Admin successfully.")),
+                                        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("User assigned as Room Admin successfully.")),
                                         );
                                       }
                                     }
                                   } catch (e) {
                                     if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text("Failed to update Admin: $e"), backgroundColor: Colors.redAccent),
+                                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Failed to update Admin: $e"), backgroundColor: Colors.redAccent),
                                       );
                                     }
                                   }
@@ -515,8 +510,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                 Navigator.pop(context);
                                 await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'invite');
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Audio call invitation sent!"), behavior: SnackBarBehavior.floating),
+                                ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Audio call invitation sent!"), behavior: SnackBarBehavior.floating),
                                 );
                               }
                             }),
@@ -525,8 +519,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                               Navigator.pop(context);
                               await ref.read(roomServiceProvider).inviteToAudioCall(widget.roomId, widget.participant.uid, type: 'bring');
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text("Bring to call invitation sent!"), behavior: SnackBarBehavior.floating),
+                                ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Bring to call invitation sent!"), behavior: SnackBarBehavior.floating),
                                 );
                               }
                             }),
@@ -547,8 +540,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
 
                                 if (mySvipLevel == 6) {
                                   if (svipLevel == 6) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
+                                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                         content: Text("SVIP 6 users cannot Kick Out another SVIP 6 user."),
                                         backgroundColor: Colors.redAccent,
                                       ),
@@ -556,8 +548,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                                     return;
                                   }
                                 } else if (svipLevel >= 4 || u.isSvipProtected == true) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text("This user is protected by SVIP privileges. Kick Out and Mute actions are not allowed."),
                                       backgroundColor: Colors.amber,
                                     ),
@@ -736,8 +727,7 @@ class _RoomUserOptionsSheetState extends ConsumerState<RoomUserOptionsSheet> {
                   );
                 } catch (e) {
                   if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                         content: Text(e.toString().replaceAll('Exception:', '').replaceAll('FirebaseFunctionsException:', '').trim()),
                         backgroundColor: Colors.redAccent,
                       ),

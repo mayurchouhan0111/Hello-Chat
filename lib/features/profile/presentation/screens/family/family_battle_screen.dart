@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -740,8 +741,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
   Future<void> _sendChallenge(String opponentId) async {
     if (_battleImage == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Please select a battle image first!'),
             backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
@@ -758,8 +758,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
     if (user == null) return;
     if (user.diamondBalance < _battleDiamondCost) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Insufficient diamonds to launch a battle.'),
             backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
@@ -776,8 +775,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       imageUrl = await ref.read(cloudinaryServiceProvider).uploadImage(_battleImage!.path, folder: 'battle_covers');
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Failed to upload image. Try again.'),
             backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
@@ -798,8 +796,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
            );
       setState(() => _battleImage = null);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Challenge sent!'),
             backgroundColor: FamilyLight.gold.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
@@ -811,8 +808,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text(e.toString().length > 100 ? 'Failed to send challenge.' : e.toString()),
             backgroundColor: FamilyLight.red.withOpacity(0.9),
             behavior: SnackBarBehavior.floating,
@@ -834,8 +830,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         );
         if (mounted) {
           setState(() => _hasAccess = true);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: const Text('Battle access purchased!'),
               backgroundColor: FamilyLight.gold.withOpacity(0.9),
               behavior: SnackBarBehavior.floating,
@@ -846,8 +841,7 @@ class _FamilyBattleScreenState extends ConsumerState<FamilyBattleScreen>
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text(e.toString()),
               backgroundColor: FamilyLight.red.withOpacity(0.9),
               behavior: SnackBarBehavior.floating,

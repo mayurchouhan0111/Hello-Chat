@@ -15,7 +15,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// in production, because 10 must stay selectable: 280 of 364 live rooms are
 /// cap-10 (createRoom's server-side default), so dropping it would have blocked
 /// a resize for 77% of hosts.
-const kRoomCapacityOptions = <int>[6, 9, 10, 12, 16];
+const kRoomCapacityOptions = <int>[8, 9, 10, 12, 13, 16];
 
 class RoomModel {
   final String roomId;
@@ -79,6 +79,7 @@ class RoomModel {
   final String? lastMonthlySentDate;
   final int starRating;
   final DateTime? starRatingUpdatedAt;
+  final DateTime? messagesClearedAt;
 
   RoomModel({
     required this.roomId,
@@ -142,6 +143,7 @@ class RoomModel {
     this.lastMonthlySentDate,
     this.starRating = 0,
     this.starRatingUpdatedAt,
+    this.messagesClearedAt,
   });
 
   List<String> get adminIds => admins;
@@ -247,6 +249,7 @@ class RoomModel {
       'lastMonthlySentDate': lastMonthlySentDate,
       'starRating': starRating,
       'starRatingUpdatedAt': starRatingUpdatedAt != null ? Timestamp.fromDate(starRatingUpdatedAt!) : null,
+      'messagesClearedAt': messagesClearedAt != null ? Timestamp.fromDate(messagesClearedAt!) : null,
     };
   }
 
@@ -338,6 +341,7 @@ class RoomModel {
       lastMonthlySentDate: map['lastMonthlySentDate']?.toString(),
       starRating: (map['starRating'] as num?)?.toInt() ?? 0,
       starRatingUpdatedAt: (map['starRatingUpdatedAt'] as Timestamp?)?.toDate(),
+      messagesClearedAt: (map['messagesClearedAt'] as Timestamp?)?.toDate(),
     );
   }
 

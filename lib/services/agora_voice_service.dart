@@ -76,12 +76,16 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
         audioScenario: AudioScenarioType.audioScenarioGameStreaming,
       ));
 
-      // Force default audio route to speakerphone
-      await _engine!.setDefaultAudioRouteToSpeakerphone(true);
+      // Force default audio route to speakerphone (guarded against native state errors)
+      try {
+        await _engine!.setDefaultAudioRouteToSpeakerphone(true);
+      } catch (e) {
+        debugPrint("Notice: setDefaultAudioRouteToSpeakerphone: $e");
+      }
 
-      // Set audio profile for professional music/singing quality
+      // Set audio profile for optimal voice + background music without CPU overload on low-end devices
       await _engine!.setAudioProfile(
-        profile: AudioProfileType.audioProfileMusicHighQualityStereo,
+        profile: AudioProfileType.audioProfileMusicStandard,
       );
 
       _engine!.registerEventHandler(
