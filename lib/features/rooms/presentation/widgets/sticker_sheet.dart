@@ -3,8 +3,15 @@ import '../../../../core/constants/stickers_data.dart';
 
 class StickerSheet extends StatelessWidget {
   final Function(String stickerPath) onStickerSelected;
+  final Color? backgroundColor;
+  final bool showHandle;
 
-  const StickerSheet({super.key, required this.onStickerSelected});
+  const StickerSheet({
+    super.key,
+    required this.onStickerSelected,
+    this.backgroundColor,
+    this.showHandle = true,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -14,27 +21,28 @@ class StickerSheet extends StatelessWidget {
       length: packs.length,
       child: Container(
         height: MediaQuery.of(context).size.height * 0.42,
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        decoration: BoxDecoration(
+          color: backgroundColor ?? const Color(0xFF1B142F),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           children: [
-            Container(
-              margin: const EdgeInsets.only(top: 8, bottom: 4),
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
+            if (showHandle)
+              Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
             TabBar(
               isScrollable: true,
               tabAlignment: TabAlignment.start,
-              indicatorColor: Colors.pinkAccent,
+              indicatorColor: const Color(0xFF7C3AED),
               indicatorSize: TabBarIndicatorSize.label,
-              labelColor: Colors.pinkAccent,
+              labelColor: const Color(0xFFC4B5FD),
               unselectedLabelColor: Colors.white54,
               labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
               unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 13),

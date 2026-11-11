@@ -542,17 +542,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   void _showStickerSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => StickerSheet(
-        onStickerSelected: (path) async {
-          final uid = ref.read(authStateProvider).value?.uid;
-          if (uid == null) return;
-          await ref.read(chatServiceProvider).sendStickerMessage(widget.roomId, uid, path);
-        },
-      ),
-    );
+    _showRoomChatInputSheet(initialTab: 2);
   }
 
   @override
@@ -1671,68 +1661,120 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
         builder: (context, setSheetState) {
           return Container(
             padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
-              top: 14, left: 16, right: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+              top: 12, left: 16, right: 16,
             ),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1730),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
+              border: Border(
+                top: BorderSide(
+                  color: const Color(0xFF5A447F).withOpacity(0.5),
+                  width: 1.2,
+                ),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.6),
+                  blurRadius: 28,
+                  offset: const Offset(0, -8),
+                ),
+              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 36, height: 4,
-                  decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2)),
+                // Top drag handle
+                Center(
+                  child: Container(
+                    width: 38,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF5E4E7A),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // 3-Mode Segmented Tabs Row
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildSheetTab(
+                        "Text",
+                        Icons.sticky_note_2_outlined,
+                        activeTab == 0,
+                        () => setSheetState(() => activeTab = 0),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildSheetTab(
+                        "Photo",
+                        Icons.image_outlined,
+                        activeTab == 1,
+                        () => setSheetState(() => activeTab = 1),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildSheetTab(
+                        "Sticker",
+                        Icons.sentiment_satisfied_alt_outlined,
+                        activeTab == 2,
+                        () => setSheetState(() => activeTab = 2),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 16),
-                // Lavender 3-mode tab capsule
-                Container(
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(24),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(child: _buildSheetTab("Text", Icons.chat_bubble_outline_rounded, activeTab == 0, () => setSheetState(() => activeTab = 0))),
-                      _buildTabDivider(activeTab == 0 || activeTab == 1),
-                      Expanded(child: _buildSheetTab("Photo", Icons.image_outlined, activeTab == 1, () => setSheetState(() => activeTab = 1))),
-                      _buildTabDivider(activeTab == 1 || activeTab == 2),
-                      Expanded(child: _buildSheetTab("Sticker", Icons.emoji_emotions_outlined, activeTab == 2, () => setSheetState(() => activeTab = 2))),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                // Tab content
+
+                // Tab Content
                 if (activeTab == 0) ...[
                   Row(
                     children: [
                       Expanded(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          height: 48,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: TextField(
-                            controller: _chatController,
-                            autofocus: true,
-                            textInputAction: TextInputAction.send,
-                            cursorColor: const Color(0xFF7C3AED),
-                            style: const TextStyle(color: Color(0xFF0F172A), fontSize: 14, fontWeight: FontWeight.w600),
-                            decoration: const InputDecoration(
-                              hintText: "Say hi...",
-                              hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(vertical: 12),
+                            color: const Color(0xFF130B24),
+                            borderRadius: BorderRadius.circular(28),
+                            border: Border.all(
+                              color: const Color(0xFF7C3AED),
+                              width: 1.5,
                             ),
-                            onChanged: (_) => setSheetState(() {}),
-                            onSubmitted: (_) {
-                              Navigator.pop(sheetContext);
-                              _sendMessage();
-                            },
+                          ),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextField(
+                              controller: _chatController,
+                              autofocus: true,
+                              textInputAction: TextInputAction.send,
+                              cursorColor: const Color(0xFF9D64FF),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              decoration: const InputDecoration(
+                                hintText: "Say something...",
+                                hintStyle: TextStyle(
+                                  color: Color(0xFF8E7FA8),
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              onChanged: (_) => setSheetState(() {}),
+                              onSubmitted: (_) {
+                                Navigator.pop(sheetContext);
+                                _sendMessage();
+                              },
+                            ),
                           ),
                         ),
                       ),
@@ -1741,23 +1783,41 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         valueListenable: hasTextNotifier,
                         builder: (context, hasText, child) {
                           return GestureDetector(
-                            onTap: hasText ? () {
-                              Navigator.pop(sheetContext);
-                              _sendMessage();
-                            } : null,
+                            onTap: hasText
+                                ? () {
+                                    Navigator.pop(sheetContext);
+                                    _sendMessage();
+                                  }
+                                : null,
                             child: AnimatedContainer(
                               duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.all(13),
+                              width: 48,
+                              height: 48,
                               decoration: BoxDecoration(
-                                gradient: hasText
-                                    ? const LinearGradient(colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)])
-                                    : LinearGradient(colors: [Colors.grey.shade200, Colors.grey.shade300]),
                                 shape: BoxShape.circle,
-                                boxShadow: hasText
-                                    ? [BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.35), blurRadius: 8)]
-                                    : [],
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: hasText
+                                      ? const [Color(0xFF8B5CF6), Color(0xFF6D28D9)]
+                                      : const [Color(0xFF7032F0), Color(0xFF5B1ED4)],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF7C3AED).withOpacity(hasText ? 0.55 : 0.35),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
                               ),
-                              child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                              child: Transform.rotate(
+                                angle: -0.15,
+                                child: const Icon(
+                                  Icons.send_rounded,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
                             ),
                           );
                         },
@@ -1771,7 +1831,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         child: _buildPhotoOption(
                           Icons.camera_alt_outlined,
                           "Camera",
-                          const Color(0xFF7C3AED),
+                          const Color(0xFF9D64FF),
                           () {
                             Navigator.pop(sheetContext);
                             _pickAndUploadImage(source: ImageSource.camera);
@@ -1783,7 +1843,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         child: _buildPhotoOption(
                           Icons.photo_library_outlined,
                           "Gallery",
-                          const Color(0xFF6366F1),
+                          const Color(0xFF8B5CF6),
                           () {
                             Navigator.pop(sheetContext);
                             _pickAndUploadImage(source: ImageSource.gallery);
@@ -1794,8 +1854,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   ),
                 ] else ...[
                   SizedBox(
-                    height: 280,
+                    height: 290,
                     child: StickerSheet(
+                      backgroundColor: Colors.transparent,
+                      showHandle: false,
                       onStickerSelected: (path) async {
                         final uid = ref.read(authStateProvider).value?.uid;
                         if (uid == null) return;
@@ -1804,7 +1866,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     ),
                   ),
                 ],
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
               ],
             ),
           );
@@ -1819,29 +1881,47 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+        height: 42,
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEDE9FE) : Colors.transparent,
-          borderRadius: BorderRadius.circular(20),
+          color: isSelected ? const Color(0xFF7032F0) : const Color(0xFF281E3D),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected
+                ? const Color(0xFF8B5CF6).withOpacity(0.6)
+                : const Color(0xFF3A2B55).withOpacity(0.6),
+            width: 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF7032F0).withOpacity(0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFF334155), size: 15),
+            Icon(
+              icon,
+              color: isSelected ? Colors.white : const Color(0xFFB5A6CE),
+              size: 17,
+            ),
             const SizedBox(width: 6),
-            Text(label, style: TextStyle(
-              color: isSelected ? const Color(0xFF7C3AED) : const Color(0xFF334155),
-              fontSize: 13, fontWeight: FontWeight.w600,
-            )),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? Colors.white : const Color(0xFFB5A6CE),
+                fontSize: 13,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
           ],
         ),
       ),
     );
-  }
-
-  Widget _buildTabDivider(bool visible) {
-    if (!visible) return const SizedBox(width: 2);
-    return Container(width: 1, height: 20, color: const Color(0xFFE2E8F0));
   }
 
   Widget _buildPhotoOption(IconData icon, String label, Color color, VoidCallback onTap) {
@@ -1849,18 +1929,28 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 24),
+        padding: const EdgeInsets.symmetric(vertical: 22),
         decoration: BoxDecoration(
-          color: const Color(0xFFFAFAFA),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
+          color: const Color(0xFF281E3D),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFF7C3AED).withOpacity(0.35),
+            width: 1.2,
+          ),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: color, size: 28),
             const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: Color(0xFF334155), fontSize: 13, fontWeight: FontWeight.w600)),
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
       ),
@@ -2003,7 +2093,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         child: const Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
-                            "Say hi...",
+                            "Say something...",
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(color: Color(0xFF718096), fontSize: 12),
