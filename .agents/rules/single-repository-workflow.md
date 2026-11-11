@@ -9,13 +9,14 @@
 - **NO AGENT-CREATED WORKTREES**: Agents must NEVER run `git worktree add` to create hidden workspaces under `C:\Users\Lenovo\.gemini\antigravity\worktrees\` or `AppData\Local\Temp\` without explicit, written user instruction.
 - **WORK DIRECTLY IN THE PRIMARY REPO**: All code edits, file creations, tests, and builds MUST occur directly in `D:\UnHuman\Apps\Hello Chat\hellochat`.
 
-## 3. Commit & Push Protocol
-- **Commit Early & Atomically**: Every completed module, bugfix, or feature slice must be committed with standard conventional commit syntax (`feat:`, `fix:`, `refactor:`, `test:`).
-- **Push Immediately to GitHub**: Never leave verified work unpushed in local branches or working trees. After completing verification, push the branch to `origin`:
+## 3. Strict Single Branch Rule (Always `main`)
+- **NO NEW BRANCHES**: Never create feature branches (`feature/*`), verification branches (`verify/*`), or temporary branches. All development occurs directly on `main`.
+- **Commit Directly to `main`**: Every completed change, fix, or feature is committed directly to `main` with standard conventional commit syntax (`feat:`, `fix:`, `refactor:`, `test:`).
+- **Push Immediately to `origin main`**: After verifying any change, immediately push to GitHub:
   ```bash
-  git push origin <branch-name>
+  git push origin main
   ```
-- **Sync Primary Branch**: When a feature/milestone is verified, merge it into `main` (or create a GitHub PR) so `main` is always clean, buildable, and ready for deployment.
+- `main` on GitHub and `main` in `D:\UnHuman\Apps\Hello Chat\hellochat` must stay 100% synchronized at all times.
 
 ## 4. Verification & Build Standard
 - All builds (`flutter build apk --release`, `flutter build apk --debug`) MUST be run exclusively from `D:\UnHuman\Apps\Hello Chat\hellochat`.

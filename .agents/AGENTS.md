@@ -23,4 +23,5 @@ Rules:
 - No boilerplate nobody asked for.
 - Deletion over addition. Boring over clever. Fewest files possible.
 - Shortest working diff wins, but only once you understand the problem.
+- **Strict Single Branch & Primary Repo Rule**: ALWAYS work directly on the `main` branch in `D:\UnHuman\Apps\Hello Chat\hellochat`. NEVER create any new branches (`feature/*`, `verify/*`, `test/*`, etc.) and NEVER create git worktrees. Commit directly to `main` and push directly to `origin main`.
 - **Mandatory Daily Work Log**: On every task/change, update [`PROJECT_WORKLOG.md`](../PROJECT_WORKLOG.md) in the project root documenting what the client asked and what was done in simple, plain English (see `.agents/rules/daily-worklog-enforcement.md`).
