@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:hello_chat/core/utils/svga_static_util.dart';
 
 class _SkeletonShimmer extends StatefulWidget {
   final BoxFit fit;
@@ -66,6 +67,7 @@ class SvgaPlayer extends StatefulWidget {
   final Size? maxRenderSize;
   final bool pauseWhenInvisible;
   final bool playAudio;
+  final bool showShimmer;
 
   const SvgaPlayer({
     super.key,
@@ -78,6 +80,7 @@ class SvgaPlayer extends StatefulWidget {
     this.maxRenderSize,
     this.pauseWhenInvisible = false,
     this.playAudio = false,
+    this.showShimmer = false,
   });
 
   @override
@@ -95,6 +98,26 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _controller = SVGAAnimationController(vsync: this);
+
+    // ⚡ Instant 0ms synchronous frame-0 render if already preloaded/cached in memory
+    final cleanAsset = widget.assetPath?.trim();
+    if (cleanAsset != null && cleanAsset.isNotEmpty) {
+      final cached = SvgaParserUtil.getCachedMovie(cleanAsset);
+      if (cached != null) {
+        _controller!.videoItem = cached;
+        _isLoading = false;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _controller != null) {
+            if (widget.loop) {
+              if (!_controller!.isAnimating) _controller!.repeat();
+            } else {
+              _controller!.forward();
+            }
+          }
+        });
+        return;
+      }
+    }
     _loadAnimation();
   }
 
@@ -259,8 +282,10 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
       _audioTimers.clear();
       _audioPlayer?.stop();
       _loadAnimation();
-    } else if (_controller?.videoItem == null) {
+    } else if (_controller?.videoItem == null && !_isLoading) {
       _loadAnimation();
+    } else if (widget.loop && _controller != null && _controller!.videoItem != null && !_controller!.isAnimating && !_isScrolling) {
+      _controller!.repeat();
     }
   }
 
@@ -285,23 +310,45 @@ class _SvgaPlayerState extends State<SvgaPlayer> with SingleTickerProviderStateM
   }
 
   Widget _buildFallback() {
-    if (_hasError) {
-      if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
+    // 1. Explicit fallback image if provided
+    if (widget.fallbackImagePath != null && widget.fallbackImagePath!.isNotEmpty) {
+      return Image.asset(
+        widget.fallbackImagePath!,
+        fit: widget.fit,
+        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+      );
+    }
+    // 2. Mapped static image fallback (PNG/WebP) for bundled SVGA assets
+    final cleanAsset = widget.assetPath?.trim();
+    if (cleanAsset != null && cleanAsset.isNotEmpty) {
+      final staticFallback = SvgaStaticUtil.staticPathForSvga(cleanAsset);
+      if (staticFallback.isNotEmpty && staticFallback != cleanAsset) {
         return Image.asset(
-          widget.fallbackImagePath!,
+          staticFallback,
           fit: widget.fit,
           errorBuilder: (_, __, ___) => const SizedBox.shrink(),
         );
       }
-      return const SizedBox.shrink();
     }
-    return _SkeletonShimmer(fit: widget.fit);
+    // 3. Only show rectangular shimmer if explicitly opted-in (e.g. card skeletons)
+    if (widget.showShimmer && !_hasError) {
+      return _SkeletonShimmer(fit: widget.fit);
+    }
+    return const SizedBox.shrink();
   }
 
   @override
   Widget build(BuildContext context) {
     if (_hasError || _controller == null || _controller!.videoItem == null || _isLoading) {
       return _buildFallback();
+    }
+
+    if (widget.loop && _controller != null && !_controller!.isAnimating && !_isScrolling) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.loop && _controller != null && !_controller!.isAnimating && !_isScrolling) {
+          _controller!.repeat();
+        }
+      });
     }
 
     final playerWidget = RepaintBoundary(

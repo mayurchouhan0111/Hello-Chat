@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -98,12 +99,12 @@ class _InviteUserTileState extends ConsumerState<_InviteUserTile> {
                   targetUid: widget.uid,
                 );
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Invitation sent to ${user.displayName}!")));
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Invitation sent to ${user.displayName}!")));
                 }
               } catch (e) {
                 if (mounted) {
                   setState(() => _invited = false);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e")));
                 }
               }
             },

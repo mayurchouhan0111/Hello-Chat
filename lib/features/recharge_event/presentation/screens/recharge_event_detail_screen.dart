@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -137,8 +138,7 @@ class _RechargeEventDetailScreenState extends ConsumerState<RechargeEventDetailS
       if (coinsToCredit > 0) {
         msg += " (+${coinsToCredit.toString()} Coins added to Wallet)";
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Row(
             children: [
               const Icon(Icons.stars_rounded, color: Color(0xFFFFD700), size: 24),

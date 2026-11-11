@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -51,14 +52,12 @@ class _FriendListScreenState extends ConsumerState<FriendListScreen> {
     try {
       await ref.read(relationshipServiceProvider).sendFriendRequest(targetUid);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Friend request sent!"), backgroundColor: Colors.green),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Friend request sent!"), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"), backgroundColor: Colors.red),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.red),
         );
       }
     }

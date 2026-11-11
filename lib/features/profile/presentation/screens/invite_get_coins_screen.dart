@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
@@ -39,8 +40,7 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
   void _copyToClipboard(String code) {
     Clipboard.setData(ClipboardData(text: code));
     HapticFeedback.lightImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Code Copied! ✓"), behavior: SnackBarBehavior.floating),
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Code Copied! ✓"), behavior: SnackBarBehavior.floating),
     );
   }
 
@@ -53,12 +53,11 @@ class _InviteGetCoinsScreenState extends ConsumerState<InviteGetCoinsScreen> {
       await ref.read(profileServiceProvider).redeemReferralCode(code);
       if (mounted) {
         _codeController.clear();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("🎉 Bonus Credited!")));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("🎉 Bonus Credited!")));
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.toString().replaceAll('Exception: ', '')}")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: ${e.toString().replaceAll('Exception: ', '')}")),
         );
       }
     } finally {

@@ -58,6 +58,7 @@ class QuickSendComboBar extends ConsumerStatefulWidget {
   final int startCount;
 
   final VoidCallback onDismiss;
+  final VoidCallback? onOpenGiftPicker;
 
   const QuickSendComboBar({
     super.key,
@@ -67,6 +68,7 @@ class QuickSendComboBar extends ConsumerStatefulWidget {
     required this.targetName,
     required this.targetPhotoUrl,
     required this.onDismiss,
+    this.onOpenGiftPicker,
     this.startCount = 1,
   });
 
@@ -533,10 +535,11 @@ class _SendButton extends StatelessWidget {
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: enabled ? onTap : null,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Stack(
+        child: RepaintBoundary(
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Stack(
             alignment: Alignment.center,
             children: [
               AnimatedBuilder(
@@ -602,6 +605,7 @@ class _SendButton extends StatelessWidget {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

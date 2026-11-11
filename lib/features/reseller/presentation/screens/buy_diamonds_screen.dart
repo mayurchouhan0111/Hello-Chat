@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/services/reseller_service.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
@@ -40,13 +41,13 @@ class _BuyDiamondsScreenState extends ConsumerState<BuyDiamondsScreen> {
       final res = await ref.read(resellerServiceProvider).buyDiamondPackage(packageId);
       if (res['success'] == true) {
         if (mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Successfully Refilled Stock!"), backgroundColor: Color(0xFF10B981)));
+           ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Successfully Refilled Stock!"), backgroundColor: Color(0xFF10B981)));
            ref.refresh(currentUserProfileProvider);
            Navigator.pop(context);
         }
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.redAccent));
     } finally {
       if (mounted) setState(() => _isPurchasing = false);
     }

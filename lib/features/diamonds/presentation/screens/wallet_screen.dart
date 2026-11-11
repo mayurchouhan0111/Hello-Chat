@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
@@ -124,7 +125,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
     } catch (e) {
       if (mounted) {
         Navigator.pop(context); // Close loading indicator
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e"), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e"), backgroundColor: Colors.redAccent));
       }
     }
   }
@@ -313,8 +314,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> {
                               const SizedBox(width: 8),
                               GestureDetector(
                                 onTap: () {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text('Payment gateway coming soon. Recharge is not available at this time.'),
                                       backgroundColor: Color(0xFF1A237E),
                                       behavior: SnackBarBehavior.floating,
@@ -756,7 +756,7 @@ class _WalletTopUpSheetState extends ConsumerState<_WalletTopUpSheet> {
     if (_customAmountController.text.trim().isNotEmpty) {
       final parsed = double.tryParse(_customAmountController.text.trim());
       if (parsed == null || parsed <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Please enter a valid amount"), backgroundColor: Colors.redAccent));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please enter a valid amount"), backgroundColor: Colors.redAccent));
         return;
       }
       depositAmount = parsed;
@@ -764,8 +764,7 @@ class _WalletTopUpSheetState extends ConsumerState<_WalletTopUpSheet> {
 
     // Recharge is not available via simulation.
     // Production payment gateway integration is pending.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: const Row(
           children: [
             Icon(Icons.info_outline_rounded, color: Colors.white),

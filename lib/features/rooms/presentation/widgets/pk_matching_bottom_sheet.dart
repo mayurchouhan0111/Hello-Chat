@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/providers/profile_provider.dart';
@@ -7,12 +8,17 @@ import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/models/user_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-import 'package:hello_chat/services/room_service.dart';
 import 'package:hello_chat/core/providers/pk_mode_provider.dart';
 
 class PKMatchingBottomSheet extends ConsumerStatefulWidget {
   final String roomId;
-  const PKMatchingBottomSheet({super.key, required this.roomId});
+  final bool isEmbedded;
+
+  const PKMatchingBottomSheet({
+    super.key,
+    required this.roomId,
+    this.isEmbedded = false,
+  });
 
   @override
   ConsumerState<PKMatchingBottomSheet> createState() => _PKMatchingBottomSheetState();
@@ -21,14 +27,13 @@ class PKMatchingBottomSheet extends ConsumerStatefulWidget {
 class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  // Removed local mode state; using Riverpod provider instead
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
     
-    // 📡 Diagnostic: Test connection and compare Project IDs on open
+    // 📡 Test connection and compare Project IDs on open
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(roomServiceProvider).testConnection();
     });
@@ -46,41 +51,48 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
     final currentUid = authState.value?.uid;
 
     if (currentUid == null) {
-      return const Center(child: CircularProgressIndicator(color: Colors.indigo));
+      return const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)));
     }
+
+    final room = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
+    final isHost = room != null && (room.ownerUid == currentUid || (room.admins.contains(currentUid)));
 
     return Material(
       color: Colors.transparent,
       child: Container(
-        height: MediaQuery.of(context).size.height * 0.75,
+        height: widget.isEmbedded ? null : MediaQuery.of(context).size.height * 0.75,
         width: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFF09090B),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+        decoration: BoxDecoration(
+          color: widget.isEmbedded ? Colors.transparent : const Color(0xFF0F111E),
+          borderRadius: widget.isEmbedded ? null : const BorderRadius.vertical(top: Radius.circular(28)),
         ),
         child: Column(
           children: [
-            _buildDragHandle(),
-            _buildHeader(),
-            _buildPKModeSelector(),
-            _buildModeOptions(),
-            _buildRandomPKRestricted(),
+            if (!widget.isEmbedded) ...[
+              _buildDragHandle(),
+              _buildHeader(),
+            ],
+            
+            // Host vs Viewer Role Indicator Banner
+            if (!isHost)
+              _buildViewerRestrictedBanner()
+            else
+              _buildHostActiveBanner(),
+
+            _buildPKModeSelector(isHost),
+            _buildModeOptions(isHost),
             _buildTabs(),
             
-            // === CRITICAL PART: This fixes all layout errors ===
             Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
-                child: TabBarView(
-                  controller: _tabController,
-                  physics: const BouncingScrollPhysics(),
-                  children: [
-                    _buildInRoomList(),
-                    _buildFollowingList(currentUid),
-                    _buildFriendsList(currentUid),
-                    _buildFamilyRoomsList(),
-                  ],
-                ),
+              child: TabBarView(
+                controller: _tabController,
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  _buildInRoomList(isHost),
+                  _buildFollowingList(currentUid, isHost),
+                  _buildFriendsList(currentUid, isHost),
+                  _buildFamilyRoomsList(isHost),
+                ],
               ),
             ),
           ],
@@ -95,7 +107,7 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
           width: 40,
           height: 4,
           decoration: BoxDecoration(
-            color: const Color(0xFF27272A),
+            color: Colors.white24,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -106,87 +118,139 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text("Match", style: TextStyle(color: Color(0xFFA1A1AA), fontSize: 13, fontWeight: FontWeight.bold)),
-            const Text("Multi-live PK", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-            Row(
-              children: [
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.settings_outlined, color: Color(0xFF71717A), size: 20),
-                  constraints: const BoxConstraints(),
-                ),
-                const Gap(12),
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: const Icon(Icons.close, color: Color(0xFF71717A), size: 24),
-                ),
-              ],
+            const Text(
+              "MATCHING",
+              style: TextStyle(color: Colors.white54, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.5),
             ),
-          ],
-        ),
-      );
-
-  Widget _buildPKModeSelector() => Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          children: [
-            _modeButton("ROOM PK", isFirst: true),
-            const Gap(12),
-            _modeButton("Guest Arena", isComingSoon: true),
-            const Gap(12),
-            _modeButton("Team PK", isComingSoon: true),
-          ],
-        ),
-      );
-
-  Widget _modeButton(String label, {bool isFirst = false, bool isComingSoon = false}) {
-    final selectedMode = ref.watch(pkModeProvider); // Riverpod state
-    final isSelected = selectedMode == label && !isComingSoon;
-    return Expanded(
-      child: GestureDetector(
-        onTap: isComingSoon ? null : () => ref.read(pkModeProvider.notifier).state = label,
-        child: Opacity(
-          opacity: isComingSoon ? 0.5 : 1.0,
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: isSelected ? Colors.indigo.withOpacity(0.1) : const Color(0xFF18181B),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected ? Colors.indigo : const Color(0xFF27272A),
-                width: 1.5,
+            const Text(
+              "Multi-Live PK",
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+            ),
+            GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
               ),
             ),
-            child: Column(
-              children: [
-                Icon(
-                  isFirst ? Icons.emoji_people_rounded : (isComingSoon ? Icons.lock_outline : Icons.groups_rounded),
-                  color: isSelected ? Colors.indigo : const Color(0xFF71717A),
-                  size: 28,
-                ),
-                const Gap(8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? Colors.white : const Color(0xFFA1A1AA),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+          ],
+        ),
+      );
+
+  Widget _buildViewerRestrictedBanner() => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF59E0B).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.shield_rounded, color: Color(0xFFF59E0B), size: 18),
+            Gap(10),
+            Expanded(
+              child: Text(
+                "Host Controls Active: Only the Room Host can initiate and configure PK battles.",
+                style: TextStyle(color: Color(0xFFFCD34D), fontSize: 12, fontWeight: FontWeight.w500),
+              ),
             ),
+          ],
+        ),
+      );
+
+  Widget _buildHostActiveBanner() => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF10B981).withValues(alpha: 0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+        ),
+        child: Row(
+          children: const [
+            Icon(Icons.stars_rounded, color: Color(0xFF10B981), size: 18),
+            Gap(10),
+            Expanded(
+              child: Text(
+                "Host Permissions Verified: Select an opponent below to start a PK match.",
+                style: TextStyle(color: Color(0xFF6EE7B7), fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _buildPKModeSelector(bool isHost) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            _modeButton("ROOM PK", isFirst: true, isHost: isHost),
+            const Gap(10),
+            _modeButton("Guest Arena", isComingSoon: true, isHost: isHost),
+            const Gap(10),
+            _modeButton("Team PK", isComingSoon: true, isHost: isHost),
+          ],
+        ),
+      );
+
+  Widget _modeButton(String label, {bool isFirst = false, bool isComingSoon = false, required bool isHost}) {
+    final selectedMode = ref.watch(pkModeProvider);
+    final isSelected = selectedMode == label && !isComingSoon;
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: (isComingSoon || !isHost)
+            ? null
+            : () => ref.read(pkModeProvider.notifier).state = label,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? const Color(0xFF6366F1).withValues(alpha: 0.2)
+                : const Color(0xFF161928),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withValues(alpha: 0.08),
+              width: 1.2,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                isFirst
+                    ? Icons.emoji_people_rounded
+                    : (isComingSoon ? Icons.lock_outline_rounded : Icons.groups_rounded),
+                color: isSelected ? const Color(0xFF818CF8) : Colors.white54,
+                size: 24,
+              ),
+              const Gap(6),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white60,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildModeOptions() => Padding(
+  Widget _buildModeOptions(bool isHost) => Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Row(
           children: [
             _optionChip("Shared Screen", true),
-            const Gap(12),
+            const Gap(10),
             _optionChip("Split Screen", false),
           ],
         ),
@@ -194,18 +258,20 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
 
   Widget _optionChip(String label, bool isSelected) => Expanded(
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF27272A) : const Color(0xFF18181B),
+            color: isSelected ? const Color(0xFF24283D) : const Color(0xFF161928),
             borderRadius: BorderRadius.circular(10),
-            border: isSelected ? Border.all(color: Colors.indigo) : null,
+            border: Border.all(
+              color: isSelected ? const Color(0xFF6366F1) : Colors.white.withValues(alpha: 0.08),
+            ),
           ),
           child: Center(
             child: Text(
               label,
               style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFF71717A),
-                fontSize: 13,
+                color: isSelected ? Colors.white : Colors.white54,
+                fontSize: 12,
                 fontWeight: FontWeight.bold,
               ),
             ),
@@ -213,109 +279,75 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
         ),
       );
 
-  Widget _buildRandomPKRestricted() => Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF18181B),
-          borderRadius: BorderRadius.circular(15),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.radar_rounded, color: Color(0xFF27272A)),
-            const Gap(12),
-            const Expanded(
-              child: Text(
-                "Random PK (Restricted)",
-                style: TextStyle(color: Color(0xFF71717A), fontSize: 13),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFF09090B),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFF27272A)),
-              ),
-              child: const Text("Disabled",
-                  style: TextStyle(color: Color(0xFF71717A), fontSize: 12, fontWeight: FontWeight.bold)),
-            ),
-          ],
-        ),
-      );
-
   Widget _buildTabs() => TabBar(
         controller: _tabController,
-        indicatorColor: Colors.indigo,
+        indicatorColor: const Color(0xFF6366F1),
         indicatorWeight: 3,
         labelColor: Colors.white,
-        unselectedLabelColor: const Color(0xFF71717A),
-        dividerColor: Colors.transparent,
+        unselectedLabelColor: Colors.white54,
+        dividerColor: Colors.white10,
+        labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
         tabs: const [
           Tab(text: "In Room"),
           Tab(text: "Following"),
           Tab(text: "Friends"),
-          Tab(text: "Family Room"),
+          Tab(text: "Family"),
         ],
       );
 
-  // Tab Contents
-  Widget _buildInRoomList() {
+  Widget _buildInRoomList(bool isHost) {
     final participantsAsync = ref.watch(roomParticipantsProvider(widget.roomId));
     final currentUid = ref.watch(authStateProvider).value?.uid;
 
     return participantsAsync.when(
       data: (pts) {
-        // Exclude current user and filter for speakers if possible, or just anyone but me
         final otherParticipants = pts.where((p) => p.uid != currentUid).toList();
-        
         if (otherParticipants.isEmpty) {
           return _buildEmptyState("You are the only one in the room.");
         }
-
-        return _buildUserList(otherParticipants.map((p) => p.uid).toList(), widget.roomId);
+        return _buildUserList(otherParticipants.map((p) => p.uid).toList(), widget.roomId, isHost);
       },
       loading: () => _buildLoadingState(),
       error: (e, __) => _buildErrorState("Error: $e"),
     );
   }
 
-  Widget _buildFollowingList(String currentUid) {
+  Widget _buildFollowingList(String currentUid, bool isHost) {
     final followingAsync = ref.watch(followingStreamProvider(currentUid));
     return followingAsync.when(
       data: (uids) => uids.isEmpty
-          ? _buildEmptyState("No following found.")
-          : _buildUserList(uids.where((id) => id.isNotEmpty).toList(), widget.roomId),
+          ? _buildEmptyState("No following users currently online.")
+          : _buildUserList(uids.where((id) => id.isNotEmpty).toList(), widget.roomId, isHost),
       loading: () => _buildLoadingState(),
       error: (_, __) => _buildErrorState("Error loading following"),
     );
   }
 
-  Widget _buildFriendsList(String currentUid) {
+  Widget _buildFriendsList(String currentUid, bool isHost) {
     final friendsAsync = ref.watch(friendsStreamProvider(currentUid));
     return friendsAsync.when(
       data: (uids) => uids.isEmpty
           ? _buildEmptyState("No mutual friends available.")
-          : _buildUserList(uids, widget.roomId),
+          : _buildUserList(uids, widget.roomId, isHost),
       loading: () => _buildLoadingState(),
       error: (_, __) => _buildErrorState("Error loading friends"),
     );
   }
 
-  Widget _buildFamilyRoomsList() {
+  Widget _buildFamilyRoomsList(bool isHost) {
     final userAsync = ref.watch(currentUserProfileProvider);
     return userAsync.when(
       data: (user) {
         if (user?.familyId?.isEmpty ?? true) {
-          return _buildEmptyState("Join a family to see family rooms.");
+          return _buildEmptyState("Join a family to challenge other family rooms.");
         }
         final roomsAsync = ref.watch(familyRoomsProvider(user!.familyId!));
         return roomsAsync.when(
           data: (rooms) {
             final otherRooms = rooms.where((r) => r['roomId'] != widget.roomId).toList();
             return otherRooms.isEmpty
-                ? _buildEmptyState("No active family rooms.")
-                : _buildRoomList(otherRooms);
+                ? _buildEmptyState("No active family rooms found.")
+                : _buildRoomList(otherRooms, isHost);
           },
           loading: () => _buildLoadingState(),
           error: (_, __) => _buildErrorState("Error loading family rooms"),
@@ -326,35 +358,35 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
     );
   }
 
-  Widget _buildUserList(List<String> uids, String roomId) {
+  Widget _buildUserList(List<String> uids, String roomId, bool isHost) {
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       itemCount: uids.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => _OpponentTile(uid: uids[index], roomId: roomId),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, index) => _OpponentTile(uid: uids[index], roomId: roomId, isHost: isHost),
     );
   }
 
-  Widget _buildRoomList(List<Map<String, dynamic>> rooms) {
+  Widget _buildRoomList(List<Map<String, dynamic>> rooms, bool isHost) {
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       itemCount: rooms.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (_, index) => _RoomTile(roomData: rooms[index], currentRoomId: widget.roomId),
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (_, index) => _RoomTile(roomData: rooms[index], currentRoomId: widget.roomId, isHost: isHost),
     );
   }
 
-  Widget _buildLoadingState() => const Center(child: CircularProgressIndicator(color: Colors.indigo));
+  Widget _buildLoadingState() => const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)));
 
-  Widget _buildErrorState(String msg) => Center(child: Text(msg, style: const TextStyle(color: Colors.white)));
+  Widget _buildErrorState(String msg) => Center(child: Text(msg, style: const TextStyle(color: Colors.white70)));
 
   Widget _buildEmptyState(String message) => Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.people_outline_rounded, size: 48, color: Color(0xFF18181B)),
-            const Gap(12),
-            Text(message, style: const TextStyle(color: Color(0xFF71717A), fontSize: 12)),
+            Icon(Icons.people_outline_rounded, size: 44, color: Colors.white.withValues(alpha: 0.15)),
+            const Gap(10),
+            Text(message, style: const TextStyle(color: Colors.white54, fontSize: 13)),
           ],
         ),
       );
@@ -365,8 +397,13 @@ class _PKMatchingBottomSheetState extends ConsumerState<PKMatchingBottomSheet>
 class _OpponentTile extends ConsumerWidget {
   final String uid;
   final String roomId;
+  final bool isHost;
 
-  const _OpponentTile({super.key, required this.uid, required this.roomId});
+  const _OpponentTile({
+    required this.uid,
+    required this.roomId,
+    required this.isHost,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -378,16 +415,16 @@ class _OpponentTile extends ConsumerWidget {
         final u = user as UserModel;
 
         return Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF18181B),
+            color: const Color(0xFF141726),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF27272A)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
           ),
           child: Row(
             children: [
               CircleAvatar(
-                radius: 22,
+                radius: 20,
                 backgroundImage: u.profilePhotoUrl.isNotEmpty ? CachedNetworkImageProvider(u.profilePhotoUrl) : null,
                 child: u.profilePhotoUrl.isEmpty ? const Icon(Icons.person, color: Colors.white70) : null,
               ),
@@ -396,26 +433,55 @@ class _OpponentTile extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(u.displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    Text("@${u.username}", style: const TextStyle(color: Color(0xFFA1A1AA), fontSize: 11)),
+                    Text(
+                      u.displayName,
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      "@${u.username}",
+                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ),
               ),
-              ElevatedButton(
-                onPressed: () => _handleStartPK(context, ref),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.indigo,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  minimumSize: const Size(60, 40),
+              if (isHost)
+                ElevatedButton(
+                  onPressed: () => _handleStartPK(context, ref),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    elevation: 3,
+                  ),
+                  child: const Text("PK", style: TextStyle(fontWeight: FontWeight.bold)),
+                )
+              else
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.lock_outline_rounded, size: 12, color: Colors.white38),
+                      Gap(4),
+                      Text("Host Only", style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
                 ),
-                child: const Text("PK"),
-              ),
             ],
           ),
         );
       },
-      loading: () => const SizedBox(height: 72, child: Center(child: CircularProgressIndicator())),
+      loading: () => const SizedBox(height: 60, child: Center(child: CircularProgressIndicator(strokeWidth: 2))),
       error: (_, __) => const SizedBox.shrink(),
     );
   }
@@ -430,11 +496,16 @@ class _OpponentTile extends ConsumerWidget {
       );
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PK Challenge sent!")));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+            content: Text("PK Challenge sent!"),
+            backgroundColor: Color(0xFF6366F1),
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error starting PK: $e")),
+        );
       }
     }
   }
@@ -443,8 +514,13 @@ class _OpponentTile extends ConsumerWidget {
 class _RoomTile extends ConsumerWidget {
   final Map<String, dynamic> roomData;
   final String currentRoomId;
+  final bool isHost;
 
-  const _RoomTile({super.key, required this.roomData, required this.currentRoomId});
+  const _RoomTile({
+    required this.roomData,
+    required this.currentRoomId,
+    required this.isHost,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -453,26 +529,26 @@ class _RoomTile extends ConsumerWidget {
     final coverUrl = (roomData['coverUrl'] as String?) ?? '';
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFF18181B),
+        color: const Color(0xFF141726),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF27272A)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(10),
-              color: Colors.indigo.withOpacity(0.2),
+              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
               image: coverUrl.isNotEmpty
                   ? DecorationImage(image: CachedNetworkImageProvider(coverUrl), fit: BoxFit.cover)
                   : null,
             ),
             child: coverUrl.isEmpty
-                ? const Icon(Icons.meeting_room_rounded, color: Colors.indigo, size: 20)
+                ? const Icon(Icons.meeting_room_rounded, color: Color(0xFF818CF8), size: 20)
                 : null,
           ),
           const Gap(12),
@@ -480,22 +556,48 @@ class _RoomTile extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(roomName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                Text("Host: ${ownerUid.isNotEmpty ? ownerUid.substring(0, 8) : 'N/A'}...",
-                    style: const TextStyle(color: Color(0xFFA1A1AA), fontSize: 11)),
+                Text(
+                  roomName,
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  "Host: ${ownerUid.isNotEmpty ? ownerUid.substring(0, 8) : 'N/A'}...",
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
+                ),
               ],
             ),
           ),
-          ElevatedButton(
-            onPressed: () => _handleStartPK(context, ref, ownerUid),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.indigo,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              minimumSize: const Size(60, 40),
+          if (isHost)
+            ElevatedButton(
+              onPressed: () => _handleStartPK(context, ref, ownerUid),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF6366F1),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                elevation: 3,
+              ),
+              child: const Text("PK", style: TextStyle(fontWeight: FontWeight.bold)),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.lock_outline_rounded, size: 12, color: Colors.white38),
+                  Gap(4),
+                  Text("Host Only", style: TextStyle(color: Colors.white38, fontSize: 11, fontWeight: FontWeight.bold)),
+                ],
+              ),
             ),
-            child: const Text("PK"),
-          ),
         ],
       ),
     );
@@ -513,11 +615,16 @@ class _RoomTile extends ConsumerWidget {
       );
       if (context.mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("PK Challenge sent!")));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+            content: Text("PK Challenge sent!"),
+            backgroundColor: Color(0xFF6366F1),
+          ),
+        );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error starting PK: $e")),
+        );
       }
     }
   }

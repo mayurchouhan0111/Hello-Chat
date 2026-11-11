@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -417,8 +418,7 @@ class _CreateFamilyScreenState extends ConsumerState<CreateFamilyScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         backgroundColor: AppColors.familySurface,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

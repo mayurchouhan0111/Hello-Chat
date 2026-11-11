@@ -2181,9 +2181,14 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             }
 
             // 💰 Balance Check
-            const currentBalance = senderDoc.data().diamondBalance || 0;
-            if (currentBalance < totalCost) {
-                throw new functions.https.HttpsError("failed-precondition", "Insufficient diamond balance.");
+            const senderRawData = senderDoc.data();
+            const currentBalance = Number(
+                senderRawData.diamondBalance !== undefined
+                    ? senderRawData.diamondBalance
+                    : (senderRawData.diamonds || 0)
+            );
+            if (isNaN(currentBalance) || currentBalance < totalCost) {
+                throw new functions.https.HttpsError("failed-precondition", `Insufficient diamond balance. Required: ${totalCost}, available: ${isNaN(currentBalance) ? 0 : currentBalance}`);
             }
 
             // 🏰 Family Battle Pre-Check (strictly BEFORE any writes)
@@ -3054,6 +3059,36 @@ exports.endRoom = functions.https.onCall(async (data, context) => {
         endedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    return { success: true };
+});
+
+/**
+ * Clear Room Messages (Module 07)
+ * Restricted to Room Owner and Room Admins.
+ * Sets messagesClearedAt timestamp on room document for instant real-time clearing.
+ */
+exports.clearRoomMessages = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const uid = context.auth.uid;
+    const { roomId } = data;
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "roomId is required.");
+
+    const roomRef = db.collection("rooms").doc(roomId);
+    const roomDoc = await roomRef.get();
+    if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+
+    const roomData = roomDoc.data();
+    const admins = roomData.admins || [];
+    if (roomData.ownerUid !== uid && !admins.includes(uid)) {
+        throw new functions.https.HttpsError("permission-denied", "Only room owner or admin can clear messages.");
+    }
+
+    await roomRef.update({
+        messagesClearedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`[CLEAR_MESSAGES] Room ${roomId} messages cleared by ${uid}`);
     return { success: true };
 });
 
@@ -8108,13 +8143,28 @@ exports.lockRoomSupportCycles = functions.pubsub.schedule('59 23 * * 0').onRun(a
 async function executeRoomSupportRewardDistribution(options = {}) {
     const isBypass = options.bypassDayCheck === true || options.testing === true;
     const now = new Date();
-    const utcDay = now.getUTCDay(); // 3 = Wednesday
-    if (utcDay !== 3 && !isBypass) {
-        console.log(`[ROOM_SUPPORT] Salary distribution processed Wednesday only. Today is UTC day ${utcDay}.`);
-        return { success: false, message: "Salary distribution is processed Wednesday only (UTC)." };
+
+    // Check Wednesday in Asia/Dhaka timezone (authoritative distribution schedule)
+    const bdWeekday = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Dhaka", weekday: "short" }).format(now);
+    const isWednesdayBD = bdWeekday === "Wed";
+    if (!isWednesdayBD && !isBypass) {
+        console.log(`[ROOM_SUPPORT] Salary distribution processed Wednesday only. Today in Asia/Dhaka is ${bdWeekday}.`);
+        return { success: false, message: `Salary distribution is processed Wednesday only (Asia/Dhaka). Today is ${bdWeekday}.` };
     }
 
-    console.log(`[ROOM_SUPPORT] Starting Wednesday reward distribution (UTC day ${utcDay})...`);
+    // Load dynamic level configuration from Firestore (or fallback to defaults)
+    let dynamicLevels = ROOM_SUPPORT.levels;
+    try {
+        const configSnap = await db.collection("room_support_configs").doc("settings").get();
+        if (configSnap.exists && Array.isArray(configSnap.data()?.levels) && configSnap.data().levels.length > 0) {
+            dynamicLevels = configSnap.data().levels;
+            console.log(`[ROOM_SUPPORT] Loaded ${dynamicLevels.length} dynamic target levels from room_support_configs/settings.`);
+        }
+    } catch (cfgErr) {
+        console.warn("[ROOM_SUPPORT] Failed to fetch dynamic config, using defaults:", cfgErr);
+    }
+
+    console.log(`[ROOM_SUPPORT] Starting Wednesday reward distribution (Asia/Dhaka weekday ${bdWeekday})...`);
     const historiesSnap = await db.collectionGroup("weeks").where("distributionStatus", "==", "pending").get();
     console.log(`[ROOM_SUPPORT] Found ${historiesSnap.size} pending weekly histories.`);
 
@@ -8144,7 +8194,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 continue;
             }
 
-            const levelConfig = ROOM_SUPPORT.levels[achievedLevel - 1];
+            const levelConfig = dynamicLevels.find(l => Number(l.level) === achievedLevel);
             if (!levelConfig) {
                 await weekDoc.ref.update({
                     distributionStatus: "invalid_level",
@@ -8153,7 +8203,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 continue;
             }
 
-            const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel);
+            const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel, dynamicLevels);
 
             // Fetch assigned partners for this room
             const partnersSnap = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
@@ -8190,17 +8240,21 @@ async function executeRoomSupportRewardDistribution(options = {}) {
 
             // Room is fully qualified!
             const roomDoc = await db.collection("rooms").doc(roomId).get();
-            const ownerUid = roomDoc.exists ? roomDoc.data().ownerUid : null;
+            const roomData = roomDoc.exists ? roomDoc.data() : {};
+            const ownerUid = roomDoc.exists ? roomData.ownerUid : null;
+            const roomName = roomData.name || roomData.title || `Room #${roomId}`;
 
             if (ownerUid) {
                 if (!candidateRewardsByUser[ownerUid]) candidateRewardsByUser[ownerUid] = [];
                 candidateRewardsByUser[ownerUid].push({
                     uid: ownerUid,
                     roomId,
+                    roomName,
                     weekDocRef: weekDoc.ref,
                     weekId: weekDoc.id,
                     role: "owner",
                     level: achievedLevel,
+                    coinsTarget: levelConfig.coinsTarget || 0,
                     amount: levelConfig.ownerReward
                 });
             }
@@ -8213,11 +8267,13 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     candidateRewardsByUser[partnerUid].push({
                         uid: partnerUid,
                         roomId,
+                        roomName,
                         partnerDocRef: pDoc.ref,
                         weekDocRef: weekDoc.ref,
                         weekId: weekDoc.id,
                         role: "partner",
                         level: achievedLevel,
+                        coinsTarget: levelConfig.coinsTarget || 0,
                         amount: levelConfig.partnerReward
                     });
                 }
@@ -8262,13 +8318,32 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     rewardId: deterministicRewardId,
                     uid,
                     roomId: winningReward.roomId,
+                    roomName: winningReward.roomName,
                     weekId: winningReward.weekId,
                     role: winningReward.role,
                     level: winningReward.level,
                     amount: winningReward.amount,
+                    coinsTarget: winningReward.coinsTarget,
                     supersededCount: candidates.length - 1,
                     distributedAt: admin.firestore.FieldValue.serverTimestamp(),
                     status: "success"
+                });
+
+                // Record financial transaction history for full audit trail
+                const salaryTxRef = db.collection("salary_transactions").doc(deterministicRewardId);
+                transaction.set(salaryTxRef, {
+                    transactionId: deterministicRewardId,
+                    roomId: winningReward.roomId,
+                    roomName: winningReward.roomName,
+                    uid,
+                    role: winningReward.role,
+                    level: winningReward.level,
+                    target: winningReward.coinsTarget,
+                    amount: winningReward.amount,
+                    weekId: winningReward.weekId,
+                    status: "success",
+                    distributionDate: admin.firestore.FieldValue.serverTimestamp(),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
                 });
 
                 // Update winning week history
@@ -8350,6 +8425,28 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             console.log(`[ROOM_SUPPORT] Awarded user ${uid}: Level ${winningReward.level} ${winningReward.role} reward of ${winningReward.amount} coins.`);
         } catch (err) {
             console.error(`[ROOM_SUPPORT] Error distributing reward to user ${uid}:`, err);
+            // Log failure to salary_failed_transactions so admin can inspect and resolve safely
+            try {
+                const failedDocId = `failed_${winningReward.weekId}_${uid}`;
+                await db.collection("salary_failed_transactions").doc(failedDocId).set({
+                    failedId: failedDocId,
+                    roomId: winningReward.roomId,
+                    roomName: winningReward.roomName || `Room #${winningReward.roomId}`,
+                    uid,
+                    role: winningReward.role,
+                    level: winningReward.level,
+                    target: winningReward.coinsTarget || 0,
+                    amount: winningReward.amount,
+                    weekId: winningReward.weekId,
+                    errorMessage: err.message || String(err),
+                    status: "failed",
+                    failedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    resolved: false
+                }, { merge: true });
+                console.log(`[ROOM_SUPPORT] Logged failed transaction ${failedDocId} for admin recovery.`);
+            } catch (logErr) {
+                console.error(`[ROOM_SUPPORT] Failed to log failure record for ${uid}:`, logErr);
+            }
         }
     }
 
@@ -8391,8 +8488,8 @@ async function executeRoomSupportRewardDistribution(options = {}) {
     return { success: true, distributedCount };
 }
 
-/** Auto distribute rewards (Wednesday 00:00 UTC) with Rule 3 expiration and Rule 5 one-reward-per-user enforcement */
-exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 0 * * 3').onRun(async (context) => {
+/** Auto distribute rewards (Wednesday 06:00 AM Bangladesh Time / 05:30 AM India Time / 00:00 UTC) */
+exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 6 * * 3').timeZone('Asia/Dhaka').onRun(async (context) => {
     await executeRoomSupportRewardDistribution();
 });
 
@@ -8401,6 +8498,86 @@ exports.processRoomSupportSalary = functions.https.onCall(async (data, context) 
     if (!context.auth) throw new HttpsError("unauthenticated", "Authentication required.");
     const isBypass = (data && (data.bypassDayCheck === true || data.testing === true));
     return await executeRoomSupportRewardDistribution({ bypassDayCheck: isBypass, testing: isBypass });
+});
+
+/** Admin endpoint to retry a failed salary payout safely and idempotently */
+exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new HttpsError("unauthenticated", "Authentication required.");
+    const isStaff = await isUserAdmin(context.auth.uid);
+    if (!isStaff) throw new HttpsError("permission-denied", "Admin permissions required.");
+
+    const failedId = data?.failedId;
+    if (!failedId) throw new HttpsError("invalid-argument", "failedId is required.");
+
+    const failedRef = db.collection("salary_failed_transactions").doc(failedId);
+    const failedSnap = await failedRef.get();
+    if (!failedSnap.exists) throw new HttpsError("not-found", "Failed salary record not found.");
+
+    const record = failedSnap.data();
+    if (record.resolved) {
+        return { success: true, message: "This transaction has already been resolved." };
+    }
+
+    const { uid, roomId, roomName, weekId, role, level, amount, target } = record;
+    const deterministicRewardId = `reward_${weekId}_${uid}`;
+
+    await db.runTransaction(async (transaction) => {
+        const rewardRef = db.collection("room_support_rewards").doc(deterministicRewardId);
+        const rewardSnap = await transaction.get(rewardRef);
+
+        if (!rewardSnap.exists) {
+            const userRef = db.collection("users").doc(uid);
+            const userSnap = await transaction.get(userRef);
+            if (userSnap.exists) {
+                transaction.update(userRef, {
+                    diamondBalance: admin.firestore.FieldValue.increment(amount),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+
+            transaction.set(rewardRef, {
+                rewardId: deterministicRewardId,
+                uid,
+                roomId,
+                roomName: roomName || ("Room #" + roomId),
+                weekId,
+                role,
+                level,
+                amount,
+                coinsTarget: target || 0,
+                distributedAt: admin.firestore.FieldValue.serverTimestamp(),
+                status: "success",
+                retriedByAdmin: context.auth.uid
+            });
+        }
+
+        const salaryTxRef = db.collection("salary_transactions").doc(deterministicRewardId);
+        transaction.set(salaryTxRef, {
+            transactionId: deterministicRewardId,
+            roomId,
+            roomName: roomName || ("Room #" + roomId),
+            uid,
+            role,
+            level,
+            target: target || 0,
+            amount,
+            weekId,
+            status: "success",
+            distributionDate: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            isRetry: true,
+            retriedBy: context.auth.uid
+        }, { merge: true });
+
+        transaction.update(failedRef, {
+            resolved: true,
+            resolvedAt: admin.firestore.FieldValue.serverTimestamp(),
+            resolvedBy: context.auth.uid,
+            status: "resolved"
+        });
+    });
+
+    return { success: true, message: `Successfully resolved salary payout for user ${uid}.` };
 });
 
 /** Callable endpoint to clean up completed cycle room partners on demand */

@@ -106,6 +106,11 @@ class AppAvatar extends ConsumerWidget {
       finalFrameUrl = svipModel.frameAsset;
     }
 
+    // Resolve VIP Tier Frame if no frame or SVIP frame is resolved
+    if (!isExplicitNone && finalFrameUrl.isEmpty && parsedVipLevel > 0) {
+      finalFrameUrl = _getVipFramePath(parsedVipLevel);
+    }
+
     // Only apply tag-based frames if no frame is already resolved
     if (!isExplicitNone && finalFrameUrl.isEmpty && tags != null) {
       if (tags!.contains('SuperAdmin')) {
@@ -223,9 +228,11 @@ class AppAvatar extends ConsumerWidget {
                           ? SvgaPlayer(
                               key: ValueKey(finalFrameUrl),
                               assetPath: finalFrameUrl,
+                              fallbackImagePath: SvgaStaticUtil.staticPathForSvga(finalFrameUrl),
                               maxFps: maxFps,
                               maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
-                              pauseWhenInvisible: true,
+                              pauseWhenInvisible: false,
+                              showShimmer: false,
                             )
                           : Image.asset(
                               finalFrameUrl,
@@ -239,7 +246,8 @@ class AppAvatar extends ConsumerWidget {
                                 url: finalFrameUrl,
                                 maxFps: maxFps,
                                 maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
-                                pauseWhenInvisible: true,
+                                pauseWhenInvisible: false,
+                                showShimmer: false,
                               )
                             : CachedNetworkImage(
                                 imageUrl: finalFrameUrl,

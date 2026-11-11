@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../constants/gift_vap_catalog.dart';
 
 class GiftModel {
   final String giftId;
@@ -71,12 +72,16 @@ class GiftModel {
   }
 
   factory GiftModel.fromMap(Map<String, dynamic> map, String docId) {
-    final assetPath = (map['lottieAssetPath'] ?? map['animation_url'])?.toString() ?? '';
+    final vapSpec = GiftVapCatalog.byId(docId);
+    final rawAsset = (map['lottieAssetPath'] ?? map['animation_url'])?.toString() ?? '';
+    final assetPath = rawAsset.isNotEmpty ? rawAsset : (vapSpec?.assetPath ?? '');
     final lowerAsset = assetPath.toLowerCase();
     String format = (map['animationFormat'] ?? map['animation_type'])?.toString() ?? '';
 
     // Auto-detect format from asset path or known gift IDs if missing or incorrectly defaulted to 'json'
-    if (format.isEmpty || format == 'json') {
+    if (vapSpec != null) {
+      format = 'vap';
+    } else if (format.isEmpty || format == 'json') {
       if (lowerAsset.contains('.svga') ||
           docId == 'mystic_rings' ||
           docId == 'crystal_palace' ||
@@ -99,6 +104,9 @@ class GiftModel {
     }
 
     String tierVal = map['tier']?.toString() ?? '';
+    if (tierVal.isEmpty && vapSpec != null) {
+      tierVal = vapSpec.tier;
+    }
     if (tierVal.isEmpty) {
       if (docId == 'car_king' ||
           docId == 'crystal_palace' ||
@@ -112,6 +120,9 @@ class GiftModel {
       }
     }
 
+    final rawDuration = ((map['durationMs'] ?? map['duration_ms']) as num?)?.toInt() ?? 0;
+    final resolvedDuration = rawDuration > 0 ? rawDuration : (vapSpec?.durationMs ?? 0);
+
     return GiftModel(
       giftId: docId,
       name: map['name']?.toString() ?? '',
@@ -124,7 +135,7 @@ class GiftModel {
       soundUrl: map['soundUrl']?.toString() ?? '',
       animationFormat: format,
       tier: tierVal,
-      durationMs: (map['durationMs'] ?? map['duration_ms'] as num?)?.toInt() ?? 0,
+      durationMs: resolvedDuration,
       minSvipLevel: (map['minSvipLevel'] as num?)?.toInt() ?? 0,
       sortOrder: (map['sortOrder'] as num?)?.toInt() ?? 0,
       isActive: map['isActive'] == true,

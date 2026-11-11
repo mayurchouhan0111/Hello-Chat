@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -1659,8 +1660,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
         if (mounted) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Row(
                 children: [
                   const Icon(Icons.remove_circle_outline_rounded, color: Colors.amberAccent, size: 20),
@@ -1698,8 +1698,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
 
         if (mounted) {
           ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Row(
                 children: [
                   const Icon(Icons.check_circle_rounded, color: Color(0xFF4ADE80), size: 20),
@@ -1723,8 +1722,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Failed to update decoration: $e"),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -1919,8 +1917,7 @@ class _PropWarehouseScreenState extends ConsumerState<PropWarehouseScreen> with 
   void _playSvgaPreview(Map<String, dynamic> item) {
     final String url = item['imageUrl'] ?? '';
     if (!url.toLowerCase().endsWith('.svga')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("No animation preview available for this item.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("No animation preview available for this item.")),
       );
       return;
     }

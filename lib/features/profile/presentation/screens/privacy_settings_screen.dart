@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:gap/gap.dart';
@@ -57,14 +58,12 @@ class _PrivacySettingsScreenState extends ConsumerState<PrivacySettingsScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Privacy settings updated"), duration: Duration(seconds: 1)),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Privacy settings updated"), duration: Duration(seconds: 1)),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to update: $e"), backgroundColor: Colors.red),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Failed to update: $e"), backgroundColor: Colors.red),
         );
       }
     }

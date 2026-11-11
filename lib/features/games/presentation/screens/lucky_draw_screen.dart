@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
@@ -69,8 +70,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
 
     if (_isOffline || !NetworkConnectivityService().isOnline) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Cannot play while offline. Please check your internet connection."),
             backgroundColor: Colors.redAccent,
           ),
@@ -82,8 +82,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     final balance = ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
     final cost = _selectedTickets * 100;
     if (balance < cost) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Insufficient Diamonds")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds")),
       );
       return;
     }
@@ -127,7 +126,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
         } else {
           errorMessage = "Error: ${errorStr.split('\n').first}";
         }
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(errorMessage)));
       }
     }
   }
@@ -215,33 +214,39 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       backgroundColor: const Color(0xFF0A0F1C),
       body: Stack(
         children: [
-          // Background energy vortex (animated spheres)
+          // Background energy vortex (animated spheres - optimized with pre-built child and RepaintBoundary)
           ...List.generate(6, (index) {
             final random = math.Random(index);
+            final sphereSize = 60 + random.nextDouble() * 40;
+            final sphereChild = Container(
+              width: sphereSize,
+              height: sphereSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: RadialGradient(
+                  colors: [
+                    const Color(0xFF00E5FF).withOpacity(0.2),
+                    const Color(0xFF00E5FF).withOpacity(0.0),
+                  ],
+                ),
+              ),
+            );
+
             return Positioned(
               left: random.nextDouble() * MediaQuery.of(context).size.width,
               top: random.nextDouble() * MediaQuery.of(context).size.height * 0.6,
-              child: AnimatedBuilder(
-                animation: _sphereController,
-                builder: (context, child) {
-                  final offset = math.sin(_sphereController.value * 2 * math.pi + index) * 20;
-                  return Transform.translate(
-                    offset: Offset(0, offset),
-                    child: Container(
-                      width: 60 + random.nextDouble() * 40,
-                      height: 60 + random.nextDouble() * 40,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: RadialGradient(
-                          colors: [
-                            const Color(0xFF00E5FF).withOpacity(0.2),
-                            const Color(0xFF00E5FF).withOpacity(0.0),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                },
+              child: RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _sphereController,
+                  child: sphereChild,
+                  builder: (context, cachedChild) {
+                    final offset = math.sin(_sphereController.value * 2 * math.pi + index) * 20;
+                    return Transform.translate(
+                      offset: Offset(0, offset),
+                      child: cachedChild,
+                    );
+                  },
+                ),
               ),
             );
           }),

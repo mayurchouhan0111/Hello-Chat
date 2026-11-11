@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -40,22 +41,19 @@ class _CustomGiftRequestScreenState extends ConsumerState<CustomGiftRequestScree
     if (user == null || profile == null) return;
 
     if (profile.level < 50) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("🔒 Level 50 or above is required to submit a Custom Gift.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("🔒 Level 50 or above is required to submit a Custom Gift.")),
       );
       return;
     }
 
     if (_nameController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a name for your Custom Gift.")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please enter a name for your Custom Gift.")),
       );
       return;
     }
 
     if (_selectedVideoFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please select an MP4 video file (max 10 seconds).")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please select an MP4 video file (max 10 seconds).")),
       );
       return;
     }
@@ -74,16 +72,14 @@ class _CustomGiftRequestScreenState extends ConsumerState<CustomGiftRequestScree
       if (lastDate != null) {
         final daysDiff = DateTime.now().difference(lastDate).inDays;
         if (daysDiff < 30) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("⚠️ You can change your Custom Gift video only once every 30 days. (${30 - daysDiff} days remaining)")),
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("⚠️ You can change your Custom Gift video only once every 30 days. (${30 - daysDiff} days remaining)")),
           );
           return;
         }
       }
 
       if (profile.diamondBalance < 5000000) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("❌ 5,000,000 Diamonds required to change Custom Gift video.")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("❌ 5,000,000 Diamonds required to change Custom Gift video.")),
         );
         return;
       }
@@ -118,15 +114,13 @@ class _CustomGiftRequestScreenState extends ConsumerState<CustomGiftRequestScree
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Custom Gift submitted successfully! Pending Admin review.")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("✅ Custom Gift submitted successfully! Pending Admin review.")),
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Upload Failed: $e")),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Upload Failed: $e")),
         );
       }
     } finally {

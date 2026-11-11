@@ -11,6 +11,233 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-10 (Comprehensive 11-Module Audit, Edge-Case Hardening & Cross-Platform Verification)
+
+- **What Client Asked / Problem**:
+  - The client requested a thorough, end-to-end review of all changes implemented across all 11 core modules:
+    1. User Login & Password Setup + Progressive Migration
+    2. Room Bottom Menu UI Redesign
+    3. Room Seat Design, Size & Customization (8, 9, 12, 13, 16 seats)
+    4. Room Background Themes & Official Themes (Agency, Admin, Official, Recharge)
+    5. Room Salary & Automatic Reward System (Wednesday 6:00 AM BD Time, failure recovery)
+    6. Room Chat Message Display UI (clean size, responsive bounds, no stretch/overlap)
+    7. Clear Messages Feature (Owner/Admin restricted, real-time sync)
+    8. Emoji Display Size and Layout (aligned, non-overlapping capsules)
+    9. Emoji Replacement (removal of old emoji sets, 4 new sticker packs)
+    10. Games Section Consolidation (Games, YouTube, PK unified hub)
+    11. Room Minimize & Re-Entry Animation (VIP/SVIP entry animation played once upon genuine entry; suppressed on minimize/restore)
+  - Identify every potential edge case, overlooked scenario, or boundary failure across the 11 modules, fix all identified issues, and ensure everything functions reliably without breaking existing accounts or features.
+
+- **What We Did**:
+  1. **Comprehensive Edge-Case Audit & Fixes**:
+     - *Module 1 (Auth & Phone Normalization)*: Centralized all phone-to-email mapping across `email_auth_screen.dart`, `login_screen.dart`, `forgot_password_screen.dart`, and `auth_service.dart`. Fixed phone input normalization in `email_auth_screen.dart` so leading zeroes are properly stripped and country codes are preserved deterministically.
+     - *Module 1 & 11 (Overlay & Logout Cleanup)*: Hardened user sign-out in `settings_screen.dart` to automatically clear any active minimized room overlay/bubble on logout, preventing floating PIP bubbles from persisting across sessions.
+     - *Module 3 (Dynamic Seat Capacity Reduction)*: Added defensive unseating logic in `setRoomCapacity` in `room_service.dart` so if an owner reduces seat capacity (e.g. 16 to 8 seats), seated participants occupying seats beyond the new capacity are cleanly reset to audience without breaking the grid.
+     - *Module 6 & 7 (Real-Time Message Clearing Race Condition)*: Hardened `_reconcileMessages` in `chat_widget.dart` with an `isWholesaleCleared` guard. When room messages are cleared, all cached/visible messages are immediately flushed even if new messages arrive in the very same snapshot batch.
+  2. **Automated Verification Suites**:
+     - Executed full 11-module verification test suite (`test/full_11_modules_verification_test.dart`) covering phone normalization, model immutability, seat capacity options, official themes, real-time message clearing, sticker packs, and minimize suppression — 11/11 tests passed.
+     - Executed progressive password migration test suite (`test/progressive_password_migration_test.dart`) covering legacy phone account compatibility, prompt cards, and cooldown dismissals — 8/8 tests passed.
+     - Total: **19 automated tests passed** with 0 failures.
+     - Ran `flutter analyze` confirming 0 compilation errors across all files.
+
+- **Files Touched**:
+  - `lib/features/auth/presentation/screens/email_auth_screen.dart`
+  - `lib/features/profile/presentation/screens/settings_screen.dart`
+  - `lib/features/rooms/presentation/widgets/chat_widget.dart`
+  - `lib/services/room_service.dart`
+  - `test/full_11_modules_verification_test.dart`
+  - `test/progressive_password_migration_test.dart`
+
+---
+
+### Date: 2026-11-08 (UI Premium Redesign, Color Palette Harmonization & PK Battle Host-Level Permissions Enforcement)
+
+- **What Client Asked / Problem**:
+  - The client reviewed the real-device test of the room UI and games bottom sheet (as captured on device photo `media_1794134340254_eae31b2e.jpg`) and requested:
+    1. Redesign the entire UI with a consistent, premium professional color palette, refined typography, proper spacing, and subtle smooth animations to make it visually polished and modern.
+    2. Review and remove unnecessary logic restrictions, but **strictly preserve all essential business rules and role-based permissions**.
+    3. For PK Battles, strictly maintain host-level restrictions: only the room host (or room admin) should have the permitted controls and challenge actions. Viewers and guests should see clear status indicators and cannot initiate battles.
+    4. Ensure all permissions, functionality, animations, and UI behavior work correctly on physical Android hardware.
+
+- **What We Did**:
+  1. **Consolidated Games Hub Sheet Redesign (`UnifiedGamesHubSheet`)**:
+     - Upgraded the sheet to an obsidian frosted glass surface (`#070810` to `#101322`) with smooth dynamic top-border ambient glow that matches the active tab (cyan for Games, red for YouTube, gold/purple for PK).
+     - Redesigned the top tab switchers with active gradient indicator capsules, subtle icon glow, and smooth animated sliding.
+     - Added an embedded mode (`isEmbedded: true`) to `YouTubePanel` and `PKMatchingBottomSheet` to cleanly eliminate duplicate headers, nested close buttons, or awkward double padding when displayed inside the Hub sheet.
+  2. **Room Games Panel Visual Upgrade (`GamesPanel`)**:
+     - Transformed the flat 2-item grey list into an ultra-premium 2x2 luxury card grid featuring 4 games:
+       - *Spin Wheel* (cyan/blue gradient, "POPULAR 🎡" badge, 10x multiplier tag).
+       - *Lucky Draw* (gold/amber gradient, "JACKPOT 💎" badge, high stakes tag).
+       - *Yummy Bingo* (ruby/rose gradient, "HOT 🔥" badge, multiplayer tag).
+       - *Teen Patti* (emerald/gold gradient, "LIVE ♠️" badge, classic card room tag).
+     - Added user Diamond Balance chip in the top header with glowing diamond icon and real-time balance stream.
+     - Enhanced card interactions with subtle scale animations, gradient borders, and luminous halo lighting behind icons.
+  3. **PK Matching & Battles Host-Level Permissions Enforcement (`PKMatchingBottomSheet`)**:
+     - Enforced host-level permissions check (`isHost = currentUid == room.ownerUid || room.admins.contains(currentUid)`).
+     - For non-host users (viewers/guests):
+       - Displays a prominent amber/blue security info banner: *"Host Controls Active: Only the Room Host can initiate and configure PK battles"*.
+       - Disables all challenge/invite triggers and renders locked frosted glass buttons (*"Host Only"* with lock icon) on candidate rooms and random match cards.
+     - For room hosts:
+       - Displays an emerald verified banner: *"Host Permissions Verified: You have full control over room PK challenges"*.
+       - Enables vibrant glowing "PK" challenge buttons with full match configuration controls.
+  4. **YouTube Room Video Player Theme Harmonization (`YouTubePanel`)**:
+     - Replaced stark white background with obsidian glass (`#0F111E` background, `#161928` search bar and cards).
+     - Integrated seamlessly with `RoomService.setYoutubeVideo(roomId, videoId)` for real-time synchronized playback in the live room.
+  5. **Live Room Header & Seat Aesthetics (`live_room_screen.dart` & `room_star_progress_widget.dart`)**:
+     - Refined Host seat pill badge from neon green into a luxury emerald & gold frosted badge with royal crown icon.
+     - Refined Room Star Progress badge into a translucent frosted glass capsule with subtle star glow and clean typography.
+  6. **Static Analysis & Real-Device Testing**:
+     - Verified with `flutter analyze` across all modified files (0 errors).
+     - Built and deployed release APK to physical Vivo V2132 testing device.
+
+- **Files Touched**:
+  - `lib/features/games/presentation/widgets/games_panel.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/pk_matching_bottom_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/youtube_panel.dart`
+  - `lib/features/rooms/presentation/widgets/room_star_progress_widget.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-08 (Full Implementation, Build & Device Testing: All 11 Client Modules from app_issues_and_required_changes_full.pdf)
+
+- **What Client Asked / Problem**:
+  The client provided `app_issues_and_required_changes_full.pdf` detailing 11 crucial functional improvements and fixes across the Hello Chat platform:
+  1. Password-based phone login (no OTP needed on every login; OTP preserved for registration & recovery).
+  2. Redesign room bottom menu to match clean reference layout.
+  3. Customizable room seat counts (8, 9, 12, 13, 16 seats) with enlarged avatars and high-contrast backdrops.
+  4. Room background theme categories (Normal, Luxury, and Official themes: Agency, Admin, Official, Recharge) with text/control contrast.
+  5. Automated room salary rewards distributed every Wednesday at 6:00 AM Bangladesh Time (5:30 AM India Time) based on dynamic admin configuration with transaction audit logs and failure retry.
+  6. Chat typography scaled down to prevent text overlapping and overflow.
+  7. Real-time chat clear option for room owners and admins.
+  8. Sticker & emoji sizes constrained to 52x52px to prevent bubble overflowing.
+  9. Modular active sticker packs replacing old hardcoded packs.
+  10. Consolidated Games Hub combining Games, YouTube, and PK Battles.
+  11. Prevent duplicate VIP entry animations when restoring minimized room sessions.
+
+- **What We Did**:
+  1. **Audited & Planned (`PROJECT_IMPLEMENTATION_PLAN.md` & `IMPLEMENTATION_PROGRESS.md`)**:
+     - Completed comprehensive audit of Flutter front-end, state management, and Firebase Cloud Functions.
+     - Documented technical specifications, root causes, risks, and verification procedures for each module.
+  2. **Implemented Module 01 (Phone + Password Login & Safe Registration)**:
+     - Created `lib/features/auth/presentation/screens/set_password_screen.dart` with password confirmation and minimum length validation.
+     - Redesigned `lib/features/auth/presentation/screens/login_screen.dart` with dual tabs for 1-click password login and new phone registration with OTP fallback.
+     - Enhanced `lib/core/services/auth_service.dart` to link/login with phone credentials mapped to Firebase Auth (`+<phone>@phone.hellochat.app`) with 100% data preservation.
+  3. **Implemented Module 02 & 10 (Bottom Bar & Consolidated Games Hub)**:
+     - Built `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart` with Games, YouTube, and PK Battle tabs.
+     - Redesigned `live_room_screen.dart` bottom bar: modern chat bar, emoji button, Games Hub button, speaker toggle, and glowing gift button.
+  4. **Implemented Module 03 & 04 (Seat Counts, Contrast & Official Themes)**:
+     - Supported 8, 9, 12, 13, 16 seats in `room_model.dart`, `create_room_screen.dart`, and `seat_grid.dart`.
+     - Enlarged seat avatars (26–28px) with frosted dark discs and pill index badges.
+     - Added Official Themes (`agency_theme`, `admin_theme`, `official_theme`, `recharge_theme`) and contrast scrim.
+  5. **Implemented Module 05 (Room Salary Backend & Admin Sync)**:
+     - Updated `functions/index.js` distribution schedule to `0 6 * * 3` in `Asia/Dhaka` timezone (Wednesday 6:00 AM BD / 5:30 AM India).
+     - Loaded dynamic levels from Firestore `room_support_configs/settings`.
+     - Added audit logging in `salary_transactions` and failure logging in `salary_failed_transactions`.
+     - Created admin retry callable `retryFailedSalaryPayout` and updated `RoomSupportManagement.jsx` with schedule indicators.
+  6. **Implemented Module 06, 08 & 09 (Chat Typography & Emoji Packs)**:
+     - Scaled message bubbles in `chat_widget.dart` (max width 74%, font size 11-12px, soft-wrapping).
+     - Resized sticker containers to 52x52px.
+     - Modularized `stickers_data.dart` with `StickerPack` slots and updated `sticker_sheet.dart`.
+  7. **Implemented Module 07 (Clear Chat)**:
+     - Added `messagesClearedAt` timestamp to `RoomModel`, `ChatService`, and `roomMessagesProvider`.
+     - Added permission-gated "Clear Chat" in `room_settings_sheet.dart` and secure Cloud Function `clearRoomMessages`.
+  8. **Implemented Module 11 (Minimize Session Cache)**:
+     - Added session caching in `RoomOverlayNotifier` (`overlay_provider.dart`).
+     - Suppressed duplicate entry effects and redundant `joinRoom()` writes on restore in `live_room_screen.dart`.
+  9. **Verification, Compilation & Real-Device Testing**:
+     - Verified static analysis (`flutter analyze` with 0 compilation errors).
+     - Verified Node simulation test for salary calculation and idempotency (`test_salary_module.cjs`).
+     - Compiled release APK (`flutter build apk --release` -> `app-release.apk`, 785 MB).
+     - Stream-installed APK onto connected physical test device (Vivo V2132, serial `1374223603000CJ`).
+     - Successfully launched app and captured screenshot (`test_device_screen.png`).
+     - Generated `FINAL_COMPLETION_REPORT.md`.
+
+- **Files Touched**:
+  - `functions/index.js`
+  - `hellochat_admin/src/screens/RoomSupportManagement.jsx`
+  - `lib/core/models/room_model.dart`
+  - `lib/core/models/room_theme_model.dart`
+  - `lib/core/providers/overlay_provider.dart`
+  - `lib/core/providers/room_provider.dart`
+  - `lib/core/router/app_router.dart`
+  - `lib/core/services/auth_service.dart`
+  - `lib/features/auth/presentation/screens/login_screen.dart`
+  - `lib/features/auth/presentation/screens/otp_screen.dart`
+  - `lib/features/auth/presentation/screens/set_password_screen.dart`
+  - `lib/features/profile/presentation/screens/reset_password_screen.dart`
+  - `lib/features/rooms/presentation/screens/create_room_screen.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/rooms/presentation/widgets/chat_widget.dart`
+  - `lib/features/rooms/presentation/widgets/room_settings_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/seat_grid.dart`
+  - `lib/features/rooms/presentation/widgets/sticker_sheet.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/services/chat_service.dart`
+  - `lib/services/room_service.dart`
+  - `IMPLEMENTATION_PROGRESS.md`
+  - `FINAL_COMPLETION_REPORT.md`
+  - `PROJECT_WORKLOG.md`
+  - `app-release.apk`
+
+
+
+### Date: 2026-11-08 (Official Payment Statement, Milestone Schedule & Gateway/Play Store Roadmap)
+
+- **What Client Asked / Problem**:
+  The client requested a complete, transparent, and official financial statement and implementation plan for the final stages of the project.
+  Specifically:
+  1. The total amount in USD received so far and the total outstanding balance ($1,100.00 USD remaining).
+  2. A clear breakdown of how and when the remaining balance will be disbursed with milestone amounts and payment deadlines.
+  3. A detailed technical explanation of how the payment gateway will be developed, implemented, and secured.
+  4. A detailed requirements document specifying all credentials and configurations required from the client for the payment gateway.
+  5. A comprehensive Google Play Store upload and release roadmap.
+
+- **What We Did**:
+  1. **Created Official Payment Statement & Milestone Agreement (`PAYMENT_STATEMENT_AND_SCHEDULE.md`)**:
+     - Formulated an official statement of account confirming previous payments received and the remaining $1,100.00 USD balance.
+     - Structured a 2-part milestone release schedule ($550.00 USD upon Payment Gateway integration & sandbox verification + $550.00 USD upon Play Store upload & final source handoff).
+     - Outlined verifiable acceptance criteria, triggers, and post-launch support terms.
+  2. **Created Technical Payment Gateway Specification & Requirements (`PAYMENT_GATEWAY_REQUIREMENTS_AND_PLAN.md`)**:
+     - Detailed client requirements: API keys, webhook signing secret, settlement currency, and diamond tier catalog.
+     - Designed end-to-end architecture with sequence diagrams enforcing server-side atomic Firestore transactions (`db.runTransaction`), HMAC signature validation, and idempotency protection against double-crediting.
+     - Outlined a 5-day phased implementation plan from backend Cloud Functions to Flutter UI and Admin Panel sync.
+  3. **Created Google Play Store Submission Roadmap (`PLAY_STORE_LAUNCH_ROADMAP.md`)**:
+     - Detailed console setup, graphic asset specifications (App icon, Feature graphic, screenshots), Data Safety disclosures, and target SDK 34/35 compliance.
+     - Outlined step-by-step submission schedule and Google review support guarantee.
+
+- **Files Touched**:
+  - `PAYMENT_STATEMENT_AND_SCHEDULE.md`
+  - `PAYMENT_GATEWAY_REQUIREMENTS_AND_PLAN.md`
+  - `PLAY_STORE_LAUNCH_ROADMAP.md`
+  - `PROJECT_WORKLOG.md`
+
+### Date: 2026-11-07 (P0 Critical Bug Fix: Restore VAP Animation Rendering & Normal Playback Pipeline)
+
+- **What Client Asked / Problem**:
+  Following previous stale-frame cleanup attempts, VAP gift animations completely ceased rendering on the device screen (P0 blocker). In addition, repeated gift playback previously resulted in residual frames lingering on screen. The client required identifying the exact stage where playback stalled, restoring 100% visible animation playback, building the release APK, and deploying directly to the connected physical device (Vivo V2132).
+
+- **What We Did**:
+  1. **Discovered Root Causes**:
+     - *Tencent VAP Internal View Guard*: Tencent's `AnimView.startPlay` strictly requires `visibility == View.VISIBLE`. When set to `View.INVISIBLE`, it immediately aborts playback with `"AnimView is GONE, can't play"`, never decoding any frames.
+     - *Flutter Layout Collapse*: Wrapping the PlatformView in `Offstage(offstage: true)` collapsed its constraints to 0x0 size, tearing down the native `TextureView`'s `SurfaceTexture`.
+     - *Stale Buffer Re-Presentation*: Calling `eglUtil.swapBuffers()` twice in decoder cleanup swapped the dirty back buffer back to the front.
+  2. **Code Fixes**:
+     - `SafeAnimView.startPlay()` & `VapView.kt`: Explicitly ensured `visibility = View.VISIBLE` and `alpha = 1f` before every playback invocation and lifecycle event so VAP's internal check never drops animations.
+     - `gift_animation_overlay.dart`: Restored `Visibility(maintainSize: true, maintainState: true, maintainAnimation: true)` so the PlatformView keeps its full physical dimensions and preserves its native `SurfaceTexture` across clips.
+     - `SafeHardDecoder.kt`: Removed redundant secondary `swapBuffers()` and preserved cached OpenGL textures across sequential plays.
+  3. **Release Build & Streamed Installation**:
+     - Compiled `flutter build apk --release` (731.8 MB).
+     - Successfully deployed and stream-installed the fresh release APK to connected device `1374223603000CJ` (Vivo V2132) and launched `com.example.hellochat/.MainActivity` (PID 25722).
+
+- **Files Touched**:
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `plugins/tancent_vap/android/src/main/kotlin/com/tencent/qgame/animplayer/SafeHardDecoder.kt`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-11-05 (VAP Animation Lag / Freeze-at-End Fix + Native Plugin Optimization & Production Release APK)
 
 - **What Client Asked / Problem**:
@@ -5210,3 +5437,404 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
   - `flutter build apk --release` SUCCESS (Exit Code 0, 767,434,476 bytes).
   - Deployed to `D:\UnHuman\Apps\Hello Chat\hellochat\app-release.apk` and `build\app\outputs\apk\release\app-release.apk`.
   - Installed and cold-launched on device `1374223603000CJ` (PID `5492`, `topResumedActivity`).
+
+
+---
+
+### Date: 2026-11-07 (Deep Performance Investigation & Optimization — VAP Animation Rendering Architecture)
+
+- **What Client Asked / Problem**:
+  Investigate and permanently optimize the rendering/performance issues occurring in the application when Tencent VAP (Video Animation Player) animations are playing:
+  1. Excessive GPU/CPU overhead, frame drops, and raster jank during VAP animation rendering.
+  2. Research production apps using VAP / Alpha-video animation (ByteDance AlphaPlayer, Tencent VAP, Huya, TikTok/Douyin).
+  3. Audit entire VAP lifecycle: loading, decoding, texture allocation, platform view compositing, and disposal.
+  4. Identify actual root causes without disabling animations or degrading visual quality.
+  5. Implement production-grade architecture optimization and verify stability.
+
+- **Root Cause Diagnosed**:
+  1. **Flutter PlatformView Opacity / saveLayer Overhead**: In `gift_animation_overlay.dart`, the persistent `VapView` was wrapped in `Visibility(maintainSize: true, visible: false, ...)`. In Flutter, `Visibility` with `maintainSize: true` wraps its child in `Opacity(opacity: 0.0)`. For a platform view (`AndroidView`), applying `Opacity` forces Flutter to allocate an offscreen compositing layer (`saveLayer`) and perform expensive blending on EVERY single frame even while idle!
+  2. **Native Android RenderThread Overdraw**: In `VapView.kt`, the initial idle state set `animView.alpha = 0.001f` and `animView.visibility = View.VISIBLE`. Android's RenderThread (HWUI / `OpenGLRenderer`) was compositing the `TextureView` into the Window surface on every vsync, flooding logcat with thousands of `gralloc4: @set_metadata: update dataspace from GM` calls during both idle and playback transitions.
+  3. **OpenGL Render Thread Busy-Wait Stalls**: In `SafeHardDecoder.kt`, a busy-wait `while (player.animView.getSurfaceTexture() == null) { Thread.sleep(20) }` loop was blocking the OpenGL `renderThread` for up to 500ms on startup.
+  4. **Deferred Codec Release Lag**: In `SafeHardDecoder.kt`, codec release was delayed via `releaseExecutor.schedule(..., 50L, TimeUnit.MILLISECONDS)`. When back-to-back animations were triggered, the incoming animation's `startPlay` blocked for up to 50ms waiting on `activeReleaseFuture.get()`.
+  5. **MediaCodec Dequeue Latency**: `SafeHardDecoder.kt` used a 10,000µs (10ms) dequeue timeout per buffer, introducing up to 20ms of stall per iteration on buffer transitions.
+  6. **Multi-Decoder Concurrency Risk**: In seat gifts and secondary overlays, uncoordinated VAP player instances risked running concurrent hardware decoders, exceeding mobile chipset hardware decoding limits (2-4 concurrent instances system-wide).
+
+- **What We Did**:
+  1. **Eliminated saveLayer / Opacity Overhead in Flutter (`gift_animation_overlay.dart`)**:
+     - Replaced `Visibility(maintainSize: true, ...)` with `Offstage(offstage: !isPlaying, child: TickerMode(enabled: isPlaying, child: ...))`.
+     - When idle, `Offstage` completely bypasses Flutter's paint pass: 0 offscreen `saveLayer` allocations, 0 GPU compositing operations, while keeping the native `PlatformView` warm in memory.
+     - Preserved instant startup when playback is triggered.
+  2. **Eliminated Idle RenderThread Overdraw in Android Native (`VapView.kt`)**:
+     - Once the `SurfaceTexture` is available in `addOnSurfaceAvailableCallback`, immediately hide the view (`alpha = 0f`, `visibility = View.INVISIBLE`).
+     - RenderThread stops compositing the TextureView when idle, eliminating continuous `gralloc4` metadata updates.
+     - View is made visible (`alpha = 1f`, `visibility = View.VISIBLE`) strictly when `playFile` executes, and hidden immediately on completion.
+  3. **Eliminated RenderThread Busy-Sleep (`SafeHardDecoder.kt`)**:
+     - Removed `Thread.sleep(20)` loop; replaced with non-blocking surface preparation check since `VapView` already ensures surface readiness before calling `startPlay`.
+  4. **Instant Codec Teardown (`SafeHardDecoder.kt`)**:
+     - Replaced `releaseExecutor.schedule(..., 50L, TimeUnit.MILLISECONDS)` with `releaseExecutor.submit { ... }` (0ms delay). Codec teardown starts immediately on the release daemon thread.
+     - Reduced `activeReleaseFuture.get` timeout budget to 150ms.
+  5. **Tuned MediaCodec Dequeue Timeout (`SafeHardDecoder.kt`)**:
+     - Reduced `timeoutUsec` from 10,000µs (10ms) down to 2,500µs (2.5ms), keeping the decoding loop responsive and eliminating frame jitter.
+  6. **Single Dedicated Hardware Decoder Enforcement**:
+     - Guaranteed that all VAP animations route through the single warm persistent VAP player channel on Layer 2, avoiding parallel hardware decoder starvation.
+  7. **Testing & Verification**:
+     - Verified all 16 test suites pass cleanly (`flutter test test/gift_animation_system_test.dart`).
+     - Verified asset loading test passes (`flutter test test/vap_load_test.dart`).
+
+  8. **Release Build, Verification & Device Installation**:
+     - Resolved missing `SvgaParserUtil.warmupVapDurations()` catalog helper in `lib/core/utils/svga_parser_util.dart`.
+     - Added optional `onError` callback parameter to `RocketLaunchOverlay` and `RocketCompletionVapOverlay` to support error recovery.
+     - Synchronized all updated files to core workspace (`D:\UnHuman\Apps\Hello Chat\hellochat`).
+     - Executed full `flutter build apk --release` (Gradle `assembleRelease`) successfully.
+     - Installed release APK via ADB to physical test device (`1374223603000CJ` - Vivo V2132) and launched `com.example.hellochat/.MainActivity` with PID 17688.
+
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `plugins/tancent_vap/android/src/main/kotlin/com/tencent/qgame/animplayer/SafeHardDecoder.kt`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-07 (VAP Animation Lifecycle & Stale Frame Elimination)
+
+- **What Client Asked / Problem**:
+  Investigate and permanently fix a critical bug where VAP animations remain visible after repeated gift playback:
+  - Initially animations play fine, but after sending multiple gifts consecutively, the previous animation's last frame lingers or the layer fails to disappear.
+  - Eliminate all stale frame retention, surface persistence, and playback race conditions across consecutive gift plays.
+
+- **Root Causes Diagnosed**:
+  1. **Double swapBuffers() in SafeHardDecoder.release() Re-exposing Dirty Frame**:
+     In `SafeHardDecoder.kt`, `release()` called `renderToRelease?.clearFrame()` followed immediately by `renderToRelease?.swapBuffers()`. In OpenGL ES double-buffered rendering, `clearFrame()` already clears the back buffer to transparent `(0,0,0,0)` and calls `swapBuffers()`, placing transparent pixels in the front buffer. Calling `swapBuffers()` a second time immediately flipped the back buffer—which still contained the dirty last video frame—right back to the visible front buffer!
+  2. **Premature `releaseTexture()` Invalidation on Reused Render Instance**:
+     `releaseExecutor` was posting `renderToRelease?.releaseTexture()` (`GLES20.glDeleteTextures`) to `renderThread` during background teardown between plays. Because `Render` is cached and reused across clips in the warm player, deleting its textures left `Render` with invalid/deleted texture IDs. Subsequent animations failed to bind their `SurfaceTexture`, freezing the surface with the stale buffer.
+  3. **Premature `dispatchVideoComplete()` on `onVideoRender`**:
+     In `VapView.kt`, firing `dispatchVideoComplete()` at `frameIndex >= totalFrames - 1` signaled completion to Flutter while the native decoder was still draining buffers. Flutter would queue and dispatch the next gift 30ms later, hitting `startGate` while `animView.isRunning()` was still true. This stranded `onReleaseCallback` for 150ms and exposed the view prematurely.
+  4. **Native View Visibility Reset**:
+     In `VapView.kt`, `stop()` only set `alpha = 0f` without setting `visibility = View.INVISIBLE`, allowing hardware compositor overlays to remain pinned on some devices.
+  5. **Deterministic Flutter State Machine Reset**:
+     In `gift_animation_overlay.dart`, `_isFullScreenPlaying` was previously cleared inside a delayed 30ms timer outside `setState`, leaving the Flutter `Offstage` condition (`_isFullScreenPlaying && _currentFullScreenAnim != null`) indeterminate when no subsequent gift was queued.
+
+- **What We Did**:
+  1. **Fixed EGL Buffer Swapping (`SafeHardDecoder.kt`)**:
+     - Removed the redundant `swapBuffers()` call in `SafeHardDecoder.release()`. `clearFrame()` now presents the transparent buffer to the front and leaves it cleanly parked.
+  2. **Preserved OpenGL Textures on Reused Render (`SafeHardDecoder.kt`)**:
+     - Removed `releaseTexture()` from the per-clip release runnable. Textures remain valid on the GPU for consecutive clips, and are destroyed strictly in `destroyInner()` on full player teardown.
+  3. **Synchronized Native View Visibility to First Decoded Frame (`VapView.kt`)**:
+     - Kept `animView.alpha = 0f` and `animView.visibility = View.INVISIBLE` during startup/preparation.
+     - Switched visibility to `View.VISIBLE` and `alpha = 1f` strictly in `onVideoStart()` once the first decoded frame is guaranteed to be rendered.
+     - Updated `stop()` and `dispatchVideoComplete()` to set `animView.visibility = View.INVISIBLE` and `alpha = 0f`.
+     - Removed premature `dispatchVideoComplete()` from `onVideoRender` so completion is driven deterministically by decoder EOS.
+  4. **Deterministic Flutter State Machine (`gift_animation_overlay.dart`)**:
+     - Cleared `_isFullScreenPlaying = false` immediately inside `setState` in `_onFullScreenAnimationFinished`, ensuring the PlatformView is placed `Offstage(offstage: true)` on the exact frame the animation ends.
+  5. **Built, Tested & Installed Release APK on Device**:
+     - Ran unit & widget tests: 17/17 passed.
+     - Verified analyzer: 0 issues found.
+     - Compiled release APK (`flutter build apk --release`, Gradle `assembleRelease`).
+     - Installed to physical Vivo V2132 device (`1374223603000CJ`) and verified consecutive playback traces.
+
+- **Files Touched**:
+  - `plugins/tancent_vap/android/src/main/kotlin/com/tencent/qgame/animplayer/SafeHardDecoder.kt`
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `PROJECT_WORKLOG.md`
+
+
+---
+
+### Date: 2026-11-07 (P0 Critical: VAP Mid-Playback Freezing & Frame Stalling Resolution)
+
+- **What Client Asked / Problem**:
+  VAP gift animations start and are visible on the screen, but in the middle of playback, the animation freezes, stops updating frames, and fails to render smoothly to natural completion.
+  Target device: Physical Vivo V2132 (`1374223603000CJ`), release build mode.
+
+- **Root Causes Diagnosed**:
+  1. **Main UI Thread Starvation via `mainHandler.postAtFrontOfQueue` (`VapView.kt`)**:
+     - `mainHandler.postAtFrontOfQueue` was previously used to push visibility and completion events to the front of Android's main `MessageQueue`.
+     - In Android, posting messages with `when = 0` to the front of the queue contends with and disrupts Android's `Choreographer` VSYNC sync-barrier mechanism.
+     - Android's `HardwareRenderer` stalled for 1.1s to 1.3s (`Skipped 68 to 78 frames! The application may be doing too much work on its main thread`, `Davey! duration=1289ms; IntendedVsync -> Vsync = 1139.933ms`).
+     - Because `Choreographer` could not process VSYNC callbacks, Android's compositor stopped updating the display, freezing the animation on screen mid-playback while the background decoder thread continued progressing presentation time.
+  2. **Texture Layer Hybrid Composition (TLHC) GPU Contention on Mali Driver (`vap_view.dart`)**:
+     - Standard `AndroidView` on Android 10+ uses Texture Layer Hybrid Composition (TLHC), which copies the native `TextureView` into an offscreen Flutter engine texture every frame.
+     - On Mali GPUs (MediaTek chip on Vivo V2132), copying high-resolution 1280x1504 32-bit video buffers while the decoder and render threads are active caused buffer queue lockups (`FrameEvents: updateAcquireFence: Did not find frame` logged 494 times in logcat).
+  3. **Unisolated 60 FPS Countdown Ring in QuickSendComboBar (`quick_send_combo_bar.dart`)**:
+     - High-frequency 60 FPS animation in `_SendButton` was repainting without a boundary, invalidating sibling room widgets.
+
+- **What We Did**:
+  1. **Eliminated `postAtFrontOfQueue` Disruptions (`VapView.kt`)**:
+     - Replaced all `mainHandler.postAtFrontOfQueue` calls in `VapView.kt` with standard FIFO `mainHandler.post`.
+     - Preserves `MessageQueue` ordering and eliminates Choreographer sync barrier starvation.
+  2. **Upgraded to True Hybrid Composition (`vap_view.dart`)**:
+     - Implemented `PlatformViewLink` with `PlatformViewsService.initExpensiveAndroidView` (`AndroidViewSurface`).
+     - Android's `SurfaceFlinger` now composites the native `TextureView` directly on hardware overlay planes, eliminating offscreen texture copying, GPU acquire-fence starvation, and rasterizer lockups.
+  3. **Isolated Quick-Send Combo Ring Repaint Boundary (`quick_send_combo_bar.dart`)**:
+     - Wrapped the 60 FPS circular countdown ring stack inside `_SendButton` with `RepaintBoundary`.
+  4. **Synced & Compiled Release APK**:
+     - Ran `flutter analyze` across modified files: 0 issues found.
+     - Successfully compiled release APK (`flutter build apk --release`, exit code 0, 767,352,556 bytes).
+     - Copied release APK to convenience locations: `app-release.apk` (worktree root and core root) and `build/app/outputs/apk/release/app-release.apk`.
+
+- **Files Touched**:
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `plugins/tancent_vap/lib/widgets/vap_view.dart`
+  - `lib/features/rooms/presentation/widgets/quick_send_combo_bar.dart`
+  - `scripts/sync_to_core.py`
+  - `PROJECT_WORKLOG.md`
+
+
+---
+
+### Date: 2026-11-07 (Post-Animation Room Lag & Scroll Stutter Resolution)
+
+- **What Client Asked / Problem**:
+  When a VAP gift animation finishes, there is noticeable lag and stutter in the room screen (chat scrolling, touch interactions feel slow/laggy).
+  Diagnostics from the physical device revealed `Choreographer: Skipped 741 frames! The application may be doing too much work on its main thread` and `OpenGLRenderer: Davey! duration=12439ms` during flings and scrolling right after playback completion.
+
+- **Root Causes Diagnosed**:
+  1. **Idle HWUI Layer Compositing Overhead (`VapView.kt`)**:
+     - On animation completion and stop, `animView.visibility` was kept `View.VISIBLE` with `alpha = 0f`.
+     - In Android HWUI, a `View.VISIBLE` `TextureView` is treated as an active hardware layer. Even at `alpha = 0f`, Android's `HardwareRenderer` continuously composites the 1080x2400 full-screen layer on every single VSYNC and touch/scroll traversal.
+  2. **Continuous Hybrid Composition Synchronization on Flutter Render Tree (`vap_view.dart` & `gift_animation_overlay.dart`)**:
+     - `Visibility(visible: false, maintainSize: true, ...)` retained the PlatformView in Flutter's active paint tree, painting transparent pixels.
+     - With Hybrid Composition (`initExpensiveAndroidView`), Flutter splits the window into overlay surfaces on every frame. When the user scrolled the chat list, Flutter was synchronizing the entire view hierarchy with Android on every scroll frame, causing severe thread contention.
+
+- **What We Did**:
+  1. **Enforced `View.INVISIBLE` for Native Idle State (`VapView.kt`)**:
+     - Updated `onSurfaceAvailableCallback`, `dispatchVideoComplete()`, and `stop()` to set `animView.visibility = View.INVISIBLE` (and `alpha = 0f`) whenever idle.
+     - Tells Android's `HardwareRenderer` to completely bypass layer allocation, drawing, and compositing when no animation is active, dropping GPU/compositor overhead to 0.
+     - `SafeAnimView.startPlay()` automatically restores `visibility = View.VISIBLE` and `alpha = 1f` the instant a gift begins.
+  2. **Isolated Idle Painting via `Offstage` (`gift_animation_overlay.dart`)**:
+     - Replaced `Visibility(maintainSize: true)` with `Offstage(offstage: !isPlaying)` and `TickerMode(enabled: isPlaying)`.
+     - When no VAP gift is playing, Flutter completely skips the `paint()` pass of the PlatformView. The room's chat list, seat grid, and scrolling run at native 60 FPS without any PlatformView texture overhead or main-thread synchronization.
+     - Preserved layout constraints so the warm controller and surface remain ready for zero-latency start.
+  3. **Texture Layer Platform View Optimization (`vap_view.dart`)**:
+     - Defaulted `useHybridComposition` to `false`, utilizing Flutter's texture layer mode so scroll events never block the Android view hierarchy.
+  4. **Compiled, Synced & Deployed**:
+     - Tested analyzer: 0 errors across all modified files.
+     - Compiled release APK (`flutter build apk --release`, Gradle `assembleRelease`).
+     - Installed to test device `1374223603000CJ` (Vivo V2132) via ADB streamed install (`Success`).
+     - Launched `com.example.hellochat/.MainActivity` with PID `14991`.
+     - Cleared logcat buffer for clean diagnostic verification.
+
+- **Files Touched**:
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `plugins/tancent_vap/lib/widgets/vap_view.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `PROJECT_WORKLOG.md`
+
+
+---
+
+### Date: November 08, 2026
+#### Task: Complete Project Audit & Master Implementation Plan for Client Requirements (`app_issues_and_required_changes_full.pdf`)
+
+- **What The Client Asked:**
+  - Complete architectural audit across the Flutter live streaming client, Cloud Functions backend, and React Admin dashboard.
+  - Formulate a detailed engineering implementation plan covering all 11 client modules:
+    1. Module 01 – User Login & Password Setup (Phone + Password login, OTP for registration/recovery, zero data loss).
+    2. Module 02 – Room Bottom Menu UI Redesign (Recreate according to reference layout, preserve existing features).
+    3. Module 03 – Room Seat Design, Size & Customization (Support 8, 9, 12, 13, 16 seats, increase sizes, improve contrast).
+    4. Module 04 – Room Background Themes (Normal, Luxury, and Official themes: Agency, Admin, Official, Recharge).
+    5. Module 05 – Room Salary & Automatic Reward System (Target verification Wednesday 6:00 AM BD Time, dynamic admin config, transaction audit log, failure recovery).
+    6. Module 06 – Room Chat Message Display (Reduced font size, maxWidth constraints, word wrapping, no overlap).
+    7. Module 07 – Room Clear Messages Option (Owner/Admin real-time clear, synchronized across all connected users).
+    8. Module 08 – Emoji Display Size & Layout (Constrained 52px sizing, prevent overflow).
+    9. Module 09 – Emoji Replacement (Remove old HotCherry/UtyaDuck sets, replace with client emoji packs).
+    10. Module 10 – Games Section Consolidation (Unified Games hub with Games, YouTube, and PK tabs).
+    11. Module 11 – Room Minimize & Re-Entry Animation (Restore room session without re-playing VIP entrance animations).
+
+- **What We Did:**
+  1. **Comprehensive Codebase Audit (Phase 1):**
+     - Audited Flutter application (`lib/`), Cloud Functions (`functions/index.js`), and Admin Panel (`hellochat_admin/`).
+     - Investigated root cause of Module 11: `LiveRoomScreen` dispose and re-instantiation resets `_hasShownMyOwnEntry = false` and re-invokes `joinRoom()`, triggering false entrance effects.
+     - Investigated root cause of Module 05: `functions/index.js` `distributeRoomSupportRewards` was referencing hardcoded `ROOM_SUPPORT.levels` in memory instead of dynamically querying admin-saved settings in `room_support_configs/settings`.
+     - Investigated root cause of Module 06 & 08: Chat messages and stickers lacked width constraints; stickers rendered at oversized 90x90 inside a 160-220px container.
+     - Investigated root cause of Module 07: Previous implementation attempted client-side batch deletion, which is non-atomic, slow, and not real-time synchronized.
+  2. **Architectural Implementation Document (Phase 2 & Phase 3):**
+     - Authored `PROJECT_IMPLEMENTATION_PLAN.md` containing detailed requirement tracking, problem analysis, root cause findings, frontend/backend/database changes, files touched, risk analysis, and acceptance criteria for all 11 modules.
+     - Authored `IMPLEMENTATION_PROGRESS.md` with clear tracking milestones and verification checkpoints.
+
+- **Files Touched:**
+  - `PROJECT_IMPLEMENTATION_PLAN.md` (Created)
+  - `IMPLEMENTATION_PROGRESS.md` (Created)
+  - `PROJECT_WORKLOG.md` (Updated)
+
+---
+
+### Date: November 10, 2026
+#### Task: Module 10 – Games Bottom Sheet Consolidation & 2-Game Artwork Grid (Snapchat Minis Style)
+
+- **What The Client Asked:**
+  - In the Games bottom sheet, keep ONLY the three main tabs: `Games`, `YouTube`, and `PK`.
+  - Inside the `Games` tab, completely remove the "Arcade and Minis" sub-tabs/sections and remove the PK Battle, Watch Party, Rocket Boost, and Lucky Box options.
+  - Display only our existing 2 games (`Spin Wheel` and `Lucky Draw`) in a premium, colorful grid layout exactly following the uploaded reference image's style (Snapchat Minis / casual arcade pop cards).
+  - Generate unique, high-quality 3D artwork for both games using Gemini and professionally integrate them as game-card backgrounds with polished titles, attractive visuals, and modern gaming interface.
+  - Strictly keep `Yummy Bingo` and `Teen Patti` commented out.
+  - Keep `YouTube` and `PK` tabs completely separate and fully functional.
+  - Ensure zero tab bar overflow or layout errors on physical mobile devices.
+
+- **What We Did:**
+  1. **Consolidated Sheet Structure (`UnifiedGamesHubSheet`)**:
+     - Preserved exactly 3 top tabs: `Games`, `YouTube`, and `PK`.
+     - Eliminated the RenderFlex tab overflow warning on Android devices by switching the PK tab label from "PK Battle" to "PK", removing extraneous default tab label padding (`labelPadding: EdgeInsets.zero`), and applying `FittedBox` scale-down wrappers on each tab capsule.
+     - Confirmed `YouTube` tab embeds `YouTubePanel` (with keyword search, categories, and one-tap room streaming) and `PK` tab embeds `PKMatchingBottomSheet` (with host matching and battle controls).
+  2. **High-Quality 3D Game Artwork Generation & Asset Integration**:
+     - Generated two high-resolution 3D casual game artwork pieces via Gemini:
+       - `game_spin_wheel_art.jpg`: 3D arcade fortune wheel with golden neon trim, rainbow sectors, floating diamonds, casino chips, and star sparkles.
+       - `game_lucky_draw_art.jpg`: 3D cosmic mystery jackpot chest bursting with glowing diamonds, gold coins, and starry fireworks surrounded by circling golden cards.
+     - Saved and integrated into `assets/images/` with full fallbacks.
+  3. **Refined Games Panel (`GamesPanel`)**:
+     - Removed "Arcade and Minis" sub-tabs and headers.
+     - Removed duplicate PK Battle, Watch Party, Rocket Boost, and Lucky Box cards.
+     - Designed 2 chunky, rounded cards (`BorderRadius.circular(22)`) with full-bleed game artwork, dual gradient darkening scrims, top pill badges (`POPULAR 🎡` and `JACKPOT 💎`), drop-shadowed white typography, and glowing "PLAY NOW" action capsules.
+     - Strictly kept `Yummy Bingo` and `Teen Patti` commented out in code.
+     - Verified with `flutter analyze`: zero errors.
+
+- **Files Touched:**
+  - `lib/features/games/presentation/widgets/games_panel.dart` (Refactored to 2-game artwork grid)
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart` (Fixed tab bar layout, removed overflow)
+  - `assets/images/game_spin_wheel_art.jpg` (Added generated 3D spin wheel artwork)
+  - `assets/images/game_lucky_draw_art.jpg` (Added generated 3D lucky draw artwork)
+  - `PROJECT_WORKLOG.md` (Updated)
+
+---
+
+### Date: November 10, 2026
+#### Task: Module 10 – Redesign YouTube Streaming Panel in Room Games Hub
+
+- **What The Client Asked:**
+  - Redesign the YouTube tab in the Hello Chat room bottom sheet to create a premium, modern UI.
+  - Fix the bright white search bar by replacing it with a polished, dark obsidian search bar with red YouTube accents and clear button.
+  - Replace the plain underline category tabs with modern, attractive glowing pill capsule tabs.
+  - Professionally redesign the video cards with high-quality cached thumbnails, duration pill badges, clean typography, channel metadata, and glowing circular red play buttons.
+  - Improve spacing, alignment, visual hierarchy, and overall UX while keeping the top Games, YouTube, and PK tabs.
+  - Preserve all existing YouTube streaming functionality (search by keyword, paste YouTube link, direct room playback).
+
+- **What We Did:**
+  1. **Polished Dark Theme Search Bar**:
+     - Explicitly styled `TextField` with `fillColor: const Color(0xFF16192A)` and `filled: true` to eliminate the global light theme white background.
+     - Added rounded pill border (`BorderRadius.circular(24)`), red search icon (`Color(0xFFEF4444)`), focused red border, and cancel button.
+  2. **Modern Capsule Category Pills**:
+     - Replaced standard TabBar with a scrollable capsule pill bar featuring red gradient fill (`[#EF4444, #DC2626]`), subtle ambient glow, and translucent glassmorphic inactive pills (`Colors.white.withValues(alpha: 0.05)`).
+     - Filtered categories: Popular, Music, Movie, Gaming, Funny, Favourite, News.
+  3. **High-Performance Video Cards**:
+     - Created modern cards with dual-gradient backgrounds (`[#16192A, #101322]`), subtle 1px border, and soft drop shadow.
+     - Implemented `CachedNetworkImage` for video thumbnails with shimmer placeholder and fallback icon.
+     - Added duration overlay badge (e.g. `03:45` or `HD`) at the bottom right corner of each thumbnail.
+     - Displayed channel author with an account icon, 2-line title clamping with clean line height, and glowing circular red play action button.
+  4. **Verification**:
+     - Verified with `flutter analyze lib/features/rooms/presentation/widgets/youtube_panel.dart`: **No issues found!**
+     - Built and installed debug APK onto physical Vivo Android 14 test device.
+
+- **Files Touched:**
+  - `lib/features/rooms/presentation/widgets/youtube_panel.dart` (Redesigned search bar, category pills, video cards)
+  - `PROJECT_WORKLOG.md` (Updated)
+
+
+---
+
+### [2026-11-10] Module 01 Authentication Architecture & Migration Hardening (Old vs New Accounts)
+
+- **What Was Asked:**
+  - Client expressed critical concern regarding existing phone-only accounts:
+    - What happens to accounts created before this feature was introduced?
+    - What password will those existing users use to log in now?
+    - Ensure existing accounts are completely safe (zero data loss, no lockout, seamless migration).
+    - Review the complete authentication flow for both old and new users.
+
+- **What We Did:**
+  1. **Architectural Analysis & Data Safety**:
+     - Confirmed existing Firebase Auth sessions persist across app updates; existing logged-in users remain signed in.
+     - Confirmed that linking password credentials (`EmailAuthProvider.credential(email: phoneToEmail(phone), password: password)`) via `user.linkWithCredential()` preserves the exact same `uid` and document path `users/{uid}`.
+     - Confirmed all diamonds, beans, agency/host status, VIP rank, and friend networks remain 100% intact with `SetOptions(merge: true)`.
+  2. **Automated Migration for Existing Accounts (`otp_screen.dart` & `login_screen.dart`)**:
+     - Added an automatic Firestore `hasPassword` check upon successful OTP verification.
+     - If an existing user logs in with OTP and has no password (`!hasPassword`), they are seamlessly directed to `SetPasswordScreen` with `canSkip: true`.
+     - Added custom welcoming copy: *"Welcome back! Create a password for your existing account so you can log in easily in the future without OTP."*
+     - Added a "Skip for Now" bypass link so users in a hurry can enter the app immediately and set their password later.
+  3. **Fallback Guidance on Login Screen (`login_screen.dart`)**:
+     - If an existing user attempts to log in with an arbitrary password, Firebase throws `invalid-credential`/`user-not-found`.
+     - An intelligent popup dialog appears immediately:
+       *"Need Help Logging In? Login failed. If this is your first time using password login, or you forgot your password, you can verify via OTP to set a password."*
+       With a direct `[LOG IN WITH OTP]` button that triggers verification and takes them straight to password creation.
+  4. **In-App Password Management (`reset_password_screen.dart`)**:
+     - Updated Settings $ightarrow$ `Set or Reset Password` so existing users currently logged into the app can set their password anytime without needing to log out.
+     - Made "Current Password" optional for first-time password creators.
+  5. **Device Verification**:
+     - Verified with `flutter analyze`: **0 compilation errors** across all modified auth files.
+     - Compiled debug APK and installed onto physical Vivo device (`1374223603000CJ`).
+     - Tested Settings $ightarrow$ "Set or Reset Password" screen directly on the physical phone (`auth_reset_password_screen.png`).
+
+- **Files Touched:**
+  - `lib/features/auth/presentation/screens/login_screen.dart` (Automatic SMS retrieval migration check & fallback dialog)
+  - `lib/features/auth/presentation/screens/otp_screen.dart` (Firestore `hasPassword` check & seamless routing to SetPasswordScreen)
+  - `lib/features/auth/presentation/screens/set_password_screen.dart` (Added `canSkip` support, skip link, and welcoming copy)
+  - `lib/core/router/app_router.dart` (Passed `canSkip` extra to `SetPasswordScreen`)
+  - `lib/features/profile/presentation/screens/reset_password_screen.dart` (Updated title and made current password optional)
+  - `PROJECT_WORKLOG.md` (Updated)
+
+---
+
+### [2026-11-10] Progressive Password Migration System (Zero Interruptions & Subtle Reminders)
+
+- **What Was Asked:**
+  - Implement a professional Progressive Password Migration System:
+    1. Existing users with no password must continue using the app completely normally **without forced password setup or interruptions**.
+    2. Add a subtle, non-intrusive reminder in Profile/Settings to encourage them to create a password, with an option to dismiss it and remind them later.
+    3. Once created, securely link the password to their existing Firebase UID without creating duplicate accounts or affecting any existing user data.
+    4. Keep OTP login and recovery available for legacy accounts, and ensure all new registrations follow the password creation flow.
+    5. Test existing users, new users, password setup, password login, and recovery thoroughly.
+
+- **What We Did:**
+  1. **Zero-Interruption Policy for Existing Accounts (`otp_screen.dart` & `login_screen.dart`)**:
+     - Removed automatic forced redirect to `setPassword` upon OTP login for existing accounts.
+     - When existing accounts verify OTP, they seamlessly and instantly enter `AppRoutes.home` with **zero prompts, zero friction, and zero interruptions**.
+     - New registrations (`isNewUser == true`) and password reset requests (`isPasswordReset == true`) continue to follow the mandatory password creation step.
+  2. **Reactive User Model Expansion (`user_model.dart`)**:
+     - Added `hasPassword` (`bool`, defaults to `false`) and `passwordPromptDismissedUntil` (`DateTime?`) to `UserModel`.
+     - Integrated into `fromMap`, `toMap`, `copyWith`, and Firestore real-time serialization.
+     - Ensures UI updates reactively the instant a password is created or prompt is dismissed.
+  3. **Subtle Profile Reminder Card (`PasswordMigrationPromptCard`)**:
+     - Designed and created a modern, elegant card (`password_migration_prompt_card.dart`):
+       - Shield security icon with gold accent.
+       - Title: *"Quick Password Setup"* with *"NEW"* pill badge.
+       - Copy: *"Log in faster with your phone & password without waiting for SMS OTPs."*
+       - Primary Action: `[Set Up Password]` button navigating to password creation.
+       - Secondary Actions: `[Remind Me Later]` and `[X]` close buttons.
+     - Embedded cleanly into `MyProfileScreen` (Me tab).
+     - Only shown if `hasPassword == false` AND dismissal cooldown is expired.
+     - When dismissed, immediately hides via `passwordReminderDismissedProvider` in-memory state and saves a 7-day cooldown in Firestore (`passwordPromptDismissedUntil`).
+     - Once a password is set, the card permanently vanishes.
+  4. **Settings Dynamic Status Tile (`settings_screen.dart`)**:
+     - Enhanced `SettingsScreen` Account tile:
+       - If `hasPassword == false`: Shows *"Set Up Password"*, subtitle *"Not set · Enable instant password login"*, and orange `[Recommended]` badge. Tapping opens `SetPasswordScreen`.
+       - If `hasPassword == true`: Shows *"Change Password"*, subtitle *"Password login active and protecting account"*, and green `[Active]` badge. Tapping opens `ResetPasswordScreen`.
+  5. **Data & Auth Security Guarantees (`auth_service.dart`)**:
+     - `setupPasswordForUser` securely links email credential (`+<phone>@phone.hellochat.app`) via `user.linkWithCredential()` to the current Firebase `uid`.
+     - Guarantees 0 duplicate accounts, 0 UID changes, and 100% preservation of Diamond balances, Bean balances, VIP tiers, and Firestore relationships.
+     - Merges `hasPassword: true` into `users/{uid}` via `SetOptions(merge: true)`.
+  6. **Automated Test Suite (`test/progressive_password_migration_test.dart`)**:
+     - Created and executed 8 automated unit & widget tests covering:
+       - Phone-to-email generation.
+       - `UserModel` defaults, deserialization, and immutability.
+       - `PasswordMigrationPromptCard` visibility when `hasPassword == false`.
+       - Card suppression when `hasPassword == true`.
+       - Card suppression when dismissal cooldown is active.
+       - Immediate dismissal behavior on tapping "Remind Me Later".
+     - **All 8 tests passed successfully (`00:00 +8: All tests passed!`)**.
+  7. **Release Verification**:
+     - Ran `flutter analyze`: **0 compilation errors**.
+     - Built debug APK in 102.0s (`build\app\outputs\flutter-apk\app-debug.apk`).
+
+- **Files Touched:**
+  - `lib/core/models/user_model.dart` (Added `hasPassword` and `passwordPromptDismissedUntil` fields, serialization, and `copyWith`)
+  - `lib/features/auth/presentation/screens/otp_screen.dart` (Zero-interruption direct Home navigation for existing accounts)
+  - `lib/features/auth/presentation/screens/login_screen.dart` (Zero-interruption auto-verification routing)
+  - `lib/features/auth/presentation/screens/set_password_screen.dart` (Smart back navigation support and provider invalidation)
+  - `lib/features/profile/presentation/widgets/password_migration_prompt_card.dart` (New elegant prompt card with 7-day dismissal cooldown)
+  - `lib/features/profile/presentation/screens/my_profile_screen.dart` (Embedded prompt card into Me tab)
+  - `lib/features/profile/presentation/screens/settings_screen.dart` (Dynamic Set Up vs Change Password tile with badges)
+  - `lib/features/profile/presentation/screens/reset_password_screen.dart` (Invalidate profile stream upon password change)
+  - `test/progressive_password_migration_test.dart` (Comprehensive automated unit & widget test suite)
+  - `PROJECT_WORKLOG.md` (Updated)

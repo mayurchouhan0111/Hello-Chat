@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -1226,8 +1227,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
 
   void _handleSlotTap(String roomId, bool isOwner, int activeLevel, int currentPartners, int requiredSlots) {
     if (!isOwner) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Only the Room Owner can assign salary partners."),
           backgroundColor: borderGold,
           behavior: SnackBarBehavior.floating,
@@ -1237,8 +1237,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     }
 
     if (!_isAssignmentOpen) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Partner assignment is only open Monday 00:00 to Tuesday 23:59 (UTC+0)."),
           backgroundColor: borderGold,
           behavior: SnackBarBehavior.floating,
@@ -1250,8 +1249,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     if (activeLevel < 1) {
       final levels = _configLevels();
       final l1Target = levels.isNotEmpty ? ((levels.first['coinsTarget'] as num?)?.toInt() ?? 100000) : 100000;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Room must reach at least Level 1 (>= ${_formatNum(l1Target)} coins) to assign salary partners."),
           backgroundColor: borderGold,
           behavior: SnackBarBehavior.floating,
@@ -1261,8 +1259,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
     }
 
     if (currentPartners >= requiredSlots) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
           content: Text("Maximum $requiredSlots salary partners already assigned."),
           backgroundColor: borderGold,
           behavior: SnackBarBehavior.floating,
@@ -1339,8 +1336,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
         final service = ref.read(roomSupportServiceProvider);
         await service.removePartner(roomId, partnerUid);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text("$displayName removed from salary partners."),
               backgroundColor: borderGold,
               behavior: SnackBarBehavior.floating,
@@ -1349,8 +1345,7 @@ class _RoomSupportScreenState extends ConsumerState<RoomSupportScreen> with Sing
         }
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text("Error: ${e.toString().replaceFirst('Exception: ', '')}"),
               backgroundColor: Colors.red,
               behavior: SnackBarBehavior.floating,
@@ -2191,8 +2186,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       await service.assignPartner(widget.roomId, partnerUid);
       if (mounted) Navigator.pop(context);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('$displayName added as salary partner!'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
@@ -2201,8 +2195,7 @@ class _PartnerPickerState extends State<_PartnerPicker> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('Error: ${e.toString().replaceFirst('Exception: ', '')}'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import '../../../../core/models/room_model.dart';
@@ -140,8 +141,7 @@ class _AdministratorSheetState extends ConsumerState<AdministratorSheet> with Si
                         onPressed: () async {
                           await ref.read(roomServiceProvider).removeAdmin(room.roomId, uid);
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text("Administrator role revoked"), behavior: SnackBarBehavior.floating),
+                            ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Administrator role revoked"), behavior: SnackBarBehavior.floating),
                             );
                           }
                         },

@@ -109,6 +109,8 @@ class UserModel {
   final double totalRechargeGenerated;
   final double totalWithdrawnUSD;
   final int? monthlyTargetBeans;
+  final bool hasPassword;
+  final DateTime? passwordPromptDismissedUntil;
 
 UserModel({
     required this.uid,
@@ -219,6 +221,8 @@ this.verificationStatus = 'unverified',
     this.totalRechargeGenerated = 0.0,
     this.totalWithdrawnUSD = 0.0,
     this.monthlyTargetBeans,
+    this.hasPassword = false,
+    this.passwordPromptDismissedUntil,
   });
 
   static DateTime _parseDateTime(dynamic value, {DateTime? fallback}) {
@@ -341,6 +345,8 @@ this.verificationStatus = 'unverified',
       totalRechargeGenerated: (data['totalRechargeGenerated'] as num? ?? 0.0).toDouble(),
       totalWithdrawnUSD: (data['totalWithdrawnUSD'] as num? ?? 0.0).toDouble(),
       monthlyTargetBeans: (data['monthlyTargetBeans'] as num?)?.toInt(),
+      hasPassword: (data['hasPassword'] as bool?) ?? false,
+      passwordPromptDismissedUntil: data['passwordPromptDismissedUntil'] != null ? _parseDateTime(data['passwordPromptDismissedUntil']) : null,
     );
   }
 
@@ -452,6 +458,8 @@ this.verificationStatus = 'unverified',
       'totalRechargeGenerated': totalRechargeGenerated,
       'totalWithdrawnUSD': totalWithdrawnUSD,
       'monthlyTargetBeans': monthlyTargetBeans,
+      'hasPassword': hasPassword,
+      'passwordPromptDismissedUntil': passwordPromptDismissedUntil,
     };
   }
 
@@ -558,6 +566,8 @@ this.verificationStatus = 'unverified',
     double? totalRechargeGenerated,
     double? totalWithdrawnUSD,
     int? monthlyTargetBeans,
+    bool? hasPassword,
+    DateTime? passwordPromptDismissedUntil,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -662,6 +672,8 @@ this.verificationStatus = 'unverified',
       totalRechargeGenerated: totalRechargeGenerated ?? this.totalRechargeGenerated,
       totalWithdrawnUSD: totalWithdrawnUSD ?? this.totalWithdrawnUSD,
       monthlyTargetBeans: monthlyTargetBeans ?? this.monthlyTargetBeans,
+      hasPassword: hasPassword ?? this.hasPassword,
+      passwordPromptDismissedUntil: passwordPromptDismissedUntil ?? this.passwordPromptDismissedUntil,
     );
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -305,8 +306,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
         if (isChallenger) {
           _handleInviteToTeam(context, ref, isLeft ? 'left' : 'right');
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Only the PK challengers can invite users to the team.")),
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Only the PK challengers can invite users to the team.")),
           );
         }
       },
@@ -340,7 +340,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
             );
           } catch (e) {
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+              ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e")));
             }
           }
         },
@@ -421,7 +421,7 @@ class ActivePKBattleGrid extends ConsumerWidget {
         );
       } catch (e) {
         if (context.mounted) {
-           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+           ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e")));
         }
       }
     }

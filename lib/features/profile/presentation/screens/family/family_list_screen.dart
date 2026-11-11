@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -650,8 +651,7 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
       if (mounted) {
         setState(() => _isJoining = false);
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Join request sent to ${family.name}!"),
             backgroundColor: Colors.green,
             behavior: SnackBarBehavior.floating,
@@ -662,8 +662,7 @@ class _FamilyListScreenState extends ConsumerState<FamilyListScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _isJoining = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Error: $e"), 
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,

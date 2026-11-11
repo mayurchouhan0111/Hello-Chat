@@ -5,13 +5,24 @@ import 'package:hello_chat/core/services/floating_room_overlay_manager.dart';
 class RoomOverlayState {
   final String? roomId;
   final bool isMinimized;
+  final Set<String> activeRoomSessions;
 
-  RoomOverlayState({this.roomId, this.isMinimized = false});
+  RoomOverlayState({
+    this.roomId,
+    this.isMinimized = false,
+    this.activeRoomSessions = const {},
+  });
 
-  RoomOverlayState copyWith({String? roomId, bool? isMinimized, bool clearRoomId = false}) {
+  RoomOverlayState copyWith({
+    String? roomId,
+    bool? isMinimized,
+    bool clearRoomId = false,
+    Set<String>? activeRoomSessions,
+  }) {
     return RoomOverlayState(
       roomId: clearRoomId ? null : (roomId ?? this.roomId),
       isMinimized: isMinimized ?? this.isMinimized,
+      activeRoomSessions: activeRoomSessions ?? this.activeRoomSessions,
     );
   }
 }
@@ -25,9 +36,31 @@ class RoomOverlayNotifier extends StateNotifier<RoomOverlayState> {
     _context = context;
   }
 
+  bool isRestoringSession(String roomId) {
+    return state.activeRoomSessions.contains(roomId);
+  }
+
+  void registerActiveSession(String roomId) {
+    final updated = Set<String>.from(state.activeRoomSessions)..add(roomId);
+    state = state.copyWith(activeRoomSessions: updated);
+  }
+
+  void endSession(String roomId) {
+    final updated = Set<String>.from(state.activeRoomSessions)..remove(roomId);
+    state = state.copyWith(
+      activeRoomSessions: updated,
+      clearRoomId: state.roomId == roomId,
+      isMinimized: state.roomId == roomId ? false : state.isMinimized,
+    );
+    if (state.roomId == roomId) {
+      floatingRoomOverlayManager.removeOverlay();
+    }
+  }
+
   void minimize(String roomId, {BuildContext? ctx}) {
     debugPrint('[RoomOverlayNotifier] minimize called with roomId: $roomId');
-    state = RoomOverlayState(roomId: roomId, isMinimized: true);
+    final updated = Set<String>.from(state.activeRoomSessions)..add(roomId);
+    state = state.copyWith(roomId: roomId, isMinimized: true, activeRoomSessions: updated);
     
     final contextToUse = ctx ?? _context;
     if (contextToUse != null && contextToUse.mounted) {
@@ -46,7 +79,7 @@ class RoomOverlayNotifier extends StateNotifier<RoomOverlayState> {
 
   void clear() {
     debugPrint('[RoomOverlayNotifier] clear called');
-    state = RoomOverlayState();
+    state = state.copyWith(clearRoomId: true, isMinimized: false);
     _context = null;
     floatingRoomOverlayManager.removeOverlay();
   }

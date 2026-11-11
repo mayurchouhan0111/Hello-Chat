@@ -1261,12 +1261,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
     setState(() {
       _currentFullScreenAnim = null;
+      _isFullScreenPlaying = false;
     });
 
     // 30ms grace window for GPU surface reset before picking the next queued gift
     _transitionTimer = Timer(const Duration(milliseconds: 30), () {
       if (mounted) {
-        _isFullScreenPlaying = false;
         _checkNextFullScreenAnimation();
       }
     });
@@ -1389,19 +1389,22 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ...seatWidgets,
 
         // Layer 2: Persistent VAP Player (created on room enter, warm and persistent, released on room exit)
+        // Offstage(offstage: true) completely cuts painting & layer compositing when idle so the room runs
+        // at full 60 FPS without PlatformView texture layer overhead during scrolling/chat interactions.
         Positioned.fill(
           child: IgnorePointer(
+            ignoring: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
             child: RepaintBoundary(
-              child: Visibility(
-                visible: _isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap',
-                maintainState: true,
-                maintainAnimation: true,
-                maintainSize: true,
-                child: VapView(
-                  scaleType: ScaleType.fitCenter,
-                  repeat: 0,
-                  mute: kMuteVapAudio,
-                  onViewCreated: _setupPersistentVapController,
+              child: Offstage(
+                offstage: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
+                child: TickerMode(
+                  enabled: _isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap',
+                  child: VapView(
+                    scaleType: ScaleType.fitCenter,
+                    repeat: 0,
+                    mute: kMuteVapAudio,
+                    onViewCreated: _setupPersistentVapController,
+                  ),
                 ),
               ),
             ),

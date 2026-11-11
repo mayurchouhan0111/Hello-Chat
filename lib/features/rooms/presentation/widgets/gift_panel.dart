@@ -25,6 +25,7 @@ class GiftPanel extends StatefulWidget {
   final String roomId;
   final String? targetUid;
   final bool isMoment;
+  final GiftModel? initialGift;
 
   /// Fired after a successful send when Quick Send mode is eligible, so the
   /// room can dock a persistent repeat-send bar instead of leaving the user at
@@ -41,6 +42,7 @@ class GiftPanel extends StatefulWidget {
     super.key, 
     required this.roomId, 
     this.targetUid,
+    this.initialGift,
     this.isMoment = false,
     this.onQuickSendActivated,
   });
@@ -155,6 +157,9 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    if (widget.initialGift != null) {
+      _selectedGift = widget.initialGift;
+    }
     if (widget.targetUid != null) {
       _selectedTargetUids.add(widget.targetUid!);
     }
@@ -965,8 +970,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                                   );
                                   if (ctx.mounted) {
                                     Navigator.pop(ctx);
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
+                                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                         content: Row(
                                           children: [
                                             const Text("🎉", style: TextStyle(fontSize: 18)),
@@ -990,8 +994,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                                     } else if (errStr.contains("network") || errStr.contains("socket") || errStr.contains("connection")) {
                                       humanError = "Network connection issue. Please check your internet.";
                                     }
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
+                                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                         content: Row(
                                           children: [
                                             const Icon(Icons.info_outline_rounded, color: Colors.white, size: 18),
@@ -1035,8 +1038,15 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
 
   Widget _buildFooter(int diamondBalance, WidgetRef ref) {
     final effectiveBalance = (diamondBalance - _reservedDiamonds).clamp(0, diamondBalance);
-    final price = _selectedGift?.priceInDiamonds ?? 0;
-    final canAfford = canAffordQuickSend(balance: diamondBalance, reserved: _reservedDiamonds, price: price);
+    final singlePrice = _selectedGift?.priceInDiamonds ?? 0;
+    final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
+    final targetCount = _sendToAll
+        ? (ref.read(roomParticipantsProvider(widget.roomId)).value?.where((p) =>
+            (p.role == 'host' || p.seatIndex != -1) && p.uid != currentUserUid
+          ).length ?? 0)
+        : (_selectedTargetUids.isNotEmpty ? _selectedTargetUids.length : 1);
+    final totalRequired = singlePrice * _selectedQuantity * (targetCount > 0 ? targetCount : 1);
+    final canAfford = effectiveBalance >= totalRequired && totalRequired > 0;
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1161,26 +1171,44 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
           else
             // ── STANDARD SEND BUTTON ──
             GestureDetector(
-              onTap: (_selectedGift == null || _isSending) ? null : () => _sendSelectedGift(ref),
+              onTap: (_selectedGift == null || _isSending)
+                  ? null
+                  : () {
+                      if (!canAfford) {
+                        HapticFeedback.heavyImpact();
+                        AppToast.showOverlay(
+                          context,
+                          message: "Insufficient diamonds! Need $totalRequired 💎, have $effectiveBalance 💎. Tap to top up.",
+                          type: ToastType.warning,
+                        );
+                        context.push(AppRoutes.wallet);
+                        return;
+                      }
+                      _sendSelectedGift(ref);
+                    },
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 height: 42,
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 decoration: BoxDecoration(
-                  gradient: (_selectedGift != null && !_isSending)
+                  gradient: (_selectedGift != null && !_isSending && canAfford)
                       ? const LinearGradient(colors: [Color(0xFFFFD700), Color(0xFFFF9100)])
                       : LinearGradient(colors: [Colors.grey.shade700, Colors.grey.shade800]),
                   borderRadius: BorderRadius.circular(22),
-                  boxShadow: (_selectedGift != null && !_isSending)
+                  boxShadow: (_selectedGift != null && !_isSending && canAfford)
                       ? [BoxShadow(color: const Color(0xFFFFD700).withOpacity(0.4), blurRadius: 10)]
                       : [],
                 ),
                 alignment: Alignment.center,
-                child: _isSending 
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black)) 
-                    : const Text(
-                        "Send",
-                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14),
+                child: _isSending
+                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                    : Text(
+                        !canAfford && _selectedGift != null ? "Top up" : "Send",
+                        style: TextStyle(
+                          color: canAfford ? Colors.black : Colors.white70,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 14,
+                        ),
                       ),
               ),
             ),
@@ -1292,14 +1320,14 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     if (_selectedGift!.category.toLowerCase() == 'vip') {
       final isVipActive = currentUser != null && currentUser.vipTier != 'none' && currentUser.vipExpiry != null && currentUser.vipExpiry!.isAfter(DateTime.now());
       if (!isVipActive) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("👑 Only active VIP members can send VIP gifts!")));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("👑 Only active VIP members can send VIP gifts!")));
         return;
       }
     } else if (_selectedGift!.category.toLowerCase() == 'svip') {
       final userSvipLevel = currentUser?.svipLevel ?? 0;
       final reqLevel = _selectedGift!.minSvipLevel > 0 ? _selectedGift!.minSvipLevel : 1;
       if (userSvipLevel < reqLevel) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("⚡ SVIP Level $reqLevel required to send this gift!")));
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("⚡ SVIP Level $reqLevel required to send this gift!")));
         return;
       }
     }
@@ -1322,6 +1350,22 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
     final giftToSend = _selectedGift!;
     final qtyToSend = _selectedQuantity;
     final isMoment = widget.isMoment;
+
+    // ── STRICT BALANCE VALIDATION (PREVENT ZERO-BALANCE SENDS) ────────
+    final totalCost = giftToSend.priceInDiamonds * qtyToSend * finalTargets.length;
+    final availableBalance = (currentUser?.diamondBalance ?? 0) - _reservedDiamonds;
+
+    if (availableBalance < totalCost) {
+      HapticFeedback.heavyImpact();
+      if (mounted) {
+        AppToast.showOverlay(
+          context,
+          message: "Insufficient diamonds! Need $totalCost 💎, but you have ${availableBalance < 0 ? 0 : availableBalance} 💎. Please top up.",
+          type: ToastType.error,
+        );
+      }
+      return;
+    }
 
     // Immediately resolve quick-send target and combo state before popping
     final canQuickSend = !isMoment && !_sendToAll && finalTargets.length == 1 && qtyToSend == 1;
@@ -1392,6 +1436,17 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
       comboCount: qtyToSend > 1 ? qtyToSend : 1,
     ).catchError((e) {
       debugPrint('[GiftSend] Background send error: $e');
+      if (mounted) {
+        final cleanMsg = e.toString()
+            .replaceAll('Exception:', '')
+            .replaceAll('FirebaseFunctionsException:', '')
+            .trim();
+        AppToast.showOverlay(
+          context,
+          message: cleanMsg.isNotEmpty ? cleanMsg : "Failed to send gift. Please check your balance.",
+          type: ToastType.error,
+        );
+      }
       return <Map<String, dynamic>>[];
     });
   }
@@ -1423,6 +1478,55 @@ class _GiftTile extends StatelessWidget {
     this.activeEvent,
   });
 
+  static String? _resolveGiftAsset(GiftModel gift) {
+    if (gift.imageUrl.startsWith('http') || gift.imageUrl.startsWith('assets/')) {
+      return gift.imageUrl;
+    }
+    final id = gift.giftId.toLowerCase();
+    final name = gift.name.toLowerCase();
+
+    final vapNumMatch = RegExp(r'(?:gift_?|vap_gift_?)(\\d+)').firstMatch(id);
+    if (vapNumMatch != null) {
+      final n = int.tryParse(vapNumMatch.group(1)!);
+      if (n != null && n >= 1 && n <= 22) {
+        return 'assets/images/gifts/vap_gift_$n.png';
+      }
+    }
+
+    const map = {
+      'rose': 'assets/images/gifts/sweet_romance.png',
+      'rocket': 'assets/images/gifts/flame_excalibur.png',
+      'car_king': 'assets/images/gifts/vap_gift_1.png',
+      'cat_gift': 'assets/images/gifts/moonlight_panda.png',
+      'cake': 'assets/images/gifts/gourmet_feast.png',
+      'crown': 'assets/images/gifts/crystal_princess.png',
+      'crystal_palace': 'assets/images/gifts/crystal_windchime.png',
+      'royal_carriage': 'assets/images/gifts/grand_piano.png',
+      'mystic_rings': 'assets/images/gifts/love_you.png',
+      'lucky_bell': 'assets/images/gifts/golden_bell.png',
+      'lucky_star': 'assets/images/gifts/vap_gift_11.png',
+      'lucky_fruit': 'assets/images/gifts/golden_dates.png',
+      'lucky_chest': 'assets/images/gifts/vap_gift_14.png',
+      'balloon': 'assets/images/gifts/sweet_romance.png',
+    };
+
+    if (map.containsKey(id)) {
+      return map[id];
+    }
+    if (name.contains('bell')) return 'assets/images/gifts/golden_bell.png';
+    if (name.contains('date')) return 'assets/images/gifts/golden_dates.png';
+    if (name.contains('piano')) return 'assets/images/gifts/grand_piano.png';
+    if (name.contains('panda')) return 'assets/images/gifts/moonlight_panda.png';
+    if (name.contains('sword') || name.contains('excalibur')) return 'assets/images/gifts/flame_excalibur.png';
+    if (name.contains('feast')) return 'assets/images/gifts/gourmet_feast.png';
+    if (name.contains('princess')) return 'assets/images/gifts/crystal_princess.png';
+    if (name.contains('windchime')) return 'assets/images/gifts/crystal_windchime.png';
+    if (name.contains('love')) return 'assets/images/gifts/love_you.png';
+    if (name.contains('romance')) return 'assets/images/gifts/sweet_romance.png';
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isLucky = gift.category.toLowerCase().contains('lucky');
@@ -1432,16 +1536,18 @@ class _GiftTile extends StatelessWidget {
         : null;
 
     final isLuckyBell = gift.giftId == 'lucky_bell' || gift.name.toLowerCase().contains('bell') || gift.name.toLowerCase().contains('dates');
-    final displayImg = (isLuckyBell && (gift.imageUrl == '🔔' || gift.imageUrl.isEmpty))
+    final resolvedAsset = _resolveGiftAsset(gift);
+    final displayImg = resolvedAsset ?? ((isLuckyBell && (gift.imageUrl == '🔔' || gift.imageUrl.isEmpty))
         ? 'assets/lucky gift dates/icon.png'
-        : gift.imageUrl;
+        : gift.imageUrl);
     final displayName = (isLuckyBell && gift.name == 'Lucky Bell')
         ? 'Lucky Dates'
         : gift.name;
 
-    return GestureDetector(
-      onTap: onSelect,
-      child: AnimatedContainer(
+    return RepaintBoundary(
+      child: GestureDetector(
+        onTap: onSelect,
+        child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         decoration: BoxDecoration(
           color: isSelected 
@@ -1479,6 +1585,8 @@ class _GiftTile extends StatelessWidget {
                     ? CachedNetworkImage(
                         imageUrl: displayImg,
                         fit: BoxFit.contain,
+                        memCacheWidth: 120,
+                        memCacheHeight: 120,
                         placeholder: (context, url) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                         errorWidget: (context, url, error) => const Icon(Icons.card_giftcard, color: Colors.white24, size: 24),
                       )
@@ -1486,9 +1594,31 @@ class _GiftTile extends StatelessWidget {
                       ? Image.asset(
                           displayImg,
                           fit: BoxFit.contain,
+                          cacheWidth: 120,
+                          cacheHeight: 120,
                           errorBuilder: (_, __, ___) => const Center(child: Text("🎁", style: TextStyle(fontSize: 28))),
                         )
-                      : Center(child: Text(displayImg.isEmpty ? "🎁" : displayImg, style: const TextStyle(fontSize: 28))),
+                      : Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const RadialGradient(
+                              colors: [Color(0xFF2E2E42), Color(0xFF14141E)],
+                            ),
+                            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00E5FF).withOpacity(0.15),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              ),
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            displayImg.isEmpty ? "🎁" : displayImg,
+                            style: const TextStyle(fontSize: 24),
+                          ),
+                        ),
                 ),
                 if (isEventGift)
                   Positioned(
@@ -1551,6 +1681,6 @@ class _GiftTile extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ));
   }
 }

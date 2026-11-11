@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -347,11 +348,11 @@ class _FollowUserCard extends ConsumerWidget {
           try {
             await ref.read(reportServiceProvider).unblockUser(targetUid);
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("User unblocked.")));
+              ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("User unblocked.")));
             }
           } catch (e) {
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+              ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e")));
             }
           }
         },
@@ -400,7 +401,7 @@ class _FollowUserCard extends ConsumerWidget {
           }
         } catch (e) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+            ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error: $e")));
           }
         }
       },

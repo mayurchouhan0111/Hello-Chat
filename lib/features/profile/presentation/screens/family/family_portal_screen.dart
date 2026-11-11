@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -653,8 +654,7 @@ class _FamilyPortalScreenState extends ConsumerState<FamilyPortalScreen> {
                     GestureDetector(
                       onTap: () {
                         Clipboard.setData(ClipboardData(text: family.id));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
+                        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                             content: Text('Clan ID copied: ${family.id}'),
                             duration: const Duration(seconds: 2),
                             backgroundColor: _cInk,
@@ -2013,8 +2013,7 @@ class _FamilyPortalScreenState extends ConsumerState<FamilyPortalScreen> {
                               .addMember(family.id, uid);
                           if (ctx.mounted) {
                             context.pop();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Member added!')),
+                            ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Member added!')),
                             );
                           }
                         } catch (e) {
@@ -3397,8 +3396,7 @@ class _BattleRequestCardState extends ConsumerState<_BattleRequestCard> {
             widget.familyId,
           );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Battle accepted! Starting now...'),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 2),
@@ -3412,8 +3410,7 @@ class _BattleRequestCardState extends ConsumerState<_BattleRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: Colors.red.shade700,
             duration: const Duration(seconds: 3),
@@ -3431,8 +3428,7 @@ class _BattleRequestCardState extends ConsumerState<_BattleRequestCard> {
     try {
       await ref.read(familyServiceProvider).rejectBattleRequest(req.id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: const Text('Challenge rejected.'),
             backgroundColor: Colors.grey.shade700,
             duration: const Duration(seconds: 2),
@@ -3441,8 +3437,7 @@ class _BattleRequestCardState extends ConsumerState<_BattleRequestCard> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text('Error: ${e.toString().replaceAll('Exception: ', '')}'),
             backgroundColor: Colors.red.shade700,
             duration: const Duration(seconds: 3),

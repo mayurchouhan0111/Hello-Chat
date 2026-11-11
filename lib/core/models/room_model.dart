@@ -15,7 +15,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// in production, because 10 must stay selectable: 280 of 364 live rooms are
 /// cap-10 (createRoom's server-side default), so dropping it would have blocked
 /// a resize for 77% of hosts.
-const kRoomCapacityOptions = <int>[6, 9, 10, 12, 16];
+const kRoomCapacityOptions = <int>[8, 9, 10, 12, 13, 16];
 
 class RoomModel {
   final String roomId;
@@ -72,6 +72,7 @@ class RoomModel {
   final String rocketStatus; // "active" | "cooldown"
   final DateTime? rocketCooldownUntil;
   final Map<String, dynamic>? lastRocketResults;
+  final DateTime? messagesClearedAt;
 
   RoomModel({
     required this.roomId,
@@ -128,12 +129,14 @@ class RoomModel {
     this.rocketStatus = "active",
     this.rocketCooldownUntil,
     this.lastRocketResults,
+    this.messagesClearedAt,
   });
 
   List<String> get adminIds => admins;
   // Single source of truth for "is this uid a designated Room Admin".
   bool isUserAdmin(String uid) => uid.isNotEmpty && uid != ownerUid && admins.contains(uid);
   bool isUserOwner(String uid) => uid == ownerUid;
+  int get currentMonthlyTargetProgress => weeklyEarnings;
 
   Map<String, dynamic> toMap() {
     return {
@@ -191,6 +194,7 @@ class RoomModel {
       'rocketStatus': rocketStatus,
       'rocketCooldownUntil': rocketCooldownUntil != null ? Timestamp.fromDate(rocketCooldownUntil!) : null,
       'lastRocketResults': lastRocketResults,
+      'messagesClearedAt': messagesClearedAt != null ? Timestamp.fromDate(messagesClearedAt!) : null,
     };
   }
 
@@ -275,6 +279,7 @@ class RoomModel {
       rocketStatus: map['rocketStatus']?.toString() ?? 'active',
       rocketCooldownUntil: (map['rocketCooldownUntil'] as Timestamp?)?.toDate(),
       lastRocketResults: map['lastRocketResults'] != null ? Map<String, dynamic>.from(map['lastRocketResults']) : null,
+      messagesClearedAt: (map['messagesClearedAt'] as Timestamp?)?.toDate(),
     );
   }
 

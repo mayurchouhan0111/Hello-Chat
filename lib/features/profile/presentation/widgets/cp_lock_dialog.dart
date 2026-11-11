@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../../../core/models/svip_level_model.dart';
@@ -36,8 +37,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
     final options = levelModel.cpLockOptions;
 
     if (!options.contains(_selectedDuration)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Your SVIP level does not support $_selectedDuration lock.')),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Your SVIP level does not support $_selectedDuration lock.')),
       );
       return;
     }
@@ -54,8 +54,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
       if (res.data != null && res.data['success'] == true) {
         if (mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text('🔒 CP Relationship locked for $_selectedDuration!'),
               backgroundColor: const Color(0xFF10B981),
             ),
@@ -64,8 +63,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll('Exception:', '').trim()), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString().replaceAll('Exception:', '').trim()), backgroundColor: Colors.redAccent),
         );
       }
     } finally {
@@ -87,8 +85,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
         final remaining = res.data['remainingAllowance'];
         if (mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text('✅ Removal request sent to CP partner! ($remaining requests left)'),
               backgroundColor: const Color(0xFF10B981),
             ),
@@ -97,8 +94,7 @@ class _CPLockDialogState extends ConsumerState<CPLockDialog> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString().replaceAll('Exception:', '').trim()), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString().replaceAll('Exception:', '').trim()), backgroundColor: Colors.redAccent),
         );
       }
     } finally {

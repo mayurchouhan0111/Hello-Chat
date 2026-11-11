@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gap/gap.dart';
@@ -668,8 +669,7 @@ class _FamilyDetailScreenState extends ConsumerState<FamilyDetailScreen> {
                       userAvatar: user.profilePhotoUrl,
                     );
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                       content: Text('Request sent to ${family.name}!'),
                       backgroundColor: const Color(0xFF22C55E),
                       behavior: SnackBarBehavior.floating,
@@ -680,8 +680,7 @@ class _FamilyDetailScreenState extends ConsumerState<FamilyDetailScreen> {
                 }
               } catch (e) {
                 if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                         content: Text('Error: $e'),
                         backgroundColor: AppColors.familyRed),
                   );

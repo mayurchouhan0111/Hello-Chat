@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
@@ -519,8 +520,7 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text('✅ Successfully converted \$${amt.toStringAsFixed(2)} USD to ${_formatNum(res['diamondsReceived'] as int)} Diamonds!'),
                                       backgroundColor: Colors.green,
                                       behavior: SnackBarBehavior.floating,
@@ -686,8 +686,7 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text('✅ Withdrawal request submitted! Awaiting Owner review.'),
                                       backgroundColor: Colors.green,
                                       behavior: SnackBarBehavior.floating,
@@ -825,8 +824,7 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
                                       content: Text('✅ Transferred \$${amt.toStringAsFixed(2)} USD to Reseller ${res['targetName']}!'),
                                       backgroundColor: Colors.amber.shade800,
                                       behavior: SnackBarBehavior.floating,

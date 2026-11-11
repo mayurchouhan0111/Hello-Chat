@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 import 'package:hello_chat/core/constants/app_colors.dart';
@@ -113,8 +114,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Ticket Submitted Successfully! We will respond via Inbox."), backgroundColor: Colors.green),
+                ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Ticket Submitted Successfully! We will respond via Inbox."), backgroundColor: Colors.green),
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -378,8 +378,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                                   IconButton(
                                     icon: const Icon(Icons.thumb_up_alt_outlined, size: 16, color: Colors.grey),
                                     onPressed: () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text("Thank you for your feedback! 👍")),
+                                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Thank you for your feedback! 👍")),
                                       );
                                     },
                                   ),
@@ -402,8 +401,7 @@ class _HelpCenterScreenState extends State<HelpCenterScreen> {
                 Expanded(
                   child: GestureDetector(
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text("Connecting to Live Customer Support Agent...")),
+                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Connecting to Live Customer Support Agent...")),
                       );
                     },
                     child: Container(

@@ -10,12 +10,14 @@ class RocketLaunchOverlay extends ConsumerStatefulWidget {
   final int level;
   final String roomId;
   final VoidCallback onComplete;
+  final VoidCallback? onError;
 
   const RocketLaunchOverlay({
     super.key,
     required this.level,
     required this.roomId,
     required this.onComplete,
+    this.onError,
   });
 
   @override
@@ -75,6 +77,7 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
               profileImageUrl: profileImageUrl,
               fit: BoxFit.contain,
               loop: false,
+              onError: widget.onError,
               onComplete: () {
                 // Guard: prevent double invocation when both MethodChannel
                 // onVideoComplete and the safety watchdog fire in the same

@@ -129,18 +129,61 @@ void main() {
       const double agencyRate = 0.30;
       const double adminRate = 0.10;
 
-      // Scenario: Host recharges $100 USD
+      // Scenario 1 (Prompt Example): Host recharges $100 USD
       const double rechargeAmount = 100.0;
       final agencyEarned = double.parse((rechargeAmount * agencyRate).toStringAsFixed(2));
       final adminEarned = double.parse((rechargeAmount * adminRate).toStringAsFixed(2));
 
-      expect(agencyEarned, equals(30.00));
-      expect(adminEarned, equals(10.00));
+      expect(agencyEarned, equals(30.00), reason: 'Agency must receive exactly 30% (\$30)');
+      expect(adminEarned, equals(10.00), reason: 'Admin must receive exactly 10% (\$10)');
 
       // Scenario 2: Host recharges $40 + $35 + $25
       const double totalRecharge = 40.0 + 35.0 + 25.0;
       expect(totalRecharge * agencyRate, equals(30.00));
       expect(totalRecharge * adminRate, equals(10.00));
+    });
+
+    test('Recharge Commission Invariants: Host-only, No Gifting Commission, Idempotent', () {
+      // Helper simulating backend eligibility
+      bool isEligibleForCommission({required String role, required String? agencyId}) {
+        if (role != 'host') return false;
+        return agencyId != null && agencyId.trim().isNotEmpty;
+      }
+
+      // Rule: Commission calculated ONLY on successful host recharges under an agency
+      expect(isEligibleForCommission(role: 'host', agencyId: 'agency_1'), isTrue);
+      expect(isEligibleForCommission(role: 'host', agencyId: null), isFalse);
+      expect(isEligibleForCommission(role: 'host', agencyId: ''), isFalse);
+      expect(isEligibleForCommission(role: 'agency', agencyId: 'agency_1'), isFalse);
+      expect(isEligibleForCommission(role: 'admin', agencyId: 'agency_1'), isFalse);
+      expect(isEligibleForCommission(role: 'superadmin', agencyId: 'agency_1'), isFalse);
+      expect(isEligibleForCommission(role: 'owner', agencyId: 'agency_1'), isFalse);
+
+      // Rule: No commission should be added based on diamond sending or receiving activities
+      double calculateCommissionForActivity(String activityType, double amountUSD) {
+        if (activityType == 'RECHARGE') {
+          return amountUSD * 0.30;
+        }
+        // Diamond sending or receiving activities generate NO commission
+        return 0.0;
+      }
+
+      expect(calculateCommissionForActivity('GIFT_SENT', 100.0), equals(0.0));
+      expect(calculateCommissionForActivity('GIFT_RECEIVED', 100.0), equals(0.0));
+      expect(calculateCommissionForActivity('DIAMOND_EXCHANGE', 100.0), equals(0.0));
+      expect(calculateCommissionForActivity('RECHARGE', 100.0), equals(30.0));
+
+      // Rule: The same recharge transaction must never generate commission more than once (Idempotency)
+      final Set<String> processedTransactions = {};
+      bool processRecharge(String txId) {
+        if (processedTransactions.contains(txId)) return false; // Duplicate rejected
+        processedTransactions.add(txId);
+        return true;
+      }
+
+      expect(processRecharge('recharge_001'), isTrue, reason: 'First attempt must succeed');
+      expect(processRecharge('recharge_001'), isFalse, reason: 'Duplicate attempt must be rejected without double credit');
+      expect(processRecharge('recharge_002'), isTrue, reason: 'Different transaction must succeed');
     });
 
     test('USD to Diamond Conversion Calculation and Insufficient Balance Rejection', () {

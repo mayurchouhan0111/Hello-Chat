@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
@@ -108,8 +109,7 @@ class _VIPRewardsScreenState extends ConsumerState<VIPRewardsScreen> {
     } catch (e) {
       print("--- [VIP REWARD] Cloud claim failed: $e ---");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
             content: Text("Could not claim reward right now. Please try again."),
             backgroundColor: Colors.amber.shade900,
           ),

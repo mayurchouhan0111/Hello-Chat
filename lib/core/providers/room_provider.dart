@@ -46,7 +46,8 @@ final chatServiceProvider = Provider<ChatService>((ref) {
 });
 
 final roomMessagesProvider = StreamProvider.family<List<RoomMessage>, String>((ref, roomId) {
-  return ref.watch(chatServiceProvider).getMessagesStream(roomId);
+  final room = ref.watch(currentRoomStreamProvider(roomId)).value;
+  return ref.watch(chatServiceProvider).getMessagesStream(roomId, clearedAt: room?.messagesClearedAt);
 });
 
 final userActiveRoomStreamProvider = StreamProvider<RoomModel?>((ref) {
@@ -85,3 +86,7 @@ final roomMicRequestsProvider = StreamProvider.family<List<String>, String>((ref
   return FirebaseFirestore.instance.collection('rooms').doc(roomId).collection('micRequests')
     .snapshots().map((snapshot) => snapshot.docs.map((doc) => doc.id).toList());
 });
+
+
+final isRocketActiveProvider = StateProvider.family<bool, String>((ref, roomId) => false);
+final isFullScreenGiftPlayingProvider = StateProvider.family<bool, String>((ref, roomId) => false);

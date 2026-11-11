@@ -12,12 +12,22 @@ import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/router/app_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hello_chat/core/widgets/app_toast.dart';
 
 class OtpScreen extends ConsumerStatefulWidget {
   final String verificationId;
   final String phone;
-  const OtpScreen({super.key, required this.verificationId, required this.phone});
+  final bool isRegistration;
+  final bool isPasswordReset;
+
+  const OtpScreen({
+    super.key,
+    required this.verificationId,
+    required this.phone,
+    this.isRegistration = false,
+    this.isPasswordReset = false,
+  });
 
   @override
   ConsumerState<OtpScreen> createState() => _OtpScreenState();
@@ -44,10 +54,26 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
       // 🚀 Step 3: Background clean up
       Future.microtask(() => ref.invalidate(currentUserStreamProvider));
       
-      // 🚀 Step 4: Safety Jump (If router is slow, we move manually)
+      // 🚀 Step 4: Route based on flow intent
       if (mounted) {
-        debugPrint('--- [OTP SUCCESS: Moving to Home] ---');
-        context.go(AppRoutes.home);
+        if (widget.isRegistration || widget.isPasswordReset) {
+          debugPrint('--- [OTP SUCCESS: Moving to Set Password] ---');
+          context.go(
+            AppRoutes.setPassword,
+            extra: {
+              'phone': widget.phone,
+              'isReset': widget.isPasswordReset,
+              'canSkip': false,
+            },
+          );
+        } else {
+          // Progressive Migration: Existing users logging in via OTP continue using the app
+          // normally with ZERO interruption or forced password setup.
+          if (mounted) {
+            debugPrint('--- [OTP SUCCESS: Existing User -> Seamlessly entering Home without interruption] ---');
+            context.go(AppRoutes.home);
+          }
+        }
       }
     } catch (e) {
       if (mounted) {

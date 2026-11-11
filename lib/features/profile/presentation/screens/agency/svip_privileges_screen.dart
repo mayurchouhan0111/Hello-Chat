@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gap/gap.dart';
@@ -57,8 +58,7 @@ class _SVIPPrivilegesScreenState extends ConsumerState<SVIPPrivilegesScreen> {
   }
 
   void _showToast(String msg, {bool isSuccess = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
         content: Text(msg, style: const TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: isSuccess ? const Color(0xFF10B981) : Colors.redAccent,
         behavior: SnackBarBehavior.floating,

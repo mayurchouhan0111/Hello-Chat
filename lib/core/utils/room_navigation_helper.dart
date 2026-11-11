@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hello_chat/core/router/app_router.dart';
@@ -18,8 +19,7 @@ class RoomNavigationHelper {
 
     if (room == null) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Room not found or ended')),
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Room not found or ended')),
         );
       }
       return;
@@ -135,8 +135,7 @@ class RoomNavigationHelper {
                                 if (passwordController.text == room!.passwordHash) {
                                   Navigator.pop(context, true);
                                 } else {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text("Incorrect password", style: TextStyle(fontWeight: FontWeight.bold))),
+                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Incorrect password", style: TextStyle(fontWeight: FontWeight.bold))),
                                   );
                                 }
                               },

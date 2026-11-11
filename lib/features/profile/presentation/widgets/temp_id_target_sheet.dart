@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import '../../../../core/models/svip_level_model.dart';
@@ -36,8 +37,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
 
     final targetId = int.tryParse(targetIdStr);
     if (targetId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid numeric Hello ID.')),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Please enter a valid numeric Hello ID.')),
       );
       return;
     }
@@ -66,8 +66,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
       if (res.data != null && res.data['success'] == true) {
         if (mounted) {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
+          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
               content: Text('✅ Temporary ID swap request sent! Awaiting target user approval.'),
               backgroundColor: const Color(0xFF10B981),
             ),
@@ -82,8 +81,7 @@ class _TempIdTargetSheetState extends ConsumerState<TempIdTargetSheet> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(msg), backgroundColor: Colors.redAccent),
     );
   }
 

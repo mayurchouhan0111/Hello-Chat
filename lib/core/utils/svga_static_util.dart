@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 
 /// Helper utility to resolve bundled `.svga` paths to their corresponding
 /// static `.png` / `.webp` asset paths for fast rendering without running SVGA loops.
@@ -7,7 +6,8 @@ class SvgaStaticUtil {
 
   static const Map<String, String> _exactSvgaToStaticMap = {
     // Helo chat / Special Assets
-    'assets/Helo chat/Rockeet_SVGA.svga': 'assets/Helo chat/Rockeet.png',
+    'assets/Helo chat/Rockeet_SVGA.svga': 'assets/Helo chat/Rockeet_SVGA.png',
+    'assets/rocket/rocket_frame.svga': 'assets/Helo chat/Rockeet_SVGA.png',
     'assets/Helo chat/Superadmin.svga': 'assets/Helo chat/Superadmin.png',
     'assets/images/super/admin.svga': 'assets/images/super/admin.png',
     'assets/images/super/reseller.svga': 'assets/images/super/reseller.png',

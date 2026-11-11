@@ -226,6 +226,55 @@ function isSalaryEligible(userData) {
     return normalizeTier(userData) !== "superadmin";
 }
 
+/**
+ * Calculate agency and admin recharge commissions.
+ *
+ * Rules:
+ *  - Agency Commission: 30% (0.30) credited to the respective Agency's balance.
+ *  - Admin Commission: 10% (0.10) credited to the respective Admin's balance.
+ *  - Example: $100 host recharge -> $30 to agency, $10 to admin.
+ */
+function calculateRechargeCommissions(usdAmount, policy = {}) {
+    const parsedUsd = round2(usdAmount);
+    if (!Number.isFinite(parsedUsd) || parsedUsd <= 0) {
+        return {
+            rechargeUSD: 0,
+            agencyRate: DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate,
+            adminRate: DEFAULT_FINANCIAL_POLICIES.adminCommissionRate,
+            agencyCommissionUSD: 0,
+            adminCommissionUSD: 0
+        };
+    }
+    const agencyRate = policy && policy.agencyCommissionRate !== undefined
+        ? Number(policy.agencyCommissionRate)
+        : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate;
+    const adminRate = policy && policy.adminCommissionRate !== undefined
+        ? Number(policy.adminCommissionRate)
+        : DEFAULT_FINANCIAL_POLICIES.adminCommissionRate;
+
+    const agencyCommissionUSD = round2(parsedUsd * agencyRate);
+    const adminCommissionUSD = round2(parsedUsd * adminRate);
+
+    return {
+        rechargeUSD: parsedUsd,
+        agencyRate,
+        adminRate,
+        agencyCommissionUSD,
+        adminCommissionUSD
+    };
+}
+
+/**
+ * Checks whether a user document qualifies as a Host under an Agency.
+ * Rule: Commission must be calculated ONLY on successful host recharges under an agency.
+ * Non-hosts (agencies, admins, superadmins, owners) or unassigned hosts cannot generate commission.
+ */
+function isEligibleHostForCommission(userData) {
+    if (!userData) return false;
+    if (normalizeTier(userData) !== "host") return false;
+    return typeof userData.agencyId === "string" && userData.agencyId.trim().length > 0;
+}
+
 module.exports = {
     HB_TIERS,
     HB_RANK,
@@ -240,5 +289,7 @@ module.exports = {
     canManageTier,
     hierarchyScope,
     isTargetInScope,
-    isSalaryEligible
+    isSalaryEligible,
+    calculateRechargeCommissions,
+    isEligibleHostForCommission
 };

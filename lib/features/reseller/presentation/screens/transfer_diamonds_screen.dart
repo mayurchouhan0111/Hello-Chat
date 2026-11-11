@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/services/reseller_service.dart';
@@ -52,7 +53,7 @@ class _TransferDiamondsScreenState extends ConsumerState<TransferDiamondsScreen>
   }
 
   void _showWarning(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
       content: Text(msg, style: const TextStyle(fontWeight: FontWeight.bold)),
       backgroundColor: Colors.redAccent,
       behavior: SnackBarBehavior.floating,

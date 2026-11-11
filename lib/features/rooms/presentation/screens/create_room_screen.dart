@@ -97,9 +97,10 @@ class _CreateRoomScreenState extends ConsumerState<CreateRoomScreen> {
   ];
 
   final List<Map<String, dynamic>> _seatPresets = [
-    {"count": 6, "label": "6 Pod", "subtitle": "Intimate"},
+    {"count": 8, "label": "8 Classic", "subtitle": "Intimate"},
     {"count": 9, "label": "9 Stage", "subtitle": "Popular"},
     {"count": 12, "label": "12 Lounge", "subtitle": "Party"},
+    {"count": 13, "label": "13 Grand", "subtitle": "VIP Stage"},
     {"count": 16, "label": "16 Arena", "subtitle": "Mega PK"},
   ];
 

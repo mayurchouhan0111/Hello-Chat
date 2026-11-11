@@ -83,7 +83,5 @@ ThemeData get appTheme => ThemeData(
     actionTextColor: AppColors.primary,
     elevation: 6,
     shape: RoundedRectangleBorder(borderRadius: AppBorderRadius.medium),
-    insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-    width: 420,
   ),
 );

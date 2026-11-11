@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_spacing.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/app_button.dart';
 import '../../../../core/widgets/app_text_field.dart';
+import '../../../../core/providers/auth_provider.dart';
+import '../../../../core/providers/profile_provider.dart';
 
 class ResetPasswordScreen extends ConsumerStatefulWidget {
   const ResetPasswordScreen({super.key});
@@ -34,7 +37,7 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: const Text("Reset Password"),
+        title: const Text("Set or Reset Password"),
         centerTitle: true,
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -80,8 +83,8 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
             
             AppTextField(
               controller: _oldPasswordController,
-              label: "Current Password",
-              hintText: "Enter old password",
+              label: "Current Password (Optional if first time)",
+              hintText: "Enter current password if set",
               obscureText: _obscureOld,
               prefixIcon: const Icon(Icons.lock_outline_rounded, color: AppColors.primary),
               suffixIcon: IconButton(
@@ -118,21 +121,36 @@ class _ResetPasswordScreenState extends ConsumerState<ResetPasswordScreen> {
             
             const SizedBox(height: 48),
             AppButton(
-              onPressed: () {
-                if (_newPasswordController.text != _confirmPasswordController.text) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Passwords do not match!")),
+              onPressed: () async {
+                final newPass = _newPasswordController.text.trim();
+                final confirmPass = _confirmPasswordController.text.trim();
+                if (newPass.length < 6) {
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Password must be at least 6 characters long!")),
                   );
                   return;
                 }
-                // Handle update logic
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text("Password updated successfully!"),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-                Navigator.pop(context);
+                if (newPass != confirmPass) {
+                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Passwords do not match!")),
+                  );
+                  return;
+                }
+                try {
+                  await ref.read(authServiceProvider).updatePassword(newPass);
+                  ref.invalidate(currentUserProfileProvider);
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+                        content: Text("Password updated successfully!"),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                    Navigator.pop(context);
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Failed to update password: $e")),
+                    );
+                  }
+                }
               },
               text: "UPDATE PASSWORD",
             ),
