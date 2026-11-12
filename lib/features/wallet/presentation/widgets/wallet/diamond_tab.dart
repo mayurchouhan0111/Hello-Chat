@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hello_chat/core/models/payment_package_model.dart';
 import 'package:hello_chat/core/router/app_router.dart';
+import 'package:hello_chat/features/wallet/presentation/screens/payment_gateway_checkout_screen.dart';
 import 'package:hello_chat/providers/wallet_provider.dart';
 import 'recharge_option_tile.dart';
 import 'balance_card.dart';
@@ -360,26 +363,7 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
         width: double.infinity,
         height: 54,
         child: ElevatedButton(
-          onPressed: () {
-            showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                backgroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-                title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2196F3))),
-                content: const Text(
-                  "Diamond purchases are disabled until the payment gateway is fully integrated and certified in production.",
-                  style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    child: const Text("OK", style: TextStyle(color: Color(0xFF2196F3), fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            );
-          },
+          onPressed: _openPaymentMethodSheet,
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFFFFD700),
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(27)),
@@ -404,23 +388,256 @@ class _DiamondTabState extends ConsumerState<DiamondTab> {
     );
   }
 
-  void _handleSimulation(int amount, String method) async {
-    showDialog(
+  void _openPaymentMethodSheet() {
+    final int amount = _selectedDiamondAmount ?? 70;
+    PaymentPackageModel package;
+    if (amount <= 70) {
+      package = const PaymentPackageModel(packageId: "pack_70", diamonds: 70, bonusDiamonds: 0, priceINR: 9900, priceUSD: 120);
+    } else if (amount <= 350) {
+      package = const PaymentPackageModel(packageId: "pack_350", diamonds: 350, bonusDiamonds: 20, priceINR: 49900, priceUSD: 599, tag: "HOT 🔥");
+    } else if (amount <= 700) {
+      package = const PaymentPackageModel(packageId: "pack_700", diamonds: 700, bonusDiamonds: 50, priceINR: 99900, priceUSD: 1199, tag: "POPULAR ⭐");
+    } else if (amount <= 1400) {
+      package = const PaymentPackageModel(packageId: "pack_1400", diamonds: 1400, bonusDiamonds: 150, priceINR: 199900, priceUSD: 2399, tag: "BEST VALUE 💎");
+    } else if (amount <= 3500) {
+      package = const PaymentPackageModel(packageId: "pack_3500", diamonds: 3500, bonusDiamonds: 500, priceINR: 499900, priceUSD: 5999);
+    } else {
+      package = const PaymentPackageModel(packageId: "pack_7000", diamonds: 7000, bonusDiamonds: 1200, priceINR: 999900, priceUSD: 11999, tag: "VIP ONLY 👑");
+    }
+
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text("Payment Integration", style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF2196F3))),
-        content: const Text(
-          "Simulated recharges are permanently disabled. Payments must go through verified production payment gateways.",
-          style: TextStyle(color: Colors.grey, fontSize: 14, fontWeight: FontWeight.w500),
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => _PaymentMethodSelectionSheet(
+        package: package,
+        onGatewaySelected: (gateway) async {
+          Navigator.pop(sheetContext);
+          final success = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => PaymentGatewayCheckoutScreen(
+                package: package,
+                gateway: gateway,
+              ),
+            ),
+          );
+          if (success == true && mounted) {
+            ref.invalidate(walletBalanceProvider);
+          }
+        },
+      ),
+    );
+  }
+
+}
+
+class _PaymentMethodSelectionSheet extends StatelessWidget {
+  final PaymentPackageModel package;
+  final Function(String gateway) onGatewaySelected;
+
+  const _PaymentMethodSelectionSheet({
+    required this.package,
+    required this.onGatewaySelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF13151D),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Gap(16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  "Select Payment Gateway",
+                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.lock_rounded, color: Color(0xFF10B981), size: 12),
+                      Gap(4),
+                      Text("256-Bit SSL", style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const Gap(14),
+
+            // Package Details summary pill
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1E2A),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Text("💎", style: TextStyle(fontSize: 22)),
+                    ),
+                  ),
+                  const Gap(12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "${package.totalDiamonds} Diamonds",
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        Text(
+                          package.bonusDiamonds > 0
+                              ? "Includes ${package.bonusDiamonds} bonus diamonds"
+                              : "Standard recharge pack",
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    package.formattedINR,
+                    style: const TextStyle(color: Color(0xFF86EFAC), fontWeight: FontWeight.w900, fontSize: 18),
+                  ),
+                ],
+              ),
+            ),
+            const Gap(20),
+
+            const Text(
+              "AVAILABLE PAYMENT METHODS",
+              style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+            ),
+            const Gap(10),
+
+            // 1. Razorpay Option (India UPI / Cards)
+            _buildGatewayTile(
+              icon: Icons.account_balance_wallet_rounded,
+              iconColor: const Color(0xFF38BDF8),
+              title: "Razorpay Gateway (India)",
+              subtitle: "UPI (Google Pay, PhonePe, Paytm), Cards, NetBanking",
+              badge: "RECOMMENDED ⚡",
+              onTap: () => onGatewaySelected('razorpay'),
+            ),
+            const Gap(10),
+
+            // 2. Stripe Option (International Cards)
+            _buildGatewayTile(
+              icon: Icons.credit_card_rounded,
+              iconColor: const Color(0xFF818CF8),
+              title: "Stripe Gateway (International)",
+              subtitle: "Visa, Mastercard, Amex, Apple Pay, Google Pay",
+              badge: null,
+              onTap: () => onGatewaySelected('stripe'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("OK", style: TextStyle(color: Color(0xFF2196F3), fontWeight: FontWeight.bold)),
-          ),
-        ],
+      ),
+    );
+  }
+
+  Widget _buildGatewayTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    String? badge,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E212D),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(icon, color: iconColor, size: 22),
+            ),
+            const Gap(12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                      ),
+                      if (badge != null) ...[
+                        const Gap(8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF38BDF8).withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            badge,
+                            style: const TextStyle(color: Color(0xFF38BDF8), fontSize: 9, fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const Gap(2),
+                  Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white38, size: 14),
+          ],
+        ),
       ),
     );
   }

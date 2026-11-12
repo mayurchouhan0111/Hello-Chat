@@ -1669,19 +1669,19 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       builder: (sheetContext) {
         return Container(
           padding: EdgeInsets.only(
-            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 10,
-            top: 10,
-            left: 14,
-            right: 14,
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 8,
+            top: 8,
+            left: 12,
+            right: 12,
           ),
           decoration: BoxDecoration(
-            color: const Color(0xFF13151D),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            color: const Color(0xFF0F1116),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.6),
-                blurRadius: 20,
-                offset: const Offset(0, -4),
+                color: Colors.black.withValues(alpha: 0.7),
+                blurRadius: 16,
+                offset: const Offset(0, -3),
               ),
             ],
           ),
@@ -1712,7 +1712,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     height: 40,
                     padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF222634),
+                      color: const Color(0xFF222530),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
@@ -1722,7 +1722,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                             controller: _chatController,
                             autofocus: true,
                             textInputAction: TextInputAction.send,
-                            cursorColor: const Color(0xFF86EFAC),
+                            cursorColor: const Color(0xFF59F588),
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
@@ -1733,7 +1733,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                               fillColor: Colors.transparent,
                               hintText: "Say Hi~",
                               hintStyle: TextStyle(
-                                color: Color(0xFF7E869B),
+                                color: Color(0xFF858C9E),
                                 fontSize: 13,
                                 fontWeight: FontWeight.w400,
                               ),
@@ -1760,8 +1760,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                             padding: EdgeInsets.only(left: 6),
                             child: Icon(
                               Icons.sentiment_satisfied_alt_rounded,
-                              color: Color(0xFF9EA6BA),
-                              size: 22,
+                              color: Color(0xFFD1D5DB),
+                              size: 23,
                             ),
                           ),
                         ),
@@ -1772,7 +1772,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
                 const SizedBox(width: 10),
 
-                // 3. Send Pill Button (Lime-Mint Yellow Gradient)
+                // 3. Send Pill Button (Vibrant Yellow to Lime-Mint Gradient)
                 GestureDetector(
                   onTap: () {
                     Navigator.pop(sheetContext);
@@ -1784,14 +1784,14 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                     padding: const EdgeInsets.symmetric(horizontal: 18),
                     decoration: BoxDecoration(
                       gradient: const LinearGradient(
-                        colors: [Color(0xFFFEF9C3), Color(0xFF86EFAC)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
+                        colors: [Color(0xFFFFF066), Color(0xFF59F588)],
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
                       ),
                       borderRadius: BorderRadius.circular(19),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF86EFAC).withValues(alpha: 0.35),
+                          color: const Color(0xFF59F588).withValues(alpha: 0.35),
                           blurRadius: 8,
                           offset: const Offset(0, 2),
                         ),
@@ -1803,8 +1803,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                         style: TextStyle(
                           color: Colors.black,
                           fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.3,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
                         ),
                       ),
                     ),

@@ -11,6 +11,52 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (Message Bottom Sheet Pixel-Perfect Alignment to Reference Image 2 & Party Games Cleanup)
+
+- **What Client Asked / Problem**:
+  - The client requested to replace the previous message bottom sheet with the reference screenshot:
+    "instead of this bottom sheet we have to create the message bottom sheet look like the ref image 2 one which client have given okay same we have to create redesign our one okay and also in the party games section remove the game which we don't have remove their icons keep only our 2 games okay"
+  - Requirements:
+    1. Redesign room chat input bar so it floats directly above the keyboard matching Reference Image 2:
+       * Left: Image/photo outline icon for uploading pictures.
+       * Center: Elongated dark pill (`Say Hi~`) with right-aligned smiley emoji trigger icon.
+       * Right: Rounded pill "Send" button with bright lemon-yellow to vibrant lime-mint gradient and black bold typography.
+       * Remove the top segmented tabs ("Text", "Photo", "Sticker").
+    2. Tapping the smiley icon opens the comprehensive `StickerSheet` (including 3D open-source Fluent emojis).
+    3. Party Games Hub cleanup:
+       * Tools Section: Retain only the 5 real features: [Music (YouTube)], [PK Battle], [Mixer], [Settings], [Lucky Bag].
+       * Games Section: Retain only the 2 real active games: [Spin Wheel] and [Lucky Draw], styled as rich visual cards with badges and glow colors. Remove all non-existent/dummy game icons.
+    4. Fix wallet balance provider reference in `diamond_tab.dart` (`walletBalanceProvider`).
+
+- **What We Did**:
+  1. **Pixel-Perfect Chat Input Bar (`live_room_screen.dart`)**:
+     - Updated `_showRoomChatInputSheet`:
+       * Set bar background to `#0F1116` with 18px top border radius and elevated shadow.
+       * Placed photo outline icon (`Icons.image_outlined`, 26px, white) on the left wired to `_pickAndUploadImage(source: ImageSource.gallery)`.
+       * Placed capsule input container (`#222530`, 40px height, 20px radius) with `Say Hi~` hint (`#858C9E`), custom green cursor (`#59F588`), and right-aligned smiley button (`#D1D5DB`, 23px).
+       * Set "Send" button gradient to `[Color(0xFFFFF066), Color(0xFF59F588)]` with 19px pill radius, neon glow shadow, and black bold `Send` text.
+  2. **Connected Smiley & Photo Triggers**:
+     - Tapping smiley closes the chat bar and smoothly launches `StickerSheet` with 5 packs and 3D emojis.
+     - Tapping photo launches gallery image picker and auto-uploads to Firebase Storage.
+  3. **Party Games Hub Verified (`unified_games_hub_sheet.dart`)**:
+     - Confirmed Tools row contains exactly the 5 features: Music, PK Battle, Mixer, Settings, Lucky bag.
+     - Confirmed Games row contains only the 2 real games: Spin Wheel and Lucky Draw in card format.
+  4. **Wallet Balance Invalidation Fixed (`diamond_tab.dart`)**:
+     - Corrected invalidation call to `ref.invalidate(walletBalanceProvider)`.
+     - Removed unused element `_handleSimulation`.
+  5. **Verification**:
+     - `dart analyze lib/features/games/presentation/widgets/unified_games_hub_sheet.dart` -> 0 errors.
+     - `flutter analyze lib/features/wallet/presentation/widgets/wallet/diamond_tab.dart lib/features/wallet/presentation/screens/payment_gateway_checkout_screen.dart` -> 0 errors.
+     - `flutter test test/stickers_asset_load_test.dart` -> All tests passed.
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/wallet/presentation/widgets/wallet/diamond_tab.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-12 (Payment Gateway Implementation Setup & Edge-Case Test Suite - Revision 2)
 
 - **What Client Asked / Problem**:
