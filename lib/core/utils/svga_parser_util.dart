@@ -659,19 +659,24 @@ class SvgaParserUtil {
     return resolved;
   }
 
-  /// Synchronous variant: checks in-memory cache, attempts sync file read if available,
-  /// otherwise falls back to the hardcoded table.
+  /// Synchronous variant: checks in-memory cache, checks table fallback instantly (zero I/O),
+  /// and only falls back to reading file bytes if not in the catalog table.
   static int getRealOrFallbackVapDurationSync(String path) {
     final cleanPath = path.trim();
     if (_vapDurationCache.containsKey(cleanPath)) {
       return _vapDurationCache[cleanPath]!;
+    }
+    // FAST PATH: Instant table lookup for bundled assets (zero disk I/O on UI thread)
+    final table = getLocalVapDurationMs(cleanPath);
+    if (table > 0) {
+      _vapDurationCache[cleanPath] = table;
+      return table;
     }
     try {
       final file = File(cleanPath);
       if (file.existsSync()) {
         final bytes = file.readAsBytesSync();
         final measured = parseVapOrMp4DurationMs(bytes);
-        final table = getLocalVapDurationMs(cleanPath);
         if (measured > 0 && table > 0 && (measured - table).abs() > 100) {
           debugPrint("[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
         }

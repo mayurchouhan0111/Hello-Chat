@@ -473,6 +473,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   void _enqueueSeatAnimation(String targetUid, _ActiveGiftAnimation animation) {
     if (!mounted) return;
     if (_isAppPaused) return;
+
+    // Pre-cache VAP file immediately in background so it's 100% ready on disk when queue reaches it
+    if (animation.format == 'vap' || animation.url.endsWith('.vap') || animation.url.endsWith('.mp4')) {
+      VapAnimation.preCache(animation.url);
+    }
     final key = targetUid.isNotEmpty ? targetUid : '_unseated_';
 
     final queue = _seatQueues.putIfAbsent(key, () => []);
@@ -682,9 +687,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _gifts = gifts;
         });
       }
-      // Pre-cache bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
+      // Pre-cache all bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
       Future.delayed(const Duration(milliseconds: 1500), () {
-        for (final spec in GiftVapCatalog.all.take(3)) {
+        for (final spec in GiftVapCatalog.all) {
           VapAnimation.preCache(spec.assetPath);
         }
         for (final g in _gifts) {
@@ -1145,8 +1150,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         // Devices that never fire onVideoStart still fall back to the initial +800 ms budget.
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
-          _armFullScreenSafetyTimer(clipMs + 300, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 300ms");
+          _armFullScreenSafetyTimer(clipMs + 1500, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 1500ms");
         }
       },
       onVideoStartWithDevice: (device) {
@@ -1164,8 +1169,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         // Re-arm from actual decode-start (device-variant callback path).
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
-          _armFullScreenSafetyTimer(clipMs + 300, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 300ms");
+          _armFullScreenSafetyTimer(clipMs + 1500, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 1500ms");
         }
       },
       onVideoComplete: () {
@@ -1229,6 +1234,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       _processedEventIds.removeAll(_processedEventIds.take(_processedEventIds.length - 250).toList());
     }
     if (_isAppPaused) return;
+
+    // Pre-cache VAP file immediately in background so it's 100% ready on disk when queue reaches it
+    if (anim.format == 'vap' || anim.url.endsWith('.vap') || anim.url.endsWith('.mp4')) {
+      VapAnimation.preCache(anim.url);
+    }
 
     final int activePlays = (_currentFullScreenAnim != null &&
             _currentFullScreenAnim!.senderUid == anim.senderUid &&
@@ -1390,9 +1400,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // embedded AAC, so their empty catalog soundUrl never even triggers the
       // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
 
-      // Duration safety cap: 800 ms covers TTFF decode time
+      // Duration safety cap: 2000 ms covers TTFF decode time
       final int duration = anim.durationMs > 0 ? anim.durationMs : 6000;
-      _armFullScreenSafetyTimer(duration + 800, ticket);
+      _armFullScreenSafetyTimer(duration + 2000, ticket);
       debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       Future<VapController?> getController() async {
@@ -1423,8 +1433,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           if (filePath != null && File(filePath).existsSync()) {
             final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
             final effectiveDuration = realDuration > 0 ? realDuration : duration;
-            // Tightened watchdog timer (+600ms buffer after real duration instead of +4000ms)
-            _armFullScreenSafetyTimer(effectiveDuration + 600, ticket);
+            // Safety watchdog timer (+1500ms safety buffer; normal completion is driven by onVideoComplete on exact last frame)
+            _armFullScreenSafetyTimer(effectiveDuration + 1500, ticket);
             debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
             ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
               debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
@@ -1561,19 +1571,14 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       return;
     }
 
-    // Immediately stop and clear persistent controller
-    try {
-      _persistentVapController?.stop();
-    } catch (_) {}
-
     setState(() {
       _vapOpacity = 0.0;
       _currentFullScreenAnim = null;
       _isFullScreenPlaying = false;
     });
 
-    // 30ms grace window for GPU surface reset before picking the next queued gift
-    _transitionTimer = Timer(const Duration(milliseconds: 30), () {
+    // 40ms grace window for GPU surface reset before picking the next queued gift
+    _transitionTimer = Timer(const Duration(milliseconds: 40), () {
       if (mounted && !_isAppPaused) {
         _checkNextFullScreenAnimation();
       }
@@ -1699,25 +1704,20 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ...seatWidgets,
 
         // Layer 2: Persistent VAP Player (created on room enter, warm and persistent, released on room exit)
-        // Offstage(offstage: true) completely cuts painting & layer compositing when idle so the room runs
-        // at full 60 FPS without PlatformView texture layer overhead during scrolling/chat interactions.
+        // Wrapped in RepaintBoundary and Opacity(_vapOpacity). When idle (_vapOpacity == 0.0),
+        // Flutter skips painting entirely (layer = null), avoiding GPU work while keeping
+        // the native TextureView warm at full screen resolution (never collapses to 0x0).
         Positioned.fill(
           child: IgnorePointer(
-            ignoring: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
+            ignoring: true,
             child: RepaintBoundary(
-              child: Offstage(
-                offstage: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
-                child: TickerMode(
-                  enabled: _isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap',
-                  child: Opacity(
-                    opacity: _vapOpacity,
-                    child: VapView(
-                      scaleType: ScaleType.fitCenter,
-                      repeat: 0,
-                      mute: kMuteVapAudio,
-                      onViewCreated: _setupPersistentVapController,
-                    ),
-                  ),
+              child: Opacity(
+                opacity: _vapOpacity,
+                child: VapView(
+                  scaleType: ScaleType.fitCenter,
+                  repeat: 0,
+                  mute: kMuteVapAudio,
+                  onViewCreated: _setupPersistentVapController,
                 ),
               ),
             ),
@@ -2488,7 +2488,7 @@ class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
     final int expected = widget.durationMs > 0
         ? widget.durationMs
         : (widget.holdMs > 0 ? widget.holdMs : 6000);
-    final int ms = expected + 400;
+    final int ms = expected + 1500;
     _timer = Timer(Duration(milliseconds: ms), () {
       if (mounted) setState(() => _opacity = 0.0);
       widget.onComplete();

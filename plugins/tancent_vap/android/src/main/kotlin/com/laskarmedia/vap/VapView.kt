@@ -264,13 +264,20 @@ class VapView(
                 cancelWatchdog()
                 val currentId = currentPlayId
                 val ticket = currentTicket
+                // Set alpha = 1f right here on frame 0 to avoid any stale-frame glitch during TTFF decode
+                mainHandler.postAtFrontOfQueue {
+                    if (!isDisposed) {
+                        animView.visibility = View.VISIBLE
+                        animView.alpha = 1f
+                    }
+                }
                 if (detectedDurationMs > 0) {
                     val r = Runnable {
                         Log.w("VAP_TRACE", "watchdog firing: id=$currentId, ticket=$ticket, duration=${detectedDurationMs}ms elapsed, forcing completion")
                         dispatchVideoComplete()
                     }
                     completionWatchdog = r
-                    mainHandler.postDelayed(r, detectedDurationMs + 350L)
+                    mainHandler.postDelayed(r, detectedDurationMs + 1500L)
                 }
                 val deviceModel = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"
                 Log.i("VAP_TRACE", "onStart: id=$currentId, ticket=$ticket, device=$deviceModel")
@@ -373,6 +380,7 @@ class VapView(
                 isPlayingActive = false
                 animView.stopPlay()
                 animView.alpha = 0f
+                animView.visibility = View.INVISIBLE
                 result.success(null) 
             }
             "setLoop" -> { animView.setLoop(call.argument<Int>("loop") ?: 1); result.success(null) }
@@ -428,7 +436,7 @@ class VapView(
             cancelWatchdog()
 
             animView.visibility = View.VISIBLE
-            animView.alpha = 1f
+            animView.alpha = 0.001f
 
             if (animView.isSurfaceAvailable) {
                 Log.i("VAP_TRACE", "startGate: starting play for id=$playId, ticket=$playTicket")
@@ -440,7 +448,7 @@ class VapView(
                     mainHandler.post {
                         if (!isDisposed && currentPlayId == playId && playTicket >= currentTicket) {
                             animView.visibility = View.VISIBLE
-                            animView.alpha = 1f
+                            animView.alpha = 0.001f
                             Log.i("VAP_TRACE", "startGate (deferred): surface ready, starting play for id=$playId, ticket=$playTicket")
                             animView.startPlay(file)
                         }

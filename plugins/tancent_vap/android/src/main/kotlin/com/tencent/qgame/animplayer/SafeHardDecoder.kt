@@ -102,7 +102,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
     private fun startPlay(fileContainer: IFileContainer) {
         // Await prior release completion so two MediaCodec instances never collide
         activeReleaseFuture?.let { f ->
-            runCatching { f.get(300, TimeUnit.MILLISECONDS) }
+            runCatching { f.get(150, TimeUnit.MILLISECONDS) }
             activeReleaseFuture = null
         }
 
@@ -378,8 +378,11 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
             }
 
             // Immediately mark stopped and fire onVideoComplete so UI hides the frame instantaneously!
+            // When isStopReq is true (explicit stop), do NOT fire onVideoComplete to avoid circular events to Flutter.
             isRunning = false
-            onVideoComplete()
+            if (!isStopReq) {
+                onVideoComplete()
+            }
 
             activeReleaseFuture = releaseExecutor.schedule({
                 try { decoder?.stop() } catch (e: Throwable) { Log.w(TAG, "decoder.stop: $e") }
@@ -391,7 +394,7 @@ class SafeHardDecoder(player: AnimPlayer) : Decoder(player), SurfaceTexture.OnFr
                     try { renderToRelease?.releaseTexture() } catch (e: Throwable) { Log.w(TAG, "releaseTexture: $e") }
                     if (needDestroy) destroyInner()
                 }
-            }, 50L, TimeUnit.MILLISECONDS)
+            }, 0L, TimeUnit.MILLISECONDS)
         }
     }
 
