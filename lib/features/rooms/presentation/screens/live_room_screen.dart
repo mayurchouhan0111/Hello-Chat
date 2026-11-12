@@ -542,7 +542,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
   }
 
   void _showStickerSheet() {
-    _showRoomChatInputSheet(initialTab: 2);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) => StickerSheet(
+        onStickerSelected: (stickerPath) async {
+          final uid = ref.read(authStateProvider).value?.uid;
+          if (uid == null) return;
+          await ref.read(chatServiceProvider).sendStickerMessage(
+            widget.roomId,
+            uid,
+            stickerPath,
+          );
+        },
+      ),
+    );
   }
 
   @override

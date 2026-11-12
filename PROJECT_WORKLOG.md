@@ -11,6 +11,30 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (Fix Sticker Sheet Not Opening & Wiring to Real Modal)
+
+- **What Client Asked / Problem**:
+  - The client reported: "sticker sheet is not opeing what can we do now?"
+  - Root Cause Analysis: `_showStickerSheet()` in `live_room_screen.dart` was previously configured as a placeholder that called `_showRoomChatInputSheet(initialTab: 2)`. Because the chat input sheet had been refactored into a sleek single-row text bar, calling `_showStickerSheet()` only reopened the text input instead of launching the `StickerSheet` bottom sheet modal.
+
+- **What We Did**:
+  1. **Directly Connected `StickerSheet` Modal**:
+     - Updated `_showStickerSheet()` in `live_room_screen.dart` to open `showModalBottomSheet(builder: (_) => StickerSheet(...))` with transparent background and full gesture support.
+     - Wired `onStickerSelected` callback to `chatServiceProvider.sendStickerMessage(widget.roomId, uid, stickerPath)`, which instantly posts the sticker/emoji message to Firestore room chat.
+  2. **Enhanced `StickerSheet` UX & Responsiveness**:
+     - Added `SafeArea(top: false)` to `StickerSheet` to ensure the 4th row of emojis isn't obstructed on devices with gesture navigation bars.
+     - Set height to `0.48 * MediaQuery.of(context).size.height` and updated dark theme to `#0F111A`.
+  3. **Verification**:
+     - Ran `flutter analyze` on touched files (0 errors).
+     - Ran `flutter test test/stickers_asset_load_test.dart` (All tests passed).
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/rooms/presentation/widgets/sticker_sheet.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-12 (Message Input Redesign, Tools/Games Alignment & 3D Open-Source Emojis)
 
 - **What Client Asked / Problem**:
