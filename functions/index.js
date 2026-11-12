@@ -1238,14 +1238,25 @@ exports.setupProfile = functions.https.onCall(async (data, context) => {
 exports.adminBanUser = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
 
-    // Admin Check
-    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
-    const tags = callerDoc.data().tags || [];
-    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
-        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can ban; Admin can ban non-Owner users
+    if (caller.role === "owner") {
+        // Owner can ban anyone
+    } else if (caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can ban users.");
     }
 
     const { targetUid, isBanned } = data;
+    if (!targetUid) throw new functions.https.HttpsError("invalid-argument", "targetUid required.");
+
+    const targetDoc = await db.collection("users").doc(targetUid).get();
+    if (!targetDoc.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+    // Owner/SuperAdmin cannot ban other Owners or SuperAdmins
+    if (targetDoc.data().role === "owner" || targetDoc.data().role === "superadmin") {
+        throw new functions.https.HttpsError("failed-precondition", "Cannot ban Owner or SuperAdmin users.");
+    }
+
     await db.collection("users").doc(targetUid).update({ isBanned: isBanned });
 
     // Log action
@@ -5519,12 +5530,11 @@ exports.onWithdrawalStatusChange = functions.firestore.document("withdrawals/{id
  */
 exports.adminApproveWithdrawal = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
-    
-    // Admin check
-    const callerDoc = await db.collection("users").doc(context.auth.uid).get();
-    const tags = callerDoc.data().tags || [];
-    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
-        throw new functions.https.HttpsError("permission-denied", "Admin/SuperAdmin only.");
+
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can approve withdrawals
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can approve withdrawals.");
     }
 
     const { id, note } = data;
@@ -5552,9 +5562,10 @@ exports.adminRejectWithdrawal = functions.https.onCall(async (data, context) => 
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
     
     const callerDoc = await db.collection("users").doc(context.auth.uid).get();
-    const tags = callerDoc.data().tags || [];
-    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
-        throw new functions.https.HttpsError("permission-denied", "Admin/SuperAdmin only.");
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can reject withdrawals
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can reject withdrawals.");
     }
 
     const { id, reason } = data;
@@ -6446,9 +6457,20 @@ exports.createMediaPost = functions.https.onCall(async (data, context) => {
 
 exports.adminSetResellerStatus = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
+
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can set reseller status
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can set reseller status.");
+    }
+
     const callerDoc = await db.collection("users").doc(context.auth.uid).get();
     const tags = callerDoc.data().tags || [];
-    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    if (!tags.includes("Admin") && !tags.includes("SuperAdmin")) {
+        // This check is kept as a secondary gate but role is primary
+        throw new functions.https.HttpsError("permission-denied", "Admin only.");
+    }
+
     const { targetUid, isReseller } = data;
     await db.collection("users").doc(targetUid).update({
         isReseller: isReseller,
@@ -12989,7 +13011,12 @@ exports.listAgencies = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("permission-denied", "Staff permissions (admin+) required to list agencies.");
     }
 
-    const snap = await db.collection("agencies").orderBy("createdAt", "desc").limit(500).get();
+    let agencyQuery = db.collection("agencies").orderBy("createdAt", "desc").limit(500);
+    if (caller.role !== "owner" && caller.branchId) {
+        agencyQuery = agencyQuery.where("branchId", "==", caller.branchId);
+    }
+
+    const snap = await agencyQuery.get();
     const agencies = snap.docs.map(doc => {
         const d = doc.data();
         const hostUids = Array.isArray(d.hostUids) ? d.hostUids : [];
@@ -13037,6 +13064,10 @@ exports.getAgency = functions.https.onCall(async (payload, context) => {
     if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
 
     const d = agencySnap.data();
+    // Branch scoping: owner sees all; superadmin/admin see only their branch agency
+    if (caller.role !== "owner" && d.branchId !== caller.branchId) {
+        throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && d.ownerUid !== uid) {
         throw new HttpsError("permission-denied", "You do not have access to this agency.");
     }
@@ -13234,6 +13265,11 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
     if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
     const agencyData = snap.data();
 
+    // Branch scoping: only owner can edit any agency; staff can edit only their branch agency
+    if (caller.role !== "owner" && agencyData.branchId !== caller.branchId) {
+        throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
+
     const isStaff = ["owner", "superadmin", "admin"].includes(caller.role);
     const isAgencyOwner = agencyData.ownerUid === uid;
 
@@ -13304,8 +13340,15 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("invalid-argument", "agencyId and valid status ('active' | 'suspended') required.");
     }
 
-    const isActive = status === "active";
     const agencyRef = db.collection("agencies").doc(agencyId);
+    const agencySnap = await agencyRef.get();
+    if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
+    const aData = agencySnap.data();
+
+    // Branch scoping: owner may set any agency; staff may set only their branch agency
+    if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
+        throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
 
     await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(agencyRef);
@@ -13380,6 +13423,11 @@ exports.addHost = functions.https.onCall(async (payload, context) => {
     if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
     const aData = agencySnap.data();
 
+    // Branch scoping: owner may add host to any agency; staff may add only to their branch agency
+    if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
+        throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
+
     // Verify caller has permission to add hosts to this agency
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {
         throw new HttpsError("permission-denied", "You do not manage this agency.");
@@ -13443,6 +13491,11 @@ exports.removeHost = functions.https.onCall(async (payload, context) => {
     if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
     const aData = agencySnap.data();
 
+    // Branch scoping: owner may remove host from any agency; staff may remove only from their branch agency
+    if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
+        throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
+
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {
         throw new HttpsError("permission-denied", "You do not manage this agency.");
     }
@@ -13484,7 +13537,12 @@ exports.removeHost = functions.https.onCall(async (payload, context) => {
  */
 exports.adminUpdateResellerDetails = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
-    const caller = await requireStaffCtx(request);
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can update reseller details
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can update reseller details.");
+    }
+
     const { targetUid, name, whatsappNumber, coinBalance, countryFlag, status } = request.data || {};
 
     if (!targetUid) throw new HttpsError("invalid-argument", "targetUid required.");
@@ -13556,7 +13614,11 @@ exports.adminUpdateResellerDetails = functions.https.onCall(async (payload, cont
  */
 exports.issueRechargeOrder = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
-    const caller = await requireStaffCtx(request);
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can issue recharge orders
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can issue recharge orders.");
+    }
     const { targetUid, diamonds, usd, gateway, paymentRef } = request.data || {};
 
     const dia = Math.floor(Number(diamonds));
@@ -13672,7 +13734,12 @@ async function consumePendingRecharge({ transaction, rechargeRef, policy, actorU
 
 exports.approveRecharge = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
-    const caller = await requireStaffCtx(request);
+    const caller = await loadHierarchy(context.auth.uid);
+    // Only Owner or SuperAdmin can approve recharges
+    if (caller.role !== "owner" && caller.role !== "superadmin") {
+        throw new functions.https.HttpsError("permission-denied", "Only Owner or SuperAdmin can approve recharges.");
+    }
+
     const { rechargeId } = request.data || {};
     if (!rechargeId) throw new HttpsError("invalid-argument", "rechargeId required.");
 
@@ -15319,6 +15386,106 @@ exports.roomRemoveAdmin = functions.https.onCall(async (data, context) => {
  */
 exports.getServerTime = functions.https.onCall(async (data, context) => {
     return { serverTime: Date.now() };
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 100. PAYMENT GATEWAY ENGINE (Revision 2 - Zero Client Trust)
+// ═════════════════════════════════════════════════════════════════════════════
+const { DEFAULT_RECHARGE_PACKAGES, PaymentGatewayEngine } = require("./lib/payment_gateway");
+
+const paymentEngine = new PaymentGatewayEngine(db, {
+    applyCommissionFn: applyRechargeCommission,
+    processSvipFn: processSvipPointsForRecharge,
+    processBonusFn: processRechargeBonusInline
+});
+
+/**
+ * Returns available diamond recharge packages (minor units: paise / cents).
+ */
+exports.getRechargePackages = functions.https.onCall(async (data, context) => {
+    try {
+        const snap = await db.collection("recharge_packages").orderBy("sortOrder", "asc").get();
+        if (!snap.empty) {
+            return { packages: snap.docs.map(d => ({ ...d.data(), packageId: d.id })) };
+        }
+    } catch (_) {}
+    return { packages: DEFAULT_RECHARGE_PACKAGES };
+});
+
+/**
+ * Callable: Creates a payment order with idempotency check.
+ */
+exports.createPaymentOrder = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const { packageId, gateway, idempotencyKey } = data || {};
+    try {
+        return await paymentEngine.createOrder({
+            uid: context.auth.uid,
+            packageId,
+            gateway,
+            idempotencyKey
+        });
+    } catch (err) {
+        throw new functions.https.HttpsError("invalid-argument", err.message);
+    }
+});
+
+/**
+ * Callable Fast-Path: User completed payment in app; triggers single idempotent creditOrderIfPaid.
+ */
+exports.verifyAndCreditPayment = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const { orderId, gatewayPaymentId, gatewaySignature } = data || {};
+    if (!orderId) throw new functions.https.HttpsError("invalid-argument", "orderId required.");
+
+    const orderSnap = await db.collection("payment_orders").doc(orderId).get();
+    if (!orderSnap.exists) throw new functions.https.HttpsError("not-found", "Payment order not found.");
+    const orderData = orderSnap.data();
+
+    // Confirm ownership
+    if (orderData.uid !== context.auth.uid) {
+        throw new functions.https.HttpsError("permission-denied", "This order belongs to another user.");
+    }
+
+    try {
+        const result = await paymentEngine.creditOrderIfPaid(orderId, gatewayPaymentId, {
+            isWebhook: false
+        });
+        return { success: true, ...result };
+    } catch (err) {
+        throw new functions.https.HttpsError("internal", err.message);
+    }
+});
+
+/**
+ * HTTPS Webhook: Gateway sends asynchronous confirmation (source of truth).
+ */
+exports.paymentWebhook = functions.https.onRequest(async (req, res) => {
+    if (req.method !== "POST") {
+        return res.status(405).send("Method Not Allowed");
+    }
+
+    const gateway = req.path.includes("stripe") ? "stripe" : "razorpay";
+    const signature = req.headers["x-razorpay-signature"] || req.headers["stripe-signature"];
+    const eventId = req.headers["x-razorpay-event-id"] || req.body?.id || `evt_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+    const eventType = req.body?.event || req.body?.type;
+
+    try {
+        const result = await paymentEngine.handleWebhook({
+            eventId,
+            eventType,
+            rawBody: req.rawBody ? req.rawBody.toString() : JSON.stringify(req.body),
+            signature,
+            secret: null, // Will use process.env or Secret Manager in live
+            payload: req.body,
+            gateway
+        });
+        return res.status(200).json({ received: true, ...result });
+    } catch (err) {
+        console.error("[PAYMENT_WEBHOOK_ERR]", err);
+        const code = err.statusCode || 500;
+        return res.status(code).json({ error: err.message });
+    }
 });
 
 

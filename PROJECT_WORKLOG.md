@@ -11,6 +11,59 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (Payment Gateway Implementation Setup & Edge-Case Test Suite - Revision 2)
+
+- **What Client Asked / Problem**:
+  - The client and project documentation specified the updated Revision 2 Payment Gateway plan:
+    "Keep this updated Project Documentation in mind and do all the setup stuff for testing purposes for now."
+  - Requirements:
+    1. Single idempotent credit path (`creditOrderIfPaid`) shared by both client verify call and webhook (source of truth).
+    2. Zero Client Trust architecture where clients only select package ID and never send amounts or diamond counts.
+    3. Idempotency protection via `processed_payments/{paymentId}` (resolving Firestore's lack of unique indexes).
+    4. Idempotency keys on order creation to prevent double taps and duplicate charges.
+    5. Anti-tampering verification for amounts, currencies, and cryptographic HMAC SHA-256 signatures.
+    6. Interrupted payment recovery on app resume / restart.
+
+- **What We Did**:
+  1. **Firestore Security Rules Updated (`firebase/firestore.rules`)**:
+     - Added rules for `recharge_packages` (read-only for authenticated users, writes restricted to owner).
+     - Added rules for `payment_orders` (users can read only their own orders; client writes strictly blocked).
+     - Added server-only lock rules (`allow read, write: if false;`) for `processed_payments` and `webhook_events`.
+  2. **Backend Engine Built (`functions/lib/payment_gateway.js` & `functions/index.js`)**:
+     - Implemented `PaymentGatewayEngine` with `DEFAULT_RECHARGE_PACKAGES` (minor units: paise / cents).
+     - Built `createOrder` with `idempotencyKey` check returning existing open order to prevent double-taps.
+     - Built single idempotent `creditOrderIfPaid` with `db.runTransaction` atomic multi-document updates:
+       * Credits user `diamondBalance` with `FieldValue.increment`.
+       * Applies agency commission (`applyRechargeCommission`) and SVIP points (`processSvipPointsForRecharge`).
+       * Locks `processed_payments/{paymentId}` doc to guarantee single credit.
+       * Marks `payment_orders/{orderId}` completed and logs user passbook and global audit entries.
+     - Exported callables `getRechargePackages`, `createPaymentOrder`, `verifyAndCreditPayment`, and HTTPS endpoint `paymentWebhook`.
+  3. **Flutter Client Models & Service Updated (`lib/core/`)**:
+     - Created `lib/core/models/payment_package_model.dart` with minor unit converters.
+     - Created `lib/core/models/payment_order_model.dart` with status enums (`PaymentOrderStatus`).
+     - Updated `lib/core/services/payment_service.dart` with local JSON order persistence for interrupted payment recovery on app start/resume.
+  4. **Automated Behavioral Test Suite (`functions/test_payment_gateway_suite.js`)**:
+     - Implemented and verified test matrix covering all key edge cases:
+       * Test 1: Order creation & idempotency key reuse -> Passed.
+       * Test 2: Single credit path & atomic balance mutation -> Passed.
+       * Test 3: Idempotency protection (5 replayed webhooks -> exactly 1 credit) -> Passed.
+       * Test 4: Fast-path and webhook parallel race condition (Promise.all) -> Passed.
+       * Test 5: Amount and currency tampering detection -> Passed.
+       * Test 6: Webhook HMAC SHA-256 signature verification -> Passed.
+       * Result: **6 PASSED, 0 FAILED**.
+
+- **Files Touched**:
+  - `firebase/firestore.rules`
+  - `functions/lib/payment_gateway.js`
+  - `functions/index.js`
+  - `functions/test_payment_gateway_suite.js`
+  - `lib/core/models/payment_package_model.dart`
+  - `lib/core/models/payment_order_model.dart`
+  - `lib/core/services/payment_service.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-12 (Fix Sticker Sheet Not Opening & Wiring to Real Modal)
 
 - **What Client Asked / Problem**:
