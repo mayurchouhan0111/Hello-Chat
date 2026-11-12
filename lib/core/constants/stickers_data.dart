@@ -11,17 +11,22 @@ class StickerPack {
 }
 
 class StickersData {
-  // 4 Professional Sticker Packs tailored for the Hello Chat Audio Party App
+  // 5 Professional Sticker & 3D Emoji Packs for Hello Chat
   static const List<StickerPack> activePacks = [
+    StickerPack(
+      id: 'pack_emoji',
+      title: '😎 Emoji',
+      stickers: fluentEmojiPack,
+    ),
+    StickerPack(
+      id: 'pack_mascot',
+      title: '🥰 Mascots',
+      stickers: partyMascotPack,
+    ),
     StickerPack(
       id: 'pack_audio',
       title: '🎙️ Audio Party',
       stickers: audioPartyPack,
-    ),
-    StickerPack(
-      id: 'pack_mascot',
-      title: '🐱 Mascots',
-      stickers: partyMascotPack,
     ),
     StickerPack(
       id: 'pack_cuppy',
@@ -33,6 +38,34 @@ class StickersData {
       title: '✨ Chibi',
       stickers: chibiPack,
     ),
+  ];
+
+  // Pack 0: Open-source Fluent 3D Expressive Emojis (matching ref mock)
+  static const List<String> fluentEmojiPack = [
+    'assets/stickers/emojis/01_grinning_face.png',
+    'assets/stickers/emojis/02_relieved_face.png',
+    'assets/stickers/emojis/03_winking_face.png',
+    'assets/stickers/emojis/04_sunglasses.png',
+    'assets/stickers/emojis/05_hugging_face.png',
+    'assets/stickers/emojis/06_star_struck.png',
+    'assets/stickers/emojis/07_heart_eyes.png',
+    'assets/stickers/emojis/08_blowing_kiss.png',
+    'assets/stickers/emojis/09_kissing_closed_eyes.png',
+    'assets/stickers/emojis/10_red_heart.png',
+    'assets/stickers/emojis/11_smirking_face.png',
+    'assets/stickers/emojis/12_astonished_face.png',
+    'assets/stickers/emojis/13_dizzy_face.png',
+    'assets/stickers/emojis/14_flushed_face.png',
+    'assets/stickers/emojis/15_anxious_sweat.png',
+    'assets/stickers/emojis/16_screaming_fear.png',
+    'assets/stickers/emojis/17_rofl.png',
+    'assets/stickers/emojis/18_tears_of_joy.png',
+    'assets/stickers/emojis/19_partying_face.png',
+    'assets/stickers/emojis/20_zany_face.png',
+    'assets/stickers/emojis/21_pouting_face.png',
+    'assets/stickers/emojis/22_loudly_crying.png',
+    'assets/stickers/emojis/23_fire.png',
+    'assets/stickers/emojis/24_sparkles.png',
   ];
 
   // Pack 1: Audio & Party Vibes (Microphones, DJ, Instruments, Fireworks, Applause)

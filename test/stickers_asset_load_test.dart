@@ -7,13 +7,13 @@ void main() {
 
   group('Stickers Asset Bundle Verification', () {
     test('All active sticker packs exist and are non-empty', () {
-      expect(StickersData.activePacks.length, 4);
+      expect(StickersData.activePacks.length, 5);
       for (final pack in StickersData.activePacks) {
         expect(pack.stickers.isNotEmpty, isTrue, reason: '${pack.title} must have stickers');
       }
     });
 
-    test('Every sticker in all 4 packs can be loaded from rootBundle', () async {
+    test('Every sticker in all 5 packs can be loaded from rootBundle', () async {
       int totalLoaded = 0;
       for (final pack in StickersData.activePacks) {
         for (final stickerPath in pack.stickers) {
@@ -22,7 +22,7 @@ void main() {
           totalLoaded++;
         }
       }
-      expect(totalLoaded, 97);
+      expect(totalLoaded, 121);
     });
   });
 }

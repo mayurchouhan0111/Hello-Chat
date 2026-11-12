@@ -11,6 +11,53 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (Message Input Redesign, Tools/Games Alignment & 3D Open-Source Emojis)
+
+- **What Client Asked / Problem**:
+  1. **Message Bottom Sheet Redesign**: "inseted of this bottom sheet we have to create the message bottoms heet look like the ref image 2 one which client have given okay same we have to create redesign our one okay" — replace the old bulky multi-tab sheet with the floating single-row input bar with gallery icon, "Say Hi~" dark capsule, and lime-mint Send button.
+  2. **Tools & Games Real Feature Alignment**: "and also in the prty games section remove the game which we dont have remove there icons keep only our 2 games okay" and "Tools: [Music (YouTube)], [PK Battle], [Mixer], [Settings], [Lucky Bag] Games: [Spin Wheel], [Lucky Draw], aur unke cards ka style. yes yahi sb rkahna ha hume tools section mai" — remove placeholder games and keep only our 2 real playable games (Spin Wheel & Lucky Draw), and align Tools to our 5 active room features.
+  3. **3D Emojis in Sticker Sheet**: "Please add the emoji allso in the sticeker fidn out form the opensoruce and add it in the project okay" — find open-source 3D emojis matching the reference image and integrate them into the sticker sheet.
+
+- **What We Did**:
+  1. **Chat Input Redesign (`_showRoomChatInputSheet`)**:
+     - Redesigned the bottom chat sheet to match the exact sleek floating bar above the keyboard (`Color(0xFF13151D)`).
+     - Left: Photo gallery picker icon (`Icons.image_outlined`) with direct image upload to Firebase Storage and live room message broadcast.
+     - Center: Dark capsule container (`Color(0xFF222634)`) with `"Say Hi~"` hint, white text field, and integrated smiley icon (`Icons.sentiment_satisfied_alt_rounded`) to trigger stickers/emojis.
+     - Right: Pastel lime-mint yellow gradient pill button (`[Color(0xFFFEF9C3), Color(0xFF86EFAC)]`) with bold dark "Send" label.
+  2. **Tools & Games Hub Sheet Alignment (`UnifiedGamesHubSheet`)**:
+     - Configured the top "Tools" row with the 5 real room features:
+       * 🎵 **Music**: Vinyl record icon with red center, opens the interactive YouTube audio/video room player (`YouTubePanel`).
+       * ⚔️ **PK Battle**: Red & blue crossed swords icon, launches the real-time PK matching sheet (`PKMatchingBottomSheet`).
+       * 🎚️ **Mixer**: Equalizer sliders icon, opens Agora room audio & effects mixer (`MixerSheet`).
+       * ⚙️ **Settings**: Dark gear icon, opens room settings & privacy controls (`RoomSettingsSheet`).
+       * 🧧 **Lucky Bag**: Red packet with gold seal icon, informs and launches the room Lucky Bag feature.
+     - Configured the "Games" section:
+       * Removed all 8 non-existent dummy placeholder games (Ludo, Billiard, Jackaroo, etc.).
+       * Kept ONLY our 2 real native games in card style:
+         - 🎡 **Spin Wheel** (`assets/images/game_spin_wheel_art.jpg`, "Win up to 10x prizes!", launches `SpinWheelScreen`).
+         - 💎 **Lucky Draw** (`assets/images/game_lucky_draw_art.jpg`, "High stakes jackpot!", launches `LuckyDrawScreen`).
+  3. **Open-Source 3D Emojis Integration**:
+     - Downloaded 24 high-resolution 3D Fluent Emojis (MIT licensed from Microsoft) matching the client's reference image into `assets/stickers/emojis/`.
+     - Registered the assets path in `pubspec.yaml`.
+     - Added `fluentEmojiPack` as the default first pack (`😎 Emoji`) in `lib/core/constants/stickers_data.dart`.
+     - Redesigned `lib/features/rooms/presentation/widgets/sticker_sheet.dart` with a dark capsule tab indicator and a 4-column emoji grid.
+     - Updated and passed unit test `test/stickers_asset_load_test.dart` verifying all 121 sticker and emoji assets load properly from `rootBundle`.
+  4. **Verification**:
+     - Ran `flutter analyze` on all modified files (0 errors).
+     - Ran `flutter test test/stickers_asset_load_test.dart` (All tests passed).
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/sticker_sheet.dart`
+  - `lib/core/constants/stickers_data.dart`
+  - `assets/stickers/emojis/` (24 emoji PNG assets)
+  - `pubspec.yaml`
+  - `test/stickers_asset_load_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-12 (Live Room Transparent Bottom Bar & Tools/Party Game Bottom Sheet Redesign)
 
 - **What Client Asked / Problem**:

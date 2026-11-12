@@ -1647,317 +1647,159 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
 
 
   void _showRoomChatInputSheet({int initialTab = 0}) {
-    int activeTab = initialTab;
-    final hasTextNotifier = ValueNotifier(_chatController.text.trim().isNotEmpty);
-    _chatController.addListener(() {
-      hasTextNotifier.value = _chatController.text.trim().isNotEmpty;
-    });
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) {
-          return Container(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom + 18,
-              top: 12, left: 16, right: 16,
-            ),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1E1730),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-              border: Border(
-                top: BorderSide(
-                  color: const Color(0xFF5A447F).withOpacity(0.5),
-                  width: 1.2,
-                ),
+      builder: (sheetContext) {
+        return Container(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 10,
+            top: 10,
+            left: 14,
+            right: 14,
+          ),
+          decoration: BoxDecoration(
+            color: const Color(0xFF13151D),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.6),
+                blurRadius: 20,
+                offset: const Offset(0, -4),
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.6),
-                  blurRadius: 28,
-                  offset: const Offset(0, -8),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Row(
               children: [
-                // Top drag handle
-                Center(
+                // 1. Gallery / Photo Icon
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _pickAndUploadImage(source: ImageSource.gallery);
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.only(right: 10, left: 2),
+                    child: Icon(
+                      Icons.image_outlined,
+                      color: Colors.white,
+                      size: 26,
+                    ),
+                  ),
+                ),
+
+                // 2. Center Capsule Input with Smiley button
+                Expanded(
                   child: Container(
-                    width: 38,
-                    height: 4,
+                    height: 40,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF5E4E7A),
-                      borderRadius: BorderRadius.circular(2),
+                      color: const Color(0xFF222634),
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // 3-Mode Segmented Tabs Row
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildSheetTab(
-                        "Text",
-                        Icons.sticky_note_2_outlined,
-                        activeTab == 0,
-                        () => setSheetState(() => activeTab = 0),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildSheetTab(
-                        "Photo",
-                        Icons.image_outlined,
-                        activeTab == 1,
-                        () => setSheetState(() => activeTab = 1),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildSheetTab(
-                        "Sticker",
-                        Icons.sentiment_satisfied_alt_outlined,
-                        activeTab == 2,
-                        () => setSheetState(() => activeTab = 2),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                // Tab Content
-                if (activeTab == 0) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          height: 48,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF130B24),
-                            borderRadius: BorderRadius.circular(28),
-                            border: Border.all(
-                              color: const Color(0xFF7C3AED),
-                              width: 1.5,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _chatController,
+                            autofocus: true,
+                            textInputAction: TextInputAction.send,
+                            cursorColor: const Color(0xFF86EFAC),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
                             ),
+                            decoration: const InputDecoration(
+                              filled: false,
+                              fillColor: Colors.transparent,
+                              hintText: "Say Hi~",
+                              hintStyle: TextStyle(
+                                color: Color(0xFF7E869B),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w400,
+                              ),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            onSubmitted: (_) {
+                              Navigator.pop(sheetContext);
+                              _sendMessage();
+                            },
                           ),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: TextField(
-                              controller: _chatController,
-                              autofocus: true,
-                              textInputAction: TextInputAction.send,
-                              cursorColor: const Color(0xFF9D64FF),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                              ),
-                              decoration: const InputDecoration(
-                                filled: false,
-                                fillColor: Colors.transparent,
-                                hintText: "Say something...",
-                                hintStyle: TextStyle(
-                                  color: Color(0xFF8E7FA8),
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                                border: InputBorder.none,
-                                enabledBorder: InputBorder.none,
-                                focusedBorder: InputBorder.none,
-                                isDense: true,
-                                contentPadding: EdgeInsets.zero,
-                              ),
-                              onChanged: (_) => setSheetState(() {}),
-                              onSubmitted: (_) {
-                                Navigator.pop(sheetContext);
-                                _sendMessage();
-                              },
+                        ),
+                        // Smiley / Sticker trigger
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.pop(sheetContext);
+                            _showStickerSheet();
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: const Padding(
+                            padding: EdgeInsets.only(left: 6),
+                            child: Icon(
+                              Icons.sentiment_satisfied_alt_rounded,
+                              color: Color(0xFF9EA6BA),
+                              size: 22,
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 10),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: hasTextNotifier,
-                        builder: (context, hasText, child) {
-                          return GestureDetector(
-                            onTap: hasText
-                                ? () {
-                                    Navigator.pop(sheetContext);
-                                    _sendMessage();
-                                  }
-                                : null,
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: hasText
-                                      ? const [Color(0xFF8B5CF6), Color(0xFF6D28D9)]
-                                      : const [Color(0xFF7032F0), Color(0xFF5B1ED4)],
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFF7C3AED).withOpacity(hasText ? 0.55 : 0.35),
-                                    blurRadius: 10,
-                                    offset: const Offset(0, 3),
-                                  ),
-                                ],
-                              ),
-                              child: Transform.rotate(
-                                angle: -0.15,
-                                child: const Icon(
-                                  Icons.send_rounded,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ] else if (activeTab == 1) ...[
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildPhotoOption(
-                          Icons.camera_alt_outlined,
-                          "Camera",
-                          const Color(0xFF9D64FF),
-                          () {
-                            Navigator.pop(sheetContext);
-                            _pickAndUploadImage(source: ImageSource.camera);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildPhotoOption(
-                          Icons.photo_library_outlined,
-                          "Gallery",
-                          const Color(0xFF8B5CF6),
-                          () {
-                            Navigator.pop(sheetContext);
-                            _pickAndUploadImage(source: ImageSource.gallery);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ] else ...[
-                  SizedBox(
-                    height: 290,
-                    child: StickerSheet(
-                      backgroundColor: Colors.transparent,
-                      showHandle: false,
-                      onStickerSelected: (path) async {
-                        final uid = ref.read(authStateProvider).value?.uid;
-                        if (uid == null) return;
-                        await ref.read(chatServiceProvider).sendStickerMessage(widget.roomId, uid, path);
-                      },
+                      ],
                     ),
                   ),
-                ],
-                const SizedBox(height: 6),
+                ),
+
+                const SizedBox(width: 10),
+
+                // 3. Send Pill Button (Lime-Mint Yellow Gradient)
+                GestureDetector(
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _sendMessage();
+                  },
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    height: 38,
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFEF9C3), Color(0xFF86EFAC)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(19),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF86EFAC).withValues(alpha: 0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Text(
+                        "Send",
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               ],
             ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildSheetTab(String label, IconData icon, bool isSelected, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        height: 42,
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF7032F0) : const Color(0xFF281E3D),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isSelected
-                ? const Color(0xFF8B5CF6).withOpacity(0.6)
-                : const Color(0xFF3A2B55).withOpacity(0.6),
-            width: 1,
           ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFF7032F0).withOpacity(0.4),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : const Color(0xFFB5A6CE),
-              size: 17,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                color: isSelected ? Colors.white : const Color(0xFFB5A6CE),
-                fontSize: 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPhotoOption(IconData icon, String label, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 22),
-        decoration: BoxDecoration(
-          color: const Color(0xFF281E3D),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0xFF7C3AED).withOpacity(0.35),
-            width: 1.2,
-          ),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            Text(
-              label,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 

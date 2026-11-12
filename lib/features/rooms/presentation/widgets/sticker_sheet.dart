@@ -15,21 +15,21 @@ class StickerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final packs = StickersData.activePacks;
+    const packs = StickersData.activePacks;
 
     return DefaultTabController(
       length: packs.length,
       child: Container(
-        height: MediaQuery.of(context).size.height * 0.42,
+        height: MediaQuery.of(context).size.height * 0.46,
         decoration: BoxDecoration(
-          color: backgroundColor ?? const Color(0xFF1B142F),
+          color: backgroundColor ?? const Color(0xFF12141C),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         ),
         child: Column(
           children: [
             if (showHandle)
               Container(
-                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                margin: const EdgeInsets.only(top: 8, bottom: 6),
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
@@ -37,16 +37,24 @@ class StickerSheet extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-            TabBar(
-              isScrollable: true,
-              tabAlignment: TabAlignment.start,
-              indicatorColor: const Color(0xFF7C3AED),
-              indicatorSize: TabBarIndicatorSize.label,
-              labelColor: const Color(0xFFC4B5FD),
-              unselectedLabelColor: Colors.white54,
-              labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-              unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 13),
-              tabs: packs.map((pack) => Tab(text: pack.title)).toList(),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                indicator: BoxDecoration(
+                  color: const Color(0xFF252938),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                dividerColor: Colors.transparent,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white54,
+                labelPadding: const EdgeInsets.symmetric(horizontal: 14),
+                labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.normal, fontSize: 13),
+                tabs: packs.map((pack) => Tab(text: pack.title)).toList(),
+              ),
             ),
             Expanded(
               child: TabBarView(
