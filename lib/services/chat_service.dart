@@ -65,16 +65,29 @@ class ChatService {
     final chatId = uid1.compareTo(uid2) < 0 ? '${uid1}_$uid2' : '${uid2}_$uid1';
     final chatRef = _db.collection('chats').doc(chatId);
     
-    final chatDoc = await chatRef.get();
-    if (!chatDoc.exists) {
-      await chatRef.set({
-        'chatId': chatId,
-        'participants': [uid1, uid2],
-        'lastMessage': '',
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'unreadCounts': {uid1: 0, uid2: 0},
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    try {
+      final chatDoc = await chatRef.get();
+      if (!chatDoc.exists) {
+        await chatRef.set({
+          'chatId': chatId,
+          'participants': [uid1, uid2],
+          'lastMessage': '',
+          'lastMessageTime': FieldValue.serverTimestamp(),
+          'unreadCounts': {uid1: 0, uid2: 0},
+          'createdAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (_) {
+      try {
+        // Fallback: merge set ensures creating chats never fails under race conditions or cache desync
+        await chatRef.set({
+          'chatId': chatId,
+          'participants': [uid1, uid2],
+          'unreadCounts': {uid1: 0, uid2: 0},
+        }, SetOptions(merge: true));
+      } catch (_) {
+        // Fallback catch allows navigation to proceed even if offline or already exists
+      }
     }
     return chatId;
   }

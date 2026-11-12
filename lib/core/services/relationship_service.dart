@@ -104,7 +104,7 @@ class RelationshipService with BaseFirebaseService {
 
   Stream<List<Map<String, dynamic>>> streamFriendRequests(String uid) {
     return _db.collection('relationship_requests')
-        .where('receiverUid', isEqualTo: uid)
+        .where('targetUid', isEqualTo: uid)
         .where('type', isEqualTo: 'friendship')
         .where('status', isEqualTo: 'pending')
         .snapshots()

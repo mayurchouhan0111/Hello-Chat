@@ -740,7 +740,11 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        AppToast.showError(context, 'Purchase Failed: $e');
+        AppToast.showError(
+          context,
+          e.toString(),
+          title: 'Purchase Notice',
+        );
       }
     }
   }

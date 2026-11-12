@@ -686,7 +686,7 @@ service cloud.firestore {
       allow write: if false; // Cloud functions only
     }
     match /relationship_requests/{requestId} {
-      allow read: if request.auth != null && (request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || isAdmin());
+      allow read: if request.auth != null && (request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || request.auth.uid == resource.data.receiverUid || isAdmin());
       // All transitions run through the sendFriendRequest / acceptFriendRequest /
       // rejectFriendRequest callables (dedupe, blocks, both-sided relationship
       // writes). Direct client writes bypassed those checks.

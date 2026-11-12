@@ -7,12 +7,103 @@ final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<Sca
 enum ToastType { success, error, diamond, info, warning }
 
 class AppToast {
+  /// Sanitizes technical error messages and prefixes into polite, human-friendly English.
+  static String sanitizeErrorMessage(String rawMessage) {
+    if (rawMessage.trim().isEmpty) {
+      return "Something went wrong. Please try again.";
+    }
+
+    String msg = rawMessage.trim();
+
+    // Repeatedly strip known technical wrappers and exception headers
+    bool changed;
+    do {
+      changed = false;
+      final before = msg;
+
+      // Strip common exception wrappers like 'Exception:', 'FirebaseException:', etc.
+      msg = msg.replaceFirst(
+        RegExp(r'^(Exception|Error|FirebaseException|FirebaseFunctionsException|PlatformException):\s*', caseSensitive: false),
+        '',
+      );
+
+      // Strip [package/code] prefixes, e.g. [firebase_functions/failed-precondition] or [cloud_firestore/permission-denied]
+      msg = msg.replaceAll(RegExp(r'\[[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-]+\]'), '').trim();
+
+      // Strip generic "Purchase Failed:" / "Action Failed:" / "Operation Failed:" wrappers
+      msg = msg.replaceFirst(
+        RegExp(r'^(Purchase|Action|Operation|Request|Update|Load)\s+Failed:\s*', caseSensitive: false),
+        '',
+      );
+
+      if (msg != before) {
+        changed = true;
+      }
+    } while (changed);
+
+    msg = msg.trim();
+    final lower = msg.toLowerCase();
+
+    // Domain mappings for human-friendly English sentences
+    if (lower.contains('insufficient') && (lower.contains('diamond') || lower.contains('balance'))) {
+      return 'Insufficient diamonds. Please recharge your wallet to proceed.';
+    }
+    if (lower.contains('insufficient') && lower.contains('bean')) {
+      return 'Insufficient beans. Please recharge or earn beans to proceed.';
+    }
+    if (lower.contains('permission-denied') || lower.contains('permission denied') || lower.contains('insufficient permissions') || lower.contains('missing or insufficient permissions')) {
+      return 'You do not have permission to perform this action.';
+    }
+    if (lower.contains('unauthenticated') || lower.contains('not authenticated') || lower.contains('user-not-found') || lower.contains('must be logged in')) {
+      return 'Please log in to continue.';
+    }
+    if (lower.contains('unavailable') || lower.contains('network-request-failed') || lower.contains('socketexception') || lower.contains('failed host lookup') || lower.contains('client is offline')) {
+      return 'Network connection issue. Please check your internet connection.';
+    }
+    if (lower.contains('deadline-exceeded') || lower.contains('timeout') || lower.contains('timed out')) {
+      return 'Request timed out. Please try again.';
+    }
+    if (lower.contains('already-exists') || lower.contains('already exists')) {
+      return 'This request or item already exists.';
+    }
+    if (lower.contains('active cp') || lower.contains('already have an active cp') || lower.contains('active relationship') || lower.contains('already partner')) {
+      return 'You or this user already have an active partner.';
+    }
+    if (lower.contains('blocked this user') || lower.contains('you have blocked')) {
+      return 'You have blocked this user. Unblock them to continue.';
+    }
+    if (lower.contains('cannot send messages to this user') || lower.contains('they blocked')) {
+      return 'Unable to send messages to this user.';
+    }
+    if (lower.contains('not-found') || lower.contains('document does not exist') || lower.contains('not found')) {
+      return 'The requested item could not be found.';
+    }
+    if (lower.contains('internal') || lower.contains('server-error') || lower.contains('unknown error')) {
+      return 'Something went wrong on our end. Please try again later.';
+    }
+
+    // Clean up any stray quotes
+    msg = msg.replaceAll(RegExp(r'''^["']|["']$'''), '').trim();
+
+    if (msg.isNotEmpty) {
+      // Ensure sentence capitalization and terminal punctuation
+      msg = msg[0].toUpperCase() + msg.substring(1);
+      if (!msg.endsWith('.') && !msg.endsWith('!') && !msg.endsWith('?')) {
+        msg = '$msg.';
+      }
+      return msg;
+    }
+
+    return 'An unexpected error occurred. Please try again.';
+  }
+
   static void showSuccess(BuildContext context, String message, {String? title}) {
     show(context, message: message, title: title ?? "Success", type: ToastType.success);
   }
 
   static void showError(BuildContext context, String message, {String? title}) {
-    show(context, message: message, title: title ?? "Oops!", type: ToastType.error);
+    final sanitized = sanitizeErrorMessage(message);
+    show(context, message: sanitized, title: title ?? "Oops!", type: ToastType.error);
   }
 
   static void showDiamond(BuildContext context, String message, {String? title}) {
@@ -37,12 +128,13 @@ class AppToast {
     ToastType type = ToastType.info,
     Duration duration = const Duration(seconds: 3),
   }) {
+    final finalMessage = type == ToastType.error ? sanitizeErrorMessage(message) : message;
     _activeOverlay?.remove();
     _activeOverlay = null;
 
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) {
-      show(context, message: message, title: title, type: type, duration: duration);
+      show(context, message: finalMessage, title: title, type: type, duration: duration);
       return;
     }
 
@@ -56,7 +148,7 @@ class AppToast {
           color: Colors.transparent,
           child: _ToastWidget(
             title: title,
-            message: message,
+            message: finalMessage,
             type: type,
             onDismiss: () {
               if (entry.mounted) entry.remove();

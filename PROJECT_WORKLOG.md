@@ -11,6 +11,71 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (System-Wide Polish: Friendships & Discovery, Clean UI & Error Sanitization, Room Tools Permissions, VAP Smooth Transition & Host Name Update)
+
+- **What Client Asked / Problem**:
+  - Complete a series of high-priority usability, permission, and visual fixes across Hello Chat:
+    1. **Friendships & Requests**: Fix permission-denied errors when loading friend requests, allow searching with single characters (remove the 2-character blockade), provide suggested users/friends when list is empty, and replace raw error text with a polished error state.
+    2. **UI Polish & Error Sanitization**: Clean up technical Firebase error popups (e.g. `[firebase_functions/failed-precondition]`) into human-friendly English sentences, add instant loading feedback on profile Direct Message button, ensure clear tooltips/feedback for Friend and CP invite buttons, and make chat creation idempotent with merge fallback.
+    3. **Room Features & Permissions**: In the Room Tools hub, hide host-restricted tools (`Settings` and `PK Battle`) from regular attendees, showing only attendee-appropriate tools (`Music`, `Mixer` if on mic, `Lucky Bag`), while hosts retain access to all 5.
+    4. **VAP Gift Animation Smoothness**: Fix the video freeze / stuck last frame glitch between combo gifts where MediaCodec holds the last decoded frame while buffering the next clip. Tighten safety watchdog timers to prevent multi-second stalls.
+    5. **Account Name Update**: Update Nihal's account (`7onb5B5ZdbMbskb9yMYO8avvffl2`, `+917898840444`) `displayName` to 'Nihal' so Seat 1 shows 'Nihal' instead of the provisioned 'Panel Host Two'.
+
+- **What We Did**:
+  1. **Friendship System & Discovery Polish (`friendship`)**:
+     - **Firestore Security Rules (`firebase/firestore.rules`)**:
+       * Updated `relationship_requests` read rule to allow reading if `request.auth.uid == resource.data.senderUid || request.auth.uid == resource.data.targetUid || request.auth.uid == resource.data.receiverUid || isAdmin()`.
+     - **Relationship Service (`relationship_service.dart`)**:
+       * Aligned `streamFriendRequests` to query `.where('targetUid', isEqualTo: uid)` matching the document schema.
+     - **Friend Requests Screen (`friend_requests_screen.dart`)**:
+       * Replaced raw unformatted `Error: $err` red text with a polished, friendly error card with error illustration, clear explanation, and a "Try Again" retry button (`ref.invalidate`).
+     - **Friend List Screen (`friend_list_screen.dart`)**:
+       * Removed the `< 2` character blockade for instant search querying.
+       * Implemented rich "Discover People" / "Suggested Friends" section with avatars, names, level badges, and 1-tap Add Friend buttons when the friend list is empty or during discovery.
+  2. **Profile UI & Error Sanitization (`profile_ui`)**:
+     - **App Toast Sanitizer (`app_toast.dart`)**:
+       * Added `sanitizeErrorMessage` to strip technical prefixes (`[package/code]`, `FirebaseException:`, etc.) and map domain errors (e.g., insufficient diamonds/beans, permission-denied, timeout) to polite, conversational sentences.
+       * Wrapped `AppToast.showError` and `AppToast.showOverlay` to ensure zero technical error leakage to end users.
+     - **VIP Shop Screen (`vip_shop_screen.dart`)**:
+       * Sanitized VIP purchase errors with `title: 'Purchase Notice'`.
+     - **Profile Detail Screen (`profile_detail_screen.dart`)**:
+       * Added `_isOpeningChat` loading indicator state on the Direct Message button.
+       * Cleanly routed to `PrivateChatScreen(chatId: chatId, otherUid: userData.uid)`.
+       * Added distinct tooltips and informative SnackBars for Friend Request and Couple Partner Invite buttons with pending state indicators.
+     - **Chat Service Fallback (`chat_service.dart`)**:
+       * Added `SetOptions(merge: true)` fallback on `getOrCreateChat` ensuring chat creation never fails under race conditions.
+  3. **Room Tools & VAP Animation Performance (`room_features`)**:
+     - **Unified Games Hub Sheet (`unified_games_hub_sheet.dart`)**:
+       * Added room owner/host check (`room.ownerUid == myUid`).
+       * Filtered tools: Host gets all 5 tools (`Music`, `PK Battle`, `Mixer`, `Settings`, `Lucky Bag`); Attendees only see `Music`, `Mixer` (if seated on mic), and `Lucky Bag`.
+       * Protected action handlers to disallow unauthorized access.
+     - **Gift Animation Overlay (`gift_animation_overlay.dart`)**:
+       * Wrapped `VapView` and `VapAnimation` in opacity controllers (`_vapOpacity`).
+       * Instantly drops opacity to 0.0 on `onVideoComplete` or error, hiding the frozen last frame during MediaCodec buffer transitions.
+       * Restores opacity to 1.0 when `onVideoStart` triggers for the next video clip.
+       * Tightened safety watchdog timers across VAP and SVGA players (+300ms/+400ms buffer instead of +4000ms stalls).
+  4. **Nihal Display Name Update (`verifier`)**:
+     - Updated Nihal's user record (`7onb5B5ZdbMbskb9yMYO8avvffl2`, phone `+917898840444`) `displayName` to 'Nihal' in both Firestore and Firebase Auth, ensuring Seat 1 displays 'Nihal'.
+  5. **Verification**:
+     - `dart analyze lib/core/services/relationship_service.dart lib/features/profile/presentation/screens/friend_requests_screen.dart lib/features/profile/presentation/screens/friend_list_screen.dart` -> **0 issues found**.
+     - `dart analyze lib/core/widgets/app_toast.dart lib/features/vip/presentation/screens/vip_shop_screen.dart lib/features/profile/presentation/screens/profile_detail_screen.dart lib/services/chat_service.dart` -> **0 errors**.
+     - `dart analyze lib/features/games/presentation/widgets/unified_games_hub_sheet.dart lib/features/rooms/presentation/widgets/gift_animation_overlay.dart` -> **0 issues found**.
+
+- **Files Touched**:
+  - `firebase/firestore.rules`
+  - `lib/core/services/relationship_service.dart`
+  - `lib/features/profile/presentation/screens/friend_requests_screen.dart`
+  - `lib/features/profile/presentation/screens/friend_list_screen.dart`
+  - `lib/core/widgets/app_toast.dart`
+  - `lib/features/vip/presentation/screens/vip_shop_screen.dart`
+  - `lib/features/profile/presentation/screens/profile_detail_screen.dart`
+  - `lib/services/chat_service.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-12 (Message Bottom Sheet Pixel-Perfect Alignment to Reference Image 2 & Party Games Cleanup)
 
 - **What Client Asked / Problem**:

@@ -452,6 +452,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final List<_ActiveGiftAnimation> _mediumQueue = [];
   _ActiveGiftAnimation? _currentFullScreenAnim;
   bool _isFullScreenPlaying = false;
+  double _vapOpacity = 0.0;
   Timer? _fullScreenWatchdogTimer;
   Timer? _transitionTimer;
   int? _waitingForReleaseTicket;
@@ -1132,20 +1133,30 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
     controller.setAnimListener(
       onVideoStart: () {
+        if (mounted && _vapOpacity != 1.0) {
+          setState(() {
+            _vapOpacity = 1.0;
+          });
+        }
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
         debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
         // Re-arm from actual decode-start with a tighter budget.
-        // Devices that never fire onVideoStart still fall back to the initial +900 ms budget.
+        // Devices that never fire onVideoStart still fall back to the initial +800 ms budget.
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
-          _armFullScreenSafetyTimer(clipMs + 400, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 400ms");
+          _armFullScreenSafetyTimer(clipMs + 300, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 300ms");
         }
       },
       onVideoStartWithDevice: (device) {
         if (device != null && device.isNotEmpty) {
           _currentDeviceModel = device;
+        }
+        if (mounted && _vapOpacity != 1.0) {
+          setState(() {
+            _vapOpacity = 1.0;
+          });
         }
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
@@ -1153,12 +1164,17 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         // Re-arm from actual decode-start (device-variant callback path).
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
-          _armFullScreenSafetyTimer(clipMs + 400, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 400ms");
+          _armFullScreenSafetyTimer(clipMs + 300, _currentFullScreenTicket);
+          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 300ms");
         }
       },
       onVideoComplete: () {
         debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (mounted && _vapOpacity != 0.0) {
+          setState(() {
+            _vapOpacity = 0.0;
+          });
+        }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal received after watchdog for ticket ${controller.currentTicket}");
           _releaseFallbackTimer?.cancel();
@@ -1168,6 +1184,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       },
       onFailed: (code, errorType, msg) {
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (mounted && _vapOpacity != 0.0) {
+          setState(() {
+            _vapOpacity = 0.0;
+          });
+        }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
           _releaseFallbackTimer?.cancel();
@@ -1180,6 +1201,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _currentDeviceModel = device;
         }
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        if (mounted && _vapOpacity != 0.0) {
+          setState(() {
+            _vapOpacity = 0.0;
+          });
+        }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
           _releaseFallbackTimer?.cancel();
@@ -1344,6 +1370,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     setState(() {
       _isFullScreenPlaying = true;
       _currentFullScreenAnim = anim;
+      if (isVap) {
+        _vapOpacity = 0.0;
+      }
     });
 
     final comboKey = anim.targetUid != null && anim.targetUid!.isNotEmpty && anim.giftId.isNotEmpty
@@ -1361,16 +1390,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // embedded AAC, so their empty catalog soundUrl never even triggers the
       // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
 
-      // Duration safety cap: 900 ms covers the worst observed cold-start TTFF
-      // (~840 ms) while halving the previous 2000 ms freeze window.
-      final int duration = anim.durationMs > 0 ? anim.durationMs : 8000;
-      _armFullScreenSafetyTimer(duration + 900, ticket);
+      // Duration safety cap: 800 ms covers TTFF decode time
+      final int duration = anim.durationMs > 0 ? anim.durationMs : 6000;
+      _armFullScreenSafetyTimer(duration + 800, ticket);
       debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       Future<VapController?> getController() async {
         if (_persistentVapController != null) return _persistentVapController;
         try {
-          return await _vapControllerCompleter.future.timeout(const Duration(seconds: 8));
+          return await _vapControllerCompleter.future.timeout(const Duration(seconds: 4));
         } catch (_) {}
         return null;
       }
@@ -1395,7 +1423,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           if (filePath != null && File(filePath).existsSync()) {
             final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
             final effectiveDuration = realDuration > 0 ? realDuration : duration;
-            _armFullScreenSafetyTimer(effectiveDuration + 4000, ticket);
+            // Tightened watchdog timer (+600ms buffer after real duration instead of +4000ms)
+            _armFullScreenSafetyTimer(effectiveDuration + 600, ticket);
             debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
             ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
               debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
@@ -1460,6 +1489,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
 
     setState(() {
+      _vapOpacity = 0.0;
       _currentFullScreenAnim = null;
     });
 
@@ -1472,9 +1502,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     // Wait for the release signal before the next gift starts
     _waitingForReleaseTicket = ticket;
     _releaseFallbackTimer?.cancel();
-    _releaseFallbackTimer = Timer(const Duration(milliseconds: 600), () {
+    _releaseFallbackTimer = Timer(const Duration(milliseconds: 300), () {
       if (mounted && _waitingForReleaseTicket == ticket) {
-        debugPrint("[VAP_TRACE] release signal fallback timeout (600ms) reached after watchdog for ticket $ticket");
+        debugPrint("[VAP_TRACE] release signal fallback timeout (300ms) reached after watchdog for ticket $ticket");
         _waitingForReleaseTicket = null;
         _onFullScreenAnimationFinished(ticket);
       }
@@ -1511,6 +1541,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       );
 
       setState(() {
+        _vapOpacity = 0.0; // Immediately drop VAP view opacity between repeat combo plays
         _currentFullScreenAnim = nextAnim;
       });
 
@@ -1536,6 +1567,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     } catch (_) {}
 
     setState(() {
+      _vapOpacity = 0.0;
       _currentFullScreenAnim = null;
       _isFullScreenPlaying = false;
     });
@@ -1677,11 +1709,14 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
                 offstage: !(_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap'),
                 child: TickerMode(
                   enabled: _isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format == 'vap',
-                  child: VapView(
-                    scaleType: ScaleType.fitCenter,
-                    repeat: 0,
-                    mute: kMuteVapAudio,
-                    onViewCreated: _setupPersistentVapController,
+                  child: Opacity(
+                    opacity: _vapOpacity,
+                    child: VapView(
+                      scaleType: ScaleType.fitCenter,
+                      repeat: 0,
+                      mute: kMuteVapAudio,
+                      onViewCreated: _setupPersistentVapController,
+                    ),
                   ),
                 ),
               ),
@@ -2427,6 +2462,7 @@ class _VapNetworkPlayer extends StatefulWidget {
 
 class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
   Timer? _timer;
+  double _opacity = 0.0;
 
   @override
   void initState() {
@@ -2435,19 +2471,28 @@ class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
     final int baseMs = widget.durationMs > 0
         ? widget.durationMs
         : (widget.holdMs > 0 ? widget.holdMs : 6000);
-    final int startupMs = isLocal ? baseMs + 2500 : math.max(baseMs + 8000, 15000);
-    _timer = Timer(Duration(milliseconds: startupMs), widget.onComplete);
+    final int startupMs = isLocal ? baseMs + 800 : math.max(baseMs + 2000, 5000);
+    _timer = Timer(Duration(milliseconds: startupMs), () {
+      if (mounted) setState(() => _opacity = 0.0);
+      widget.onComplete();
+    });
   }
 
   void _onStart() {
+    if (mounted && _opacity != 1.0) {
+      setState(() => _opacity = 1.0);
+    }
     widget.onStart?.call();
     _timer?.cancel();
     // Safety watchdog: only triggers if native VAP player fails to send onVideoComplete.
     final int expected = widget.durationMs > 0
         ? widget.durationMs
         : (widget.holdMs > 0 ? widget.holdMs : 6000);
-    final int ms = expected + 1200;
-    _timer = Timer(Duration(milliseconds: ms), widget.onComplete);
+    final int ms = expected + 400;
+    _timer = Timer(Duration(milliseconds: ms), () {
+      if (mounted) setState(() => _opacity = 0.0);
+      widget.onComplete();
+    });
   }
 
   @override
@@ -2459,13 +2504,22 @@ class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: VapAnimation(
-        key: ValueKey('vap_anim_${widget.animationId ?? widget.url}'),
-        assetPath: widget.url,
-        fallbackImageUrl: widget.fallbackImageUrl,
-        onComplete: widget.onComplete,
-        onError: widget.onError,
-        onStart: _onStart,
+      child: Opacity(
+        opacity: _opacity,
+        child: VapAnimation(
+          key: ValueKey('vap_anim_${widget.animationId ?? widget.url}'),
+          assetPath: widget.url,
+          fallbackImageUrl: widget.fallbackImageUrl,
+          onComplete: () {
+            if (mounted) setState(() => _opacity = 0.0);
+            widget.onComplete();
+          },
+          onError: () {
+            if (mounted) setState(() => _opacity = 0.0);
+            widget.onError();
+          },
+          onStart: _onStart,
+        ),
       ),
     );
   }
@@ -2671,8 +2725,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
             : 8500);
 
     final int watchdogMs = math.max(
-      math.max(durationMs + 3500, 14000),
-      widget.holdMs > 0 ? widget.holdMs + 2000 : 0,
+      durationMs + 1200,
+      widget.holdMs > 0 ? widget.holdMs + 1000 : 0,
     );
     _completeTimer?.cancel();
     _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {
@@ -2972,8 +3026,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
             : 8500);
 
     final int watchdogMs = math.max(
-      math.max(durationMs + 3500, 14000),
-      widget.holdMs > 0 ? widget.holdMs + 2000 : 0,
+      durationMs + 1200,
+      widget.holdMs > 0 ? widget.holdMs + 1000 : 0,
     );
     _completeTimer?.cancel();
     _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {
@@ -3037,8 +3091,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
       debugPrint("[SVGAPlayer] Playing SVGA: ${widget.url} for duration: ${durationMs}ms (frames: $frames, fps: $effectiveFps, audios: ${preparedAudios.length})");
 
       final int watchdogMs = math.max(
-        math.max(durationMs + 3500, 14000),
-        widget.holdMs > 0 ? widget.holdMs + 2000 : 0,
+        durationMs + 1200,
+        widget.holdMs > 0 ? widget.holdMs + 1000 : 0,
       );
       _completeTimer?.cancel();
       _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
+import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/mixer_sheet.dart';
@@ -31,6 +32,14 @@ class UnifiedGamesHubSheet extends ConsumerStatefulWidget {
 class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
   @override
   Widget build(BuildContext context) {
+    final room = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
+    final myUid = ref.watch(authStateProvider).value?.uid;
+    final bool isHost = room != null && myUid != null && room.ownerUid == myUid;
+
+    final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+    final myPart = participants.where((p) => p.uid == myUid).firstOrNull;
+    final bool isOnMic = isHost || (myPart != null && (myPart.seatIndex ?? -1) >= 0);
+
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFF161522),
@@ -59,7 +68,7 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
               ),
 
               // ═════════════════════════════════════════════════════════════
-              // SECTION 1: "Tools" (Client's exact 5 features)
+              // SECTION 1: "Tools" (Host gets all 5; Attendee gets attendee-appropriate tools)
               // ═════════════════════════════════════════════════════════════
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -75,38 +84,41 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
               ),
               const Gap(10),
 
-              // 5 Circular Tool Items Row
+              // Circular Tool Items Row
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 1. Music (YouTube Player)
+                    // 1. Music (YouTube Player) - always visible
                     _buildToolItem(
                       title: "Music",
                       iconWidget: _buildMusicIcon(),
                       onTap: () => _handleMusic(context),
                     ),
-                    // 2. PK Battle
-                    _buildToolItem(
-                      title: "PK Battle",
-                      iconWidget: _buildPkIcon(),
-                      onTap: () => _handlePkBattle(context),
-                    ),
-                    // 3. Mixer (Audio Controls)
-                    _buildToolItem(
-                      title: "Mixer",
-                      iconWidget: _buildMixerIcon(),
-                      onTap: () => _handleMixer(context),
-                    ),
-                    // 4. Settings
-                    _buildToolItem(
-                      title: "Settings",
-                      iconWidget: _buildSettingsIcon(),
-                      onTap: () => _handleSettings(context),
-                    ),
-                    // 5. Lucky Bag
+                    // 2. PK Battle - host only
+                    if (isHost)
+                      _buildToolItem(
+                        title: "PK Battle",
+                        iconWidget: _buildPkIcon(),
+                        onTap: () => _handlePkBattle(context, isHost),
+                      ),
+                    // 3. Mixer (Audio Controls) - host or if on mic
+                    if (isHost || isOnMic)
+                      _buildToolItem(
+                        title: "Mixer",
+                        iconWidget: _buildMixerIcon(),
+                        onTap: () => _handleMixer(context, isHost, isOnMic),
+                      ),
+                    // 4. Settings - host only
+                    if (isHost)
+                      _buildToolItem(
+                        title: "Settings",
+                        iconWidget: _buildSettingsIcon(),
+                        onTap: () => _handleSettings(context, isHost),
+                      ),
+                    // 5. Lucky Bag - always visible
                     _buildToolItem(
                       title: "Lucky bag",
                       iconWidget: _buildLuckyBagIcon(),
@@ -617,7 +629,11 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
     );
   }
 
-  void _handlePkBattle(BuildContext context) {
+  void _handlePkBattle(BuildContext context, bool isHost) {
+    if (!isHost) {
+      AppToast.showWarning(context, "Only the room host can initiate PK Battle", title: "Host Only");
+      return;
+    }
     Navigator.pop(context);
     showModalBottomSheet(
       context: context,
@@ -627,7 +643,11 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
     );
   }
 
-  void _handleMixer(BuildContext context) {
+  void _handleMixer(BuildContext context, bool isHost, bool isOnMic) {
+    if (!isHost && !isOnMic) {
+      AppToast.showWarning(context, "Mixer controls are available when seated on a mic", title: "Mic Seat Required");
+      return;
+    }
     Navigator.pop(context);
     showModalBottomSheet(
       context: context,
@@ -637,7 +657,11 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
     );
   }
 
-  void _handleSettings(BuildContext context) {
+  void _handleSettings(BuildContext context, bool isHost) {
+    if (!isHost) {
+      AppToast.showWarning(context, "Only the room host can access room settings", title: "Host Only");
+      return;
+    }
     final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
     Navigator.pop(context);
 

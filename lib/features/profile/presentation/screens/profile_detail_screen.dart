@@ -2138,7 +2138,9 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
   bool _isActionLoading = false;
   bool _isSendingFriendReq = false;
   bool _isSendingCPReq = false;
+  bool _isOpeningChat = false;
   final Set<String> _sentFriendReqs = {};
+  final Set<String> _sentCPReqs = {};
 
   void _showCuteSnackBar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
@@ -2156,33 +2158,44 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
   }
 
   Future<void> _sendFriendRequest(String targetUid) async {
+    if (_sentFriendReqs.contains(targetUid)) {
+      _showCuteSnackBar("Friend request is already pending for ${widget.userData.displayName} ⏳");
+      return;
+    }
     setState(() => _isSendingFriendReq = true);
     try {
       await ref.read(relationshipServiceProvider).sendFriendRequest(targetUid);
       setState(() => _sentFriendReqs.add(targetUid));
-      _showCuteSnackBar("Friend request sent! 💌");
+      _showCuteSnackBar("Friend request sent to ${widget.userData.displayName}! 💌");
     } catch (e) {
-      _showCuteSnackBar("$e", isError: true);
+      _showCuteSnackBar(AppToast.sanitizeErrorMessage(e.toString()), isError: true);
+    } finally {
+      if (mounted) setState(() => _isSendingFriendReq = false);
     }
-    if (mounted) setState(() => _isSendingFriendReq = false);
   }
 
   Future<void> _sendCPRequest(UserModel targetUser) async {
+    if (_sentCPReqs.contains(targetUser.uid)) {
+      _showCuteSnackBar("Couple Partner invite is already pending for ${targetUser.displayName} 💕");
+      return;
+    }
     final me = ref.read(currentUserProfileProvider).valueOrNull;
     if ((me?.partnerUid != null && me!.partnerUid!.isNotEmpty) ||
         (targetUser.partnerUid != null && targetUser.partnerUid!.isNotEmpty)) {
-      _showCuteSnackBar("You or the recipient already have an active CP relationship.", isError: true);
+      _showCuteSnackBar("Cannot send invite: You or ${targetUser.displayName} already have an active partner.", isError: true);
       return;
     }
 
     setState(() => _isSendingCPReq = true);
     try {
       await ref.read(relationshipServiceProvider).sendCPInvite(targetUser.uid);
-      _showCuteSnackBar("CP invite sent! 💕");
+      setState(() => _sentCPReqs.add(targetUser.uid));
+      _showCuteSnackBar("Couple Partner invite sent to ${targetUser.displayName}! 💕 Waiting for them to accept.");
     } catch (e) {
-      _showCuteSnackBar("$e", isError: true);
+      _showCuteSnackBar(AppToast.sanitizeErrorMessage(e.toString()), isError: true);
+    } finally {
+      if (mounted) setState(() => _isSendingCPReq = false);
     }
-    if (mounted) setState(() => _isSendingCPReq = false);
   }
 
   @override
@@ -2202,6 +2215,7 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
         final isFriends = isFollowing && isFollower;
         final isPartner = currentUserAsync.valueOrNull?.partnerUid == userData.uid;
         final friendReqSent = _sentFriendReqs.contains(userData.uid);
+        final cpReqSent = _sentCPReqs.contains(userData.uid);
         
         final buttonLabel = isFriends ? "Friends" : (isFollowing ? "Following" : "Follow");
 
@@ -2294,66 +2308,95 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
 
               // 2. Direct Chat Button (Vibrant Indigo Disc)
               GestureDetector(
-                onTap: () async {
-                  try {
-                    final chatService = ref.read(chatServiceProvider);
-                    final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
-                    if (context.mounted) {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid),
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Error opening chat: $e")));
-                    }
-                  }
-                },
-                child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF4F46E5).withOpacity(0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
+                onTap: _isOpeningChat
+                    ? null
+                    : () async {
+                        setState(() => _isOpeningChat = true);
+                        try {
+                          final chatService = ref.read(chatServiceProvider);
+                          final chatId = await chatService.getOrCreateChat(currentUid, userData.uid);
+                          if (context.mounted) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (c) => PrivateChatScreen(chatId: chatId, otherUid: userData.uid),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            _showCuteSnackBar(
+                              "Unable to open chat: ${AppToast.sanitizeErrorMessage(e.toString())}",
+                              isError: true,
+                            );
+                          }
+                        } finally {
+                          if (mounted) setState(() => _isOpeningChat = false);
+                        }
+                      },
+                child: Tooltip(
+                  message: "Direct Message ${userData.displayName}",
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF6366F1), Color(0xFF4F46E5)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                    ],
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF4F46E5).withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: _isOpeningChat
+                        ? const Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.forum_rounded, color: Colors.white, size: 20),
                   ),
-                  child: const Icon(Icons.forum_rounded, color: Colors.white, size: 20),
                 ),
               ),
               const SizedBox(width: 8),
 
               // 3. Friendship Request Button (Emerald Disc)
               GestureDetector(
-                onTap: friendReqSent || _isSendingFriendReq ? null : () => _sendFriendRequest(userData.uid),
+                onTap: (friendReqSent || _isSendingFriendReq || isFriends)
+                    ? () {
+                        if (isFriends) {
+                          _showCuteSnackBar("You and ${userData.displayName} are already friends! 🤝");
+                        } else if (friendReqSent) {
+                          _showCuteSnackBar("Friend request already pending for ${userData.displayName} ⏳");
+                        }
+                      }
+                    : () => _sendFriendRequest(userData.uid),
                 child: Tooltip(
-                  message: friendReqSent ? "Friendship Request Sent" : "Send Friend Request",
+                  message: isFriends
+                      ? "Already Friends"
+                      : (friendReqSent ? "Friend Request Pending" : "Send Friend Request"),
                   child: Container(
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: friendReqSent
+                      gradient: (friendReqSent || isFriends)
                           ? null
                           : const LinearGradient(
                               colors: [Color(0xFF10B981), Color(0xFF059669)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
-                      color: friendReqSent ? Colors.amber.withOpacity(0.15) : null,
+                      color: (friendReqSent || isFriends) ? const Color(0xFF10B981).withOpacity(0.15) : null,
                       shape: BoxShape.circle,
-                      boxShadow: friendReqSent
+                      boxShadow: (friendReqSent || isFriends)
                           ? null
                           : [
                               BoxShadow(
@@ -2362,13 +2405,23 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
                                 offset: const Offset(0, 3),
                               ),
                             ],
-                      border: friendReqSent ? Border.all(color: Colors.amber.withOpacity(0.4), width: 1.5) : null,
+                      border: (friendReqSent || isFriends)
+                          ? Border.all(color: const Color(0xFF10B981).withOpacity(0.4), width: 1.5)
+                          : null,
                     ),
                     child: _isSendingFriendReq
-                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        ? const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            ),
+                          )
                         : Icon(
-                            friendReqSent ? Icons.hourglass_bottom_rounded : Icons.diversity_3_rounded,
-                            color: friendReqSent ? Colors.amber[800] : Colors.white,
+                            isFriends
+                                ? Icons.people_alt_rounded
+                                : (friendReqSent ? Icons.hourglass_bottom_rounded : Icons.person_add_rounded),
+                            color: (friendReqSent || isFriends) ? const Color(0xFF059669) : Colors.white,
                             size: 20,
                           ),
                   ),
@@ -2378,23 +2431,33 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
 
               // 4. CP (Couple Partner) Request Button (Rose Gold Disc)
               GestureDetector(
-                onTap: isPartner || _isSendingCPReq ? null : () => _sendCPRequest(userData),
+                onTap: (isPartner || cpReqSent || _isSendingCPReq)
+                    ? () {
+                        if (isPartner) {
+                          _showCuteSnackBar("You and ${userData.displayName} are already CP partners! ❤️");
+                        } else if (cpReqSent) {
+                          _showCuteSnackBar("Couple Partner invite already pending for ${userData.displayName} 💕");
+                        }
+                      }
+                    : () => _sendCPRequest(userData),
                 child: Tooltip(
-                  message: isPartner ? "Active CP Partner ❤️" : "Send CP Invite 💕",
+                  message: isPartner
+                      ? "Active Couple Partner ❤️"
+                      : (cpReqSent ? "Couple Partner Invite Pending 💕" : "Send Couple Partner Invite 💕"),
                   child: Container(
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      gradient: isPartner
+                      gradient: (isPartner || cpReqSent)
                           ? null
                           : const LinearGradient(
                               colors: [Color(0xFFEC4899), Color(0xFFF43F5E)],
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
                             ),
-                      color: isPartner ? Colors.pink.withOpacity(0.18) : null,
+                      color: (isPartner || cpReqSent) ? Colors.pink.withOpacity(0.18) : null,
                       shape: BoxShape.circle,
-                      boxShadow: isPartner
+                      boxShadow: (isPartner || cpReqSent)
                           ? null
                           : [
                               BoxShadow(
@@ -2403,13 +2466,21 @@ class _ProfileBottomBarWidgetState extends ConsumerState<ProfileBottomBarWidget>
                                 offset: const Offset(0, 3),
                               ),
                             ],
-                      border: isPartner ? Border.all(color: Colors.pink.withOpacity(0.4), width: 1.5) : null,
+                      border: (isPartner || cpReqSent) ? Border.all(color: Colors.pink.withOpacity(0.4), width: 1.5) : null,
                     ),
                     child: _isSendingCPReq
-                        ? const Center(child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)))
+                        ? const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            ),
+                          )
                         : Icon(
-                            isPartner ? Icons.favorite_rounded : Icons.volunteer_activism_rounded,
-                            color: isPartner ? Colors.pink[700] : Colors.white,
+                            isPartner
+                                ? Icons.favorite_rounded
+                                : (cpReqSent ? Icons.hourglass_bottom_rounded : Icons.volunteer_activism_rounded),
+                            color: (isPartner || cpReqSent) ? Colors.pink[700] : Colors.white,
                             size: 20,
                           ),
                   ),
