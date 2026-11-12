@@ -11,6 +11,48 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
 
+### Date: 2026-11-12 (Live Room Transparent Bottom Bar & Tools/Party Game Bottom Sheet Redesign)
+
+- **What Client Asked / Problem**:
+  - The client requested two major UI redesigns:
+    1. "Redesign the icons in the Own section to match the uploaded reference image exactly. Remove all white backgrounds, white boxes, and unwanted containers behind the icons. Use the same transparent/dark background, icon style, size, color, spacing, and alignment as the reference. Ensure the icons blend naturally with the room UI and look identical to the sample. Do not change any other functionality or layout."
+    2. "make the second one bottom sheet exact like this 1 one bottom sheet" — transforming the Games bottom sheet from the old tabbed/oversized layout into the clean "Tools" and "Party Game" grid shown in the reference image.
+
+- **What We Did**:
+  1. **Redesigned Room Bottom Bar (`_buildBottomBar`)**:
+     - Removed all white background containers, white boxes, and white sub-capsules.
+     - Implemented a completely transparent floating row (`color: Colors.transparent`) with 16px horizontal padding and `MainAxisAlignment.spaceBetween`.
+     - Placed the 8 icons in exact sample order with matching white outline style:
+       1. `chat_bubble_outline_rounded` (triggers dark purple room chat input sheet)
+       2. `mail_outline_rounded` with red badge '2' (navigates directly to `/inbox`)
+       3. `volume_up_rounded` / `volume_off_rounded` (room audio mute/unmute)
+       4. Circular outline ring microphone button (36x36 circular border with seat check)
+       5. `sentiment_satisfied_alt_rounded` (opens room sticker sheet)
+       6. `grid_view_rounded` (opens Tools & Games sheet)
+       7. `sports_esports_outlined` (opens Tools & Games sheet)
+       8. 3D Gift Box (`_GiftBox3DIcon`) with golden box, pink ribbon, and 3D bow.
+  2. **Redesigned Games & Tools Bottom Sheet (`UnifiedGamesHubSheet`)**:
+     - Matched the exact reference image with dark obsidian background (`Color(0xFF161522)`), top drag handle, and rounded corners (`Radius.circular(22)`).
+     - **Section 1: "Tools"**:
+       - 5 circular tool icons with labels:
+         * Counter (Golden star disc with room timer modal)
+         * Lucky bag (Red packet with gold seal)
+         * Music (Black vinyl record with red center, opens YouTube music player)
+         * Pick Me (Cute blue droplet with crown, picks random room participant)
+         * Effect (Blue circle badge with golden magic wand and sparkles)
+     - **Section 2: "Party Game"**:
+       - 4-column grid of rounded game cards with custom high-fidelity artwork:
+         * LUDO, BILLIARD, JACKAROO, MONSTERCRUSH, CARROMPOOL, UMO, DART KING, SNAKE LUDO, plus active native games SPIN WHEEL and LUCKY DRAW.
+  3. **Verified Quality**:
+     - Ran `flutter analyze` on touched files (0 errors).
+     - Ran `flutter test test/stickers_asset_load_test.dart` (All tests passed).
+     - Built debug APK with Gradle.
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-11-11 (Live Room Chat Input Bottom Sheet Dark Purple Mockup UI Match)
 
 - **What Client Asked / Problem**:

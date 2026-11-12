@@ -2050,79 +2050,47 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
       final bool isMicMuted = myPart.isMuted;
 
       return Container(
-        margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         height: 52,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(32),
-          boxShadow: const [
-            BoxShadow(color: Colors.black26, blurRadius: 18, offset: Offset(0, 6)),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: const BoxDecoration(
+          color: Colors.transparent,
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Leftmost floating chat circle button
-            GestureDetector(
+            // 1. Chat bubble outline icon (opens chat input sheet)
+            _buildBottomIcon(
+              icon: Icons.chat_bubble_outline_rounded,
               onTap: () => _showRoomChatInputSheet(initialTab: 0),
-              child: Container(
-                width: 32, height: 32,
-                margin: const EdgeInsets.symmetric(horizontal: 2),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2)),
-                  ],
-                ),
-                child: const Icon(Icons.chat_bubble_outline_rounded, color: Color(0xFF0F766E), size: 16),
-              ),
             ),
 
-            // "Say hi..." sub-capsule input
-            Expanded(
-              child: Container(
-                height: 34,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEDF2F7),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Row(
-                  children: [
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => _showRoomChatInputSheet(initialTab: 0),
-                        behavior: HitTestBehavior.opaque,
-                        child: const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            "Say something...",
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: Color(0xFF718096), fontSize: 12),
-                          ),
-                        ),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _showStickerSheet,
-                      behavior: HitTestBehavior.opaque,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                        child: Icon(Icons.sentiment_satisfied_alt_rounded, color: Color(0xFF4A5568), size: 18),
-                      ),
-                    ),
-                    const SizedBox(width: 2),
-                  ],
-                ),
-              ),
+            // 2. Mail / Inbox outline icon with red badge '2'
+            _buildInboxBottomIcon(
+              onTap: () => context.push(AppRoutes.inbox),
             ),
 
-            const SizedBox(width: 3),
+            // 3. Speaker toggle icon
+            _buildBottomIcon(
+              icon: _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+              onTap: () {
+                final nextSpeakerState = !_isSpeakerOn;
+                setState(() => _isSpeakerOn = nextSpeakerState);
+                ref.read(voiceServiceProvider).muteRoomAudio(!nextSpeakerState);
+                if (mounted) {
+                  if (nextSpeakerState) {
+                    AppToast.showSuccess(context, "Room Audio Restored 🔊", title: "Speaker On");
+                  } else {
+                    AppToast.showWarning(context, "Room Audio Muted 🔇", title: "Speaker Muted");
+                  }
+                }
+              },
+            ),
 
-            // 🎙️ Dedicated Microphone Button (Interactive 1-Tap Toggle for Owner & Seated Speakers)
-            GestureDetector(
+            // 4. Dedicated circular mic button with outline ring
+            _buildMicCircleButton(
+              isOnSeat: isOnSeat,
+              isMicMuted: isMicMuted,
               onTap: () async {
                 if (myUid == null) return;
                 if (!isOnSeat) {
@@ -2146,94 +2114,131 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen> with WidgetsBin
                   }
                 }
               },
-              behavior: HitTestBehavior.opaque,
-              child: Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: !isOnSeat
-                      ? const Color(0xFFF1F5F9)
-                      : (isMicMuted ? const Color(0xFFFEE2E2) : const Color(0xFFD1FAE5)),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: !isOnSeat
-                        ? const Color(0xFFCBD5E1)
-                        : (isMicMuted ? const Color(0xFFEF4444) : const Color(0xFF10B981)),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    if (isOnSeat && !isMicMuted)
-                      BoxShadow(
-                        color: const Color(0xFF10B981).withOpacity(0.35),
-                        blurRadius: 6,
-                        spreadRadius: 1,
-                      ),
-                  ],
-                ),
-                child: Icon(
-                  !isOnSeat
-                      ? Icons.mic_none_rounded
-                      : (isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
-                  color: !isOnSeat
-                      ? const Color(0xFF94A3B8)
-                      : (isMicMuted ? const Color(0xFFEF4444) : const Color(0xFF059669)),
-                  size: 16,
-                ),
-              ),
             ),
-            const SizedBox(width: 4),
 
-            // Speaker toggle (Room Mute: Mutes incoming audio for self)
-            _buildPillIcon(
-              _isSpeakerOn ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-              const Color(0xFFFF9500),
-              () {
-                final nextSpeakerState = !_isSpeakerOn;
-                setState(() => _isSpeakerOn = nextSpeakerState);
-                ref.read(voiceServiceProvider).muteRoomAudio(!nextSpeakerState);
-                if (mounted) {
-                  if (nextSpeakerState) {
-                    AppToast.showSuccess(context, "Room Audio Restored 🔊", title: "Speaker On");
-                  } else {
-                    AppToast.showWarning(context, "Room Audio Muted 🔇", title: "Speaker Muted");
-                  }
-                }
-              },
+            // 5. Emoji / Stickers icon
+            _buildBottomIcon(
+              icon: Icons.sentiment_satisfied_alt_rounded,
+              onTap: _showStickerSheet,
             ),
-            const SizedBox(width: 4),
 
-            // Games Section Icon (Consolidated Hub: Games, YouTube, PK)
-            _buildPillIcon(Icons.sports_esports_rounded, const Color(0xFF6366F1), () => _showGamesPanel()),
-            const SizedBox(width: 4),
+            // 6. Grid (4 squares) / Tools icon
+            _buildBottomIcon(
+              icon: Icons.grid_view_rounded,
+              size: 23,
+              onTap: () => _showGamesPanel(),
+            ),
 
-            // Emoji / Sticker Icon
-            _buildPillIcon(Icons.sentiment_satisfied_alt_rounded, const Color(0xFFFF4081), _showStickerSheet),
-            const SizedBox(width: 4),
+            // 7. Gamepad / Party Games icon
+            _buildBottomIcon(
+              icon: Icons.sports_esports_outlined,
+              onTap: () => _showGamesPanel(),
+            ),
 
-            // Rightmost glowing gift button
+            // 8. 3D Gift Box
             Semantics(
               button: true,
               label: 'gift-button',
               child: GestureDetector(
                 onTap: _showGiftPanel,
-                child: Container(
-                  width: 34, height: 34,
-                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFF3B82F6), Color(0xFF8B5CF6)]),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(color: const Color(0xFF8B5CF6).withValues(alpha: 0.45), blurRadius: 8),
-                    ],
-                  ),
-                  child: const Icon(Icons.card_giftcard_rounded, color: Colors.white, size: 18),
-                ),
+                behavior: HitTestBehavior.opaque,
+                child: const _GiftBox3DIcon(),
               ),
             ),
           ],
         ),
       );
     });
+  }
+
+  Widget _buildBottomIcon({
+    required IconData icon,
+    required VoidCallback onTap,
+    double size = 24,
+    Color color = Colors.white,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Icon(icon, color: color, size: size),
+      ),
+    );
+  }
+
+  Widget _buildInboxBottomIcon({required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(4),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            const Icon(Icons.mail_outline_rounded, color: Colors.white, size: 24),
+            Positioned(
+              top: -3,
+              right: -5,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444),
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 2, offset: Offset(0, 1)),
+                  ],
+                ),
+                constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
+                child: const Center(
+                  child: Text(
+                    '2',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMicCircleButton({
+    required bool isOnSeat,
+    required bool isMicMuted,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.transparent,
+          border: Border.all(
+            color: isMicMuted ? const Color(0xFFEF4444) : Colors.white.withValues(alpha: 0.55),
+            width: 1.5,
+          ),
+        ),
+        child: Center(
+          child: Icon(
+            !isOnSeat
+                ? Icons.mic_none_rounded
+                : (isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded),
+            color: isMicMuted ? const Color(0xFFEF4444) : Colors.white,
+            size: 20,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildPillIcon(IconData icon, Color color, VoidCallback onTap) {
@@ -3672,6 +3677,98 @@ class _HostRippleWidgetState extends ConsumerState<HostRippleWidget> with Single
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _GiftBox3DIcon extends StatelessWidget {
+  const _GiftBox3DIcon();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFB703), Color(0xFFFB8500)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFFB8500).withValues(alpha: 0.5),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          // Vertical Ribbon
+          Container(
+            width: 5,
+            height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF007F),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          // Horizontal Ribbon
+          Container(
+            width: 32,
+            height: 5,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF007F),
+              borderRadius: BorderRadius.circular(1),
+            ),
+          ),
+          // 3D Pink Ribbon Bow on Top
+          Positioned(
+            top: -4,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Transform.rotate(
+                  angle: -0.3,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF2A85),
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Colors.white38, width: 0.5),
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 5,
+                  height: 5,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFFF007F),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Transform.rotate(
+                  angle: 0.3,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF2A85),
+                      borderRadius: BorderRadius.circular(3),
+                      border: Border.all(color: Colors.white38, width: 0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
