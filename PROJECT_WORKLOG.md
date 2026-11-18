@@ -5,11 +5,230 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ---
 
+## Work Log Entries (Newest First)
+
+### Date: 2026-11-18 (Late Night: Fix Rocket Animation Center Avatar Display Defect)
+
+- **What Client Asked / Problem**: "in the rocket svga the user profiel is notshowing in the center of the rocket svga whcih is and issue whihc the client need so do that thing correctly okay" — User profile photo is not showing in the center of the rocket animation.
+- **Root Cause Analysis**:
+  1. **Native MethodChannel Missing Handlers**: In `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`, the `onMethodCall` method had no cases for `"setVapTagContent"` or `"setVapTagContents"`. Calls from Flutter threw `notImplemented()`, silently dropping dynamic profile tag injections.
+  2. **Missing `vapTagContents` in Widget Constructor**: `VapAnimation` in `lib/core/widgets/vap_player.dart` never passed `vapTagContents` to `VapView(...)` during view creation, so initial native view initialization received empty parameters.
+  3. **Fragile URL & Bitmap Processing in Native VAP**: Native `handleUrlImage` used basic `URL.openConnection()` without timeouts, without redirect following (HTTP 301/302 from CDNs), and without User-Agent headers. Moreover, bitmaps were not cropped into circular masks, and network images were not cached, causing frame drops or failed loads.
+  4. **Non-Reactive Profile Lookups**: Rocket widgets (`RocketDetailSheet`, `RocketLaunchOverlay`, `RocketCompletionVapOverlay`) read profiles synchronously in `initState` with `ref.read`, which evaluated to null before network hydration and lacked fallback chains.
+- **What We Did**:
+  - **Native Android Engine (`VapView.kt`)**:
+    - Implemented `"setVapTagContent"`, `"setVapTagContents"`, `"getVapTagContent"`, and `"clearVapTagContents"` in `onMethodCall`.
+    - Integrated background prefetching of tag image URLs upon receiving tag contents.
+    - Added thread-safe in-memory `bitmapCache` (`LruCache<String, Bitmap>(30)`).
+    - Added HTTP connection redirect following (up to 5 redirects), 8-second timeouts, and mobile User-Agent headers.
+    - Implemented anti-aliased circular cropping `getCircularBitmap` so avatars render as perfect circles within the rocket window.
+    - Implemented `getDefaultAvatarBitmap` fallback: if an avatar URL is unavailable or still loading, an anti-aliased neon cyber avatar is drawn so the rocket window is never blank.
+    - In `fetchImage`, added tag fallback (`resource.tag` -> `'user'` -> `'avatar'` -> `'headimg'`).
+  - **Flutter VAP Player (`vap_player.dart`)**:
+    - Structured `_buildTagContents()` to populate `'user'`, `'avatar'`, and `'headimg'` with `ImageURLContent` or `ImageBase64Content`.
+    - Passed `vapTagContents: tagContents` directly to `VapView` creation parameters.
+    - Updated `_setProfileTag()` and `didUpdateWidget()` to apply runtime profile changes via `setVapTagContents`.
+  - **Rocket Presentation Layer (`rocket_detail_sheet.dart`, `rocket_launch_overlay.dart`, `rocket_completion_vap_overlay.dart`)**:
+    - Implemented multi-tier reactive fallback: Top Contributor `profilePhotoUrl` -> Room Owner `profilePhotoUrl` -> Room `coverUrl` -> Current Logged-in User `profilePhotoUrl`.
+    - Added dynamic `ValueKey` in `RocketDetailSheet` to rebuild when levels or avatars change.
+- **Verification**:
+  - Ran `flutter analyze` on `vap_player.dart`, `rocket_detail_sheet.dart`, `rocket_launch_overlay.dart`, and `rocket_completion_vap_overlay.dart`: 0 errors, 0 warnings.
+  - Ran automated test suite: `flutter test test/rocket_avatar_vap_test.dart test/room_support_screen_test.dart test/vap_gifts_integration_test.dart test/spin_wheel_display_test.dart`: 17/17 tests passed.
+  - Built production release APK: `build/app/outputs/flutter-apk/app-release.apk` (762 MB, SHA256: `96e89cabb2d92e3cd19c4acc745785015129383e586d6787e3882969fee1faf7`).
+  - Deployed to `releases/client-testing/HelloChat-client-test-release.apk` and updated `releases/client-testing/SHA256SUMS.txt`.
+- **Files Touched**:
+  - `plugins/tancent_vap/android/src/main/kotlin/com/laskarmedia/vap/VapView.kt`
+  - `lib/core/widgets/vap_player.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_detail_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_launch_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_completion_vap_overlay.dart`
+  - `test/rocket_avatar_vap_test.dart`
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
+### Date: 2026-11-18 (Evening: Codex Changes Discovery, Automated Verification & APK Audit)
+
+- **What Client Asked / Problem**: Find recent changes done by Codex, create a test plan, verify the changes, and test the new APK fast.
+- **What We Did**:
+  - Audited git diff and file timestamps across the repository for recent work completed between 7:00 PM and 9:28 PM on Nov 18, 2026.
+  - **Identified Changes**:
+    1. **Live Room Seat Grid & Geometry Polish**:
+       - `seat_grid.dart`: Dynamic row height scaling via `MediaQuery.textScalerOf(context)`, single-line seat labels with ellipsis for YouTube mode and high-DPI/large text, updated dark gradient & glow styling, removed redundant batched profile fetch.
+       - `live_room_layout.dart`: Multi-zone layout cleanly separating Header, Seats, Chat, and Action bar.
+       - `rocket_progress_widget.dart`: Spacing polish below seats without overlapping Lucky Bag or labels.
+    2. **Spin Wheel & Lucky Draw Jackpot Winner Banners & Audio**:
+       - `game_top_winner_banner.dart`: Native SVGA 750x128 ribbon celebrating top winner of game round / daily top winner with laurel wreath avatar slot.
+       - `spin_wheel_layout.dart`: Responsive layout with 4 stake chips (100, 1k, 10k, 100k) selectable above footer in portrait and landscape.
+       - `wheel_sounds.dart`: Real audio tick per segment change and chime on outcome reveal using `audioplayers` with automatic lifecycle management.
+       - `spin_wheel_screen.dart` & `lucky_draw_screen.dart`: Integrated sounds, daily top winner banner, and round winner banner.
+       - `live_room_screen.dart` & `pk_battle_arena_screen.dart`: Added `GlobalWheelWinnerBanner` in live room and PK Arena headers.
+       - `game_provider.dart` & `functions/index.js`: Authoritative settled standings stream query and `hydrateLuckySpinLeader` callable.
+  - **Automated Verification**:
+    - Ran `flutter test test/spin_wheel_display_test.dart test/live_room_seat_geometry_test.dart`: All 10 widget, layout, sound lifecycle, and banner synchronization tests passed.
+    - Ran `flutter analyze` on modified game and room modules: Zero compiler/runtime errors (621 existing deprecation/info warnings).
+    - Verified release APK (`build/app/outputs/flutter-apk/app-release.apk`, 799,013,988 bytes, SHA-256 `4270bd70a5f6c7d07b635df75befdd01c7311311dc69fc46466a0d19a1e28f1a`): Android v2 signature verified successfully.
+    - Updated `releases/client-testing/HelloChat-client-test-release.apk` and `SHA256SUMS.txt` with the latest build.
+    - **Physical Device Installation & Live Launch**:
+      - Detected connected Vivo device `1374223603000CJ` (Vivo V2132).
+      - Streamed and installed the updated release APK via ADB: `Success (code 0)`.
+      - Successfully launched `com.example.hellochat` (PID 25774) with focused window `MainActivity`.
+      - Verified logcat: Zero crashes, zero fatal exceptions.
+      - Captured verification screenshot: `scratch/device_verified_launch.png`.
+- **Files Touched**: `lib/features/games/presentation/`, `lib/features/rooms/presentation/`, `lib/core/providers/game_provider.dart`, `functions/index.js`, `test/spin_wheel_display_test.dart`, `test/live_room_seat_geometry_test.dart`, `releases/client-testing/`, and `PROJECT_WORKLOG.md`.
+
+### Date: 2026-11-18 (Expanded client acceptance)
+
+- **Request**: Complete the remaining client checks.
+- **Changes**: Added 400 actual empty-seat widget layout cases across every theme/requested seat count, YouTube modes, two widths and large text. Found and fixed YouTube seat-label overflow with scaled row height and single-line labels. Repaired the stalled controller timing test without removing asset tests. Added emulator authorization coverage for room message clearing.
+- **Results**: Entire Flutter suite now passes, 860 tests. Firebase emulator passes 28 rules and 15 function checks. The supplied test phone/OTP signed in successfully in a separate Firebase session; current phone account preserved. Read-only production salary/scheduler authorization checks pass. Analysis has zero errors, with 1,936 warning/info findings.
+- **Additional fix**: Ending a displayed room session now removes its floating overlay using the room identity captured before clearing state. A new regression test verifies actual overlay removal; it passes, and the full 860-test suite passed again after the source correction.
+- **Status**: Final release build and APK v2 signature passed; updated client APK installed on the connected Vivo without clearing its session. Lucky Bag tapping, Support navigation, same-room minimize/restore and explicit leave passed. Captured process logs contain no fatal/layout/permission/attestation failures. Checksum and handover file refreshed. Exact reference matching, fresh registration/password/recovery UI, two-phone room clearing and seated audio/VIP restore still need acceptance evidence. See `releases/client-testing/ACCEPTANCE_2026-11-18.md`.
+
+### Date: 2026-11-18 (Final room layout and connected-phone retest)
+
+- **What Client Asked / Problem**: Remove App Check and finish testing on the connected phone; keep the room SVGA clear of Support.
+- **What We Did**: The first phone screenshot showed the vertically stacked Lucky Bag covering seat 9's label. Changed it to a row beside Support with an 8dp gap, below the seats, while Rocket remains right-aligned underneath. Chat reserves extra width while a Lucky Bag is active. Animation size and controller lifecycle are unchanged.
+- **Checks**: 45 selected regression tests passed again. Full Flutter analysis has zero errors and 1,935 existing warning/info findings. Phone screenshots/bounds confirm Lucky Bag clears Support and seat 9; Support navigation, emoji grid, game loading and same-room restore work. A tap test found the SVGA body ignored taps even though its LIVE badge worked; added an opaque hit area, then reran the same tests and analysis successfully. The final release build and APK v2 signature verification passed. Installed the exact delivery APK as an update, preserved the account, and confirmed the previously failing animation-body tap and Support both work. Final captured logs have zero fatal/layout/permission/attestation failure matches.
+- **Delivery**: `releases/client-testing/HelloChat-client-test-release.apk`, 799,713,764 bytes, checksum refreshed. Ready for client testing. Full-suite, two-client, fresh-auth, all seat/theme/device combinations and reference-image acceptance remain unverified; details are in the device report.
+- **Files Touched**: `lib/features/rooms/presentation/screens/live_room_screen.dart`, `lib/features/rooms/presentation/widgets/floating_lucky_bag_widget.dart`, client delivery reports, release readiness notes and this work log.
+
+### Date: 2026-11-17 (App Check removed at client request)
+
+- **What Client Asked / Problem**: Remove App Check and retest the rebuilt app on the reconnected phone.
+- **What We Did**: Removed App Check initialization, the Flutter package and the direct native Play Integrity dependency. Removed the unused configuration-change helper. Read-only Firebase verification confirms every configured service already has App Check unenforced, so no server security settings were changed. Authentication, database rules and server balance checks remain active.
+- **Checks**: 45 selected regression tests passed; analysis has zero errors. Release rebuild and final phone checks are in progress.
+- **Files Touched**: `lib/main.dart`, `pubspec.yaml`, `pubspec.lock`, `android/app/build.gradle.kts`, `scripts/verify_client_appcheck_status.cjs`, delivery notes and this work log.
+- **Status**: Rebuilding the client APK for final device verification. The earlier request to change App Check's direct-APK settings is superseded by explicit client removal.
+
+### Date: 2026-11-17 (Ranking, Lucky Bag permission and room animation fixes)
+
+- **What Client Asked / Problem**: Correct the phone-test findings and stop the SVGA Lucky Bag animation from covering Support.
+- **What We Did**: Changed ranking previews to public profile reads. Tested and deployed the Lucky Bag read rule while retaining server-only balance writes. Registered the actual APK signing fingerprint. Reproduced the Lucky Bag overlap and moved its existing widget above Support and Rocket in their shared column with an 8dp gap. Rebuilt and signature-checked the client test APK and refreshed its checksum.
+- **Checks**: 28 database rule checks, 25 ranking/room tests and 44 gift/room tests passed. Analyzer errors: zero. Release app build succeeded. Two independent layout assessments were performed; the mechanical detector does not validate Flutter geometry.
+- **Status**: Corrected APK prepared. Phone disconnected before final layout retest. The remaining App Check direct-APK configuration change was rejected by automatic approval review and is pending explicit user approval; no protection bypass was applied.
+- **Files Touched**: Room home/live screens, Firestore rules, emulator rule tests, App Check configuration helper, client delivery reports and checksum, this work log.
+
+### Date: 2026-11-17 (Connected-phone release check)
+
+- **What Client Asked / Problem**: Check again after connecting the Android phone.
+- **What We Did**: Installed the delivered release APK on the Vivo V2132 while retaining the existing account. Checked home/profile, a live room, Agora connection, YouTube playback, Spin Wheel loading, connectivity-loss overlay, basic minimize/restore and emoji picker. Restored network settings and left the room afterwards. No bets, purchases or account changes were made.
+- **Findings**: Home ranking previews and the Lucky Bag listener receive database permission errors. App Check logs attestation failures. No fatal app errors were found in captured logs. These findings prevent an issue-free final signoff. VIP entry replay, all seat/theme combinations, two-client message clearing and exact reference-image matching remain unverified.
+- **Files Touched**: Client delivery README, deployment notes, `releases/client-testing/DEVICE_TEST_REPORT_2026-11-17.md`, this work log. App source and production settings were not changed during this review.
+- **Status**: Device smoke test completed with findings; final acceptance pending fixes and further checks.
+
+### Date: 2026-11-17 (Client test APK and salary deployment)
+
+- **What Client Asked / Problem**: Check the client's issue list, fix release blockers, build an APK for client testing, and deploy the backend fixes.
+- **What We Did**: Fixed phone-number normalization and compilation errors, corrected outdated test setup and expectations, and built a signed release-mode testing APK. Fixed salary permissions, partial-payment recovery, duplicate prevention, missing-recipient handling and safe assignment cleanup. Deployed the four changed salary functions to `hellochat-e8965`. Verified the live Wednesday 6 AM Bangladesh schedule, its required database index, and rejection of unauthenticated salary requests. No live payout was triggered during testing.
+- **Checks**: 79 focused Flutter tests, 11 salary emulator checks and 6 existing salary checks passed. Flutter analysis has zero errors but existing warnings remain. APK signature verification passed.
+- **Files Touched**: `functions/index.js`, `functions/test_client_release_salary.cjs`, `lib/core/services/auth_service.dart`, `lib/services/chat_service.dart`, Flutter test/dependency files, `android/gradle.properties`, `.gitignore`, `scripts/verify_client_salary_deployment.cjs`, client delivery notes and release readiness report.
+- **Status**: APK and salary deployment completed. Physical-device testing and exact visual comparison are pending because no Android device is connected and the reference images were not supplied. The entire animation-heavy test suite and next scheduled production payout have not been certified.
+
 ## Format For Every Entry
 - **Date**: YYYY-MM-DD
 - **What Client Asked / Problem**: What the client requested or reported in plain everyday words.
 - **What We Did**: Exactly what was changed or fixed in clear, simple language.
 - **Files Touched**: Key files updated.
+
+### Date: 2026-11-14 (P0 ROOT-CAUSE FIX: Password Set/Login Account-Swap Bug — Server-Side Identity Consolidation)
+
+- **What Client Asked / Problem**:
+  > "Jab se password set ka flow add kiya hai, tab se problem ho rahi hai. Profile section me password set karta hoon, logout karke phone + password se login karta hoon to bilkul NAYA account khul jata hai — profile chali jati hai, frame chali jati hai, diamonds zero ho jate hain. Sab professional auth ke hisaab se perfectly work kare without any problem."
+  - Client confirmed the exact repro: set password from Profile → logout → phone+password login → lands on a brand-new empty account while their real data stays on the original identity.
+
+- **Root Cause (final, confirmed by live Firebase audit)**:
+  - The app historically created **two parallel Firebase Auth identities** per phone number:
+    1. **Phone-OTP identity** — account keyed by `phoneNumber: +91...`
+    2. **Password identity** — account keyed by the synthetic email `+91<phone>@phone.hellochat.app` (created by the old silent auto-register bug and OTP auto-provisioning)
+  - Password setup attached the password to whichever account was signed in at that moment; phone+password login opened whichever account owned the synthetic email. When these were two different accounts, the user was logged into a fresh, empty account — the "new account override" experience. The data was never deleted; the session was simply pointed at the wrong uid.
+  - Live audit (scripts/audit_duplicate_identities.cjs over all 129 auth users): **0 duplicate identities remain** — the two past incidents' stray accounts were already cleaned up in the 2026-11-13 restore session, but the vulnerable code paths were still in place and could regenerate duplicates at any time.
+
+- **What We Did**:
+  1. **New server-side callable `ensurePhonePassword` (deployed to production, us-central1, Node 22 2nd gen)** — the single place where a phone password is now set:
+     - Verifies the caller actually owns the requested phone (token claim / Auth record / Firestore doc).
+     - Finds **both** accounts a phone login could open (phone-number identity + synthetic-email identity).
+     - Keeps exactly ONE survivor (caller preferred, then the account holding real profile data), stamps the new password + phone identifiers + displayName on it via the Admin SDK (no reauth needed), and **deletes the duplicate** after archiving its Firestore doc to `users_archived/{uid}` (transactional archive+delete).
+     - Guarantees the survivor has `hasPassword: true`, `phoneEmail`, `phoneNumber` in Firestore, and that a `users/{uid}` doc exists at all.
+     - Idempotent: calling again is a plain password update. No balances are touched.
+  2. **Client `setupPasswordForUser` rewritten (auth_service.dart)** — the fragile `linkWithCredential` + silent `updatePassword` fallback ladder (which put passwords on the WRONG account on `email-already-in-use`) is removed. It now calls `ensurePhonePassword`; if the response uid differs from the current session (session was on a duplicate), it signs out and re-signs-in to the surviving account with the brand-new credentials.
+  3. **OTP login can no longer silently create stray accounts** — `otp_screen.dart` and `login_screen.dart` now check `additionalUserInfo.isNewUser`: plain "Login with OTP" (non-registration, non-reset) that would create a fresh identity signs out immediately and shows guidance (use New Register / password login) instead of dropping the user into an empty account.
+  4. **Live backend state verified healthy** for the client's phone +917898840444: exactly one identity with BOTH phone + password providers linked, Firestore doc intact (Nihal, 915,841 diamonds, host role, hasPassword true), zero accounts created in the last 7 days.
+  5. **Debug build installed and launched on device V2132 (1374223603000CJ)** for client testing (installation via `adb install` after the build; flutter tool OOM'd only during post-build APK hashing due to machine RAM pressure, the APK itself built fine).
+
+- **Files Touched**:
+  - `functions/index.js` (new `ensurePhonePassword` callable — deployed to production)
+  - `lib/core/services/auth_service.dart` (callable-backed password setup + consolidation re-login)
+  - `lib/features/auth/presentation/screens/otp_screen.dart` (isNewUser guard)
+  - `lib/features/auth/presentation/screens/login_screen.dart` (isNewUser guard in auto-retrieval path)
+  - `scripts/inspect_phone_identities.cjs`, `scripts/audit_duplicate_identities.cjs` (read-only diagnostics)
+  - `PROJECT_WORKLOG.md` (this entry)
+
+---
+
+### Date: 2026-11-13 (CRITICAL P0: Fix Password Login Profile Data Wipeout & Zero-Loss Recovery)
+
+- **What Client Asked / Problem**:
+  > "When I log in using a password, my profile data (profile image, diamond balance, followers, following, etc.) gets automatically removed or reset. This is a critical bug—please investigate and fix it without losing any existing user data."
+  - When the client logged in using their phone and password (or set/linked a password), their entire user profile in Firestore was completely wiped out:
+    - Diamond balance was reset to 0.
+    - Beans balance was reset to 0.
+    - Profile picture was reset to blank.
+    - Followers and Following counts were reset to 0.
+    - Role was reset to 'user'.
+    - Level was reset to 1.
+    - Security `hasPassword` flag was dropped.
+
+- **Root Causes Discovered During Deep Audit**:
+  1. **Destructive Cloud Function Trigger (`createBaseUserDoc` in `functions/index.js`)**:
+     - `functions.auth.user().onCreate` triggers whenever a user identity is created or linked in Firebase Authentication.
+     - When an existing phone-authenticated account links an email/password credential (`+<phone>@phone.hellochat.app`) via `linkWithCredential`, Google Cloud Identity triggers the auth creation lifecycle.
+     - `createBaseUserDoc` had **ZERO checks for whether the Firestore user document already existed**, and executed an unmerged `userRef.set({ diamondBalance: 0, profilePhotoUrl: "", followerCount: 0, followingCount: 0, role: "user", level: 1, ... })`.
+     - This unconditionally overwrote the existing user document with default blank values, wiping out all accumulated diamonds, beans, avatars, roles, and statistics.
+  2. **Silent Account Collision / Duplicate Creation in `EmailAuthScreen`**:
+     - In `email_auth_screen.dart`, catching `user-not-found` or `invalid-credential` on `loginWithEmail` was automatically falling back to `registerWithEmail(finalIdentifier, password)`!
+     - If a user mistyped their password or entered their phone number, the app silently registered a brand new blank Firebase Auth user, triggering `createBaseUserDoc` and displaying a 0-diamond profile.
+  3. **Phone Normalization Country Code Mismatch**:
+     - `AuthService.normalizePhone` defaulted to `countryCode = '880'` (Bangladesh) instead of resolving standard 10-digit Indian mobile numbers (+91).
+     - When Indian users logged in or reset passwords through screens without an explicit country picker, `7898840444` was converted to `+8807898840444@phone.hellochat.app` instead of `+917898840444@phone.hellochat.app`, leading to missing accounts or duplicate credentials.
+  4. **False Redirection to Profile Setup (`SetPasswordScreen`)**:
+     - `set_password_screen.dart` checked `FirebaseAuth.instance.currentUser?.displayName == null` to decide whether to redirect to `ProfileSetupScreen`.
+     - For phone-authenticated users, Firebase Auth's local `displayName` is always null (it is stored in Firestore `/users/{uid}`).
+     - This redirected existing users into `ProfileSetupScreen`, prompting them to overwrite their display name and profile picture.
+
+- **What We Did**:
+  1. **Hardened `createBaseUserDoc` with Zero-Data-Loss Guard (`functions/index.js`)**:
+     - Added an existence check before writing: `const existingDoc = await userRef.get()`.
+     - If the user document already exists, `createBaseUserDoc` preserves all existing balances, avatars, statistics, and roles without touching them. It only safely merges missing `email` or `phoneNumber` via `set(updates, { merge: true })` and returns `null`.
+     - Added `{ merge: true }` to the initial user creation write as a secondary safety shield.
+     - **Deployed to production (`hellochat-e8965`) via `firebase deploy --only functions:createBaseUserDoc` (Successful update operation)**.
+  2. **Removed Silent Registration from `EmailAuthScreen` (`email_auth_screen.dart`)**:
+     - Eliminated `registerWithEmail` fallback on login failure.
+     - Proper error handling now returns a clear, user-friendly prompt (`"Incorrect login details or account not found. Please check your password or use 'Forgot Password'."`) so existing users are never accidentally duplicated.
+  3. **Smart Regional Phone Normalization (`auth_service.dart`)**:
+     - Upgraded `AuthService.normalizePhone` with intelligent region resolution:
+       - 10-digit numbers starting with 6, 7, 8, or 9 automatically resolve to `+91` (India).
+       - Numbers starting with 1 (or 01) resolve to `+880` (Bangladesh).
+       - Centralized throughout `phoneToEmail`, `setupPasswordForUser`, and `loginWithPhonePassword`.
+     - Added automatic sync of `displayName` from Firestore into Firebase Auth user upon password setup so `currentUser.displayName` is never left blank.
+  4. **Fixed `SetPasswordScreen` Profile Check (`set_password_screen.dart`)**:
+     - Updated post-password navigation to check the Firestore `currentUserProfileProvider` rather than the unpopulated Firebase Auth `displayName`. Existing users now route directly to `AppRoutes.home` with zero interruption.
+  5. **100% Data Restoration for Nihal (`7onb5B5ZdbMbskb9yMYO8avvffl2`)**:
+     - Audited all 214 transactions, ledger logs, and rooms.
+     - Recovered exact diamond balance of **915,841 diamonds** (from pre-wipe balance of 946,811 minus 13 subsequent gift transactions totaling 30,970).
+     - Restored original Cloudinary profile photo (`https://res.cloudinary.com/dceh4ob2i/image/upload/v1774885782/profile_photos/mmsbfd5qgfeduz9oimx1.jpg`).
+     - Restored followers (1), following (1), display name (`Nihal`), role (`host`), and `hasPassword` (`true`).
+     - Synced to both `/users/7onb5B5ZdbMbskb9yMYO8avvffl2` and `/publicUsers/7onb5B5ZdbMbskb9yMYO8avvffl2`.
+
+- **Files Touched**:
+  - `functions/index.js` (Existence guard and non-destructive merge in `createBaseUserDoc`)
+  - `lib/core/services/auth_service.dart` (Smart region-aware phone normalizer & display name sync)
+  - `lib/features/auth/presentation/screens/email_auth_screen.dart` (Removed auto-registration on login failure & friendly error toasts)
+  - `lib/features/auth/presentation/screens/set_password_screen.dart` (Firestore profile verification to prevent false profile setup redirects)
+  - `scripts/restore_nihal_account.cjs` (Automated restoration script for Nihal's diamond balance, photo, and counters)
+  - `PROJECT_WORKLOG.md` (Updated)
+
+---
 
 ### Date: 2026-11-13 (P0 VAP Animation Deep Audit & Butter-Smooth Playback Pipeline Optimization)
 

@@ -1,10 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:gap/gap.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
-import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/core/utils/rocket_vap_config.dart';
 import 'package:hello_chat/core/widgets/vap_player.dart';
 import 'package:hello_chat/core/models/room_model.dart';
@@ -83,6 +83,20 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
       ..sort((a, b) => b.value.compareTo(a.value));
     final topContributorId = sorted.isNotEmpty ? sorted.first.key : room.ownerUid;
     final topUser = ref.watch(userProfileProvider(topContributorId)).value;
+    final ownerUser = (topContributorId != room.ownerUid)
+        ? ref.watch(userProfileProvider(room.ownerUid)).value
+        : topUser;
+    final currentUser = ref.watch(currentUserProfileProvider).value;
+
+    final avatarUrl = (topUser?.profilePhotoUrl != null && topUser!.profilePhotoUrl.isNotEmpty)
+        ? topUser.profilePhotoUrl
+        : (ownerUser?.profilePhotoUrl != null && ownerUser!.profilePhotoUrl.isNotEmpty)
+            ? ownerUser.profilePhotoUrl
+            : (room.coverUrl.isNotEmpty)
+                ? room.coverUrl
+                : (currentUser?.profilePhotoUrl != null && currentUser!.profilePhotoUrl.isNotEmpty)
+                    ? currentUser.profilePhotoUrl
+                    : null;
 
     final rewards = _getRewardsForLevel(_selectedLevel);
     final frameDur = rewards['frameDuration'] as String;
@@ -159,7 +173,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           _buildLevelSelector(room),
-                          Expanded(child: _buildMainRocketDisplay(room, topUser?.profilePhotoUrl)),
+                          Expanded(child: _buildMainRocketDisplay(room, avatarUrl)),
                           _buildRightControls(progress),
                         ],
                       ),
@@ -414,7 +428,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
   // ── Level Selector on Left (Rocket Collection / Level Rack) ─
   Widget _buildLevelSelector(RoomModel room) {
     return Container(
-      width: 50,
+      width: 44,
       margin: const EdgeInsets.only(left: 4),
       padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
@@ -430,36 +444,40 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
           final isCurrent = room.rocketLevel == index;
 
           return GestureDetector(
+            key: ValueKey('rocket_level_rack_$index'),
             behavior: HitTestBehavior.opaque,
             onTap: () {
               if (!mounted) return;
               setState(() => _selectedLevel = index);
             },
             child: Container(
-              height: 44,
-              width: 42,
-              margin: const EdgeInsets.only(bottom: 3),
+              height: 38,
+              width: 36,
+              margin: const EdgeInsets.only(bottom: 4),
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: isSelected ? const Color(0xFFCC00FF).withValues(alpha: 0.3) : Colors.transparent,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isSelected ? const Color(0xFFCC00FF) : Colors.transparent,
-                  width: 1.8,
+                  width: 1.5,
                 ),
               ),
               child: Stack(
                 alignment: Alignment.center,
                 children: [
-                  _RocketLevelSvgaButton(level: index),
+                  _RocketLevelSvgaButton(
+                    key: ValueKey('rocket_level_svga_$index'),
+                    level: index,
+                  ),
                   if (isCurrent)
                     Positioned(
                       top: 1,
                       right: 1,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                        padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 0.5),
                         decoration: BoxDecoration(color: const Color(0xFFCC00FF), borderRadius: BorderRadius.circular(3)),
-                        child: const Text("Lv.1", style: TextStyle(color: Colors.white, fontSize: 6.5, fontWeight: FontWeight.bold)),
+                        child: Text("Lv.${index + 1}", style: const TextStyle(color: Colors.white, fontSize: 6.0, fontWeight: FontWeight.bold)),
                       ),
                     ),
                 ],
@@ -509,6 +527,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
           child: Transform.scale(
             scale: 1.65,
             child: VapAnimation(
+              key: ValueKey('main_rocket_${_selectedLevel}_$profileImageUrl'),
               assetPath: vapPath,
               profileImageUrl: profileImageUrl,
               fit: BoxFit.contain,
@@ -901,7 +920,7 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
 
 class _RocketLevelSvgaButton extends StatefulWidget {
   final int level;
-  const _RocketLevelSvgaButton({required this.level});
+  const _RocketLevelSvgaButton({super.key, required this.level});
 
   @override
   State<_RocketLevelSvgaButton> createState() => _RocketLevelSvgaButtonState();
@@ -915,42 +934,92 @@ class _RocketLevelSvgaButtonState extends State<_RocketLevelSvgaButton> with Sin
   void initState() {
     super.initState();
     _controller = SVGAAnimationController(vsync: this);
+    _controller?.addStatusListener(_onStatusChanged);
     _loadAnimation();
+  }
+
+  void _onStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted && _controller != null) {
+      _controller?.reset();
+      _controller?.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _RocketLevelSvgaButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.level != widget.level) {
+      _loadAnimation();
+    }
   }
 
   Future<void> _loadAnimation() async {
     try {
       final svgaPath = RocketVapConfig.svgaIconPath(widget.level);
-      final videoItem = await SvgaParserUtil.decodeSafeFromAssets(svgaPath);
-      if (mounted) {
-        setState(() {
-          _controller?.videoItem = videoItem;
-          _controller?.repeat();
-          _isLoading = false;
-        });
+      // Independent buffer decoding: creates a dedicated MovieEntity instance per button
+      // completely isolating memory, sprite transformations, and animation tickers
+      final data = await rootBundle.load(svgaPath);
+      final bytes = data.buffer.asUint8List();
+      final movie = await SVGAParser.shared.decodeFromBuffer(bytes);
+      movie.autorelease = false;
+
+      if (mounted && _controller != null) {
+        _controller?.videoItem = movie;
+        _controller?.reset();
+        _controller?.repeat();
+        setState(() => _isLoading = false);
       }
     } catch (e) {
-      debugPrint("Error loading SVGA for level ${widget.level}: $e");
+      debugPrint("Error loading isolated SVGA for level ${widget.level}: $e");
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   void dispose() {
+    _controller?.removeStatusListener(_onStatusChanged);
     _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 44,
-      height: 44,
-      child: _isLoading
-          ? const Center(child: SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white24)))
-          : (_controller?.videoItem != null)
-              ? SVGAImage(_controller!)
-              : const Icon(Icons.rocket_launch_rounded, color: Colors.white24, size: 20),
+    // Keep individual loop alive across parent rebuilds without interrupting other buttons
+    if (_controller != null && !_controller!.isAnimating && _controller!.videoItem != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller != null && !_controller!.isAnimating && _controller!.videoItem != null) {
+          _controller?.repeat();
+        }
+      });
+    }
+
+    return RepaintBoundary(
+      child: Center(
+        child: SizedBox(
+          width: 22,
+          height: 28,
+          child: _isLoading
+              ? const Center(
+                  child: SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white24),
+                  ),
+                )
+              : (_controller?.videoItem != null)
+                  ? Transform.scale(
+                      scaleX: 0.60, // Compress horizontal width by 40% to eliminate horizontal stretching
+                      scaleY: 0.75, // Scale down overall height so it sits compactly inside the rack tile
+                      child: SVGAImage(
+                        _controller!,
+                        fit: BoxFit.contain,
+                        clearsAfterStop: false,
+                      ),
+                    )
+                  : const Icon(Icons.rocket_launch_rounded, color: Colors.white24, size: 16),
+        ),
+      ),
     );
   }
 }

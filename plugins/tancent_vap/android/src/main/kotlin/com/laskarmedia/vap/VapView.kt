@@ -2,9 +2,16 @@ package com.laskarmedia.vap
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.util.LruCache
 import android.view.View
 import android.widget.FrameLayout
 import com.tencent.qgame.animplayer.AnimConfig
@@ -27,6 +34,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 private const val TAG = "SafeAnimView"
 
@@ -183,17 +193,32 @@ class VapView(
         (params?.get("loop") as? Int)?.let { animView.setLoop(it) }
 
         @Suppress("UNCHECKED_CAST")
-        (params?.get("vapTagContents") as? Map<String, Map<String, String>>)?.let { vapTagContents.putAll(it) }
+        (params?.get("vapTagContents") as? Map<String, Map<String, String>>)?.let { map ->
+            vapTagContents.putAll(map)
+            for ((tag, content) in map) {
+                val value = content["contentValue"]
+                val type = content["contentType"]
+                if (type == "image_url" && !value.isNullOrEmpty()) {
+                    handleUrlImage(value, tag) {}
+                }
+            }
+        }
 
         animView.setFetchResource(object : IFetchResource {
             override fun fetchImage(resource: Resource, result: (Bitmap?) -> Unit) {
-                val map = vapTagContents[resource.tag]
+                val tag = resource.tag
+                val map = vapTagContents[tag]
+                    ?: vapTagContents["user"]
+                    ?: vapTagContents["avatar"]
+                    ?: vapTagContents["headimg"]
                 val value = map?.get("contentValue")
                 val type = map?.get("contentType")
                 if (!value.isNullOrEmpty() && !type.isNullOrEmpty()) {
-                    handleVapTagContent(value, type, resource.tag) { result(it) }
+                    handleVapTagContent(value, type, tag) { bitmap ->
+                        result(bitmap ?: getDefaultAvatarBitmap())
+                    }
                 } else {
-                    result(null)
+                    result(getDefaultAvatarBitmap())
                 }
             }
 
@@ -386,6 +411,49 @@ class VapView(
             "setLoop" -> { animView.setLoop(call.argument<Int>("loop") ?: 1); result.success(null) }
             "setMute" -> { animView.setMute(call.argument<Boolean>("mute") ?: false); result.success(null) }
             "setScaleType" -> { applyScaleType(call.argument<String>("scaleType")); result.success(null) }
+            "setVapTagContent" -> {
+                val tag = call.argument<String>("tag")
+                val content = call.argument<Map<String, String>>("content")
+                if (tag != null && content != null) {
+                    vapTagContents[tag] = content
+                    val value = content["contentValue"]
+                    val type = content["contentType"]
+                    if (type == "image_url" && !value.isNullOrEmpty()) {
+                        handleUrlImage(value, tag) {}
+                    }
+                    result.success(null)
+                } else {
+                    result.error("INVALID_ARGUMENT", "Tag and content cannot be null", null)
+                }
+            }
+            "setVapTagContents" -> {
+                val contents = call.argument<Map<String, Map<String, String>>>("contents")
+                if (contents != null) {
+                    vapTagContents.putAll(contents)
+                    for ((tag, content) in contents) {
+                        val value = content["contentValue"]
+                        val type = content["contentType"]
+                        if (type == "image_url" && !value.isNullOrEmpty()) {
+                            handleUrlImage(value, tag) {}
+                        }
+                    }
+                    result.success(null)
+                } else {
+                    result.error("INVALID_ARGUMENT", "Contents cannot be null", null)
+                }
+            }
+            "getVapTagContent" -> {
+                val tag = call.argument<String>("tag")
+                if (tag != null) {
+                    result.success(vapTagContents[tag])
+                } else {
+                    result.error("INVALID_ARGUMENT", "Tag cannot be null", null)
+                }
+            }
+            "clearVapTagContents" -> {
+                vapTagContents.clear()
+                result.success(null)
+            }
             else -> result.notImplemented()
         }
     }
@@ -547,8 +615,9 @@ class VapView(
                     }
                 }
                 val byteArray = android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
-                val bitmap = android.graphics.BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
-                GlobalScope.launch(Dispatchers.Main) { callback(bitmap) }
+                val bitmap = BitmapFactory.decodeByteArray(byteArray, 0, byteArray.size)
+                val circular = if (bitmap != null) getCircularBitmap(bitmap) else null
+                GlobalScope.launch(Dispatchers.Main) { callback(circular) }
             } catch (e: Exception) {
                 Log.e("VapView", "Error decoding base64 image: ${e.message}")
                 GlobalScope.launch(Dispatchers.Main) { callback(null) }
@@ -570,8 +639,9 @@ class VapView(
                     }
                 }
                 val file = File(fullPath)
-                val bitmap = if (file.exists()) android.graphics.BitmapFactory.decodeFile(fullPath) else null
-                GlobalScope.launch(Dispatchers.Main) { callback(bitmap) }
+                val bitmap = if (file.exists()) BitmapFactory.decodeFile(fullPath) else null
+                val circular = if (bitmap != null) getCircularBitmap(bitmap) else null
+                GlobalScope.launch(Dispatchers.Main) { callback(circular) }
             } catch (e: Exception) {
                 Log.e("VapView", "Error loading file image: ${e.message}")
                 GlobalScope.launch(Dispatchers.Main) { callback(null) }
@@ -583,9 +653,10 @@ class VapView(
         GlobalScope.launch(Dispatchers.IO) {
             try {
                 val inputStream = frameLayout.context.assets.open("flutter_assets/$assetPath")
-                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                val bitmap = BitmapFactory.decodeStream(inputStream)
                 inputStream.close()
-                GlobalScope.launch(Dispatchers.Main) { callback(bitmap) }
+                val circular = if (bitmap != null) getCircularBitmap(bitmap) else null
+                GlobalScope.launch(Dispatchers.Main) { callback(circular) }
             } catch (e: Exception) {
                 Log.e("VapView", "Error loading asset image: ${e.message}")
                 GlobalScope.launch(Dispatchers.Main) { callback(null) }
@@ -594,19 +665,105 @@ class VapView(
     }
 
     private fun handleUrlImage(url: String, tag: String, callback: (Bitmap?) -> Unit) {
+        val cached = bitmapCache.get(url)
+        if (cached != null && !cached.isRecycled) {
+            callback(cached)
+            return
+        }
+
         GlobalScope.launch(Dispatchers.IO) {
+            var inputStream: InputStream? = null
+            var conn: HttpURLConnection? = null
             try {
-                val connection = java.net.URL(url).openConnection()
-                connection.doInput = true
-                connection.connect()
-                val inputStream = connection.getInputStream()
-                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                inputStream.close()
-                GlobalScope.launch(Dispatchers.Main) { callback(bitmap) }
-            } catch (e: Exception) {
-                Log.e("VapView", "Error loading URL image: ${e.message}")
+                var curUrl = url
+                var redirects = 0
+                while (redirects < 5) {
+                    val u = URL(curUrl)
+                    val c = u.openConnection() as HttpURLConnection
+                    c.connectTimeout = 8000
+                    c.readTimeout = 8000
+                    c.instanceFollowRedirects = true
+                    c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android) HelloChat/1.0")
+                    c.connect()
+                    val code = c.responseCode
+                    if (code in 300..399) {
+                        val loc = c.getHeaderField("Location")
+                        c.disconnect()
+                        if (!loc.isNullOrEmpty()) {
+                            curUrl = loc
+                            redirects++
+                            continue
+                        }
+                    }
+                    conn = c
+                    inputStream = c.inputStream
+                    break
+                }
+
+                if (inputStream != null) {
+                    val raw = BitmapFactory.decodeStream(inputStream)
+                    if (raw != null) {
+                        val circular = getCircularBitmap(raw)
+                        bitmapCache.put(url, circular)
+                        GlobalScope.launch(Dispatchers.Main) { callback(circular) }
+                        return@launch
+                    }
+                }
                 GlobalScope.launch(Dispatchers.Main) { callback(null) }
+            } catch (e: Exception) {
+                Log.e("VapView", "Error loading URL image for tag '$tag': ${e.message}")
+                GlobalScope.launch(Dispatchers.Main) { callback(null) }
+            } finally {
+                runCatching { inputStream?.close() }
+                runCatching { conn?.disconnect() }
             }
+        }
+    }
+
+    private fun getCircularBitmap(src: Bitmap): Bitmap {
+        val size = Math.min(src.width, src.height)
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        if (src.width != size || src.height != size) {
+            val matrix = Matrix()
+            val dx = (size - src.width) / 2f
+            val dy = (size - src.height) / 2f
+            matrix.setTranslate(dx, dy)
+            shader.setLocalMatrix(matrix)
+        }
+        paint.shader = shader
+        val r = size / 2f
+        canvas.drawCircle(r, r, r, paint)
+        return output
+    }
+
+    companion object {
+        private val bitmapCache = LruCache<String, Bitmap>(30)
+        private var defaultAvatar: Bitmap? = null
+
+        fun getDefaultAvatarBitmap(): Bitmap {
+            defaultAvatar?.let { if (!it.isRecycled) return it }
+            val size = 180
+            val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            paint.color = android.graphics.Color.parseColor("#381A5B")
+            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+
+            val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            innerPaint.color = android.graphics.Color.parseColor("#5A2A94")
+            canvas.drawCircle(size / 2f, size / 2f, size * 0.44f, innerPaint)
+
+            val headPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+            headPaint.color = android.graphics.Color.parseColor("#00E5FF")
+            canvas.drawCircle(size / 2f, size * 0.38f, size * 0.18f, headPaint)
+            val rect = android.graphics.RectF(size * 0.22f, size * 0.60f, size * 0.78f, size * 1.05f)
+            canvas.drawArc(rect, 180f, 180f, true, headPaint)
+
+            defaultAvatar = bmp
+            return bmp
         }
     }
 }

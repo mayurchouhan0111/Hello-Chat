@@ -43,27 +43,27 @@ String? _resolveTopUid(dynamic room) {
 }
 
 class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
-  String? _profileImageUrl;
   // Guard against duplicate completion signals (MethodChannel + watchdog race).
   bool _dismissed = false;
 
   @override
-  void initState() {
-    super.initState();
-    _initTopUser();
-  }
-
-  void _initTopUser() {
-    final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
-    final topUid = _resolveTopUid(room);
-    if (topUid != null) {
-      _profileImageUrl = ref.read(userProfileProvider(topUid)).value?.profilePhotoUrl;
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: 3);
+    final room = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
+    final topUid = _resolveTopUid(room);
+    final topProfile = topUid != null ? ref.watch(userProfileProvider(topUid)).value : null;
+    final ownerProfile = (room?.ownerUid != null && room!.ownerUid != topUid)
+        ? ref.watch(userProfileProvider(room.ownerUid)).value
+        : topProfile;
+    final currentProfile = ref.watch(currentUserProfileProvider).value;
+
+    final avatarUrl = (topProfile?.profilePhotoUrl != null && topProfile!.profilePhotoUrl.isNotEmpty)
+        ? topProfile.profilePhotoUrl
+        : (ownerProfile?.profilePhotoUrl != null && ownerProfile!.profilePhotoUrl.isNotEmpty)
+            ? ownerProfile.profilePhotoUrl
+            : (room?.coverUrl != null && room!.coverUrl.isNotEmpty)
+                ? room.coverUrl
+                : currentProfile?.profilePhotoUrl;
 
     return RepaintBoundary(
       child: Container(
@@ -78,7 +78,7 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
               height: MediaQuery.of(context).size.height,
               child: VapAnimation(
                 assetPath: vapPath,
-                profileImageUrl: _profileImageUrl,
+                profileImageUrl: avatarUrl,
                 fit: BoxFit.contain,
                 loop: false,
                 onError: widget.onError,

@@ -37,6 +37,14 @@ class VapAnimation extends StatefulWidget {
   static final Map<String, Future<String?>> _inFlight = {};
   static String? _cachedTempDirPath;
 
+  /// Returns the pre-extracted disk path synchronously if already in memory cache and exists on disk.
+  /// Bypasses Future/microtask hop for zero-latency instant play.
+  static String? getCachedPathSync(String assetPath) {
+    final cached = _extractedCache[assetPath];
+    if (cached != null && File(cached).existsSync()) return cached;
+    return null;
+  }
+
   static Future<String?> preCache(String assetPath) {
     final cached = _extractedCache[assetPath];
     if (cached != null && File(cached).existsSync()) return Future.value(cached);
@@ -165,14 +173,29 @@ class _VapAnimationState extends State<VapAnimation> {
     super.dispose();
   }
 
+  Map<String, VAPContent>? _buildTagContents() {
+    final contents = <String, VAPContent>{};
+    if (widget.profileImageUrl != null && widget.profileImageUrl!.isNotEmpty) {
+      final img = ImageURLContent(widget.profileImageUrl!);
+      contents['user'] = img;
+      contents['avatar'] = img;
+      contents['headimg'] = img;
+    } else if (widget.profileImageBytes != null && widget.profileImageBytes!.isNotEmpty) {
+      final img = ImageBase64Content(base64Encode(widget.profileImageBytes!));
+      contents['user'] = img;
+      contents['avatar'] = img;
+      contents['headimg'] = img;
+    }
+    return contents.isNotEmpty ? contents : null;
+  }
+
   Future<void> _setProfileTag() async {
     final ctrl = _controller;
     if (ctrl == null) return;
     try {
-      if (widget.profileImageUrl != null && widget.profileImageUrl!.isNotEmpty) {
-        await ctrl.setVapTagContent('user', ImageURLContent(widget.profileImageUrl!));
-      } else if (widget.profileImageBytes != null) {
-        await ctrl.setVapTagContent('user', ImageBase64Content(base64Encode(widget.profileImageBytes!)));
+      final contents = _buildTagContents();
+      if (contents != null && contents.isNotEmpty) {
+        await ctrl.setVapTagContents(contents);
       }
     } catch (e) {
       debugPrint('VapAnimation: Failed to set profile tag - $e');
@@ -189,14 +212,17 @@ class _VapAnimationState extends State<VapAnimation> {
   Widget build(BuildContext context) {
     if (_hasError) return const SizedBox.shrink();
 
+    final tagContents = _buildTagContents();
+
     // Audio is enabled (mute: false). RepaintBoundary isolates the
     // PlatformView layer from the parent's repaints.
     return RepaintBoundary(
       child: VapView(
-        key: widget.key ?? ValueKey('vap_${widget.assetPath}'),
+        key: widget.key ?? ValueKey('vap_${widget.assetPath}_${widget.profileImageUrl ?? widget.profileImageBytes?.length}'),
         scaleType: _mapFit(widget.fit),
         repeat: widget.loop ? 99999 : 0,
         mute: false,
+        vapTagContents: tagContents,
         onViewCreated: _onViewCreated,
       ),
     );
