@@ -7,6 +7,26 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-19 (Afternoon: Release APK Build & Device Installation)
+
+- **What Client Asked / Problem**: "create the new apk relase with the new code and then install it in the conncetd device okay" — Build a fresh release APK with all recent code fixes (rocket center avatar, wheel & room updates, games hub, etc.) and install it on the connected device.
+- **What We Did**:
+  - Ran static analysis with `flutter analyze`: verified 0 errors across modified modules.
+  - Aligned `spin_wheel_display_test.dart` to observe `luckySpinWinnerEventProvider`.
+  - Ran automated regression test suite: 14/14 tests passed (`rocket_avatar_vap_test.dart`, `spin_wheel_display_test.dart`, `live_room_seat_geometry_test.dart`, `game_top_winner_event_banner_test.dart`).
+  - Compiled and built fresh release APK via `flutter build apk --release` (762.0 MB).
+  - Deployed to `releases/client-testing/HelloChat-client-test-release.apk` with SHA-256 `8547b3b18bb5813206741833c9aa9342036939cc6461f1766ea0899f93990149`, updating `releases/client-testing/SHA256SUMS.txt`.
+  - Streamed and installed the APK to connected Vivo V2132 (`1374223603000CJ`) via ADB (`adb install -r`): Streamed Install Success.
+  - Verified on-device installation timestamp (`lastUpdateTime=2026-11-19 12:34:22`, `versionName=1.0.0`).
+  - Launched app (`com.example.hellochat/.MainActivity`, PID: 6960, focused window active).
+  - Verified logcat: zero runtime crashes, zero fatal exceptions.
+  - Captured verification screenshot to `scratch/installed_verification_screen.png`.
+- **Files Touched**:
+  - `test/spin_wheel_display_test.dart`
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-11-18 (Late Night: Fix Rocket Animation Center Avatar Display Defect)
 
 - **What Client Asked / Problem**: "in the rocket svga the user profiel is notshowing in the center of the rocket svga whcih is and issue whihc the client need so do that thing correctly okay" — User profile photo is not showing in the center of the rocket animation.
