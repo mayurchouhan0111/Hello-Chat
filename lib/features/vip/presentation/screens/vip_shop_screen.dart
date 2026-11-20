@@ -730,6 +730,47 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
   }
 
   void _handleConfirm() async {
+    final profileAsync = ref.read(currentUserProfileProvider);
+    final userData = profileAsync.value;
+    final int balance = (userData is UserModel) ? userData.diamondBalance : 0;
+    final int cost = widget.tier.monthlyPriceInDiamonds;
+
+    if (balance < cost) {
+      final int needed = cost - balance;
+      if (mounted) {
+        Navigator.pop(context); // Close sheet so floating SnackBar is fully visible
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.white, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    "Insufficient diamonds. You need $cost diamonds for ${widget.tier.name}, but you have $balance (need $needed more). Please recharge your diamonds.",
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Recharge',
+              textColor: const Color(0xFFFFD700),
+              onPressed: () {
+                Navigator.of(context).pushNamed('/wallet');
+              },
+            ),
+          ),
+        );
+      }
+      return; // Strictly block the purchase
+    }
+
     setState(() => _isLoading = true);
     try {
       await ref.read(vipServiceProvider).purchaseVIP(widget.tier);
@@ -740,10 +781,40 @@ class _VipPurchaseSheetState extends ConsumerState<_VipPurchaseSheet> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        AppToast.showError(
-          context,
-          e.toString(),
-          title: 'Purchase Notice',
+        final rawMsg = e.toString();
+        final lower = rawMsg.toLowerCase();
+        final String friendlyMsg = (lower.contains('insufficient') || lower.contains('precondition'))
+            ? "Insufficient diamonds. You need more diamonds to complete the purchase of ${widget.tier.name}. Please recharge your diamonds."
+            : AppToast.sanitizeErrorMessage(rawMsg);
+
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline_rounded, color: Colors.white, size: 22),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    friendlyMsg,
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+            action: SnackBarAction(
+              label: 'Recharge',
+              textColor: const Color(0xFFFFD700),
+              onPressed: () {
+                Navigator.of(context).pushNamed('/wallet');
+              },
+            ),
+          ),
         );
       }
     }

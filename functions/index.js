@@ -1089,6 +1089,23 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
     const { uid, phoneNumber, email, displayName, photoURL } = user;
     const userRef = db.collection("users").doc(uid);
 
+    // SECURITY & DATA LOSS GUARD:
+    // If the user document already exists in Firestore (e.g. created via Phone Auth,
+    // provisioning script, or an earlier provider link), NEVER overwrite it!
+    const existingDoc = await userRef.get();
+    if (existingDoc.exists) {
+        console.log(`[createBaseUserDoc] User ${uid} already exists in Firestore. Preserving all existing data.`);
+        const existingData = existingDoc.data() || {};
+        const safeUpdates = {};
+        if (!existingData.email && email) safeUpdates.email = email;
+        if (!existingData.phoneNumber && phoneNumber) safeUpdates.phoneNumber = phoneNumber;
+        if (Object.keys(safeUpdates).length > 0) {
+            safeUpdates.updatedAt = FieldValue.serverTimestamp();
+            await userRef.set(safeUpdates, { merge: true });
+        }
+        return null;
+    }
+
     // Generate simple 10-digit unique ID
     // Note: In high traffic, we'd use a transaction + counter, 
     // but for now random 10-digit is mostly unique.
@@ -1158,7 +1175,226 @@ exports.createBaseUserDoc = functions.auth.user().onCreate(async (user) => {
         vipTier: "none",
         isBanned: false,
         lastActive: FieldValue.serverTimestamp(),
-    });
+    }, { merge: true });
+});
+
+/**
+ * AUTH CONSOLIDATION: Set password for a phone-identified account.
+ *
+ * The app historically created two parallel identities per phone number:
+ *  - a phone-OTP identity (phoneNumber provider), and
+ *  - a password identity on the synthetic email "+<phone>@phone.hellochat.app".
+ * When both existed, "phone + password" login opened the email identity while
+ * the user's real data lived on the other one — the "new empty account" bug.
+ * This callable is the single place where a phone password is set. It finds
+ * every account that the phone logins could open, keeps exactly ONE survivor
+ * (preferring the caller, then the account holding real profile data),
+ * deletes the duplicate (archiving its Firestore doc), and stamps password +
+ * phone identifiers + Firestore flags on the survivor. Idempotent: calling
+ * again is a plain password update. No balances are touched here.
+ */
+exports.ensurePhonePassword = onCall({
+    enforceAppCheck: false, // manual handshake, mirrors other v2 callables
+    region,
+}, async (request) => {
+    const { auth } = request;
+    if (!auth) throw new HttpsError("unauthenticated", "Login required.");
+    const rawPhone = typeof request.data?.phone === "string" ? request.data.phone.trim() : "";
+    const password = typeof request.data?.password === "string" ? request.data.password : "";
+    if (!/^\+?[0-9]{7,15}$/.test(rawPhone.replace(/\s/g, ""))) {
+        throw new HttpsError("invalid-argument", "Invalid phone number.");
+    }
+    if (password.length < 6) {
+        throw new HttpsError("invalid-argument", "Password must be at least 6 characters.");
+    }
+    const phone = rawPhone.startsWith("+") ? rawPhone : `+${rawPhone}`;
+    const phoneEmail = `${phone}@phone.hellochat.app`;
+    const callerUid = auth.uid;
+
+    // Caller must own this phone (token claim, Auth record, synthetic email, or Firestore doc).
+    let caller;
+    try {
+        caller = await admin.auth().getUser(callerUid);
+    } catch (e) {
+        throw new HttpsError("unauthenticated", "Session expired. Please log in again.");
+    }
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const docPhone = callerDoc.exists ? (callerDoc.data().phoneNumber || "") : "";
+    const owns = auth.token.phone_number === phone
+        || caller.phoneNumber === phone
+        || (caller.email || "").toLowerCase() === phoneEmail
+        || docPhone === phone;
+    if (!owns) {
+        throw new HttpsError("permission-denied", "This phone number is not linked to your account.");
+    }
+
+    let phoneOwner = null;
+    try { phoneOwner = await admin.auth().getUserByPhoneNumber(phone); } catch (e) { phoneOwner = null; }
+    let emailOwner = null;
+    try { emailOwner = await admin.auth().getUserByEmail(phoneEmail); } catch (e) { emailOwner = null; }
+
+    const docLooksReal = async (uid) => {
+        const d = await db.collection("users").doc(uid).get();
+        if (!d.exists) return false;
+        const x = d.data() || {};
+        return (x.displayName && x.displayName !== "New User")
+            || (x.username || "") !== ""
+            || (x.diamondBalance || 0) > 0
+            || (x.profilePhotoUrl || "") !== "";
+    };
+
+    let survivor = null;
+    let stray = null;
+    if (phoneOwner && emailOwner && phoneOwner.uid !== emailOwner.uid) {
+        if (callerUid === phoneOwner.uid) {
+            survivor = phoneOwner; stray = emailOwner;
+        } else if (callerUid === emailOwner.uid) {
+            survivor = emailOwner; stray = phoneOwner;
+        } else {
+            const emailReal = await docLooksReal(emailOwner.uid);
+            const phoneReal = await docLooksReal(phoneOwner.uid);
+            if (emailReal && !phoneReal) {
+                survivor = emailOwner; stray = phoneOwner;
+            } else {
+                survivor = phoneOwner; stray = emailOwner;
+            }
+        }
+    } else {
+        survivor = phoneOwner || emailOwner;
+    }
+    if (!survivor) {
+        throw new HttpsError("failed-precondition", "No account exists for this phone number yet.");
+    }
+
+    console.log(`[AUTH_CONSOLIDATE] phone=${phone} caller=${callerUid} survivor=${survivor.uid} stray=${stray ? stray.uid : "none"}`);
+
+    // 1) Password on the survivor — safe to do before touching the stray.
+    const survivorDoc = await db.collection("users").doc(survivor.uid).get();
+    const survivorData = survivorDoc.exists ? (survivorDoc.data() || {}) : {};
+    const authUpdates = { password };
+    if ((!survivor.displayName || survivor.displayName === "New User")
+        && survivorData.displayName && survivorData.displayName !== "New User") {
+        authUpdates.displayName = survivorData.displayName;
+    }
+    await admin.auth().updateUser(survivor.uid, authUpdates);
+
+    // 2) Identifiers. One email per Auth account: phone accounts get the synthetic
+    // email so "+phone + password" login opens them. Accounts already holding a
+    // real email keep it (they log in via that email or phone OTP instead).
+    let finalEmail = survivor.email || "";
+    if (!finalEmail || finalEmail.toLowerCase() === phoneEmail) {
+        if (finalEmail.toLowerCase() !== phoneEmail) {
+            try {
+                await admin.auth().updateUser(survivor.uid, { email: phoneEmail, emailVerified: true });
+                finalEmail = phoneEmail;
+            } catch (e) {
+                console.warn(`[AUTH_CONSOLIDATE] email set deferred for ${survivor.uid}: ${e.code || e.message}`);
+            }
+        }
+    }
+    if (!survivor.phoneNumber) {
+        try {
+            await admin.auth().updateUser(survivor.uid, { phoneNumber: phone });
+        } catch (e) {
+            console.warn(`[AUTH_CONSOLIDATE] phone set deferred for ${survivor.uid}: ${e.code || e.message}`);
+        }
+    }
+
+    // 3) Remove the duplicate identity — archive its Firestore doc first (side
+    // effect: Auth deletion happens after the transaction commits).
+    if (stray) {
+        if (await docLooksReal(stray.uid)) {
+            console.warn(`[AUTH_CONSOLIDATE] stray ${stray.uid} had a real-looking users doc; archived for manual review.`);
+        }
+        await db.runTransaction(async (tx) => {
+            const strayRef = db.collection("users").doc(stray.uid);
+            const straySnap = await tx.get(strayRef);
+            if (straySnap.exists) {
+                tx.set(db.collection("users_archived").doc(stray.uid), {
+                    ...straySnap.data(),
+                    archivedFromUid: stray.uid,
+                    archivedReason: "duplicate-identity-consolidation",
+                    archivedAt: FieldValue.serverTimestamp(),
+                });
+                tx.delete(strayRef);
+            }
+        });
+        await admin.auth().deleteUser(stray.uid);
+    }
+
+    // 4) Retry deferred identifiers now that the duplicate no longer holds them.
+    if (finalEmail.toLowerCase() !== phoneEmail
+        && (!survivor.email || survivor.email.toLowerCase() === phoneEmail)) {
+        try {
+            await admin.auth().updateUser(survivor.uid, { email: phoneEmail, emailVerified: true });
+            finalEmail = phoneEmail;
+        } catch (e) {
+            console.warn(`[AUTH_CONSOLIDATE] email retry failed for ${survivor.uid}: ${e.code || e.message}`);
+        }
+    }
+    if (!survivor.phoneNumber) {
+        try {
+            await admin.auth().updateUser(survivor.uid, { phoneNumber: phone });
+        } catch (e) {
+            console.warn(`[AUTH_CONSOLIDATE] phone retry failed for ${survivor.uid}: ${e.code || e.message}`);
+        }
+    }
+
+    // 5) Firestore flags on the survivor (single-doc merge; no balances touched).
+    await db.collection("users").doc(survivor.uid).set({
+        hasPassword: true,
+        phoneEmail,
+        phoneNumber: phone,
+        updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    // 6) Guarantee the survivor has a users doc (fresh OTP-created account edge case).
+    const afterDoc = await db.collection("users").doc(survivor.uid).get();
+    if (!afterDoc.exists) {
+        const helloId = Math.floor(1000000000 + Math.random() * 9000000000);
+        await db.collection("users").doc(survivor.uid).set({
+            uid: survivor.uid,
+            helloId,
+            createdAt: FieldValue.serverTimestamp(),
+            displayName: survivor.displayName || "New User",
+            displayName_lowercase: (survivor.displayName || "New User").toLowerCase(),
+            username: "",
+            username_lowercase: "",
+            bio: "",
+            country: "",
+            profilePhotoUrl: "",
+            referralCode: survivor.uid.substring(0, 6).toUpperCase(),
+            referralCount: 0,
+            referredBy: "",
+            diamondBalance: 0,
+            diamondStock: 0,
+            beansBalance: 0,
+            totalDiamondsSpent: 0,
+            totalDiamondsSent: 0,
+            xp: 0,
+            level: 1,
+            followerCount: 0,
+            followingCount: 0,
+            friendsCount: 0,
+            visitorCount: 0,
+            cpLevel: 0,
+            cpPoints: 0,
+            combatPoints: 0,
+            status: "offline",
+            role: "user",
+            badges: [],
+            tags: [],
+            vipTier: "none",
+            isBanned: false,
+            hasPassword: true,
+            phoneEmail,
+            phoneNumber: phone,
+            lastActive: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+        });
+    }
+
+    return { uid: survivor.uid, email: finalEmail || phoneEmail, strayDeleted: stray ? stray.uid : null };
 });
 
 /**
@@ -3938,6 +4174,53 @@ function computeSpinPayout(bets, roundResult) {
     return prize;
 }
 
+// The daily board ranks by settled Diamond payouts. Its banner also displays
+// the player's lifetime number of winning wheel rounds. Seed older records
+// from the payout receipts, which have one deterministic document per round.
+async function readWheelWins(transaction, playerRef, userRef) {
+    const player = await transaction.get(playerRef);
+    const wins = player.get("totalWins");
+    if (Number.isSafeInteger(wins) && wins >= 0) return wins;
+    const receipts = userRef.collection("transactions")
+        .where("game", "==", "spin_wheel").where("type", "==", "game_win");
+    return (await transaction.get(receipts.count())).data().count;
+}
+
+function recordWheelStanding(transaction, playerRef, user, wager, prize, totalWins) {
+    transaction.set(playerRef, {
+        uid: playerRef.id,
+        name: user.displayName || user.username || user.name || String(user.helloId || playerRef.id),
+        avatar: user.profilePhotoUrl || user.photoURL || user.photoUrl || user.avatar || "",
+        totalBets: FieldValue.increment(wager),
+        totalWinnings: FieldValue.increment(prize),
+        amount: FieldValue.increment(prize),
+        ...(totalWins === null ? {} : { totalWins }),
+        updatedAt: Date.now()
+    }, { merge: true });
+}
+
+// A leader already on the board when the client upgrades might have no
+// count yet. Resolve only the actual leader and persist it for every room.
+exports.hydrateLuckySpinLeader = functions.region("us-central1").https.onCall(async (_, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Sign in to view the leaderboard.");
+    const board = db.collection("games_meta/lucky_spin/daily_players");
+    await db.runTransaction(async transaction => {
+        const leaders = await transaction.get(board.orderBy("totalWinnings", "desc")
+            .orderBy("totalBets", "desc").limit(1));
+        const leader = leaders.docs[0];
+        if (!leader || !leader.get("totalWinnings") || Number.isSafeInteger(leader.get("totalWins"))) return;
+        const userRef = db.collection("users").doc(leader.id);
+        const totalWins = await readWheelWins(transaction, leader.ref, userRef);
+        const profile = (await transaction.get(userRef)).data() || {};
+        transaction.update(leader.ref, {
+            totalWins,
+            name: profile.displayName || profile.username || leader.get("name") || leader.id,
+            avatar: profile.profilePhotoUrl || profile.photoURL || leader.get("avatar") || ""
+        });
+    });
+    return { ok: true };
+});
+
 exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data, context) => {
     if (!context.auth) {
         throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
@@ -4019,6 +4302,15 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         const userData = userDoc.data() || {};
         const userName = userData.displayName || userData.username || "User";
         const userAvatar = userData.profilePhotoUrl || userData.photoURL || "";
+
+        const prevData = prevLogDoc.data() || {};
+        const unclaimedPrize = prevLogDoc.exists && !prevData.settled && !prevWinTxDoc.exists
+            ? computeSpinPayout(prevData.bets, prevPrivateDoc.get("outcome"))
+            : 0;
+        const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
+        const recoveredWins = unclaimedPrize > 0
+            ? 1 + await readWheelWins(transaction, dailyPlayerRef, userRef)
+            : null;
 
         const defaultFoodSegments = [
             { id: "1", name: "Hotdog", multiplier: 10, weight: 100, emoji: "🌭", category: "pizza" },
@@ -4174,23 +4466,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         // Strictly deduct only the exact bet wager during the betting phase.
         // Winnings are NEVER added prematurely while the round is counting down/active.
 
-        // Auto-settle any unclaimed winnings from the immediately preceding round (e.g. if disconnected mid-spin)
-        // History is written outcome-free at bet time, so recompute the prize
-        // from the stored bets + the prev round's private outcome.
-        let unclaimedPrize = 0;
-        if (prevLogDoc && prevLogDoc.exists && (!prevWinTxDoc || !prevWinTxDoc.exists)) {
-            const prevData = prevLogDoc.data();
-            if (prevData.settled !== true) {
-                const prevOutcome = (prevPrivateDoc && prevPrivateDoc.exists && prevPrivateDoc.data() && prevPrivateDoc.data().outcome)
-                    ? prevPrivateDoc.data().outcome
-                    : null;
-                const prizeAmt = computeSpinPayout(prevData.bets, prevOutcome);
-                if (prizeAmt > 0) {
-                    unclaimedPrize = prizeAmt;
-                    balance += unclaimedPrize;
-                }
-            }
-        }
+        balance += unclaimedPrize;
 
         const finalBalance = balance;
         // Wallet stream + client reconcile rely on monotonic seq + lastTxnId so a
@@ -4208,6 +4484,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         transaction.update(userRef, userUpdates);
 
         if (unclaimedPrize > 0) {
+            recordWheelStanding(transaction, dailyPlayerRef, userData, Number(prevData.totalBet) || 0, unclaimedPrize, recoveredWins);
             transaction.set(prevLogRef, { settled: true, balanceAfter: finalBalance }, { merge: true });
             transaction.set(prevWinTxRef, {
                 type: "game_win",
@@ -4479,15 +4756,18 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
     const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
     const statsRef = db.collection("games_meta").doc("lucky_spin");
     const roundBetRef = statsRef.collection("round_player_bets").doc(`${roundId}_${uid}`);
+    const roundPlayersQuery = statsRef.collection("round_player_bets")
+        .where("roundId", "==", roundId);
 
     return db.runTransaction(async (transaction) => {
-        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc] = await Promise.all([
+        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc, roundPlayersDoc] = await Promise.all([
             transaction.get(userRef),
             transaction.get(logRef),
             transaction.get(winTxRef),
             transaction.get(privateStatsRef),
             transaction.get(statsRef),
-            transaction.get(roundBetRef)
+            transaction.get(roundBetRef),
+            transaction.get(roundPlayersQuery)
         ]);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
@@ -4511,6 +4791,11 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
         if (winTxDoc.exists) {
             return { settled: true, prize: prize, balance: balance, alreadySettled: true };
         }
+
+        const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
+        const totalWins = prize > 0
+            ? 1 + await readWheelWins(transaction, dailyPlayerRef, userRef)
+            : null;
 
         let newBalance = balance;
         const winTxnId = `spin_win_${roundId}`;
@@ -4581,6 +4866,34 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
         // Record completed round in public recentResults, update previous winner, and update game_rounds status to ROUND_SETTLED
         const currentStats = (statsDoc && statsDoc.exists) ? statsDoc.data() : {};
         const statsUpdates = {};
+
+        // Publish one deterministic Top-1 broadcast event for this completed
+        // round. Every wager row was computed server-side before settlement, so
+        // the first settlement can rank the entire round without trusting the
+        // caller. The round id is the idempotency key: transaction retries and
+        // later player settlements cannot publish Top 2/3 or replay Top 1.
+        const roundTopWinner = roundPlayersDoc.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(row => Number(row.winnings || row.prize || 0) > 0)
+            .sort((a, b) => {
+                const amountDiff = Number(b.winnings || b.prize || 0) - Number(a.winnings || a.prize || 0);
+                if (amountDiff !== 0) return amountDiff;
+                const betDiff = Number(b.totalBet || 0) - Number(a.totalBet || 0);
+                if (betDiff !== 0) return betDiff;
+                return String(a.uid || a.id).localeCompare(String(b.uid || b.id));
+            })[0];
+        if (roundTopWinner &&
+            String(currentStats.topWinnerEvent?.roundId || '') !== String(roundId)) {
+            statsUpdates.topWinnerEvent = {
+                eventId: `spin_${roundId}`,
+                roundId: String(roundId),
+                game: "spin_wheel",
+                amount: Math.floor(Number(roundTopWinner.winnings || roundTopWinner.prize || 0)),
+                avatar: roundTopWinner.avatar || "",
+                winnerUid: roundTopWinner.uid || "",
+                announcedAtMs: Date.now()
+            };
+        }
 
         if (prize > 0) {
             const userName = userDoc.data().name || userDoc.data().displayName || "Player";
@@ -4661,18 +4974,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
         // Update Daily Players Collection for the Daily Top Players Leaderboard (only upon final settlement)
         const settledWager = Number(logData.totalBet || roundBetData.totalBet) || 0;
         if (settledWager > 0 || prize > 0) {
-            const userName = userDoc.data().name || userDoc.data().displayName || userDoc.data().username || "Player";
-            const userAvatar = userDoc.data().avatar || userDoc.data().photoUrl || userDoc.data().profilePhotoUrl || "";
-            const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
-            transaction.set(dailyPlayerRef, {
-                uid: uid,
-                name: userName,
-                avatar: userAvatar,
-                totalBets: FieldValue.increment(settledWager),
-                totalWinnings: FieldValue.increment(prize),
-                amount: FieldValue.increment(prize),
-                updatedAt: Date.now()
-            }, { merge: true });
+            recordWheelStanding(transaction, dailyPlayerRef, userDoc.data(), settledWager, prize, totalWins);
         }
 
         if (Object.keys(statsUpdates).length > 0) {
@@ -8325,22 +8627,34 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             console.log(`[ROOM_SUPPORT] Loaded ${dynamicLevels.length} dynamic target levels from room_support_configs/settings.`);
         }
     } catch (cfgErr) {
-        console.warn("[ROOM_SUPPORT] Failed to fetch dynamic config, using defaults:", cfgErr);
+        console.error("[ROOM_SUPPORT] Cannot load salary configuration:", cfgErr);
+        throw new HttpsError("unavailable", "Salary configuration could not be loaded. Retry later.");
     }
 
     console.log(`[ROOM_SUPPORT] Starting Wednesday reward distribution (Asia/Dhaka weekday ${bdWeekday})...`);
     const historiesSnap = await db.collectionGroup("weeks").where("distributionStatus", "==", "pending").get();
     console.log(`[ROOM_SUPPORT] Found ${historiesSnap.size} pending weekly histories.`);
 
-    const processedRooms = new Set();
+    const processedWeeks = new Map();
     const candidateRewardsByUser = {}; // uid -> array of candidate rewards
 
     if (!historiesSnap.empty) {
         for (const weekDoc of historiesSnap.docs) {
             const weekData = weekDoc.data();
             const roomId = weekDoc.ref.parent.parent?.id;
-            if (!roomId) continue;
-            processedRooms.add(roomId);
+            if (!roomId || weekDoc.ref.parent.parent.parent.id !== "room_support_history") continue;
+
+            // Freeze recipients before paying anyone. A restart must use the same
+            // plan, even if partners or configuration change after a partial payout.
+            if (Array.isArray(weekData.payoutPlan)) {
+                processedWeeks.set(weekDoc.ref.path, { ref: weekDoc.ref, roomId, weekId: weekDoc.id, plan: weekData.payoutPlan });
+                for (const reward of weekData.payoutPlan) {
+                    const key = `${weekDoc.id}_${reward.uid}`;
+                    if (!candidateRewardsByUser[key]) candidateRewardsByUser[key] = [];
+                    candidateRewardsByUser[key].push({ ...reward, weekDocRef: weekDoc.ref, weekId: weekDoc.id, roomId });
+                }
+                continue;
+            }
 
             const achievedLevel = weekData.achievedLevel || 0;
             if (achievedLevel < 1) {
@@ -8348,13 +8662,6 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     distributionStatus: "no_target_met",
                     updatedAt: FieldValue.serverTimestamp()
                 });
-                // Reset/clear any partners assigned
-                const stalePartners = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
-                if (!stalePartners.empty) {
-                    const b = db.batch();
-                    stalePartners.docs.forEach(d => b.delete(d.ref));
-                    await b.commit();
-                }
                 continue;
             }
 
@@ -8365,6 +8672,9 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     updatedAt: FieldValue.serverTimestamp()
                 });
                 continue;
+            }
+            if (![levelConfig.ownerReward, levelConfig.partnerReward].every(n => Number.isSafeInteger(n) && n > 0)) {
+                throw new HttpsError("failed-precondition", "Salary reward configuration must contain positive integer diamond amounts.");
             }
 
             const requiredPartners = ROOM_SUPPORT.getRequiredPartners(achievedLevel, dynamicLevels);
@@ -8389,15 +8699,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     expiredAt: FieldValue.serverTimestamp()
                 });
                 // Auto-reset / clear expired partners from active Salary List
-                if (!partnersSnap.empty) {
-                    const batch = db.batch();
-                    partnersSnap.docs.forEach(pDoc => {
-                        const archRef = weekDoc.ref.collection("archived_partners").doc(pDoc.id);
-                        batch.set(archRef, { ...pDoc.data(), status: "expired", expiredAt: FieldValue.serverTimestamp() });
-                        batch.delete(pDoc.ref);
-                    });
-                    await batch.commit();
-                }
+                // Retain assignments for audit. Never remove another week's data.
                 continue;
             }
 
@@ -8407,13 +8709,13 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             const ownerUid = roomDoc.exists ? roomData.ownerUid : null;
             const roomName = roomData.name || roomData.title || `Room #${roomId}`;
 
+            const proposedPlan = [];
+
             if (ownerUid) {
-                if (!candidateRewardsByUser[ownerUid]) candidateRewardsByUser[ownerUid] = [];
-                candidateRewardsByUser[ownerUid].push({
+                proposedPlan.push({
                     uid: ownerUid,
                     roomId,
                     roomName,
-                    weekDocRef: weekDoc.ref,
                     weekId: weekDoc.id,
                     role: "owner",
                     level: achievedLevel,
@@ -8426,13 +8728,10 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             for (const pDoc of validPartners) {
                 const partnerUid = pDoc.data().uid || pDoc.id;
                 if (partnerUid && partnerUid !== ownerUid) {
-                    if (!candidateRewardsByUser[partnerUid]) candidateRewardsByUser[partnerUid] = [];
-                    candidateRewardsByUser[partnerUid].push({
+                    proposedPlan.push({
                         uid: partnerUid,
                         roomId,
                         roomName,
-                        partnerDocRef: pDoc.ref,
-                        weekDocRef: weekDoc.ref,
                         weekId: weekDoc.id,
                         role: "partner",
                         level: achievedLevel,
@@ -8440,6 +8739,35 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                         amount: levelConfig.partnerReward
                     });
                 }
+            }
+            if (!ownerUid) throw new HttpsError("failed-precondition", `Room ${roomId} has no salary recipient.`);
+            const plan = await db.runTransaction(async transaction => {
+                const current = await transaction.get(weekDoc.ref);
+                if (Array.isArray(current.data()?.payoutPlan)) return current.data().payoutPlan;
+                if (current.data()?.distributionStatus !== "pending") return [];
+                const currentRoom = await transaction.get(db.collection("rooms").doc(roomId));
+                const currentPartners = await transaction.get(db.collection("room_support_cycles").doc(roomId).collection("partners"));
+                const currentConfig = await transaction.get(db.collection("room_support_configs").doc("settings"));
+                const currentLevels = currentConfig.data()?.levels?.length ? currentConfig.data().levels : ROOM_SUPPORT.levels;
+                const currentPartnerIds = currentPartners.docs.filter(doc => {
+                    const p = doc.data();
+                    return p.paid !== true && p.status !== "paid" && isRoomSupportPartnerForWeek(p, weekDoc.id);
+                }).map(doc => doc.data().uid || doc.id).sort();
+                const plannedPartnerIds = validPartners.map(doc => doc.data().uid || doc.id).sort();
+                if (currentRoom.data()?.ownerUid !== ownerUid ||
+                    current.data().achievedLevel !== weekData.achievedLevel ||
+                    JSON.stringify(currentPartnerIds) !== JSON.stringify(plannedPartnerIds) ||
+                    JSON.stringify(currentLevels) !== JSON.stringify(dynamicLevels)) {
+                    throw new HttpsError("aborted", "Salary assignments or configuration changed. Retry distribution.");
+                }
+                transaction.update(weekDoc.ref, { payoutPlan: proposedPlan, payoutPlannedAt: FieldValue.serverTimestamp() });
+                return proposedPlan;
+            });
+            processedWeeks.set(weekDoc.ref.path, { ref: weekDoc.ref, roomId, weekId: weekDoc.id, plan });
+            for (const reward of plan) {
+                const key = `${weekDoc.id}_${reward.uid}`;
+                if (!candidateRewardsByUser[key]) candidateRewardsByUser[key] = [];
+                candidateRewardsByUser[key].push({ ...reward, weekDocRef: weekDoc.ref });
             }
         }
     }
@@ -8451,8 +8779,10 @@ async function executeRoomSupportRewardDistribution(options = {}) {
     // Rule 4: Maximum 1 reward per user ID per week.
     console.log(`[ROOM_SUPPORT] Evaluating rewards for ${Object.keys(candidateRewardsByUser).length} unique candidate users.`);
     let distributedCount = 0;
+    let failedCount = 0;
 
-    for (const [uid, candidates] of Object.entries(candidateRewardsByUser)) {
+    for (const candidates of Object.values(candidateRewardsByUser)) {
+        const uid = candidates[0].uid;
         // Enforce Rule 2: If user targets own room (has owner reward), they cannot receive partner rewards from other rooms
         const hasOwnerCandidate = candidates.some(c => c.role === "owner");
         let eligibleCandidates = candidates;
@@ -8466,23 +8796,24 @@ async function executeRoomSupportRewardDistribution(options = {}) {
         if (!winningReward) continue;
 
         try {
-            let isNewDistribution = false;
-            await db.runTransaction(async (transaction) => {
+            const isNewDistribution = await db.runTransaction(async (transaction) => {
                 const deterministicRewardId = `reward_${winningReward.weekId}_${uid}`;
                 const rewardRef = db.collection("room_support_rewards").doc(deterministicRewardId);
                 const existingRewardSnap = await transaction.get(rewardRef);
 
                 if (existingRewardSnap.exists) {
                     console.log(`[ROOM_SUPPORT] Reward ${deterministicRewardId} already distributed. Skipping.`);
-                    return;
+                    return false;
                 }
-
-                isNewDistribution = true;
 
                 // Credit diamonds to user balance
                 const userRef = db.collection("users").doc(uid);
                 const userSnap = await transaction.get(userRef);
-                if (userSnap.exists) {
+                if (!userSnap.exists) throw new HttpsError("not-found", "Salary recipient no longer exists.");
+                if (!Number.isSafeInteger(winningReward.amount) || winningReward.amount <= 0) {
+                    throw new HttpsError("failed-precondition", "Invalid salary amount.");
+                }
+                {
                     transaction.update(userRef, {
                         diamondBalance: FieldValue.increment(winningReward.amount),
                         updatedAt: FieldValue.serverTimestamp()
@@ -8522,11 +8853,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     createdAt: FieldValue.serverTimestamp()
                 });
 
-                // Update winning week history
-                transaction.update(winningReward.weekDocRef, {
-                    distributionStatus: "distributed",
-                    distributedAt: FieldValue.serverTimestamp()
-                });
+                // The week remains pending until every planned recipient has a reward.
 
                 // Archive and delete partner doc if partner
                 if (winningReward.role === "partner" && winningReward.partnerDocRef) {
@@ -8546,11 +8873,12 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 // Real-time Transaction History entry
                 const txRef = userRef.collection("transactions").doc();
                 const salaryDesc = winningReward.role === "partner"
-                    ? `Official Weekly Room Partner Salary (Room ${winningReward.roomId}, Level ${winningReward.level})`
-                    : `Official Weekly Room Owner Salary (Room ${winningReward.roomId}, Level ${winningReward.level})`;
+                    ? `Official Weekly Room Partner Salary Reward (Room ${winningReward.roomId}, Level ${winningReward.level})`
+                    : `Official Weekly Room Owner Salary Reward (Room ${winningReward.roomId}, Level ${winningReward.level})`;
                 transaction.set(txRef, {
-                    type: "official_salary",
-                    action: "official_salary",
+                    type: "reward",
+                    category: "room_support_salary",
+                    action: "room_support_salary",
                     amount: winningReward.amount,
                     role: winningReward.role,
                     level: winningReward.level,
@@ -8596,6 +8924,10 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 // Also populate notifications collection for full notification center coverage
                 const notifCenterRef = userRef.collection("notifications").doc(notifDocId);
                 transaction.set(notifCenterRef, notifData);
+                transaction.set(db.collection("salary_failed_transactions").doc(`failed_${winningReward.weekId}_${uid}`), {
+                    resolved: true, status: "resolved", resolvedAt: FieldValue.serverTimestamp()
+                }, { merge: true });
+                return true;
             });
 
             if (!isNewDistribution) {
@@ -8624,6 +8956,7 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             console.log(`[ROOM_SUPPORT] Awarded user ${uid}: Level ${winningReward.level} ${winningReward.role} reward of ${winningReward.amount} coins.`);
         } catch (err) {
             console.error(`[ROOM_SUPPORT] Error distributing reward to user ${uid}:`, err);
+            failedCount++;
             // Log failure to salary_failed_transactions so admin can inspect and resolve safely
             try {
                 const failedDocId = `failed_${winningReward.weekId}_${uid}`;
@@ -8649,42 +8982,30 @@ async function executeRoomSupportRewardDistribution(options = {}) {
         }
     }
 
-    // MANDATORY AUTO-RESET: Clean up any remaining partner documents for processed rooms so active Salary List disappears immediately post-distribution
-    for (const roomId of processedRooms) {
-        try {
-            const remainingPartners = await db.collection("room_support_cycles").doc(roomId).collection("partners").get();
-            if (!remainingPartners.empty) {
-                const cleanupBatch = db.batch();
-                remainingPartners.docs.forEach(pDoc => {
-                    cleanupBatch.delete(pDoc.ref);
+    // Complete each room only after all planned recipients have an idempotent
+    // reward record. Failed recipients keep the durable plan and stay retryable.
+    for (const { ref, roomId, weekId, plan } of processedWeeks.values()) {
+        await db.runTransaction(async transaction => {
+            const week = await transaction.get(ref);
+            if (week.data()?.distributionStatus !== "pending" || plan.length === 0) return;
+            const rewards = await Promise.all(plan.map(reward => transaction.get(
+                db.collection("room_support_rewards").doc(`reward_${weekId}_${reward.uid}`)
+            )));
+            if (rewards.some(reward => !reward.exists)) return;
+            const partners = await transaction.get(db.collection("room_support_cycles").doc(roomId).collection("partners"));
+            transaction.update(ref, { distributionStatus: "distributed", distributedAt: FieldValue.serverTimestamp() });
+            for (const partner of partners.docs) {
+                if (!isRoomSupportPartnerForWeek(partner.data(), weekId)) continue;
+                transaction.set(ref.collection("archived_partners").doc(partner.id), {
+                    ...partner.data(), status: "completed", archivedAt: FieldValue.serverTimestamp()
                 });
-                await cleanupBatch.commit();
-                console.log(`[ROOM_SUPPORT] Auto-reset: cleared ${remainingPartners.size} partner documents from room ${roomId} for next cycle.`);
+                transaction.delete(partner.ref);
             }
-        } catch (cleanupErr) {
-            console.error(`[ROOM_SUPPORT] Error during post-payout partner reset for room ${roomId}:`, cleanupErr);
-        }
-    }
-
-    // Comprehensive cycle cleanup: ensure no orphaned partner docs from this or previous cycles linger anywhere
-    try {
-        const lingeringPartnersSnap = await db.collectionGroup("partners").get();
-        if (!lingeringPartnersSnap.empty) {
-            console.log(`[ROOM_SUPPORT] Comprehensive cleanup: found ${lingeringPartnersSnap.size} partner documents across cycles.`);
-            for (let i = 0; i < lingeringPartnersSnap.docs.length; i += 500) {
-                const batch = db.batch();
-                const chunk = lingeringPartnersSnap.docs.slice(i, i + 500);
-                chunk.forEach(pDoc => batch.delete(pDoc.ref));
-                await batch.commit();
-            }
-            console.log(`[ROOM_SUPPORT] Comprehensive cleanup complete.`);
-        }
-    } catch (cleanupAllErr) {
-        console.warn(`[ROOM_SUPPORT] Comprehensive partner cleanup warning:`, cleanupAllErr);
+        });
     }
 
     console.log(`[ROOM_SUPPORT] Completed Wednesday reward distribution: ${distributedCount} rewards sent.`);
-    return { success: true, distributedCount };
+    return { success: failedCount === 0, distributedCount, failedCount };
 }
 
 /** Auto distribute rewards (Wednesday 06:00 AM Bangladesh Time / 05:30 AM India Time / 00:00 UTC) with Rule 3 expiration and Rule 5 one-reward-per-user enforcement */
@@ -8692,11 +9013,14 @@ exports.distributeRoomSupportRewards = functions.pubsub.schedule('0 6 * * 3').ti
     await executeRoomSupportRewardDistribution();
 });
 
+exports.executeRoomSupportRewardDistribution = executeRoomSupportRewardDistribution;
+
 /** Callable endpoint to trigger Wednesday Room Support salary distribution */
 exports.processRoomSupportSalary = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new HttpsError("unauthenticated", "Authentication required.");
-    const isBypass = (data && (data.bypassDayCheck === true || data.testing === true));
-    return await executeRoomSupportRewardDistribution({ bypassDayCheck: isBypass, testing: isBypass });
+    if (!(await isUserAdmin(context.auth.uid))) throw new HttpsError("permission-denied", "Admin permissions required.");
+    // Client testing flags never bypass the authoritative production schedule.
+    return await executeRoomSupportRewardDistribution();
 });
 
 /** Admin endpoint to retry a failed salary payout safely and idempotently */
@@ -8721,13 +9045,21 @@ exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) =
     const deterministicRewardId = `reward_${weekId}_${uid}`;
 
     await db.runTransaction(async (transaction) => {
+        const currentFailure = await transaction.get(failedRef);
+        if (!currentFailure.exists || currentFailure.data().resolved) return;
+        const currentRecord = currentFailure.data();
+        if (currentRecord.uid !== uid || currentRecord.weekId !== weekId || currentRecord.amount !== amount) {
+            throw new HttpsError("aborted", "Salary failure record changed. Retry the request.");
+        }
+        if (!Number.isSafeInteger(amount) || amount <= 0) throw new HttpsError("failed-precondition", "Invalid salary amount.");
         const rewardRef = db.collection("room_support_rewards").doc(deterministicRewardId);
         const rewardSnap = await transaction.get(rewardRef);
 
         if (!rewardSnap.exists) {
             const userRef = db.collection("users").doc(uid);
             const userSnap = await transaction.get(userRef);
-            if (userSnap.exists) {
+            if (!userSnap.exists) throw new HttpsError("not-found", "Salary recipient no longer exists.");
+            {
                 transaction.update(userRef, {
                     diamondBalance: FieldValue.increment(amount),
                     updatedAt: FieldValue.serverTimestamp()
@@ -8748,10 +9080,16 @@ exports.retryFailedSalaryPayout = functions.https.onCall(async (data, context) =
                 status: "success",
                 retriedByAdmin: context.auth.uid
             });
+            transaction.set(userRef.collection("transactions").doc(deterministicRewardId), {
+                type: "reward", category: "room_support_salary", action: "room_support_salary",
+                amount, role, level, roomId, weekId,
+                description: `Official Weekly Room ${role === "partner" ? "Partner" : "Owner"} Salary Reward (Room ${roomId}, Level ${level})`,
+                timestamp: FieldValue.serverTimestamp()
+            });
         }
 
         const salaryTxRef = db.collection("salary_transactions").doc(deterministicRewardId);
-        transaction.set(salaryTxRef, {
+        if (!rewardSnap.exists) transaction.set(salaryTxRef, {
             transactionId: deterministicRewardId,
             roomId,
             roomName: roomName || ("Room #" + roomId),
@@ -8785,17 +9123,28 @@ exports.cleanupCompletedRoomSupportPartners = functions.https.onCall(async (data
     const isStaff = await isUserAdmin(context.auth.uid);
     if (!isStaff) throw new HttpsError("permission-denied", "Admin permissions required.");
 
-    const lingeringPartnersSnap = await db.collectionGroup("partners").get();
-    let deletedCount = 0;
-    if (!lingeringPartnersSnap.empty) {
-        for (let i = 0; i < lingeringPartnersSnap.docs.length; i += 500) {
-            const batch = db.batch();
-            const chunk = lingeringPartnersSnap.docs.slice(i, i + 500);
-            chunk.forEach(pDoc => batch.delete(pDoc.ref));
-            await batch.commit();
-            deletedCount += chunk.length;
-        }
+    // Restrict cleanup to a known completed salary week. Never sweep unrelated
+    // collections named partners or assignments for an active/future cycle.
+    const { roomId, weekId } = data || {};
+    if (typeof roomId !== "string" || roomId.includes("/") || typeof weekId !== "string" || weekId.includes("/")) {
+        throw new HttpsError("invalid-argument", "roomId and weekId are required.");
     }
+    const deletedCount = await db.runTransaction(async transaction => {
+        const weekRef = db.collection("room_support_history").doc(roomId).collection("weeks").doc(weekId);
+        const week = await transaction.get(weekRef);
+        if (week.data()?.distributionStatus !== "distributed") throw new HttpsError("failed-precondition", "Salary week is not completed.");
+        const partners = await transaction.get(db.collection("room_support_cycles").doc(roomId).collection("partners"));
+        let count = 0;
+        for (const partner of partners.docs) {
+            if (!isRoomSupportPartnerForWeek(partner.data(), weekId)) continue;
+            transaction.set(weekRef.collection("archived_partners").doc(partner.id), {
+                ...partner.data(), archivedAt: FieldValue.serverTimestamp()
+            });
+            transaction.delete(partner.ref);
+            count++;
+        }
+        return count;
+    });
     return { success: true, deletedCount };
 });
 
@@ -9394,8 +9743,8 @@ exports.refundVip = functions.https.onCall(async (data, context) => {
 exports.searchUsers = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
     const { query: searchQuery } = data;
-    if (!searchQuery || searchQuery.trim().length < 2) {
-        throw new functions.https.HttpsError("invalid-argument", "Search query must be at least 2 characters.");
+    if (!searchQuery || searchQuery.trim().length < 1) {
+        throw new functions.https.HttpsError("invalid-argument", "Search query cannot be empty.");
     }
 
     const q = searchQuery.trim().toLowerCase();
@@ -10943,8 +11292,8 @@ exports.scoreBattleTap = functions.https.onCall(async (data, context) => {
             battlePoints: FieldValue.increment(diamondAmount),
             diamondsGifted: FieldValue.increment(diamondAmount),
             updatedAt: FieldValue.serverTimestamp()
-        }, { merge: true });
-    });
+    }, { merge: true });
+});
 
     return { success: true, pointsAdded: diamondAmount };
 });
@@ -13017,7 +13366,7 @@ exports.listAgencies = functions.https.onCall(async (payload, context) => {
     }
 
     const snap = await agencyQuery.get();
-    const agencies = snap.docs.map(doc => {
+    const agencies = snap.docs.filter(doc => doc.data().status !== "removed").map(doc => {
         const d = doc.data();
         const hostUids = Array.isArray(d.hostUids) ? d.hostUids : [];
         return {
@@ -13064,6 +13413,9 @@ exports.getAgency = functions.https.onCall(async (payload, context) => {
     if (!agencySnap.exists) throw new HttpsError("not-found", "Agency not found.");
 
     const d = agencySnap.data();
+    if (d.status === "removed") {
+        throw new HttpsError("not-found", "Agency not found.");
+    }
     // Branch scoping: owner sees all; superadmin/admin see only their branch agency
     if (caller.role !== "owner" && d.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
@@ -13130,12 +13482,26 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("permission-denied", "Only Staff (admin+) may appoint agencies.");
     }
 
-    const { name, ownerIdentifier, commissionRate, description, contactPhone, country } = request.data || {};
+    const {
+        name,
+        ownerIdentifier,
+        commissionRate,
+        description,
+        contactPhone,
+        country,
+        logoUrl
+    } = request.data || {};
     if (!name || !String(name).trim()) {
         throw new HttpsError("invalid-argument", "Agency name is required.");
     }
     if (!ownerIdentifier) {
         throw new HttpsError("invalid-argument", "Owner user ID or Hello ID is required.");
+    }
+    const cleanLogoUrl = String(logoUrl || "").trim();
+    if (cleanLogoUrl &&
+        (cleanLogoUrl.length > 2048 || !/^https:\/\//i.test(cleanLogoUrl))) {
+        throw new HttpsError("invalid-argument",
+            "Agency logo must be a valid HTTPS URL.");
     }
 
     const ownerDoc = await resolveUserDoc(ownerIdentifier);
@@ -13180,32 +13546,52 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
         superAdminId = adminData.superAdminId || null;
     }
 
-    // Check if this user is already an agency owner
-    const existingAgencySnap = await db.collection("agencies").where("ownerUid", "==", ownerUid).limit(1).get();
-    if (!existingAgencySnap.empty) {
-        throw new HttpsError("failed-precondition", `User "${ownerData.displayName || ownerUid}" is already the owner of agency "${existingAgencySnap.docs[0].data().name}".`);
-    }
-
     const agencyRef = db.collection("agencies").doc();
     const agencyId = agencyRef.id;
     const now = FieldValue.serverTimestamp();
     const rate = Number(commissionRate);
     const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : 0.1;
-    let agencyCode = reusableRoleCode(ownerData.roleCode, "agency");
+    let agencyCode = null;
 
     await db.runTransaction(async (transaction) => {
+        // Re-read every document/query that controls this multi-document write.
+        // This prevents concurrent appointments from creating two agencies for
+        // the same owner or promoting a user whose role changed mid-request.
+        const freshOwnerSnap = await transaction.get(ownerDoc.ref);
+        if (!freshOwnerSnap.exists) {
+            throw new HttpsError("not-found", "Agency owner user not found.");
+        }
+        const freshOwnerData = freshOwnerSnap.data();
+        const freshOwnerTier = normalizeTier(freshOwnerData);
+        if (["owner", "superadmin", "admin"].includes(freshOwnerTier)) {
+            throw new HttpsError("failed-precondition",
+                `Cannot appoint user with tier "${freshOwnerTier}" as agency owner.`);
+        }
+        const existingAgencySnap = await transaction.get(
+            db.collection("agencies")
+                .where("ownerUid", "==", ownerUid)
+                .limit(1)
+        );
+        if (!existingAgencySnap.empty || freshOwnerData.isAgencyOwner === true ||
+            freshOwnerData.agencyId) {
+            throw new HttpsError("failed-precondition",
+                `User "${freshOwnerData.displayName || ownerUid}" already owns an agency.`);
+        }
+
+        agencyCode = reusableRoleCode(freshOwnerData.roleCode, "agency");
         if (!agencyCode) agencyCode = await allocateRoleCodeTx(transaction, "agency");
 
         transaction.set(agencyRef, {
             id: agencyId,
             name: String(name).trim(),
             ownerUid: ownerUid,
-            ownerName: ownerData.displayName || "User",
-            ownerHelloId: ownerData.helloId || null,
+            ownerName: freshOwnerData.displayName || "User",
+            ownerHelloId: freshOwnerData.helloId || null,
             code: agencyCode,
             adminId: adminId,
             branchId: branchId || null,
             superAdminId: superAdminId || null,
+            logoUrl: cleanLogoUrl,
             description: String(description || "").trim(),
             contactPhone: String(contactPhone || "").trim(),
             country: String(country || "").trim(),
@@ -13223,7 +13609,10 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
 
         transaction.update(ownerDoc.ref, {
             role: "agency",
-            previousRole: ownerData.role || "user",
+            previousRole: freshOwnerData.role || "user",
+            previousTags: Array.isArray(freshOwnerData.tags)
+                ? freshOwnerData.tags
+                : [],
             isAgencyOwner: true,
             agencyId: agencyId,
             roleCode: agencyCode,
@@ -13241,7 +13630,14 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
             actorRole: caller.role,
             action: "CREATE_AGENCY",
             targetId: agencyId,
-            details: { name, ownerUid, ownerName: ownerData.displayName, commissionRate: finalCommission, adminId, roleCode: agencyCode },
+            details: {
+                name,
+                ownerUid,
+                ownerName: freshOwnerData.displayName || null,
+                commissionRate: finalCommission,
+                adminId,
+                roleCode: agencyCode
+            },
             timestamp: now
         });
     });
@@ -13257,7 +13653,15 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
     const uid = requireAuth(request);
     const caller = await loadHierarchy(uid);
 
-    const { agencyId, name, description, commissionRate, contactPhone, country } = request.data || {};
+    const {
+        agencyId,
+        name,
+        description,
+        commissionRate,
+        contactPhone,
+        country,
+        logoUrl
+    } = request.data || {};
     if (!agencyId) throw new HttpsError("invalid-argument", "agencyId required.");
 
     const agencyRef = db.collection("agencies").doc(agencyId);
@@ -13301,6 +13705,15 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
     if (description !== undefined) updates.description = String(description).trim();
     if (contactPhone !== undefined) updates.contactPhone = String(contactPhone).trim();
     if (country !== undefined) updates.country = String(country).trim();
+    if (logoUrl !== undefined) {
+        const cleanLogoUrl = String(logoUrl || "").trim();
+        if (cleanLogoUrl &&
+            (cleanLogoUrl.length > 2048 || !/^https:\/\//i.test(cleanLogoUrl))) {
+            throw new HttpsError("invalid-argument",
+                "Agency logo must be a valid HTTPS URL.");
+        }
+        updates.logoUrl = cleanLogoUrl;
+    }
 
     // Staff-only allowed fields:
     if (isStaff) {
@@ -13311,14 +13724,30 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
         }
     }
 
-    await agencyRef.update(updates);
-    await db.collection("audit_logs").add({
-        actorUid: uid,
-        actorRole: caller.role,
-        action: "UPDATE_AGENCY",
-        targetId: agencyId,
-        details: updates,
-        timestamp: FieldValue.serverTimestamp()
+    await db.runTransaction(async (transaction) => {
+        const currentAgency = await transaction.get(agencyRef);
+        if (!currentAgency.exists || currentAgency.data().status === "removed") {
+            throw new HttpsError("not-found", "Agency not found.");
+        }
+        if (caller.role !== "owner" &&
+            currentAgency.data().branchId !== caller.branchId) {
+            throw new HttpsError("permission-denied",
+                "Agency not in your branch scope.");
+        }
+
+        transaction.update(agencyRef, updates);
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "UPDATE_AGENCY",
+            targetId: agencyId,
+            details: {
+                changedFields: Object.keys(updates).filter(k => k !== "updatedAt")
+            },
+            timestamp: FieldValue.serverTimestamp()
+        });
     });
 
     return { success: true, agencyId };
@@ -13349,6 +13778,7 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
     if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
     }
+    const isActive = status === "active";
 
     await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(agencyRef);
@@ -13406,7 +13836,133 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
 });
 
 /**
- * 6. addHost - link a host to an agency
+ * 6. removeAgency - soft-remove an agency and atomically release its owner/hosts.
+ *
+ * The record is retained for audit and payout history, but it disappears from
+ * management lists and can no longer be opened or reactivated.
+ */
+exports.removeAgency = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const uid = requireAuth(request);
+    const caller = await loadHierarchy(uid);
+    if (!["owner", "superadmin", "admin"].includes(caller.role)) {
+        throw new HttpsError("permission-denied", "Staff permissions required.");
+    }
+
+    const { agencyId, reason } = request.data || {};
+    if (!agencyId || !String(agencyId).trim()) {
+        throw new HttpsError("invalid-argument", "agencyId is required.");
+    }
+    const safeReason = String(reason || "").trim().slice(0, 300);
+    const agencyRef = db.collection("agencies").doc(String(agencyId).trim());
+    let removedOwnerUid = null;
+
+    await db.runTransaction(async (transaction) => {
+        const agencySnap = await transaction.get(agencyRef);
+        if (!agencySnap.exists || agencySnap.data().status === "removed") {
+            throw new HttpsError("not-found", "Agency not found.");
+        }
+        const agency = agencySnap.data();
+        if (caller.role !== "owner" && agency.branchId !== caller.branchId) {
+            throw new HttpsError("permission-denied",
+                "Agency not in your branch scope.");
+        }
+
+        const hostUids = [...new Set(
+            (Array.isArray(agency.hostUids) ? agency.hostUids : [])
+                .map(value => String(value || "").trim())
+                .filter(Boolean)
+        )];
+        if (hostUids.length > 400) {
+            throw new HttpsError("failed-precondition",
+                "Release agency hosts before removal (maximum 400 linked hosts).");
+        }
+
+        const ownerRef = agency.ownerUid
+            ? db.collection("users").doc(agency.ownerUid)
+            : null;
+        const hostRefs = hostUids.map(hostUid =>
+            db.collection("users").doc(hostUid));
+
+        // Firestore transactions require all reads before any writes.
+        const ownerSnap = ownerRef ? await transaction.get(ownerRef) : null;
+        const hostSnaps = await Promise.all(
+            hostRefs.map(ref => transaction.get(ref)));
+        const now = FieldValue.serverTimestamp();
+
+        transaction.update(agencyRef, {
+            isActive: false,
+            status: "removed",
+            hostUids: [],
+            hostCount: 0,
+            removedAt: now,
+            removedBy: uid,
+            removalReason: safeReason || null,
+            updatedAt: now
+        });
+
+        if (ownerRef && ownerSnap && ownerSnap.exists) {
+            removedOwnerUid = ownerRef.id;
+            const owner = ownerSnap.data();
+            const restoredTags = Array.isArray(owner.previousTags)
+                ? owner.previousTags
+                : (Array.isArray(owner.tags)
+                    ? owner.tags.filter(tag => tag !== "Agency")
+                    : []);
+            transaction.update(ownerRef, {
+                role: owner.previousRole || "user",
+                tags: restoredTags,
+                isAgencyOwner: false,
+                agencyId: null,
+                adminId: null,
+                branchId: null,
+                superAdminId: null,
+                previousRole: FieldValue.delete(),
+                previousTags: FieldValue.delete(),
+                roleUpdatedAt: now
+            });
+        }
+
+        for (let i = 0; i < hostRefs.length; i += 1) {
+            if (!hostSnaps[i].exists ||
+                hostSnaps[i].data().agencyId !== agencyRef.id) continue;
+            transaction.update(hostRefs[i], {
+                agencyId: null,
+                assignedAt: null,
+                roleUpdatedAt: now
+            });
+        }
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: uid,
+            actorRole: caller.role,
+            action: "REMOVE_AGENCY",
+            targetId: agencyRef.id,
+            details: {
+                agencyName: agency.name || "",
+                ownerUid: agency.ownerUid || null,
+                releasedHosts: hostUids.length,
+                reason: safeReason || null
+            },
+            timestamp: now
+        });
+    });
+
+    if (removedOwnerUid) {
+        await admin.auth().setCustomUserClaims(removedOwnerUid, {})
+            .catch(err => console.warn(
+                "[removeAgency] Custom claims warning:", err.message));
+        await admin.auth().revokeRefreshTokens(removedOwnerUid)
+            .catch(err => console.warn(
+                "[removeAgency] Token revocation warning:", err.message));
+    }
+    return { success: true, agencyId: agencyRef.id, status: "removed" };
+});
+
+/**
+ * 7. addHost - link a host to an agency
  */
 exports.addHost = functions.https.onCall(async (payload, context) => {
     const request = { data: payload, auth: context.auth };
@@ -14639,10 +15195,30 @@ exports.checkRoleAndExpiredFrames = functions.https.onCall(async (data, context)
 exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     const senderUid = context.auth.uid;
-    const { roomId, totalDiamonds, winnerCount, message } = data;
+    const { roomId, totalDiamonds, winnerCount, message } = data || {};
+    if (typeof roomId !== "string" || !roomId.trim()) {
+        throw new functions.https.HttpsError("invalid-argument", "A valid room is required.");
+    }
+    const mode = data.mode;
+    if (mode !== "instant" && mode !== "scheduled") {
+        throw new functions.https.HttpsError("invalid-argument", "Lucky Bag mode must be instant or scheduled.");
+    }
+    const scheduleMinutes = mode === "scheduled" ? Number(data.scheduleMinutes) : 0;
+    if (mode === "scheduled" && ![5, 10].includes(scheduleMinutes)) {
+        throw new functions.https.HttpsError("invalid-argument", "Scheduled Lucky Bags support only 5 or 10 minutes.");
+    }
 
-    const amount = Math.max(1000, parseInt(totalDiamonds) || 50000);
-    const winners = Math.max(1, parseInt(winnerCount) || 10);
+    const amount = Number(totalDiamonds);
+    const winners = Number(winnerCount);
+    if (!Number.isSafeInteger(amount) || amount < 2000 || amount > 2000000) {
+        throw new functions.https.HttpsError("invalid-argument", "Lucky Bag amount must be an integer from 2,000 to 2,000,000 Diamonds.");
+    }
+    if (![10, 20, 40, 100].includes(winners) || winners > amount) {
+        throw new functions.https.HttpsError("invalid-argument", "Winner count must be 10, 20, 40, or 100 and cannot exceed the Diamond amount.");
+    }
+    const safeMessage = typeof message === "string" && message.trim().length > 0
+        ? message.trim().slice(0, 28)
+        : "Join and claim your Lucky Bag!";
 
     return await db.runTransaction(async (transaction) => {
         const senderRef = db.collection("users").doc(senderUid);
@@ -14654,6 +15230,7 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
         ]);
 
         if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender user profile not found.");
+        if (!roomDoc.exists) throw new functions.https.HttpsError("not-found", "The selected room no longer exists.");
         const currentBalance = senderDoc.data().diamondBalance || 0;
         if (currentBalance < amount) {
             throw new functions.https.HttpsError("failed-precondition", `Insufficient Diamond balance. Available: ${currentBalance}`);
@@ -14665,8 +15242,10 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
         const rewardPool = [];
 
         for (let i = 0; i < winners - 1; i++) {
-            const maxAllocation = (remainingAmount / remainingWinners) * 2;
-            const slice = Math.max(1, Math.floor(Math.random() * maxAllocation));
+            const doubleAverage = Math.floor((remainingAmount / remainingWinners) * 2);
+            const maxSafeAllocation = remainingAmount - (remainingWinners - 1);
+            const upperBound = Math.max(1, Math.min(doubleAverage, maxSafeAllocation));
+            const slice = 1 + Math.floor(Math.random() * upperBound);
             rewardPool.push(slice);
             remainingAmount -= slice;
             remainingWinners--;
@@ -14686,6 +15265,9 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
         const bagRef = db.collection("lucky_bags").doc();
         const roomName = roomDoc.exists ? (roomDoc.data().name || "Live Room") : "Live Room";
         const senderName = senderDoc.data().displayName || senderDoc.data().username || "User";
+        const nowMs = Date.now();
+        const opensAtMs = nowMs + scheduleMinutes * 60 * 1000 + 10000;
+        const claimExpiresAtMs = opensAtMs + 5 * 60 * 1000;
 
         transaction.set(bagRef, {
             bagId: bagRef.id,
@@ -14700,8 +15282,12 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
             rewardPool,
             claimedUids: [],
             claims: [],
-            message: message || "Join and claim your Lucky Bag!",
+            message: safeMessage,
             status: "active",
+            mode,
+            scheduleMinutes,
+            opensAt: Timestamp.fromMillis(opensAtMs),
+            expiresAt: Timestamp.fromMillis(claimExpiresAtMs),
             createdAt: FieldValue.serverTimestamp()
         });
 
@@ -14714,7 +15300,10 @@ exports.sendLuckyBag = functions.https.onCall(async (data, context) => {
             title: "🎉 Lucky Bag Drop!",
             message: `🎉 ${senderName} sent a Lucky Bag (${amount.toLocaleString()} 💎) in ${roomName}! Tap to Join & Claim Now!`,
             senderName,
+            senderAvatar: senderDoc.data().profilePhotoUrl || "",
+            roomName,
             totalDiamonds: amount,
+            expiresAt: Timestamp.fromMillis(nowMs + 5000),
             createdAt: FieldValue.serverTimestamp()
         });
 
@@ -14742,9 +15331,19 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
         ]);
 
         if (!bagDoc.exists) throw new functions.https.HttpsError("not-found", "Lucky Bag expired or not found.");
+        if (!claimantDoc.exists) throw new functions.https.HttpsError("not-found", "Claimant user profile not found.");
         const bagData = bagDoc.data();
 
-        if (bagData.status !== "active" || bagData.rewardPool.length === 0) {
+        const nowMs = Date.now();
+        const opensAtMs = bagData.opensAt?.toMillis ? bagData.opensAt.toMillis() : 0;
+        const expiresAtMs = bagData.expiresAt?.toMillis ? bagData.expiresAt.toMillis() : Number.MAX_SAFE_INTEGER;
+        if (nowMs < opensAtMs) {
+            throw new functions.https.HttpsError("failed-precondition", "This Lucky Bag is not open yet.");
+        }
+        if (nowMs >= expiresAtMs) {
+            throw new functions.https.HttpsError("failed-precondition", "This Lucky Bag has expired.");
+        }
+        if (bagData.status !== "active" || !Array.isArray(bagData.rewardPool) || bagData.rewardPool.length === 0) {
             throw new functions.https.HttpsError("failed-precondition", "This Lucky Bag is fully claimed!");
         }
 
@@ -14756,6 +15355,9 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
         // Draw next random slice from reward pool
         const rewardPool = [...bagData.rewardPool];
         const rewardDiamonds = rewardPool.pop();
+        if (!Number.isSafeInteger(rewardDiamonds) || rewardDiamonds <= 0) {
+            throw new functions.https.HttpsError("data-loss", "Lucky Bag reward data is invalid.");
+        }
 
         // Update Claimant Diamond Balance
         transaction.update(claimantRef, {
@@ -14781,6 +15383,26 @@ exports.claimLuckyBag = functions.https.onCall(async (data, context) => {
 
         return { success: true, rewardDiamonds, isDepleted };
     });
+});
+
+/** Closes expired, unclaimed bags from the server even when no client is open. */
+exports.closeExpiredLuckyBags = functions.pubsub.schedule("every 1 minutes").onRun(async () => {
+    const expired = await db.collection("lucky_bags")
+        .where("expiresAt", "<=", Timestamp.now())
+        .limit(400)
+        .get();
+    const active = expired.docs.filter((doc) => doc.get("status") === "active");
+    if (active.length === 0) return null;
+    const batch = db.batch();
+    for (const doc of active) {
+        batch.update(doc.ref, {
+            status: "expired",
+            closedAt: FieldValue.serverTimestamp()
+        });
+    }
+    await batch.commit();
+    console.log(`[LUCKY_BAG] Closed ${active.length} expired bags.`);
+    return null;
 });
 
 /* ==========================================================================

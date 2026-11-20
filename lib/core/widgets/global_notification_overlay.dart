@@ -1,11 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:go_router/go_router.dart';
-import 'package:gap/gap.dart';
+import '../constants/new_assets_constants.dart';
 import '../providers/auth_provider.dart';
-import '../router/app_router.dart';
+import '../widgets/premium_diamond.dart';
+import '../widgets/svga_player.dart';
 import 'package:hello_chat/core/utils/room_navigation_helper.dart';
+
+final _dismissedGlobalNotificationIdProvider =
+    StateProvider<String?>((ref) => null);
 
 class GlobalNotificationOverlay extends ConsumerWidget {
   final Widget child;
@@ -14,6 +19,7 @@ class GlobalNotificationOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authStateProvider).value;
+    final dismissedId = ref.watch(_dismissedGlobalNotificationIdProvider);
 
     return Stack(
       children: [
@@ -35,15 +41,23 @@ class GlobalNotificationOverlay extends ConsumerWidget {
                 }
 
                 final doc = snapshot.data!.docs.first;
+                if (doc.id == dismissedId) {
+                  return const SizedBox.shrink();
+                }
                 final data = doc.data() as Map<String, dynamic>;
                 final createdAt = (data['createdAt'] as Timestamp?)?.toDate();
 
-                // Auto-dismiss banners older than 12 seconds
-                if (createdAt != null && DateTime.now().difference(createdAt).inSeconds > 12) {
+                final expiresAt = (data['expiresAt'] as Timestamp?)?.toDate() ??
+                    createdAt?.add(const Duration(seconds: 5));
+                if (expiresAt != null && !expiresAt.isAfter(DateTime.now())) {
                   return const SizedBox.shrink();
                 }
 
-                return _GlobalLuckyBagBanner(doc: doc, data: data);
+                return _GlobalLuckyBagBanner(
+                  key: ValueKey(doc.id),
+                  doc: doc,
+                  data: data,
+                );
               },
             ),
           ),
@@ -52,210 +66,214 @@ class GlobalNotificationOverlay extends ConsumerWidget {
   }
 }
 
-class _GlobalLuckyBagBanner extends ConsumerWidget {
+class _GlobalLuckyBagBanner extends ConsumerStatefulWidget {
   final QueryDocumentSnapshot doc;
   final Map<String, dynamic> data;
 
-  const _GlobalLuckyBagBanner({required this.doc, required this.data});
+  const _GlobalLuckyBagBanner({
+    super.key,
+    required this.doc,
+    required this.data,
+  });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_GlobalLuckyBagBanner> createState() =>
+      _GlobalLuckyBagBannerState();
+}
+
+class _GlobalLuckyBagBannerState extends ConsumerState<_GlobalLuckyBagBanner> {
+  Timer? _expiryTimer;
+  bool _visible = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final createdAt = (widget.data['createdAt'] as Timestamp?)?.toDate();
+    final expiresAt = (widget.data['expiresAt'] as Timestamp?)?.toDate() ??
+        createdAt?.add(const Duration(seconds: 5));
+    final remaining =
+        expiresAt?.difference(DateTime.now()) ?? const Duration(seconds: 5);
+    if (remaining <= Duration.zero) {
+      _visible = false;
+    } else {
+      _expiryTimer = Timer(remaining, () {
+        if (mounted) setState(() => _visible = false);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _expiryTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = widget.data;
+    if (!_visible) return const SizedBox.shrink();
+    final senderAvatar = data['senderAvatar'] as String? ?? '';
+    final roomName = data['roomName'] as String? ?? '';
+    final title = (data['title'] as String?)?.trim().isNotEmpty == true
+        ? data['title'] as String
+        : 'Lucky Bag Dropped!';
+    final totalDiamonds = data['totalDiamonds'] ?? data['diamonds'] ?? 0;
     final roomId = data['roomId'] as String? ?? '';
-    final message = data['message'] as String? ?? '🎉 A Lucky Bag was dropped! Join & Claim Now!';
 
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFD81B60), Color(0xFF8E24AA)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    // Native SVGA Canvas: 720 x 220
+    return Dismissible(
+      key: Key(widget.doc.id),
+      direction: DismissDirection.up,
+      onDismissed: (_) {
+        ref.read(_dismissedGlobalNotificationIdProvider.notifier).state =
+            widget.doc.id;
+      },
+      child: GestureDetector(
+        onTap: () {
+          ref.read(_dismissedGlobalNotificationIdProvider.notifier).state =
+              widget.doc.id;
+          if (roomId.isNotEmpty) {
+            RoomNavigationHelper.joinRoom(context, ref, roomId);
+          }
+        },
+        child: AspectRatio(
+          aspectRatio: 720 / 220,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final s = w / 720.0;
+
+              return Stack(
+                fit: StackFit.expand,
+                clipBehavior: Clip.none,
+                children: [
+                  // 1. Native Golden Red Envelope SVGA Banner
+                  const SvgaPlayer(
+                    assetPath: NewAssets.luckyBagBanner,
+                    fit: BoxFit.fill,
+                  ),
+
+                  // 2. Sender Avatar: native bbox (x=157.0, y=99.0, w=64.0, h=64.0)
+                  Positioned(
+                    left: 157.0 * s,
+                    top: 99.0 * s,
+                    width: 64.0 * s,
+                    height: 64.0 * s,
+                    child: ClipOval(
+                      child: senderAvatar.isNotEmpty
+                          ? Image.network(
+                              senderAvatar,
+                              width: 64.0 * s,
+                              height: 64.0 * s,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Icon(Icons.person,
+                                  color: Colors.white70, size: 32.0 * s),
+                            )
+                          : Icon(Icons.person,
+                              color: Colors.white70, size: 32.0 * s),
+                    ),
+                  ),
+
+                  // 3. Info Text Area: native bbox (x=230.0, y=92.0, w=345.0, h=75.0)
+                  Positioned(
+                    left: 230.0 * s,
+                    top: 92.0 * s,
+                    width: 345.0 * s,
+                    height: 75.0 * s,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 13.5 * s,
+                            shadows: const [
+                              Shadow(color: Colors.black87, blurRadius: 4)
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: 3.0 * s),
+                        Row(
+                          children: [
+                            PremiumDiamond(size: 13.0 * s),
+                            SizedBox(width: 4.0 * s),
+                            Text(
+                              '$totalDiamonds',
+                              style: TextStyle(
+                                color: const Color(0xFFFFD700),
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12.5 * s,
+                                shadows: const [
+                                  Shadow(color: Colors.black87, blurRadius: 4)
+                                ],
+                              ),
+                            ),
+                            if (roomName.isNotEmpty) ...[
+                              SizedBox(width: 6.0 * s),
+                              Expanded(
+                                child: Text(
+                                  '•  $roomName',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 10.5 * s,
+                                    fontWeight: FontWeight.w600,
+                                    shadows: const [
+                                      Shadow(
+                                          color: Colors.black87, blurRadius: 3)
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 4. "GRAB NOW" Action Tag (native button area: x=585, y=98, w=90, h=65)
+                  Positioned(
+                    left: 585.0 * s,
+                    top: 106.0 * s,
+                    width: 90.0 * s,
+                    height: 50.0 * s,
+                    child: Center(
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: 8.0 * s, vertical: 4.0 * s),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFD700),
+                          borderRadius: BorderRadius.circular(12.0 * s),
+                          boxShadow: const [
+                            BoxShadow(
+                                color: Colors.black45,
+                                blurRadius: 4,
+                                offset: Offset(0, 1.5)),
+                          ],
+                        ),
+                        child: Text(
+                          'GRAB',
+                          style: TextStyle(
+                            color: const Color(0xFFB71C1C),
+                            fontSize: 10.5 * s,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(color: Colors.pink.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 5)),
-          ],
-          border: Border.all(color: Colors.amberAccent, width: 1.5),
-        ),
-        child: Row(
-          children: [
-            const Text("🧧", style: TextStyle(fontSize: 26)),
-            const Gap(12),
-            Expanded(
-              child: Text(
-                message,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-              ),
-            ),
-            const Gap(10),
-            ElevatedButton(
-              onPressed: () {
-                if (roomId.isNotEmpty) {
-                  RoomNavigationHelper.joinRoom(context, ref, roomId);
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.amber,
-                foregroundColor: Colors.black,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              ),
-              child: const Text("Claim", style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RoomInvitationBanner extends ConsumerWidget {
-  final QueryDocumentSnapshot doc;
-  const _RoomInvitationBanner({required this.doc});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final data = doc.data() as Map<String, dynamic>;
-    final senderName = data['senderName'] ?? "A friend";
-    final roomName = data['roomName'] ?? "Live Room";
-    final roomId = data['roomId'];
-
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20, spreadRadius: 5),
-          ],
-          border: Border.all(color: Colors.indigo.withOpacity(0.5)),
-        ),
-        child: Row(
-          children: [
-            const CircleAvatar(
-              backgroundColor: Colors.indigo,
-              child: Icon(Icons.meeting_room_rounded, color: Colors.white),
-            ),
-            const Gap(12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "$senderName invited you",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                  Text(
-                    "to join $roomName",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const Gap(12),
-            // TextButton(
-            //   onPressed: () => doc.reference.update({'status': 'rejected'}),
-            //   child: const Text("Ignore", style: TextStyle(color: Colors.white54)),
-            // ),
-            ElevatedButton(
-              onPressed: () {
-                doc.reference.update({'status': 'accepted'});
-                RoomNavigationHelper.joinRoom(context, ref, roomId);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text("Join"),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PKInvitationBanner extends ConsumerWidget {
-  final QueryDocumentSnapshot doc;
-  const _PKInvitationBanner({required this.doc});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final data = doc.data() as Map<String, dynamic>;
-    final senderName = data['senderName'] ?? "Host";
-    final roomName = data['roomName'] ?? "Live Room";
-    final roomId = data['roomId'];
-
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(color: Colors.pinkAccent.withOpacity(0.3), blurRadius: 20, spreadRadius: 2),
-          ],
-          border: Border.all(color: Colors.pinkAccent.withOpacity(0.5), width: 1.5),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40, height: 40,
-              decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: [Colors.orange, Colors.pink])),
-              child: const Icon(Icons.flash_on_rounded, color: Colors.white, size: 24),
-            ),
-            const Gap(12),
-            Expanded(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    "$senderName challenges you!",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                  Text(
-                    "to a PK Battle in $roomName",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            const Gap(12),
-            TextButton(
-              onPressed: () => doc.reference.update({'status': 'rejected'}),
-              child: const Text("Decline", style: TextStyle(color: Colors.white54)),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                doc.reference.update({'status': 'accepted'});
-                RoomNavigationHelper.joinRoom(context, ref, roomId);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.pinkAccent,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text("Accept"),
-            ),
-          ],
         ),
       ),
     );

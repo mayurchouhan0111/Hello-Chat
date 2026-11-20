@@ -27,6 +27,17 @@ service firebase.storage {
       allow write: if isAuthenticated(); 
     }
 
+    // Room Chat & Media Content
+    match /chat_images/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    match /room_chat/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
     match /moments/{uid}/{allPaths=**} {
       allow read: if true;
       allow write: if isOwner(uid);

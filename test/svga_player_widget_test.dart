@@ -1,14 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:hello_chat/core/utils/svga_parser_util.dart';
+import 'package:svgaplayer_flutter/proto/svga.pb.dart';
 import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('SVGAAnimationController forward behavior test', (WidgetTester tester) async {
-    final movie = await SvgaParserUtil.decodeSafeFromAssets('assets/svga/cat_gift.svga');
-    expect(movie, isNotNull);
+    // Exercise controller timing independently of asset decoding and codecs.
+    final movie = MovieEntity()
+      ..version = '2.0'
+      ..params = (MovieParams()
+        ..viewBoxWidth = 100
+        ..viewBoxHeight = 100
+        ..fps = 30
+        ..frames = 60);
 
     late SVGAAnimationController controller;
     await tester.pumpWidget(
@@ -28,5 +34,7 @@ void main() {
     expect(controller.isAnimating, isTrue);
     await tester.pump(const Duration(milliseconds: 100));
     expect(controller.value, greaterThan(0.0));
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
   });
 }

@@ -7,6 +7,113 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-20 (Release APK Build & Lucky Bag Client Bottom Sheet Alignment)
+
+- **What Client Asked / Problem**:
+  1. Build a fresh release APK with all verified improvements across Room Owner seat, responsive seating, carpet visibility, room entry user information, and game icons.
+  2. Implement the Lucky Bag creation sheet to match the exact client-provided reference UI (`media_1795104275268_cb2cc1f4.jpg`).
+  3. Ensure universal food icon consistency across Greedy BIGO game, game records bottom sheet, and round player lists.
+
+- **What We Did**:
+  - **Lucky Bag Creation Bottom Sheet (`gift_panel.dart`)**:
+    - Replaced the two-step wizard with the luxury festive modal sheet matching client reference `media_1795104275268_cb2cc1f4.jpg`.
+    - Integrated top pink/rose header with live diamond balance badge, "Lucky Bag" title, and close button.
+    - Added "Gold Quantity" selector with 4 pills (`2000`, `20k`, `200k`, `2000k` with broadcast megaphone badges) and active rose-gradient highlights.
+    - Added "Number of people" selector (`10`, `20`, `40`, `100`).
+    - Added "Blessing" text field with "Within 28 Characters" placeholder and 28-character limit.
+    - Added "Available time" radio selectors for `Immediately` (10s countdown) and `180s` (3m schedule).
+    - Added full-width gradient "Send" button with error and insufficient-balance guards.
+  - **Firebase Cloud Functions (`functions/index.js`)**:
+    - Updated `sendLuckyBag` Cloud Function to accept `180s` (3 minutes) scheduled duration in addition to existing instant/scheduled modes.
+    - Successfully deployed `sendLuckyBag` to Firebase production backend.
+  - **Universal Food Icons (`spin_wheel_food_icon.dart`, `spin_wheel_screen.dart`)**:
+    - Unified food icon rendering between the Ferris Wheel, Result History, Round Players sheet, and Game Records "Selected Food & Stakes".
+    - Verified all 10 food items render uniformly across all screens and bottom sheets.
+  - **Release APK Generation**:
+    - Successfully built release APK: `releases/client-testing/HelloChat-client-test-release.apk` (762.8 MB).
+    - Computed SHA-256: `9205811419F7BC6C872C2D53DD2C86E2287FB444849F1BD00EFFC98A9A14B388`.
+    - Updated `releases/client-testing/SHA256SUMS.txt`.
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/gift_panel.dart`
+  - `lib/features/rooms/presentation/widgets/floating_lucky_bag_widget.dart`
+  - `lib/features/games/presentation/widgets/spin_wheel_food_icon.dart`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `functions/index.js`
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-19 (Night: Room Owner Seat, Entry Messages, Carpet Visibility, Game Winner Banner, Lucky Bag & 3D Game Icons)
+
+- **What Client Asked / Problem**:
+  1. **Room Owner Seat Design**: Remove the unnecessary empty space below the Room Owner's seat before the ID/Name appears. Position the Owner's ID and Name directly below the seat without gaps.
+  2. **Seat Position & Room Layout**: When the number of seats is increased, prevent seats from moving outside the visible display area.
+  3. **Room Entry User Information & Messages**: Display User Display ID, User Name, and User Level clearly on entry. Align entry notifications to reference images 5 & 6. Make regular chat messages smaller and well-organized.
+  4. **Mobile Display Compatibility & Carpet Visibility**: Ensure the Room Background and Carpet are fully visible on every mobile display without being cut off or obscured by dark overlays.
+  5. **Game Winning Banner Animation & Position**: Align the Game Winning Banner to the exact display position (`top: 75, left: 8, right: 8`) and animation (420 ms slide-from-right and fade, 4-second duration) of the Gift Sending Banner.
+  6. **Lucky Bag System Server Control**: Ensure Instant (10s opening, 5s global banner across all rooms) and Scheduled (5m/10m schedule, 10s countdown, 5s global banner) operate with server-side synchronization and automated closing.
+  7. **Premium 3D Game Icons**: Replace flat, ordinary food icons with high-quality, vibrant, 3D-shaded vector graphics matching the reference images (Hot dog with "Hot" badge, Skewer, Chicken drumstick, Steak, Carrot, Corn, Cabbage, Tomato, Salad bowl on golden pedestal, and Pizza on golden pedestal).
+
+- **What We Did**:
+  - **Room Owner Seat (`seat_grid.dart`)**:
+    - Reduced `RoomOwnerSeatPortrait` avatar box height from 114 to 74 with snug bounds, eliminating the 22-pixel empty gap.
+    - Attached the Owner's Name and Display ID badge directly below the seat avatar with a tight 2-pixel margin.
+    - Formatted Owner Name with crown icon and Display ID subtitle in a semi-transparent capsule with gold border.
+    - Streamlined `_buildHostSeat` in `live_room_screen.dart` with compact padding.
+  - **Seat Geometry & Responsive Layout (`seat_grid.dart`, `live_room_layout.dart`)**:
+    - Dynamically adjusted seat avatar radius, icon size, font size, and spacing for 8, 9, 10, 12, 13, and 16 capacities.
+    - Verified all seat rows fit cleanly inside the screen without overflowing or scrolling outside the visible room display area across all mobile aspect ratios.
+  - **Room Background & Carpet Visibility (`live_room_screen.dart`)**:
+    - Anchored room background images to `Alignment.bottomCenter` so stage floor, carpet, and landscape details are grounded and visible on all device aspect ratios.
+    - Softened bottom optical scrim gradient (alpha from 0.85 down to 0.45) so carpet and background details remain clearly visible beneath the chat area.
+  - **User Display ID & Entry Messages (`user_model.dart`, `chat_widget.dart`)**:
+    - Fixed `UserModel.displayId` to return the real `helloId` without awkward 10-zero padding (`0000239418` -> `239418`) and eliminated `"Pending..."` fallbacks.
+    - Restyled room entry notification into a sleek capsule matching reference images 5 & 6 (`media_1795104300154_5d2b18fb.jpg` & `media_1795104303574_dc50f963.jpg`), featuring user avatar, bold golden name, "enter the room" action, and clear `ID: [id] • Level [lvl]` subtitle.
+    - Tuned regular chat message font size to 11.5px with compact padding and wrapping to prevent clipping.
+  - **Game Winner Banner (`game_top_winner_banner.dart`)**:
+    - Passed real winner name and enabled `showName: true` on the Top-1 Game Winner Banner.
+    - Maintained synchronized 420 ms easeOut/easeIn slide-and-fade animation and 4-second visible lifecycle matching the Gift Sending Banner.
+  - **Premium 3D Vector Game Icons (`assets/games/icons/*.svg`)**:
+    - Generated 10 high-resolution, premium vector SVGs with 3D radial and linear gradients, glossy highlights, specular reflection curves, and ground shadows matching reference images 1 & 2:
+      * `hotdog.svg`: Toasted bun, grilled sausage with grill marks, mustard swirl, and red "Hot" badge.
+      * `skewer.svg`: Wooden skewer with grilled meat cubes, green pepper, and red tomato chunks.
+      * `chicken.svg`: Golden-brown roasted chicken drumstick with glaze highlights and white bone handle.
+      * `steak.svg`: Juicy cut of marbled beef with fat rim and bone detail.
+      * `carrot.svg`: Vibrant orange carrot with horizontal ridges and leafy emerald tops.
+      * `corn.svg`: Golden corn cob with individual kernel highlights and green outer husks.
+      * `cabbage.svg`: Crisp ruffled green cabbage with layered leaf veins.
+      * `tomato.svg`: Glossy spherical crimson tomato with green star calyx and glassy reflection highlight.
+      * `salad.svg`: White bowl on golden pedestal heaped with fresh greens, cucumbers, and tomatoes.
+      * `pizza.svg`: Golden pedestal with whole baked pizza, melted cheese, and pepperoni slices.
+  - **Automated Tests**:
+    - Ran `flutter test test/live_room_seat_geometry_test.dart`: 4/4 passed.
+    - Ran `flutter test test/client_seat_layout_acceptance_test.dart`: 400/400 passed across all themes, capacities, widths, and YouTube states.
+    - Ran `flutter test test/game_top_winner_event_banner_test.dart`: 2/2 passed.
+    - Ran `flutter test test/chat_combo_fold_test.dart`: 2/2 passed.
+    - Ran `flutter analyze`: 0 errors across all modified files.
+
+- **Files Touched**:
+  - `lib/core/models/user_model.dart`
+  - `lib/features/rooms/presentation/widgets/seat_grid.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/rooms/presentation/widgets/chat_widget.dart`
+  - `lib/features/games/presentation/widgets/game_top_winner_banner.dart`
+  - `scripts/generate_3d_food_icons.cjs`
+  - `assets/games/icons/hotdog.svg`
+  - `assets/games/icons/skewer.svg`
+  - `assets/games/icons/chicken.svg`
+  - `assets/games/icons/steak.svg`
+  - `assets/games/icons/carrot.svg`
+  - `assets/games/icons/corn.svg`
+  - `assets/games/icons/cabbage.svg`
+  - `assets/games/icons/tomato.svg`
+  - `assets/games/icons/salad.svg`
+  - `assets/games/icons/pizza.svg`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-11-19 (Afternoon: Release APK Build & Device Installation)
 
 - **What Client Asked / Problem**: "create the new apk relase with the new code and then install it in the conncetd device okay" — Build a fresh release APK with all recent code fixes (rocket center avatar, wheel & room updates, games hub, etc.) and install it on the connected device.

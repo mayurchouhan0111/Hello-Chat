@@ -81,8 +81,11 @@ class _SetPasswordScreenState extends ConsumerState<SetPasswordScreen> {
         if (Navigator.canPop(context)) {
           Navigator.pop(context);
         } else {
-          final user = FirebaseAuth.instance.currentUser;
-          if (user != null && (user.displayName == null || user.displayName!.isEmpty)) {
+          final profile = ref.read(currentUserProfileProvider).value;
+          final hasProfile = profile != null &&
+              ((profile.displayName.isNotEmpty && profile.displayName != 'New User') ||
+               profile.username.isNotEmpty);
+          if (!hasProfile) {
             context.go(AppRoutes.profileSetup);
           } else {
             context.go(AppRoutes.home);
@@ -207,8 +210,11 @@ class _SetPasswordScreenState extends ConsumerState<SetPasswordScreen> {
                 Center(
                   child: TextButton(
                     onPressed: () {
-                      final user = FirebaseAuth.instance.currentUser;
-                      if (user != null && (user.displayName == null || user.displayName!.isEmpty)) {
+                      final profile = ref.read(currentUserProfileProvider).value;
+                      final hasProfile = profile != null &&
+                          ((profile.displayName.isNotEmpty && profile.displayName != 'New User') ||
+                           profile.username.isNotEmpty);
+                      if (!hasProfile) {
                         context.go(AppRoutes.profileSetup);
                       } else {
                         context.go(AppRoutes.home);

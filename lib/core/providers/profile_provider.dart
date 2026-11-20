@@ -82,8 +82,11 @@ final currentUserProfileProvider = StreamProvider<UserModel?>((ref) {
   final authState = ref.watch(authStateProvider);
   final uid = authState.value?.uid;
   if (uid == null) return Stream.value(null);
-  
-  return ref.watch(profileServiceProvider).getProfileStream(uid);
+
+  // isSelf: true - the uid comes straight from authState, so this is always the
+  // full self doc. Never let getProfileStream re-derive that from
+  // FirebaseAuth.instance.currentUser (races the login flow).
+  return ref.watch(profileServiceProvider).getProfileStream(uid, isSelf: true);
 });
 
 final followersStreamProvider = StreamProvider.family<List<String>, String>((ref, uid) {

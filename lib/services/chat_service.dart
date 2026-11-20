@@ -3,6 +3,15 @@ import 'package:cloud_functions/cloud_functions.dart';
 import '../core/models/message_model.dart';
 
 class ChatService {
+  static String describePrivateSendError(Object error) {
+    final message = error.toString().replaceFirst('Exception: ', '');
+    if (message == 'You have blocked this user. Unblock them to send a message.' ||
+        message == 'You cannot send messages to this user.') {
+      return message;
+    }
+    return 'Message not sent. Check your connection and try again.';
+  }
+
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   // --- Room Messages (Existing) ---

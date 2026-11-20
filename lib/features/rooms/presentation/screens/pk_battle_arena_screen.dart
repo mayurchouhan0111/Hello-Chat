@@ -1,3 +1,4 @@
+import '../../../games/presentation/widgets/game_top_winner_banner.dart';
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -59,6 +60,7 @@ class PKBattleArenaScreen extends ConsumerWidget {
                     children: [
                       // 1. Top Header (Minimalist)
                       _buildHeader(context, ref, myUid),
+                      const GlobalWheelWinnerBanner(),
   
                       // 2. The Battle Scoreboard (Timer + Progress)
                       Padding(

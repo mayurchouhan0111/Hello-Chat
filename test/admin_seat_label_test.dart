@@ -12,7 +12,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('🏷️ Task 3: Admin Seat Label Badge Tests', () {
-    testWidgets('OccupiedSeatWidget displays Admin label for room admins',
+    testWidgets(
+        'OccupiedSeatWidget shows only the name and Diamonds for a seated admin',
         (WidgetTester tester) async {
       final adminParticipant = Participant(
         uid: 'admin_user_99',
@@ -23,6 +24,8 @@ void main() {
         isMuted: false,
         role: 'admin',
         isAdmin: true,
+        comboCount: 520,
+        diamondsReceived: 12345,
       );
 
       final dummyUser = UserModel(
@@ -132,7 +135,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Admin'), findsOneWidget);
+      expect(find.text('Admin'), findsNothing);
+      expect(find.text('x520'), findsNothing);
+      expect(find.text('12.3k'), findsOneWidget);
       expect(find.text('Room Admin User'), findsOneWidget);
     });
   });

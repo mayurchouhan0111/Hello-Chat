@@ -46,7 +46,10 @@ class AppToast {
 
     // Domain mappings for human-friendly English sentences
     if (lower.contains('insufficient') && (lower.contains('diamond') || lower.contains('balance'))) {
-      return 'Insufficient diamonds. Please recharge your wallet to proceed.';
+      return 'Insufficient diamonds. You need more diamonds to complete this purchase. Please recharge your diamonds.';
+    }
+    if (lower.contains('failed-precondition') && lower.contains('diamond')) {
+      return 'Insufficient diamonds. You need more diamonds to complete this purchase. Please recharge your diamonds.';
     }
     if (lower.contains('insufficient') && lower.contains('bean')) {
       return 'Insufficient beans. Please recharge or earn beans to proceed.';

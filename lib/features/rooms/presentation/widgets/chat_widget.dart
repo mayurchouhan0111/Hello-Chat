@@ -559,8 +559,8 @@ class RoomMessageTile extends ConsumerWidget {
                           msg.text,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
-                            height: 1.25,
+                            fontSize: 11.5,
+                            height: 1.2,
                           ),
                           softWrap: true,
                           overflow: TextOverflow.visible,
@@ -911,18 +911,20 @@ class RoomMessageTile extends ConsumerWidget {
 
   Widget _buildSimpleSystemMessage(String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFD700).withOpacity(0.12),
+        color: const Color(0x770B0E1B),
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white12, width: 0.5),
       ),
       child: Text(
         text,
         style: const TextStyle(
           color: Color(0xFFFFD54F),
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: FontWeight.w600,
+          height: 1.25,
         ),
       ),
     );
@@ -930,6 +932,9 @@ class RoomMessageTile extends ConsumerWidget {
 
   Widget _buildRichJoinMessage(UserModel user) {
     final allBadges = getBadgesForUser(user);
+    final displayId = user.displayId.isNotEmpty
+        ? user.displayId
+        : (user.helloId?.toString() ?? user.uid);
 
     final filteredBadges = allBadges.where((b) {
       if (b is UserBadge) {
@@ -943,11 +948,16 @@ class RoomMessageTile extends ConsumerWidget {
     }).toList();
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      constraints: const BoxConstraints(maxWidth: 300),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4.5),
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.25),
+        color: const Color(0x770B0E1B),
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white12, width: 0.5),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 1)),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -960,47 +970,64 @@ class RoomMessageTile extends ConsumerWidget {
             frameUrl: user.profileFrame,
             userLevel: user.level,
             tags: user.tags,
-            frameMultiplier: 2.0,
+            frameMultiplier: 1.8,
           ),
           const Gap(8),
           Flexible(
-            child: Wrap(
-              spacing: 4,
-              runSpacing: 2,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ...filteredBadges.map((badge) {
-                  if (badge is UserBadge) {
-                    return SizedBox(
-                      height: 18,
-                      child: FittedBox(
-                        fit: BoxFit.contain,
-                        child: UserBadge(
-                          label: badge.label,
-                          type: badge.type,
-                          icon: badge.icon,
-                          customFrameAsset: badge.customFrameAsset,
-                          margin: EdgeInsets.zero,
-                        ),
+                Wrap(
+                  spacing: 4,
+                  runSpacing: 2,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    ...filteredBadges.map((badge) {
+                      if (badge is UserBadge) {
+                        return SizedBox(
+                          height: 16,
+                          child: FittedBox(
+                            fit: BoxFit.contain,
+                            child: UserBadge(
+                              label: badge.label,
+                              type: badge.type,
+                              icon: badge.icon,
+                              customFrameAsset: badge.customFrameAsset,
+                              margin: EdgeInsets.zero,
+                            ),
+                          ),
+                        );
+                      }
+                      return badge;
+                    }),
+                    Text(
+                      user.displayName.isNotEmpty ? user.displayName : "User",
+                      style: const TextStyle(
+                        color: Color(0xFFFFD54F),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
                       ),
-                    );
-                  }
-                  return badge;
-                }),
-                Text(
-                  user.displayName.isNotEmpty ? user.displayName : "User",
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+                    ),
+                    const Text(
+                      "enter the room",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-                const Text(
-                  "entered ✨",
-                  style: TextStyle(
-                    color: Colors.white54,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
+                const SizedBox(height: 1.5),
+                Text(
+                  'ID: $displayId  •  Level ${user.level}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFFFE082),
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ],

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="carrot_body" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFA834" />
+      <stop offset="45%" stop-color="#FF6F00" />
+      <stop offset="80%" stop-color="#D64500" />
+      <stop offset="100%" stop-color="#8A2200" />
+    </radialGradient>
+    <radialGradient id="carrot_leaf" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#69E036" />
+      <stop offset="50%" stop-color="#2DA810" />
+      <stop offset="100%" stop-color="#145E03" />
+    </radialGradient>
+    <filter id="carrot_shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="62" cy="112" rx="46" ry="9" fill="#000000" opacity="0.25" filter="url(#carrot_shadow)"/>
+
+  <!-- Bushy Emerald Green Carrot Leaves -->
+  <g transform="translate(32, 42) rotate(-35)" filter="url(#carrot_shadow)">
+    <!-- Left frond -->
+    <path d="M 0,0 C -12,-16 -6,-34 -14,-46 C -2,-40 2,-26 2,0 Z" fill="url(#carrot_leaf)"/>
+    <!-- Center tall frond -->
+    <path d="M 0,0 C -4,-22 4,-44 0,-56 C 10,-46 12,-28 2,0 Z" fill="url(#carrot_leaf)"/>
+    <!-- Right frond -->
+    <path d="M 0,0 C 8,-18 16,-36 24,-48 C 18,-34 12,-20 2,0 Z" fill="url(#carrot_leaf)"/>
+    <!-- Frond highlights -->
+    <line x1="0" y1="0" x2="-8" y2="-36" stroke="#A8FF78" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="1" y1="0" x2="0" y2="-44" stroke="#A8FF78" stroke-width="1.8" stroke-linecap="round"/>
+    <line x1="2" y1="0" x2="14" y2="-38" stroke="#A8FF78" stroke-width="1.8" stroke-linecap="round"/>
+  </g>
+
+  <!-- Plump 3D Carrot Cone -->
+  <g transform="translate(24, 30) rotate(-35)" filter="url(#carrot_shadow)">
+    <path d="M 0,16 C 0,8 14,0 26,0 C 38,0 52,8 52,16 C 52,30 36,92 26,104 C 16,92 0,30 0,16 Z" fill="url(#carrot_body)"/>
+    
+    <!-- Top stem socket rim -->
+    <ellipse cx="26" cy="10" rx="16" ry="6" fill="#A83800"/>
+    <ellipse cx="26" cy="10" rx="10" ry="3.5" fill="#145E03"/>
+
+    <!-- 3D Specular Highlight Ridge -->
+    <path d="M 12,20 C 12,40 18,76 24,94" stroke="#FFD180" stroke-width="3.5" stroke-linecap="round" fill="none" opacity="0.8"/>
+
+    <!-- Characteristic Horizontal Carrot Grooves -->
+    <path d="M 10,28 Q 24,32 38,28" stroke="#8A2200" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+    <path d="M 14,44 Q 26,48 40,44" stroke="#8A2200" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+    <path d="M 16,60 Q 26,63 36,60" stroke="#8A2200" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+    <path d="M 20,76 Q 26,78 32,76" stroke="#8A2200" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+    <!-- Glistening Sheen -->
+    <ellipse cx="14" cy="24" rx="4" ry="2.5" fill="#FFFFFF" opacity="0.9" transform="rotate(-10 14 24)"/>
+  </g>
+</svg>\n

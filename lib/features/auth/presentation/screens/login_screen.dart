@@ -111,7 +111,17 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await ref.read(authServiceProvider).verifyPhoneNumber(
         phoneNumber: phone,
         verificationCompleted: (PhoneAuthCredential credential) async {
-          await ref.read(authServiceProvider).signInWithCredential(credential);
+          final cred = await ref.read(authServiceProvider).signInWithCredential(credential);
+          // Guard: auto-verified OTP login must never silently create a fresh account.
+          if ((cred.additionalUserInfo?.isNewUser ?? false) && !isRegistration && !isPasswordReset) {
+            await FirebaseAuth.instance.signOut();
+            if (mounted) {
+              setState(() => _isLoading = false);
+              AppToast.showError(context,
+                  "No existing account found for this number. Please use 'New Register', or log in with your email and password.");
+            }
+            return;
+          }
           if (mounted) {
             setState(() => _isLoading = false);
             ref.invalidate(currentUserStreamProvider);

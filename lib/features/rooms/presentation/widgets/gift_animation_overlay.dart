@@ -24,6 +24,7 @@ import '../../../../services/gift_service.dart';
 import 'package:hello_chat/core/services/server_time_service.dart';
 import 'package:hello_chat/core/services/gift_replay_guard.dart';
 import 'gift_combo_overlay.dart';
+import 'luxury_gift_broadcast_banner.dart';
 import 'seat_grid.dart';
 
 /// Debug-only kill-switch for the persistent VAP player's embedded AAC
@@ -48,6 +49,7 @@ class GiftAnimationEvent {
   final String giftName;
   final String tier;
   final int durationMs;
+  final int priceInDiamonds;
   final String senderUid;
   final String targetUid;
   final int quantity;
@@ -66,6 +68,7 @@ class GiftAnimationEvent {
     this.giftName = '',
     this.tier = 'NORMAL',
     this.durationMs = 0,
+    this.priceInDiamonds = 0,
     required this.senderUid,
     required this.targetUid,
     this.quantity = 1,
@@ -182,6 +185,7 @@ class GiftAnimationController extends ChangeNotifier {
       giftName: gift.name,
       tier: resolvedTier,
       durationMs: resolvedDuration,
+      priceInDiamonds: gift.priceInDiamonds,
       senderUid: senderUid,
       targetUid: targetUid,
       quantity: quantity > 0 ? quantity : 1,
@@ -452,7 +456,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final List<_ActiveGiftAnimation> _mediumQueue = [];
   _ActiveGiftAnimation? _currentFullScreenAnim;
   bool _isFullScreenPlaying = false;
-  double _vapOpacity = 0.0;
+  final ValueNotifier<double> _vapOpacityNotifier = ValueNotifier<double>(0.0);
   Timer? _fullScreenWatchdogTimer;
   Timer? _transitionTimer;
   int? _waitingForReleaseTicket;
@@ -816,6 +820,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           giftName: ev.giftName,
           tier: resolvedTier,
           durationMs: resolvedDuration,
+          priceInDiamonds: ev.priceInDiamonds,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
           totalPlays: count,
@@ -838,6 +843,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           giftName: ev.giftName,
           tier: resolvedTier,
           durationMs: resolvedDuration,
+          priceInDiamonds: ev.priceInDiamonds,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
           totalPlays: count,
@@ -1093,6 +1099,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           giftName: giftName,
           tier: tier,
           durationMs: durationMs,
+          priceInDiamonds: matched?.priceInDiamonds ?? 0,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
           totalPlays: count,
@@ -1115,6 +1122,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           giftName: giftName,
           tier: tier,
           durationMs: durationMs,
+          priceInDiamonds: matched?.priceInDiamonds ?? 0,
           targetUid: targetUid.isNotEmpty ? targetUid : null,
           comboCount: count,
           totalPlays: count,
@@ -1138,10 +1146,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
     controller.setAnimListener(
       onVideoStart: () {
-        if (mounted && _vapOpacity != 1.0) {
-          setState(() {
-            _vapOpacity = 1.0;
-          });
+        if (_vapOpacityNotifier.value != 1.0) {
+          _vapOpacityNotifier.value = 1.0;
         }
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
@@ -1158,10 +1164,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         if (device != null && device.isNotEmpty) {
           _currentDeviceModel = device;
         }
-        if (mounted && _vapOpacity != 1.0) {
-          setState(() {
-            _vapOpacity = 1.0;
-          });
+        if (_vapOpacityNotifier.value != 1.0) {
+          _vapOpacityNotifier.value = 1.0;
         }
         final now = DateTime.now();
         final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
@@ -1175,10 +1179,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       },
       onVideoComplete: () {
         debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (mounted && _vapOpacity != 0.0) {
-          setState(() {
-            _vapOpacity = 0.0;
-          });
+        if (_vapOpacityNotifier.value != 0.0) {
+          _vapOpacityNotifier.value = 0.0;
         }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal received after watchdog for ticket ${controller.currentTicket}");
@@ -1189,10 +1191,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       },
       onFailed: (code, errorType, msg) {
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (mounted && _vapOpacity != 0.0) {
-          setState(() {
-            _vapOpacity = 0.0;
-          });
+        if (_vapOpacityNotifier.value != 0.0) {
+          _vapOpacityNotifier.value = 0.0;
         }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
@@ -1206,10 +1206,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _currentDeviceModel = device;
         }
         debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (mounted && _vapOpacity != 0.0) {
-          setState(() {
-            _vapOpacity = 0.0;
-          });
+        if (_vapOpacityNotifier.value != 0.0) {
+          _vapOpacityNotifier.value = 0.0;
         }
         if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
           debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
@@ -1234,6 +1232,18 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       _processedEventIds.removeAll(_processedEventIds.take(_processedEventIds.length - 250).toList());
     }
     if (_isAppPaused) return;
+
+    if (anim.tier == 'LUXURY' || anim.priceInDiamonds >= 5000) {
+      ref.read(luxuryGiftBroadcastProvider(widget.roomId)).enqueue(
+            LuxuryGiftBroadcastEvent(
+              id: anim.id,
+              senderUid: anim.senderUid,
+              targetUid: anim.targetUid ?? '',
+              giftName: anim.giftName.trim().isNotEmpty ? anim.giftName : anim.giftId,
+              count: math.max(anim.comboCount, 1),
+            ),
+          );
+    }
 
     // Pre-cache VAP file immediately in background so it's 100% ready on disk when queue reaches it
     if (anim.format == 'vap' || anim.url.endsWith('.vap') || anim.url.endsWith('.mp4')) {
@@ -1380,9 +1390,6 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     setState(() {
       _isFullScreenPlaying = true;
       _currentFullScreenAnim = anim;
-      if (isVap) {
-        _vapOpacity = 0.0;
-      }
     });
 
     final comboKey = anim.targetUid != null && anim.targetUid!.isNotEmpty && anim.giftId.isNotEmpty
@@ -1395,15 +1402,51 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (isVap) {
       _vapStartTime = DateTime.now();
 
-      // soundUrl is layered on top of a VAP only when the file itself has no
-      // audio track (mp4HasAudioTrack below). Bundled .vap assets all carry
-      // embedded AAC, so their empty catalog soundUrl never even triggers the
-      // check; a remote gift shipping a silent .vap + soundUrl still gets sound.
-
       // Duration safety cap: 2000 ms covers TTFF decode time
       final int duration = anim.durationMs > 0 ? anim.durationMs : 6000;
       _armFullScreenSafetyTimer(duration + 2000, ticket);
       debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
+
+      void dispatchPlay(VapController ctrl, String filePath) {
+        final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
+        final effectiveDuration = realDuration > 0 ? realDuration : duration;
+        // Safety watchdog timer (+1500ms safety buffer; normal completion is driven by onVideoComplete on exact last frame)
+        _armFullScreenSafetyTimer(effectiveDuration + 1500, ticket);
+        _vapOpacityNotifier.value = 1.0;
+        debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
+        ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
+          debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
+          if (_currentFullScreenTicket == ticket) {
+            _onFullScreenAnimationFinished(ticket);
+          }
+        });
+        // soundUrl fallback: only when this .vap carries no audio track.
+        // Runs after playFile so the TTFF path never waits on a file read.
+        final String soundUrl = anim.soundUrl?.trim() ?? '';
+        if (soundUrl.isNotEmpty) {
+          mp4HasAudioTrack(filePath).then((hasAudio) {
+            if (hasAudio || !mounted || !_isFullScreenPlaying ||
+                _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
+              return;
+            }
+            debugPrint("[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
+            if (soundUrl.startsWith('http')) {
+              _GiftAudioPool.playUrl(soundUrl);
+            } else if (soundUrl.startsWith('assets/')) {
+              _GiftAudioPool.playAsset(soundUrl);
+            }
+          });
+        }
+      }
+
+      // Fast-path: persistent controller & pre-extracted file are both ready synchronously.
+      // Bypasses all Future / microtask turn delays so frame 0 begins instantly.
+      final cachedSync = VapAnimation.getCachedPathSync(anim.url);
+      final activeCtrl = _persistentVapController;
+      if (activeCtrl != null && cachedSync != null && File(cachedSync).existsSync()) {
+        dispatchPlay(activeCtrl, cachedSync);
+        return;
+      }
 
       Future<VapController?> getController() async {
         if (_persistentVapController != null) return _persistentVapController;
@@ -1431,34 +1474,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             return;
           }
           if (filePath != null && File(filePath).existsSync()) {
-            final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
-            final effectiveDuration = realDuration > 0 ? realDuration : duration;
-            // Safety watchdog timer (+1500ms safety buffer; normal completion is driven by onVideoComplete on exact last frame)
-            _armFullScreenSafetyTimer(effectiveDuration + 1500, ticket);
-            debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
-            ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
-              debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
-              if (_currentFullScreenTicket == ticket) {
-                _onFullScreenAnimationFinished(ticket);
-              }
-            });
-            // soundUrl fallback: only when this .vap carries no audio track.
-            // Runs after playFile so the TTFF path never waits on a file read.
-            final String soundUrl = anim.soundUrl?.trim() ?? '';
-            if (soundUrl.isNotEmpty) {
-              mp4HasAudioTrack(filePath).then((hasAudio) {
-                if (hasAudio || !mounted || !_isFullScreenPlaying ||
-                    _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
-                  return;
-                }
-                debugPrint("[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
-                if (soundUrl.startsWith('http')) {
-                  _GiftAudioPool.playUrl(soundUrl);
-                } else if (soundUrl.startsWith('assets/')) {
-                  _GiftAudioPool.playAsset(soundUrl);
-                }
-              });
-            }
+            dispatchPlay(ctrl, filePath);
           } else {
             debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Cache failed / file missing for ${anim.url}");
             if (_currentFullScreenTicket == ticket) {
@@ -1498,8 +1514,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       return;
     }
 
+    _vapOpacityNotifier.value = 0.0;
     setState(() {
-      _vapOpacity = 0.0;
       _currentFullScreenAnim = null;
     });
 
@@ -1550,8 +1566,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         text: '${current.giftName} x$nextPlayIndex',
       );
 
+      _vapOpacityNotifier.value = 0.0;
       setState(() {
-        _vapOpacity = 0.0; // Immediately drop VAP view opacity between repeat combo plays
         _currentFullScreenAnim = nextAnim;
       });
 
@@ -1571,8 +1587,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       return;
     }
 
+    _vapOpacityNotifier.value = 0.0;
     setState(() {
-      _vapOpacity = 0.0;
       _currentFullScreenAnim = null;
       _isFullScreenPlaying = false;
     });
@@ -1606,6 +1622,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     } catch (e) {
       debugPrint("[VAP] Error disposing persistent controller: $e");
     }
+    _vapOpacityNotifier.dispose();
     super.dispose();
   }
 
@@ -1704,15 +1721,20 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ...seatWidgets,
 
         // Layer 2: Persistent VAP Player (created on room enter, warm and persistent, released on room exit)
-        // Wrapped in RepaintBoundary and Opacity(_vapOpacity). When idle (_vapOpacity == 0.0),
-        // Flutter skips painting entirely (layer = null), avoiding GPU work while keeping
-        // the native TextureView warm at full screen resolution (never collapses to 0x0).
+        // Wrapped in RepaintBoundary and ValueListenableBuilder(_vapOpacityNotifier).
+        // Uses ValueNotifier so opacity transitions NEVER trigger setState on the root overlay or room.
         Positioned.fill(
           child: IgnorePointer(
             ignoring: true,
             child: RepaintBoundary(
-              child: Opacity(
-                opacity: _vapOpacity,
+              child: ValueListenableBuilder<double>(
+                valueListenable: _vapOpacityNotifier,
+                builder: (context, opacity, child) {
+                  return Opacity(
+                    opacity: opacity,
+                    child: child,
+                  );
+                },
                 child: VapView(
                   scaleType: ScaleType.fitCenter,
                   repeat: 0,
@@ -1943,6 +1965,9 @@ class _ActiveGiftAnimation {
   /// 0 = asset/default derived duration.
   final int durationMs;
 
+  /// Catalog price at send time; used for the >= 5,000 diamond broadcast rule.
+  final int priceInDiamonds;
+
   final int comboCount;
   final int totalPlays;
   final int remainingPlays;
@@ -1962,6 +1987,7 @@ class _ActiveGiftAnimation {
     this.targetUid,
     this.tier = 'NORMAL',
     this.durationMs = 0,
+    this.priceInDiamonds = 0,
     this.comboCount = 1,
     int? totalPlays,
     int? remainingPlays,
@@ -1983,6 +2009,7 @@ class _ActiveGiftAnimation {
     String? targetUid,
     String? tier,
     int? durationMs,
+    int? priceInDiamonds,
     int? comboCount,
     int? totalPlays,
     int? remainingPlays,
@@ -2002,6 +2029,7 @@ class _ActiveGiftAnimation {
       targetUid: targetUid ?? this.targetUid,
       tier: tier ?? this.tier,
       durationMs: durationMs ?? this.durationMs,
+      priceInDiamonds: priceInDiamonds ?? this.priceInDiamonds,
       comboCount: comboCount ?? this.comboCount,
       totalPlays: totalPlays ?? this.totalPlays,
       remainingPlays: remainingPlays ?? this.remainingPlays,

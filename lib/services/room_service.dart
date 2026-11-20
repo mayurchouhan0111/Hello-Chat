@@ -14,11 +14,13 @@ class RoomService with BaseFirebaseService {
 
   // Streams
   Stream<List<RoomModel>> getRoomsDiscoveryStream() {
-    return _db.collection('rooms')
-      .where('status', isEqualTo: 'active')
-      .orderBy('createdAt', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map((doc) => RoomModel.fromMap(doc.data())).toList());
+    return _db
+        .collection('rooms')
+        .where('status', isEqualTo: 'active')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) =>
+            snapshot.docs.map((doc) => RoomModel.fromMap(doc.data())).toList());
   }
 
   Stream<RoomModel?> getRoomStream(String roomId) {
@@ -29,23 +31,29 @@ class RoomService with BaseFirebaseService {
   }
 
   Stream<List<Participant>> getParticipantsStream(String roomId) {
-    return _db.collection('rooms').doc(roomId).collection('participants')
-      .snapshots()
-      .map((snapshot) {
-        final list = snapshot.docs.map((doc) => Participant.fromMap(doc.data(), doc.id)).toList();
-        list.sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
-        return list;
-      });
+    return _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('participants')
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.docs
+          .map((doc) => Participant.fromMap(doc.data(), doc.id))
+          .toList();
+      list.sort((a, b) => a.joinedAt.compareTo(b.joinedAt));
+      return list;
+    });
   }
 
   Stream<List<RoomBannerModel>> getRoomBannersStream() {
-    return _db.collection('room_integrated_banners')
-      .orderBy('order', descending: false)
-      .snapshots()
-      .map((snapshot) => snapshot.docs
-          .map((doc) => RoomBannerModel.fromMap(doc.data(), doc.id))
-          .where((banner) => banner.enabled)
-          .toList());
+    return _db
+        .collection('room_integrated_banners')
+        .orderBy('order', descending: false)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => RoomBannerModel.fromMap(doc.data(), doc.id))
+            .where((banner) => banner.enabled)
+            .toList());
   }
 
   // Room Management
@@ -66,9 +74,11 @@ class RoomService with BaseFirebaseService {
 
     final userDoc = await _db.collection('users').doc(uid).get();
     final userDataProfile = userDoc.data();
-    final hostAvatar = (userDataProfile?['profilePhotoUrl'] as String?)?.trim().isNotEmpty == true
-        ? userDataProfile!['profilePhotoUrl']
-        : (userDataProfile?['photoURL'] as String?) ?? '';
+    final hostAvatar =
+        (userDataProfile?['profilePhotoUrl'] as String?)?.trim().isNotEmpty ==
+                true
+            ? userDataProfile!['profilePhotoUrl']
+            : (userDataProfile?['photoURL'] as String?) ?? '';
     final existingDoc = await roomRef.get();
     final existingData = existingDoc.data();
 
@@ -100,7 +110,8 @@ class RoomService with BaseFirebaseService {
       'lastOpenedAt': FieldValue.serverTimestamp(),
       'admins': <String>[],
       'admin_ids': <String>[],
-      'backgroundUrl': (existingData?['backgroundUrl'] as String?)?.trim() ?? '',
+      'backgroundUrl':
+          (existingData?['backgroundUrl'] as String?)?.trim() ?? '',
       'bannedUids': existingData?['bannedUids'] ?? [],
     };
 
@@ -138,7 +149,8 @@ class RoomService with BaseFirebaseService {
     };
 
     final participantBatch = _db.batch();
-    participantBatch.set(roomRef.collection('participants').doc(uid), participantData);
+    participantBatch.set(
+        roomRef.collection('participants').doc(uid), participantData);
 
     // 3. Send Join Message
     participantBatch.set(roomRef.collection('messages').doc(), {
@@ -177,7 +189,7 @@ class RoomService with BaseFirebaseService {
   Future<void> joinRoom(String roomId) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    
+
     final roomRef = _db.collection('rooms').doc(roomId);
     final userRef = _db.collection('users').doc(uid);
     final participantRef = roomRef.collection('participants').doc(uid);
@@ -191,14 +203,20 @@ class RoomService with BaseFirebaseService {
 
       final participantSnapshot = await transaction.get(participantRef);
       final roomData = roomSnapshot.exists ? roomSnapshot.data() : null;
-      final roomAdmins = ((roomData?['admins'] ?? roomData?['admin_ids']) as List?)?.map((e) => e.toString()).toList() ?? [];
-      final isOwner = roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
+      final roomAdmins =
+          ((roomData?['admins'] ?? roomData?['admin_ids']) as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+      final isOwner =
+          roomSnapshot.exists && roomSnapshot.get('ownerUid') == uid;
       final isDesignatedAdmin = !isOwner && roomAdmins.contains(uid);
 
       if (!participantSnapshot.exists) {
         transaction.set(participantRef, {
           'uid': uid,
-          'role': isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience'),
+          'role':
+              isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience'),
           'isAdmin': isDesignatedAdmin,
           'seatIndex': isOwner ? 0 : -1,
           'joinedAt': FieldValue.serverTimestamp(),
@@ -216,7 +234,8 @@ class RoomService with BaseFirebaseService {
           'helloId': userData?['helloId'],
         });
 
-        transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(1)});
+        transaction
+            .update(roomRef, {'currentUsersCount': FieldValue.increment(1)});
 
         transaction.set(roomRef.collection('messages').doc(), {
           'uid': uid,
@@ -225,8 +244,10 @@ class RoomService with BaseFirebaseService {
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        final welcomeMsg = roomSnapshot.exists && roomSnapshot.data() != null && roomSnapshot.data()!.containsKey('welcomeMessage') 
-            ? (roomSnapshot.get('welcomeMessage') as String?) 
+        final welcomeMsg = roomSnapshot.exists &&
+                roomSnapshot.data() != null &&
+                roomSnapshot.data()!.containsKey('welcomeMessage')
+            ? (roomSnapshot.get('welcomeMessage') as String?)
             : null;
         if (welcomeMsg != null && welcomeMsg.trim().isNotEmpty) {
           transaction.set(roomRef.collection('messages').doc(), {
@@ -237,7 +258,8 @@ class RoomService with BaseFirebaseService {
           });
         }
 
-        debugPrint('[ROOM_JOIN] New participant $uid joined room $roomId (role: ${isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience')}, isAdmin: $isDesignatedAdmin)');
+        debugPrint(
+            '[ROOM_JOIN] New participant $uid joined room $roomId (role: ${isOwner ? 'owner' : (isDesignatedAdmin ? 'admin' : 'audience')}, isAdmin: $isDesignatedAdmin)');
       } else {
         // Restore existing participant — preserve seatIndex and role
         final existingData = participantSnapshot.data() as Map<String, dynamic>;
@@ -250,7 +272,8 @@ class RoomService with BaseFirebaseService {
 
         if (isOwner) {
           if (previousSeat != 0) updatePayload['seatIndex'] = 0;
-          if (previousRole != 'owner' && previousRole != 'host') updatePayload['role'] = 'owner';
+          if (previousRole != 'owner' && previousRole != 'host')
+            updatePayload['role'] = 'owner';
           updatePayload['isMuted'] = false;
           updatePayload['isAdmin'] = false;
         } else {
@@ -265,7 +288,8 @@ class RoomService with BaseFirebaseService {
 
         transaction.update(participantRef, updatePayload);
 
-        debugPrint('[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=${updatePayload['role'] ?? previousRole}, isOwner=$isOwner, isAdmin=${updatePayload['isAdmin']})');
+        debugPrint(
+            '[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=${updatePayload['role'] ?? previousRole}, isOwner=$isOwner, isAdmin=${updatePayload['isAdmin']})');
       }
 
       // Track active room on user profile (CRITICAL for presence sync)
@@ -277,7 +301,8 @@ class RoomService with BaseFirebaseService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
 
-    debugPrint('[ROOM_LEAVE] User $uid leaving room $roomId at ${DateTime.now().toIso8601String()}');
+    debugPrint(
+        '[ROOM_LEAVE] User $uid leaving room $roomId at ${DateTime.now().toIso8601String()}');
 
     final roomRef = _db.collection('rooms').doc(roomId);
     final userRef = _db.collection('users').doc(uid);
@@ -285,13 +310,15 @@ class RoomService with BaseFirebaseService {
     try {
       await _db.runTransaction((transaction) async {
         transaction.delete(roomRef.collection('participants').doc(uid));
-        transaction.update(roomRef, {'currentUsersCount': FieldValue.increment(-1)});
-        
+        transaction
+            .update(roomRef, {'currentUsersCount': FieldValue.increment(-1)});
+
         // Clear active room ID
         transaction.update(userRef, {'activeRoomId': FieldValue.delete()});
       });
     } catch (e) {
-      debugPrint('[ROOM_LEAVE] Transaction error ($e), attempting fallback individual writes');
+      debugPrint(
+          '[ROOM_LEAVE] Transaction error ($e), attempting fallback individual writes');
       try {
         await roomRef.collection('participants').doc(uid).delete();
         await roomRef.update({'currentUsersCount': FieldValue.increment(-1)});
@@ -316,7 +343,8 @@ class RoomService with BaseFirebaseService {
     });
     if (uid != null) {
       batch.delete(roomRef.collection('participants').doc(uid));
-      batch.update(_db.collection('users').doc(uid), {'activeRoomId': FieldValue.delete()});
+      batch.update(_db.collection('users').doc(uid),
+          {'activeRoomId': FieldValue.delete()});
     }
     await Future.wait([
       batch.commit(),
@@ -345,7 +373,12 @@ class RoomService with BaseFirebaseService {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
     try {
-      await _db.collection('rooms').doc(roomId).collection('participants').doc(uid).set({
+      await _db
+          .collection('rooms')
+          .doc(roomId)
+          .collection('participants')
+          .doc(uid)
+          .set({
         'lastActive': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -354,7 +387,8 @@ class RoomService with BaseFirebaseService {
         'lastActive': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('[ROOM_PRESENCE] Failed to update presence for $uid in $roomId: $e');
+      debugPrint(
+          '[ROOM_PRESENCE] Failed to update presence for $uid in $roomId: $e');
     }
   }
 
@@ -362,27 +396,29 @@ class RoomService with BaseFirebaseService {
   Future<void> takeSeat(String roomId, int index, {String? ownerUid}) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    
+
     // Resolve owner check: use provided ownerUid if passed to save a Firestore network round trip
     String? resolvedOwnerUid = ownerUid;
     if (resolvedOwnerUid == null) {
       final roomDoc = await _db.collection('rooms').doc(roomId).get();
-      resolvedOwnerUid = roomDoc.exists ? roomDoc.get('ownerUid') as String? : null;
+      resolvedOwnerUid =
+          roomDoc.exists ? roomDoc.get('ownerUid') as String? : null;
     }
 
     if (uid == resolvedOwnerUid) {
       if (index != 0) {
-        throw Exception("As Room Owner, your seat is the top Host Seat (Seat 0).");
+        throw Exception(
+            "As Room Owner, your seat is the top Host Seat (Seat 0).");
       }
     } else {
       if (index == 0) {
         throw Exception("Only the room owner can take the host seat");
       }
     }
-    
+
     final roomRef = _db.collection('rooms').doc(roomId);
     final participantRef = roomRef.collection('participants').doc(uid);
-    
+
     try {
       // Instant direct write to Firestore (0 extra queries)
       await participantRef.set({
@@ -390,7 +426,8 @@ class RoomService with BaseFirebaseService {
         'role': 'speaker',
       }, SetOptions(merge: true));
 
-      debugPrint('[ROOM_SEAT] User $uid direct fast-assigned seat $index in room $roomId');
+      debugPrint(
+          '[ROOM_SEAT] User $uid direct fast-assigned seat $index in room $roomId');
     } catch (e) {
       debugPrint('[ROOM_SEAT] Error taking seat: $e');
       rethrow;
@@ -400,25 +437,38 @@ class RoomService with BaseFirebaseService {
   Future<void> leaveSeat(String roomId) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    await _db.collection('rooms').doc(roomId).collection('participants').doc(uid).update({
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('participants')
+        .doc(uid)
+        .update({
       'seatIndex': -1,
       'role': 'listener',
     });
   }
 
-  Future<void> setSingerRole(String roomId, String targetUid, bool isSinger) async {
-    await _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid).set({
+  Future<void> setSingerRole(
+      String roomId, String targetUid, bool isSinger) async {
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('participants')
+        .doc(targetUid)
+        .set({
       'isSinger': isSinger,
     }, SetOptions(merge: true));
   }
 
-  Future<void> updateRoomSettings(String roomId, Map<String, dynamic> updates) async {
+  Future<void> updateRoomSettings(
+      String roomId, Map<String, dynamic> updates) async {
     await _db.collection('rooms').doc(roomId).update(updates);
   }
 
   Future<void> setRoomCapacity(String roomId, int capacity) async {
     if (!kRoomCapacityOptions.contains(capacity)) {
-      throw Exception("Invalid capacity. Allowed values: ${kRoomCapacityOptions.join(', ')}.");
+      throw Exception(
+          "Invalid capacity. Allowed values: ${kRoomCapacityOptions.join(', ')}.");
     }
     await _db.collection('rooms').doc(roomId).update({
       'capacity': capacity,
@@ -445,12 +495,12 @@ class RoomService with BaseFirebaseService {
 
     debugPrint('📡 [RoomService] Ping Result: $result');
     if (serverProjectId != myProjectId) {
-       debugPrint('❌ [RoomService] CRITICAL ERROR: Project ID Mismatch!');
-       debugPrint('   App: $myProjectId vs Server: $serverProjectId');
+      debugPrint('❌ [RoomService] CRITICAL ERROR: Project ID Mismatch!');
+      debugPrint('   App: $myProjectId vs Server: $serverProjectId');
     } else {
-       debugPrint('✅ [RoomService] Project IDs Match! ($serverProjectId)');
+      debugPrint('✅ [RoomService] Project IDs Match! ($serverProjectId)');
     }
-    
+
     return result as Map<String, dynamic>;
   }
 
@@ -469,13 +519,15 @@ class RoomService with BaseFirebaseService {
         .get();
 
     if (!participantDoc.exists) {
-      debugPrint('⚠️ [RoomService] Warning: Target user not in room. Proceeding for simulation/remote challenge.');
+      debugPrint(
+          '⚠️ [RoomService] Warning: Target user not in room. Proceeding for simulation/remote challenge.');
     }
 
     await callFunction('invitePKChallenge', {
       'roomId': roomId,
       'targetUid': targetUid,
-      'senderUid': FirebaseAuth.instance.currentUser?.uid, // Diagnostic fallback
+      'senderUid':
+          FirebaseAuth.instance.currentUser?.uid, // Diagnostic fallback
       'durationSeconds': durationSeconds,
     });
   }
@@ -525,21 +577,30 @@ class RoomService with BaseFirebaseService {
     });
   }
 
-  Future<void> inviteToPKTeam({required String roomId, required String targetUid, required String side}) async {
+  Future<void> inviteToPKTeam(
+      {required String roomId,
+      required String targetUid,
+      required String side}) async {
     // This could be implemented as a specialized message or subcollection entry
     // For now, let's just add them to the team structure directly if needed, or notify
     debugPrint("Inviting $targetUid to $side PK team in $roomId");
     // Implementation: Update a 'pkInvites' subcollection
-    await _db.collection('rooms').doc(roomId).collection('pkInvites').doc(targetUid).set({
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('pkInvites')
+        .doc(targetUid)
+        .set({
       'side': side,
       'invitedAt': FieldValue.serverTimestamp(),
     });
   }
 
-  Future<void> joinPKTeam({required String roomId, required String side}) async {
+  Future<void> joinPKTeam(
+      {required String roomId, required String side}) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    
+
     await _db.collection('rooms').doc(roomId).update({
       'pkTeams.$uid': side,
       'pkScores.$uid': 0,
@@ -549,7 +610,7 @@ class RoomService with BaseFirebaseService {
   Future<void> leavePKTeam(String roomId) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
-    
+
     await _db.collection('rooms').doc(roomId).update({
       'pkTeams.$uid': FieldValue.delete(),
       'pkScores.$uid': FieldValue.delete(),
@@ -581,7 +642,8 @@ class RoomService with BaseFirebaseService {
         throw Exception('Only the room owner can assign administrators');
       }
 
-      final admins = List<String>.from((roomData['admins'] ?? roomData['admin_ids'] ?? []));
+      final admins = List<String>.from(
+          (roomData['admins'] ?? roomData['admin_ids'] ?? []));
       if (admins.where((id) => id != ownerUid).length >= 12) {
         throw Exception('Maximum 12 administrators allowed');
       }
@@ -681,7 +743,8 @@ class RoomService with BaseFirebaseService {
     });
   }
 
-  Future<void> kickUser(String roomId, String targetUid, {int? durationMinutes, String? reason}) async {
+  Future<void> kickUser(String roomId, String targetUid,
+      {int? durationMinutes, String? reason}) async {
     // Server-side cloud function validates VIP 7+ kick protection
     await callFunction('roomKickUser', {
       'roomId': roomId,
@@ -704,7 +767,8 @@ class RoomService with BaseFirebaseService {
     });
   }
 
-  Future<void> updateRoomWelcomeMessage(String roomId, String welcomeMessage) async {
+  Future<void> updateRoomWelcomeMessage(
+      String roomId, String welcomeMessage) async {
     await _db.collection('rooms').doc(roomId).update({
       'welcomeMessage': welcomeMessage,
     });
@@ -719,7 +783,9 @@ class RoomService with BaseFirebaseService {
       final protEnd = data['assignedProtectionExpiresAt'] as Timestamp?;
       final now = DateTime.now();
 
-      final isSvipProtected = (svipLevel >= 4 && svipEnd != null && svipEnd.toDate().isAfter(now)) ||
+      final isSvipProtected = (svipLevel >= 4 &&
+              svipEnd != null &&
+              svipEnd.toDate().isAfter(now)) ||
           (protEnd != null && protEnd.toDate().isAfter(now));
 
       if (isSvipProtected) {
@@ -727,7 +793,12 @@ class RoomService with BaseFirebaseService {
       }
     }
 
-    await _db.collection('rooms').doc(roomId).collection('participants').doc(targetUid).update({
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('participants')
+        .doc(targetUid)
+        .update({
       'isMuted': mute,
     });
   }
@@ -740,8 +811,12 @@ class RoomService with BaseFirebaseService {
   }
 
   Future<void> muteAllSeats(String roomId) async {
-    final speakers = await _db.collection('rooms').doc(roomId).collection('participants')
-      .where('seatIndex', isNotEqualTo: -1).get();
+    final speakers = await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('participants')
+        .where('seatIndex', isNotEqualTo: -1)
+        .get();
     final batch = _db.batch();
     for (var doc in speakers.docs) {
       batch.update(doc.reference, {'isMuted': true});
@@ -750,6 +825,20 @@ class RoomService with BaseFirebaseService {
   }
 
   // YouTube Integration
+  void _assertCanManageYoutube(DocumentSnapshot<Map<String, dynamic>> roomDoc) {
+    final uid = _auth.currentUser?.uid;
+    final data = roomDoc.data();
+    final admins =
+        (data?['admins'] as List?)?.map((value) => value.toString()).toSet() ??
+            const <String>{};
+    final isOwner = uid != null && data?['ownerUid'] == uid;
+    final isRoomAdmin = uid != null && admins.contains(uid);
+    if (!isOwner && !isRoomAdmin) {
+      throw StateError(
+          'Only the Room Owner or a Room Admin can control YouTube.');
+    }
+  }
+
   Future<void> setYoutubeVideo(String roomId, String videoId) async {
     try {
       final doc = await _db.collection('rooms').doc(roomId).get();
@@ -757,6 +846,7 @@ class RoomService with BaseFirebaseService {
         debugPrint('Room $roomId not found. Cannot set YouTube video.');
         return;
       }
+      _assertCanManageYoutube(doc);
       if (videoId.isEmpty) {
         await stopYoutube(roomId);
         return;
@@ -769,16 +859,22 @@ class RoomService with BaseFirebaseService {
       });
     } catch (e) {
       debugPrint('Error setting YouTube video: $e');
+      rethrow;
     }
   }
 
   Future<void> stopYoutube(String roomId) async {
-    await _db.collection('rooms').doc(roomId).update({
+    final roomRef = _db.collection('rooms').doc(roomId);
+    final doc = await roomRef.get();
+    if (!doc.exists) return;
+    _assertCanManageYoutube(doc);
+    await roomRef.update({
       'isYoutubeActive': false,
       'youtubeVideoId': FieldValue.delete(),
       'youtubeStatus': 'stopped',
     });
   }
+
   Future<void> toggleSeatLock(String roomId, int index, bool lock) async {
     final roomRef = _db.collection('rooms').doc(roomId);
     if (lock) {
@@ -793,11 +889,17 @@ class RoomService with BaseFirebaseService {
   }
 
   // Audio Call Invitation
-  Future<void> inviteToAudioCall(String roomId, String targetUid, {String type = 'invite'}) async {
+  Future<void> inviteToAudioCall(String roomId, String targetUid,
+      {String type = 'invite'}) async {
     final uid = _auth.currentUser?.uid;
     if (uid == null) return;
 
-    await _db.collection('rooms').doc(roomId).collection('audio_invitations').doc(targetUid).set({
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('audio_invitations')
+        .doc(targetUid)
+        .set({
       'fromUid': uid,
       'status': 'pending',
       'type': type,
@@ -805,19 +907,29 @@ class RoomService with BaseFirebaseService {
     });
   }
 
-  Stream<Map<String, dynamic>?> audioInvitationsStream(String roomId, String myUid) {
-    return _db.collection('rooms').doc(roomId).collection('audio_invitations').doc(myUid)
+  Stream<Map<String, dynamic>?> audioInvitationsStream(
+      String roomId, String myUid) {
+    return _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('audio_invitations')
+        .doc(myUid)
         .snapshots()
         .map((snap) {
-          if (!snap.exists) return null;
-          final data = snap.data()!;
-          data['docId'] = snap.id;
-          return data;
-        });
+      if (!snap.exists) return null;
+      final data = snap.data()!;
+      data['docId'] = snap.id;
+      return data;
+    });
   }
 
-  Future<void> respondToAudioCall(String roomId, String myUid, bool accepted) async {
-    final ref = _db.collection('rooms').doc(roomId).collection('audio_invitations').doc(myUid);
+  Future<void> respondToAudioCall(
+      String roomId, String myUid, bool accepted) async {
+    final ref = _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('audio_invitations')
+        .doc(myUid);
     if (accepted) {
       await ref.update({'status': 'accepted'});
     } else {
@@ -826,6 +938,11 @@ class RoomService with BaseFirebaseService {
   }
 
   Future<void> clearAudioInvitation(String roomId, String targetUid) async {
-    await _db.collection('rooms').doc(roomId).collection('audio_invitations').doc(targetUid).delete();
+    await _db
+        .collection('rooms')
+        .doc(roomId)
+        .collection('audio_invitations')
+        .doc(targetUid)
+        .delete();
   }
 }

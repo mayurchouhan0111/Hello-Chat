@@ -222,7 +222,22 @@ service cloud.firestore {
     match /rooms/{roomId} {
       allow read: if true;
       allow create: if request.auth != null;
-      allow update: if request.auth != null; 
+      // Keep existing room updates available, but YouTube playback state is a
+      // privileged surface. Validate against the CURRENT room roles so a caller
+      // cannot add itself to admins and control media in the same write.
+      allow update: if request.auth != null && (
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'youtubeVideoId',
+          'isYoutubeActive',
+          'youtubeStatus',
+          'youtubeSeekTime',
+          'youtubeVolume',
+          'backgroundMusic'
+        ]) ||
+        resource.data.ownerUid == request.auth.uid ||
+        (resource.data.get('admins', []) is list &&
+         request.auth.uid in resource.data.get('admins', []))
+      );
       allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
       
       match /participants/{userId} {
@@ -358,6 +373,13 @@ service cloud.firestore {
     match /global_notifications/{notifId} {
       allow read: if request.auth != null;
       allow write: if isSuperAdmin();
+    }
+
+    // Lucky Bags: clients only read the active pool; all credit mutations run
+    // through the sendLuckyBag / claimLuckyBag callables.
+    match /lucky_bags/{bagId} {
+      allow read: if request.auth != null;
+      allow write: if false;
     }
 
     // Agencies

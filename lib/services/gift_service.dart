@@ -207,6 +207,8 @@ class GiftService extends BaseFirebaseService {
     required int totalDiamonds,
     required int winnerCount,
     String? message,
+    String mode = 'instant',
+    int scheduleMinutes = 0,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception("User not authenticated.");
@@ -217,6 +219,8 @@ class GiftService extends BaseFirebaseService {
       'totalDiamonds': totalDiamonds,
       'winnerCount': winnerCount,
       'message': message ?? "Join and claim your Lucky Bag!",
+      'mode': mode,
+      'scheduleMinutes': scheduleMinutes,
     });
     return Map<String, dynamic>.from(result);
   }

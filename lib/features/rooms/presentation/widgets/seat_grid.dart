@@ -1,3 +1,6 @@
+import 'dart:math' as math;
+
+import '../../../../core/models/room_theme_model.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/models/participant_model.dart';
 import '../../../../core/models/user_model.dart';
@@ -53,6 +56,7 @@ class SeatGrid extends ConsumerWidget {
   final bool isYoutubeActive;
   final String ownerUid;
   final int? optimisticMySeatIndex;
+  final RoomTheme? theme;
 
   const SeatGrid({
     super.key,
@@ -65,22 +69,15 @@ class SeatGrid extends ConsumerWidget {
     this.isYoutubeActive = false,
     this.ownerUid = '',
     this.optimisticMySeatIndex,
+    this.theme,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final currentUid = ref.watch(authStateProvider).value?.uid;
-    final participants = ref.watch(roomParticipantsProvider(roomId)).value ?? [];
-    
-    // Batch fetch all participant profiles in a single Firestore query
-    final occupiedUids = participants.where((p) => p.uid.isNotEmpty).map((p) => p.uid).toList();
-    if (currentUid != null && !occupiedUids.contains(currentUid)) {
-      occupiedUids.add(currentUid);
-    }
-    final profilesAsync = ref.watch(batchedProfilesProvider(occupiedUids));
-    final profiles = profilesAsync.value ?? {};
-    final myProfile = currentUid != null ? ref.watch(userProfileProvider(currentUid)).value : null;
-    
+    final participants =
+        ref.watch(roomParticipantsProvider(roomId)).value ?? [];
+
     int crossAxisCount = 4;
     double avatarRadius = 26;
     double iconSize = 22;
@@ -103,78 +100,99 @@ class SeatGrid extends ConsumerWidget {
     } else {
       if (capacity == 8) {
         crossAxisCount = 4; // 2 rows of 4
-        avatarRadius = 28;
-        iconSize = 24;
-        fontSize = 11;
+        avatarRadius = 26;
+        iconSize = 22;
+        fontSize = 10;
       } else if (capacity == 9) {
         crossAxisCount = 4; // 2 rows of 4 (+ host)
-        avatarRadius = 27;
-        iconSize = 23;
-        fontSize = 10.5;
+        avatarRadius = 25;
+        iconSize = 21;
+        fontSize = 10;
       } else if (capacity == 12) {
         crossAxisCount = 4; // 3 rows of 4
-        avatarRadius = 25;
-        iconSize = 21;
-        fontSize = 10;
+        avatarRadius = 22;
+        iconSize = 18;
+        fontSize = 9;
       } else if (capacity == 13) {
         crossAxisCount = 4; // 3 rows of 4 (+ host)
-        avatarRadius = 25;
-        iconSize = 21;
-        fontSize = 10;
+        avatarRadius = 22;
+        iconSize = 18;
+        fontSize = 9;
       } else if (capacity >= 16) {
         crossAxisCount = 4; // 4 rows of 4
-        avatarRadius = 23;
-        iconSize = 19;
-        fontSize = 9.5;
+        avatarRadius = 19;
+        iconSize = 15;
+        fontSize = 8.5;
       } else if (capacity == 10) {
         crossAxisCount = 5;
-        avatarRadius = 24;
-        iconSize = 20;
-        fontSize = 10;
+        avatarRadius = 22;
+        iconSize = 18;
+        fontSize = 9;
       }
     }
 
     final bool showHostInGrid = isYoutubeActive;
     final itemCount = (showHostInGrid ? capacity : capacity - 1).clamp(0, 16);
- 
+
+    final scaler = MediaQuery.textScalerOf(context);
+    final portraitExtent = avatarRadius * 2 + 12;
+    final rowExtent = portraitExtent +
+        12 +
+        scaler.scale(fontSize) * 1.25 +
+        scaler.scale(fontSize - 1) * 1.25;
+    final double spacing = capacity >= 16 ? 2.0 : (capacity >= 12 ? 3.0 : 4.0);
     return Padding(
-      padding: isYoutubeActive 
+      padding: isYoutubeActive
           ? const EdgeInsets.only(top: 2, bottom: 2, left: 0, right: 0)
-          : const EdgeInsets.only(top: 8, bottom: 8, left: 0, right: 0),
+          : const EdgeInsets.only(top: 4, bottom: 4, left: 0, right: 0),
       child: GridView.builder(
+        primary: false,
+        padding: EdgeInsets.zero,
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: crossAxisCount,
-          mainAxisSpacing: isYoutubeActive ? 2 : 2,
-          crossAxisSpacing: isYoutubeActive ? 4 : 4,
-          mainAxisExtent: (isYoutubeActive
-              ? (capacity >= 16 ? 60 : 70)
-              : (capacity >= 16 ? 72 : (capacity >= 12 ? 80 : 92))) + 14,
+          mainAxisSpacing: spacing,
+          crossAxisSpacing: 4,
+          mainAxisExtent: rowExtent.ceilToDouble(),
         ),
         itemCount: itemCount,
         itemBuilder: (context, gridIndex) {
           final index = showHostInGrid ? gridIndex : gridIndex + 1;
- 
+
           final participant = participants.firstWhere(
-            (p) => p.seatIndex == index, 
-            orElse: () => Participant(uid: '', joinedAt: DateTime.now(), lastActive: DateTime.now(), isMuted: true, role: 'audience')
-          );
+              (p) => p.seatIndex == index,
+              orElse: () => Participant(
+                  uid: index == 0 && ownerUid.isNotEmpty ? ownerUid : '',
+                  displayName: index == 0 && ownerUid.isNotEmpty ? 'Owner' : '',
+                  joinedAt: DateTime.now(),
+                  lastActive: DateTime.now(),
+                  isMuted: true,
+                  role:
+                      index == 0 && ownerUid.isNotEmpty ? 'owner' : 'audience',
+                  seatIndex: index));
 
           // ⚡ Optimistic local override for instant 0ms visual seat switching
           Participant effectiveParticipant = participant;
           if (optimisticMySeatIndex != null && currentUid != null) {
             if (index == optimisticMySeatIndex) {
               // Show current user immediately on the tapped seat
-              final myExisting = participants.firstWhere((p) => p.uid == currentUid, orElse: () => participant);
+              final myExisting = participants.firstWhere(
+                  (p) => p.uid == currentUid,
+                  orElse: () => participant);
               effectiveParticipant = Participant(
                 uid: currentUid,
                 seatIndex: index,
-                joinedAt: myExisting.uid == currentUid ? myExisting.joinedAt : DateTime.now(),
+                joinedAt: myExisting.uid == currentUid
+                    ? myExisting.joinedAt
+                    : DateTime.now(),
                 lastActive: DateTime.now(),
-                isMuted: myExisting.uid == currentUid ? myExisting.isMuted : false,
+                isMuted:
+                    myExisting.uid == currentUid ? myExisting.isMuted : false,
                 role: 'speaker',
-                diamondsReceived: myExisting.uid == currentUid ? myExisting.diamondsReceived : 0,
+                diamondsReceived: myExisting.uid == currentUid
+                    ? myExisting.diamondsReceived
+                    : 0,
               );
             } else if (participant.uid == currentUid) {
               // Current user has moved away from this seat
@@ -192,17 +210,19 @@ class SeatGrid extends ConsumerWidget {
           final isOccupied = effectiveParticipant.uid.isNotEmpty;
 
           if (isOccupied) {
-            final effectiveProfile = profiles[effectiveParticipant.uid] ??
-                (effectiveParticipant.uid == currentUid ? myProfile : null);
             // In non-YouTube mode the owner also renders in the separate global
             // host widget (which registers its own anchor). One uid may only
             // hold one GlobalKey per tree, so the grid cell steps aside.
             final anchorUid =
-                (!isYoutubeActive && effectiveParticipant.uid == ownerUid) ? null : effectiveParticipant.uid;
+                (!isYoutubeActive && effectiveParticipant.uid == ownerUid)
+                    ? null
+                    : effectiveParticipant.uid;
             return KeyedSubtree(
-              key: anchorUid != null ? SeatAnchors.keyFor(roomId, anchorUid) : null,
+              key: anchorUid != null
+                  ? SeatAnchors.keyFor(roomId, anchorUid)
+                  : null,
               child: OccupiedSeatWidget(
-                key: ValueKey('occupied_${index}_${effectiveParticipant.uid}_${effectiveParticipant.diamondsReceived}'),
+                key: ValueKey('occupied_${index}_${effectiveParticipant.uid}'),
                 participant: effectiveParticipant,
                 roomId: roomId,
                 index: index,
@@ -210,9 +230,12 @@ class SeatGrid extends ConsumerWidget {
                 iconSize: iconSize,
                 fontSize: fontSize,
                 currentUid: currentUid,
+                isOwner: effectiveParticipant.uid == ownerUid,
+                online:
+                    participants.any((p) => p.uid == effectiveParticipant.uid),
                 onSeatTap: onSeatTap,
                 onSeatLongPress: onSeatLongPress,
-                userProfile: effectiveProfile,
+                theme: theme,
               ),
             );
           }
@@ -225,6 +248,7 @@ class SeatGrid extends ConsumerWidget {
             isLocked: isLocked,
             onSeatTap: onSeatTap,
             onSeatLongPress: onSeatLongPress,
+            theme: theme,
           );
         },
       ),
@@ -240,9 +264,12 @@ class OccupiedSeatWidget extends ConsumerWidget {
   final double fontSize;
   final String? currentUid;
   final String roomId;
+  final bool isOwner;
+  final bool online;
   final Function(int) onSeatTap;
   final Function(int) onSeatLongPress;
   final UserModel? userProfile;
+  final RoomTheme? theme;
 
   const OccupiedSeatWidget({
     super.key,
@@ -253,209 +280,409 @@ class OccupiedSeatWidget extends ConsumerWidget {
     required this.iconSize,
     required this.fontSize,
     required this.currentUid,
+    this.isOwner = false,
+    this.online = true,
     required this.onSeatTap,
     required this.onSeatLongPress,
     this.userProfile,
+    this.theme,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final liveUserAsync = ref.watch(userProfileProvider(participant.uid));
     final liveUser = liveUserAsync.valueOrNull ?? userProfile;
-    final isParticipantAdmin = roomId.isNotEmpty ? ref.watch(currentRoomStreamProvider(roomId).select((r) => r.value?.isUserAdmin(participant.uid) ?? false)) : false;
-
-
-
-    final user = liveUser ?? UserModel(
-      uid: participant.uid,
-      createdAt: participant.joinedAt,
-      phoneNumber: null,
-      username: participant.displayName.isNotEmpty ? participant.displayName : 'User',
-      displayName: participant.displayName.isNotEmpty ? participant.displayName : 'User',
-      profilePhotoUrl: participant.profilePhotoUrl,
-      profileFrame: participant.profileFrame,
-      vipTier: participant.vipTier,
-      level: participant.level,
-      tags: participant.tags,
-      badges: participant.tags,
-      helloId: participant.helloId,
-      lastActive: participant.lastActive,
-      role: participant.role,
-    );
-
-    final String photoUrl = user.profilePhotoUrl.isNotEmpty 
-        ? user.profilePhotoUrl 
-        : (participant.profilePhotoUrl.isNotEmpty ? participant.profilePhotoUrl : '');
-
     return RepaintBoundary(
       child: GestureDetector(
         key: ValueKey('seat_${index}_${participant.uid}'),
+        behavior: HitTestBehavior.opaque,
         onTap: () => onSeatTap(index),
         onLongPress: () => onSeatLongPress(index),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: RoomSeatPortrait(
+          participant: participant,
+          profile: liveUser,
+          extent: radius * 2 + 12,
+          fontSize: fontSize,
+          isOwner: isOwner,
+          online: online,
+        ),
+      ),
+    );
+  }
+}
+
+/// The frame, speaking effect and reactions share a measured portrait area.
+/// Captions always start below its paint boundary, including for still frames
+/// that AppAvatar shifts upwards.
+class RoomSeatPortrait extends StatelessWidget {
+  const RoomSeatPortrait({
+    super.key,
+    required this.participant,
+    required this.profile,
+    required this.extent,
+    required this.fontSize,
+    this.isOwner = false,
+    this.online = true,
+  });
+
+  final Participant participant;
+  final UserModel? profile;
+  final double extent;
+  final double fontSize;
+  final bool isOwner;
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = profile;
+    final name = user != null && user.displayName.isNotEmpty
+        ? user.displayName
+        : participant.displayName;
+    final photo = user != null && user.profilePhotoUrl.isNotEmpty
+        ? user.profilePhotoUrl
+        : participant.profilePhotoUrl;
+    final frame = user != null && user.profileFrame.isNotEmpty
+        ? user.profileFrame
+        : participant.profileFrame;
+    final displayId = user != null && user.displayId.isNotEmpty
+        ? user.displayId
+        : (user?.helloId?.toString() ?? participant.helloId?.toString() ?? '');
+    final total = participant.diamondsReceived;
+    final amount = total >= 1000000
+        ? '${(total / 1000000).toStringAsFixed(1)}M'
+        : total >= 1000
+            ? '${(total / 1000).toStringAsFixed(1)}k'
+            : '$total';
+    const shadow = [
+      Shadow(color: Colors.black, blurRadius: 3, offset: Offset(0, 1))
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      final side = math.min(extent, constraints.maxWidth);
+      final radius = side / 3.25;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           SizedBox(
-            width: radius * 2,
-            height: radius * 2,
-            child: Builder(
-              builder: (context) {
-                final displayFrame = user.profileFrame.isNotEmpty 
-                    ? user.profileFrame 
-                    : participant.profileFrame;
-
-                return Stack(
-                  alignment: Alignment.center,
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (!participant.isMuted) SpeakingBorderWidget(user: user, radius: radius),
-                    Stack(
-                      alignment: Alignment.bottomRight,
-                      clipBehavior: Clip.none,
-                      children: [
-                        OverflowBox(
-                          maxWidth: radius * 4.0,
-                          maxHeight: radius * 4.0,
-                          child: AppAvatar(
-                            imageUrl: photoUrl,
-                            frameUrl: displayFrame,
-                            vipTier: user.vipTier,
-                            svipLevel: user.svipLevel,
-                            userLevel: user.level,
-                            tags: user.tags,
-                            radius: radius,
-                            showFrame: true,
-                            frameMultiplier: 1.6,
-                          ),
+              height: extent,
+              child: Center(
+                  child: ClipRect(
+                child: SizedBox.square(
+                  dimension: side,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (online && !participant.isMuted && user != null)
+                        SpeakingBorderWidget(user: user, radius: radius),
+                      Opacity(
+                        opacity: online ? 1 : 0.5,
+                        child: AppAvatar(
+                          imageUrl: photo,
+                          frameUrl: frame,
+                          vipTier: user?.vipTier ?? participant.vipTier,
+                          svipLevel: user?.svipLevel,
+                          userLevel: user?.level ?? participant.level,
+                          tags: user?.tags ?? participant.tags,
+                          radius: radius,
+                          frameMultiplier: 1.45,
+                          uniformFrameSize: true,
                         ),
-                        if (participant.isMuted)
-                          Positioned(
-                            bottom: -2,
-                            right: -2,
-                            child: Container(
-                              padding: const EdgeInsets.all(3),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 1.5),
-                                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                              ),
-                              child: Icon(Icons.mic_off, color: Colors.white, size: radius > 22 ? 11 : 9),
-                            ),
-                          ),
-                      ],
-                    ),
-                    SeatEmojiReactionWidget(uid: participant.uid),
+                      ),
+                      SizedBox.square(
+                        dimension: radius * 2,
+                        child: Stack(children: [
+                          SeatEmojiReactionWidget(uid: participant.uid)
+                        ]),
+                      ),
+                    ],
+                  ),
+                ),
+              ))),
+          const SizedBox(height: 2),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xB30B0E1B),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isOwner) ...[
+                    Icon(Icons.workspace_premium_rounded,
+                        size: fontSize,
+                        color:
+                            online ? const Color(0xFFFFD77B) : Colors.white60,
+                        semanticLabel: online ? 'Host' : 'Host offline'),
+                    const SizedBox(width: 3),
                   ],
-                );
-              },
+                  Flexible(
+                    child: Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: fontSize,
+                          height: 1.25,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  if (participant.isMuted && online) ...[
+                    const SizedBox(width: 2),
+                    Icon(Icons.mic_off_rounded,
+                        size: fontSize,
+                        color: const Color(0xFFFFB8BB),
+                        semanticLabel: 'Microphone muted'),
+                  ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 5),
-          if (isParticipantAdmin) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF8B5CF6), Color(0xFF6D28D9)]),
-                borderRadius: BorderRadius.circular(4),
-                boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 2)],
+          const SizedBox(height: 2),
+          if (isOwner)
+            Text(
+              displayId.isEmpty ? 'ID unavailable' : 'ID: $displayId',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: const Color(0xFFFFE082),
+                fontSize: fontSize - 1,
+                height: 1.25,
+                fontWeight: FontWeight.w600,
+                shadows: shadow,
               ),
-              child: const Text(
-                "Admin",
-                style: TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w900),
+            )
+          else
+            Semantics(
+              label: '$total Diamonds received',
+              excludeSemantics: true,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.diamond_rounded,
+                      size: fontSize,
+                      color: const Color(0xFF9EE5FF),
+                      shadows: shadow),
+                  const SizedBox(width: 2),
+                  Flexible(
+                      child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(amount,
+                              maxLines: 1,
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: fontSize - 1,
+                                  height: 1.25,
+                                  fontWeight: FontWeight.w600,
+                                  shadows: shadow)))),
+                ],
               ),
             ),
-            const SizedBox(height: 2),
-          ],
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-            decoration: BoxDecoration(
-              color: Colors.black45,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(maxWidth: radius * 2 + 16),
-              child: SizedBox(
-                height: fontSize + 4,
-                child: Center(
-                  child: Text(
-                    user.displayName.isNotEmpty ? user.displayName : participant.displayName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white, 
-                      fontSize: fontSize, 
-                      fontWeight: FontWeight.bold,
-                      shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
+        ],
+      );
+    });
+  }
+}
+
+/// Room-owner-only portrait composition. Normal room seats intentionally keep
+/// using [RoomSeatPortrait] so owner styling can never resize their frames.
+class RoomOwnerSeatPortrait extends StatelessWidget {
+  const RoomOwnerSeatPortrait({
+    super.key,
+    required this.participant,
+    required this.profile,
+    this.online = true,
+  });
+
+  final Participant participant;
+  final UserModel? profile;
+  final bool online;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = profile;
+    final name = user != null && user.displayName.isNotEmpty
+        ? user.displayName
+        : participant.displayName;
+    final photo = user != null && user.profilePhotoUrl.isNotEmpty
+        ? user.profilePhotoUrl
+        : participant.profilePhotoUrl;
+    final frame = user != null && user.profileFrame.isNotEmpty
+        ? user.profileFrame
+        : participant.profileFrame;
+    final displayId =
+        user != null ? user.displayId : (participant.helloId?.toString() ?? '');
+    final total = participant.diamondsReceived;
+    final amount = total >= 1000000
+        ? '${(total / 1000000).toStringAsFixed(1)}M'
+        : total >= 1000
+            ? '${(total / 1000).toStringAsFixed(1)}k'
+            : '$total';
+
+    return SizedBox(
+      width: 140,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Snug avatar box: no unnecessary empty gaps below the seat
+          SizedBox(
+            width: 120,
+            height: 96,
+            child: Stack(
+              alignment: Alignment.center,
+              clipBehavior: Clip.none,
+              children: [
+                SizedBox.square(
+                  // A 62 dp portrait paints a 90 dp frame. Include its
+                  // upward offset for still artwork in the clip bounds.
+                  dimension: 100,
+                  child: ClipRect(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (online && !participant.isMuted && user != null)
+                          SpeakingBorderWidget(user: user, radius: 31),
+                        Opacity(
+                          opacity: online ? 1 : 0.55,
+                          child: AppAvatar(
+                            imageUrl: photo,
+                            frameUrl: frame,
+                            vipTier: user?.vipTier ?? participant.vipTier,
+                            svipLevel: user?.svipLevel,
+                            userLevel: user?.level ?? participant.level,
+                            tags: user?.tags ?? participant.tags,
+                            radius: 31,
+                            frameMultiplier: 1.45,
+                            uniformFrameSize: true,
+                          ),
+                        ),
+                        SizedBox.square(
+                          dimension: 62,
+                          child: Stack(children: [
+                            SeatEmojiReactionWidget(uid: participant.uid)
+                          ]),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-          Container(
-            margin: const EdgeInsets.only(top: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-            decoration: BoxDecoration(
-              color: Colors.black45,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("💎", style: TextStyle(fontSize: 7)),
-                const SizedBox(width: 2),
-                Text(
-                  participant.diamondsReceived >= 1000
-                      ? '${(participant.diamondsReceived / 1000).toStringAsFixed(1)}k'
-                      : '${participant.diamondsReceived}',
-                  style: TextStyle(color: Colors.yellowAccent, fontSize: fontSize - 1, fontWeight: FontWeight.bold),
-                ),
+                if (participant.isMuted && online)
+                  Positioned(
+                    top: 1,
+                    right: 18,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE64855),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1.5),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black45, blurRadius: 3)
+                        ],
+                      ),
+                      child: const Icon(Icons.mic_off_rounded,
+                          size: 11,
+                          color: Colors.white,
+                          semanticLabel: 'Microphone muted'),
+                    ),
+                  ),
               ],
             ),
           ),
-          // ⚡ QUICK SEND COMBO BADGE
-          // Stamped by sendGiftWithCombo on rooms/{roomId}/participants/{uid}.
-          // Mirrors the live xN on the sender's combo bar so the receiver's seat
-          // shows the current streak level.
-          if (participant.comboCount > 1)
-            AnimatedScale(
-              scale: 1.0,
-              duration: const Duration(milliseconds: 220),
-              child: Container(
-                margin: const EdgeInsets.only(top: 2),
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFFFD700), Color(0xFFFF6A00)],
-                  ),
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(color: const Color(0xFFFF9100).withOpacity(0.5), blurRadius: 6),
-                  ],
-                ),
-                child: Row(
+          const SizedBox(height: 2),
+          // Owner's ID and Name directly below the seat
+          Container(
+            constraints: const BoxConstraints(maxWidth: 130),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xEE0B0E1B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0x44FFD54F), width: 0.8),
+              boxShadow: const [
+                BoxShadow(
+                    color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.bolt_rounded, color: Colors.black, size: 9),
-                    const SizedBox(width: 1),
-                    Text(
-                      'x${participant.comboCount}',
-                      style: TextStyle(
-                        color: Colors.black,
-                        fontSize: fontSize - 1,
-                        fontWeight: FontWeight.w900,
+                    const Icon(Icons.workspace_premium_rounded,
+                        size: 11.5, color: Color(0xFFFFD45C)),
+                    const SizedBox(width: 3),
+                    Flexible(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          height: 1.1,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
                 ),
+                if (displayId.isNotEmpty && displayId != 'User') ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    'ID: $displayId',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Color(0xFFFFE082),
+                      fontSize: 8.5,
+                      height: 1.05,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (total > 0) ...[
+            const SizedBox(height: 1),
+            Semantics(
+              label: '$total Diamonds received',
+              excludeSemantics: true,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 16),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xB8101322),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.diamond_rounded,
+                        size: 10, color: Color(0xFF9EE5FF)),
+                    const SizedBox(width: 2.5),
+                    Text(amount,
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            height: 1,
+                            fontWeight: FontWeight.w700)),
+                  ],
+                ),
               ),
             ),
+          ],
         ],
       ),
-    ),
-  );
-}
+    );
+  }
 }
 
 class SpeakingBorderWidget extends ConsumerWidget {
@@ -472,9 +699,11 @@ class SpeakingBorderWidget extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final int agoraUid = user.uid.hashCode & 0xFFFFFFFF;
     final bool isSpeaking = ref.watch(
-      speakingUidsProvider.select((asyncVal) => (asyncVal.value ?? []).contains(agoraUid)),
+      speakingUidsProvider
+          .select((asyncVal) => (asyncVal.value ?? []).contains(agoraUid)),
     );
-    final hasFrame = user.profileFrame.isNotEmpty && user.profileFrame.toLowerCase() != 'none';
+    final hasFrame = user.profileFrame.isNotEmpty &&
+        user.profileFrame.toLowerCase() != 'none';
 
     if (!isSpeaking) return const SizedBox.shrink();
 
@@ -544,7 +773,8 @@ class SeatEmojiReactionWidget extends ConsumerWidget {
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
         ),
-      ).animate()
+      )
+          .animate()
           .fadeIn(duration: 200.ms)
           .scale(
             begin: const Offset(0.3, 0.3),
@@ -565,6 +795,7 @@ class EmptySeatWidget extends StatelessWidget {
   final bool isLocked;
   final Function(int) onSeatTap;
   final Function(int) onSeatLongPress;
+  final RoomTheme? theme;
 
   const EmptySeatWidget({
     super.key,
@@ -575,10 +806,19 @@ class EmptySeatWidget extends StatelessWidget {
     required this.isLocked,
     required this.onSeatTap,
     required this.onSeatLongPress,
+    this.theme,
   });
 
   @override
   Widget build(BuildContext context) {
+    final ringColor = isLocked
+        ? const Color(0xFFFF4D4D)
+        : (theme?.seatRingColor ?? const Color(0x99FFFFFF));
+    final glowColor = isLocked
+        ? const Color(0x66FF4D4D)
+        : (theme?.accentColor.withValues(alpha: 0.35) ??
+            const Color(0x33FFFFFF));
+
     return GestureDetector(
       key: ValueKey('seat_empty_$index'),
       onTap: () => onSeatTap(index),
@@ -586,40 +826,97 @@ class EmptySeatWidget extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: radius * 2,
-            height: radius * 2,
-            decoration: BoxDecoration(
-              color: isLocked ? const Color(0xFF1E1E2D).withValues(alpha: 0.85) : const Color(0xFF0F172A).withValues(alpha: 0.65),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isLocked ? Colors.redAccent.withValues(alpha: 0.45) : Colors.white.withValues(alpha: 0.22),
-                width: 1.6,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.35),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
+          SizedBox(
+            height: radius * 2 + 12,
+            child: Center(
+                child: Container(
+              width: radius * 2,
+              height: radius * 2,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: isLocked
+                      ? [const Color(0xFF321414), const Color(0xFF1B0A0A)]
+                      : [const Color(0xEE161D30), const Color(0xEE090D18)],
                 ),
-              ],
-            ),
-            child: Icon(
-              isLocked ? Icons.lock_rounded : Icons.chair_alt_rounded, 
-              color: isLocked ? Colors.redAccent.withValues(alpha: 0.85) : Colors.white.withValues(alpha: 0.65), 
-              size: iconSize * (isLocked ? 0.9 : 1.0)
-            ),
+                border: Border.all(
+                  color: ringColor,
+                  width: 1.8,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.70),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 3),
+                  ),
+                  BoxShadow(
+                    color: glowColor,
+                    blurRadius: 8,
+                    spreadRadius: 0.5,
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Icon(
+                  isLocked ? Icons.lock_rounded : Icons.chair_alt_rounded,
+                  color: isLocked ? const Color(0xFFFF5252) : Colors.white,
+                  size: iconSize * (isLocked ? 0.9 : 1.05),
+                  shadows: const [
+                    Shadow(
+                        color: Colors.black87,
+                        blurRadius: 4,
+                        offset: Offset(0, 1)),
+                  ],
+                ),
+              ),
+            )),
           ),
           const SizedBox(height: 4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
             decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.55),
-              borderRadius: BorderRadius.circular(8),
+              color: const Color(0xEE0B0E1B),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isLocked
+                    ? const Color(0x66FF4D4D)
+                    : Colors.white.withValues(alpha: 0.22),
+                width: 0.8,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                    color: Colors.black54, blurRadius: 4, offset: Offset(0, 1)),
+              ],
             ),
-            child: isLocked 
-                ? Text("Locked", style: TextStyle(color: Colors.redAccent.withValues(alpha: 0.85), fontSize: fontSize, fontWeight: FontWeight.bold))
-                : Text(index == 0 ? "Owner" : "$index", style: TextStyle(color: Colors.white, fontSize: fontSize, fontWeight: FontWeight.bold)),
+            child: isLocked
+                ? Text(
+                    "Locked",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: const Color(0xFFFF6B6B),
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                    ),
+                  )
+                : Text(
+                    index == 0 ? "Owner" : "$index",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.2,
+                      shadows: const [
+                        Shadow(color: Colors.black, blurRadius: 3),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),
@@ -659,7 +956,8 @@ class _SpeakingRippleBorder extends StatefulWidget {
   State<_SpeakingRippleBorder> createState() => _SpeakingRippleBorderState();
 }
 
-class _SpeakingRippleBorderState extends State<_SpeakingRippleBorder> with SingleTickerProviderStateMixin {
+class _SpeakingRippleBorderState extends State<_SpeakingRippleBorder>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -679,7 +977,7 @@ class _SpeakingRippleBorderState extends State<_SpeakingRippleBorder> with Singl
 
   @override
   Widget build(BuildContext context) {
-    final double borderSize = widget.hasFrame ? widget.radius * 5.2 : widget.radius * 2.5;
+    final double borderSize = widget.radius * (widget.hasFrame ? 2.65 : 2.1);
 
     return AnimatedBuilder(
       animation: _controller,
@@ -723,6 +1021,7 @@ class _SpeakingRipplePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SpeakingRipplePainter oldDelegate) {
-    return oldDelegate.progress != progress || oldDelegate.borderSize != borderSize;
+    return oldDelegate.progress != progress ||
+        oldDelegate.borderSize != borderSize;
   }
 }

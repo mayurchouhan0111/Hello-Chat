@@ -16,13 +16,18 @@ import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/services/wakelock_service.dart';
 import 'package:hello_chat/core/services/game_recovery_service.dart';
 import 'package:hello_chat/core/services/network_connectivity_service.dart';
+import '../widgets/game_top_winner_banner.dart';
+import '../widgets/spin_wheel_layout.dart';
+import '../widgets/spin_wheel_food_icon.dart';
+import '../widgets/wheel_sounds.dart';
 
 /// The SINGLE AUTHORITATIVE SOURCE OF TRUTH for wallet balance in the Spin Wheel game.
 /// Immutable Wallet State Model
 class WalletState {
   final int confirmedBalance;
   final Map<String, int> pendingDebits; // txnId -> debitAmount
-  final Map<String, int> pendingCredits; // txnId -> creditAmount (e.g. winning reward for current/settling round)
+  final Map<String, int>
+      pendingCredits; // txnId -> creditAmount (e.g. winning reward for current/settling round)
   final int seq;
   final bool isSyncing;
 
@@ -170,7 +175,8 @@ class AuthoritativeWalletManager {
     final delta = newBalance - oldBalance;
     final direction = delta > 0 ? 'credit' : (delta < 0 ? 'debit' : 'none');
     final effectiveTime = timestamp ?? DateTime.now().millisecondsSinceEpoch;
-    final effectiveRoundId = (roundId != null && roundId.isNotEmpty) ? roundId : 'N/A';
+    final effectiveRoundId =
+        (roundId != null && roundId.isNotEmpty) ? roundId : 'N/A';
 
     final lines = StackTrace.current.toString().split('\n');
     final relevantFrames = lines
@@ -433,9 +439,10 @@ stackTrace: $relevantFrames
     final newSeq = serverSeq > currentSeq ? serverSeq : currentSeq;
 
     // During betting phase, serverBalance can never increase confirmedBalance
-    final safeBalance = (_isBettingPhase && serverBalance > _state.confirmedBalance)
-        ? _state.confirmedBalance
-        : serverBalance;
+    final safeBalance =
+        (_isBettingPhase && serverBalance > _state.confirmedBalance)
+            ? _state.confirmedBalance
+            : serverBalance;
 
     _state = _state.copyWith(
       confirmedBalance: safeBalance,
@@ -545,7 +552,8 @@ stackTrace: $relevantFrames
     int? timestamp,
     bool isPastRound = false,
   }) {
-    final effectiveRoundId = (roundId != null && roundId.isNotEmpty) ? roundId : txnId;
+    final effectiveRoundId =
+        (roundId != null && roundId.isNotEmpty) ? roundId : txnId;
     final oldBalance = displayedBalance;
     final currentSeq = _state.seq;
 
@@ -582,7 +590,8 @@ stackTrace: $relevantFrames
       if (serverBalance != _state.confirmedBalance) {
         _state = _state.copyWith(confirmedBalance: serverBalance);
         final dupRaw = _state.displayedBalance;
-        if (_isBettingPhase && (_bettingPhaseCeiling == null || dupRaw > _bettingPhaseCeiling!)) {
+        if (_isBettingPhase &&
+            (_bettingPhaseCeiling == null || dupRaw > _bettingPhaseCeiling!)) {
           _bettingPhaseCeiling = dupRaw;
         }
         logWalletMutation(
@@ -653,7 +662,9 @@ stackTrace: $relevantFrames
 
     logWalletMutation(
       source: prize > 0
-          ? (isPastRound ? 'backend_settlement_win (past_round)' : 'backend_settlement_win')
+          ? (isPastRound
+              ? 'backend_settlement_win (past_round)'
+              : 'backend_settlement_win')
           : 'backend_settlement_loss',
       oldBalance: oldBalance,
       newBalance: displayedBalance,
@@ -661,7 +672,9 @@ stackTrace: $relevantFrames
       roundId: roundId,
       walletSeq: newSeq,
       timestamp: timestamp,
-      eventName: prize > 0 ? 'win_prize_credited: $prize' : 'loss_settled_confirmed: balance=$targetBalance',
+      eventName: prize > 0
+          ? 'win_prize_credited: $prize'
+          : 'loss_settled_confirmed: balance=$targetBalance',
     );
   }
 
@@ -752,7 +765,9 @@ stackTrace: $relevantFrames
 
   /// Pure derivation: confirmed balance minus pending bet deductions
   int getDisplayedBalance([int extraPending = 0]) {
-    final balance = _state.confirmedBalance - (_state.totalPendingDebits + extraPending) + _state.totalPendingCredits;
+    final balance = _state.confirmedBalance -
+        (_state.totalPendingDebits + extraPending) +
+        _state.totalPendingCredits;
     final raw = balance > 0 ? balance : 0;
     if (_isBettingPhase && _bettingPhaseCeiling != null) {
       return math.min(raw, _bettingPhaseCeiling!);
@@ -814,11 +829,14 @@ Map<String, dynamic> mergeHistoryRow({
       ) ??
       '';
 
-  final effectiveBets = (remoteRow['bets'] is Map && (remoteRow['bets'] as Map).isNotEmpty)
-      ? remoteRow['bets'] as Map
-      : (sessionItem['bets'] is Map ? sessionItem['bets'] as Map : {});
+  final effectiveBets =
+      (remoteRow['bets'] is Map && (remoteRow['bets'] as Map).isNotEmpty)
+          ? remoteRow['bets'] as Map
+          : (sessionItem['bets'] is Map ? sessionItem['bets'] as Map : {});
 
-  final serverPrize = (remoteRow['prize'] as num?)?.toInt() ?? (remoteRow['amount'] as num?)?.toInt() ?? 0;
+  final serverPrize = (remoteRow['prize'] as num?)?.toInt() ??
+      (remoteRow['amount'] as num?)?.toInt() ??
+      0;
   final sessionPrize = (sessionItem['prize'] as num?)?.toInt() ?? serverPrize;
 
   final finalPrize = isRemoteAuthoritative
@@ -827,10 +845,11 @@ Map<String, dynamic> mergeHistoryRow({
           ? calculateSpinWheelPrize(
               bets: positiveSpinBets(effectiveBets),
               winningName: effectiveWinningFood,
-              multiplier: int.tryParse(
-                      (sessionItem['multiplier'] ?? remoteRow['multiplier'] ?? '5')
-                          .toString()
-                          .replaceAll('x', '')) ??
+              multiplier: int.tryParse((sessionItem['multiplier'] ??
+                          remoteRow['multiplier'] ??
+                          '5')
+                      .toString()
+                      .replaceAll('x', '')) ??
                   5,
               roundType: sessionItem['resultType']?.toString(),
             )
@@ -840,18 +859,24 @@ Map<String, dynamic> mergeHistoryRow({
   if (remoteRow['bets'] is Map && (remoteRow['bets'] as Map).isNotEmpty) {
     sessionItem['bets'] = remoteRow['bets'];
   }
-  final remoteTotalBet = (remoteRow['totalBet'] as num?)?.toInt() ?? (remoteRow['amount'] as num?)?.toInt();
+  final remoteTotalBet = (remoteRow['totalBet'] as num?)?.toInt() ??
+      (remoteRow['amount'] as num?)?.toInt();
   if (remoteTotalBet != null && remoteTotalBet > 0) {
     sessionItem['totalBet'] = remoteTotalBet;
   }
 
-  final balBefore = (remoteRow['balanceBefore'] as num?)?.toInt() ?? (sessionItem['balanceBefore'] as num?)?.toInt();
+  final balBefore = (remoteRow['balanceBefore'] as num?)?.toInt() ??
+      (sessionItem['balanceBefore'] as num?)?.toInt();
   final totalWager = (remoteTotalBet != null && remoteTotalBet > 0)
       ? remoteTotalBet
       : ((sessionItem['totalBet'] as num?)?.toInt() ?? 0);
   final balAfter = (remoteRow['balanceAfter'] as num?)?.toInt() ??
       (balBefore != null && balBefore > 0
-          ? math.max(0, settled ? balBefore - totalWager + finalPrize : balBefore - totalWager)
+          ? math.max(
+              0,
+              settled
+                  ? balBefore - totalWager + finalPrize
+                  : balBefore - totalWager)
           : (sessionItem['balanceAfter'] as num?)?.toInt());
 
   return {
@@ -864,16 +889,20 @@ Map<String, dynamic> mergeHistoryRow({
     'amount': finalPrize,
     if (effectiveWinningFood.isNotEmpty) 'winningFood': effectiveWinningFood,
     if (effectiveWinningFood.isNotEmpty) 'name': effectiveWinningFood,
-    if (isRemoteAuthoritative && remoteRow['emoji']?.toString().isNotEmpty == true)
+    if (isRemoteAuthoritative &&
+        remoteRow['emoji']?.toString().isNotEmpty == true)
       'emoji': remoteRow['emoji'].toString(),
-    if (isRemoteAuthoritative && remoteRow['label']?.toString().isNotEmpty == true)
+    if (isRemoteAuthoritative &&
+        remoteRow['label']?.toString().isNotEmpty == true)
       'label': remoteRow['label'].toString(),
-    if (isRemoteAuthoritative && remoteRow['multiplier']?.toString().isNotEmpty == true)
+    if (isRemoteAuthoritative &&
+        remoteRow['multiplier']?.toString().isNotEmpty == true)
       'multiplier': remoteRow['multiplier'].toString(),
     if (remoteRow['orderId'] != null) 'orderId': remoteRow['orderId'],
     if (balBefore != null) 'balanceBefore': balBefore,
     if (balAfter != null) 'balanceAfter': balAfter,
-    if (remoteRow['serialNumber'] != null) 'serialNumber': remoteRow['serialNumber'],
+    if (remoteRow['serialNumber'] != null)
+      'serialNumber': remoteRow['serialNumber'],
   };
 }
 
@@ -932,7 +961,8 @@ String deduceWinningFoodFromWinningBet({
           (normKey == 'skewer' && normExisting == 'kebab') ||
           (normKey == 'steak' && normExisting == 'meat') ||
           (normKey == 'meat' && normExisting == 'steak') ||
-          (normKey == 'cabbage' && (normExisting == 'leaf' || normExisting == 'veg'));
+          (normKey == 'cabbage' &&
+              (normExisting == 'leaf' || normExisting == 'veg'));
       if (isAliasMatch) {
         final betAmt = (entry.value as num?)?.toInt() ?? 0;
         if (betAmt > 0 && betAmt * mult == prize) {
@@ -985,19 +1015,26 @@ class SpinWheelScreen extends ConsumerStatefulWidget {
   ConsumerState<SpinWheelScreen> createState() => _SpinWheelScreenState();
 }
 
-class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
+class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   double _pointerAngle = 0.0;
   int _countdown = 30;
   Timer? _timer;
   int _currentSegment = 0;
   final ValueNotifier<int?> _currentSegmentNotifier = ValueNotifier<int?>(0);
 
-  void _updateSegment(int segment) {
+  bool _audible = true;
+  final _sounds = WheelSounds();
+
+  void _updateSegment(int segment, {bool spinTick = false}) {
     _currentSegment = segment;
     if (_currentSegmentNotifier.value != segment) {
       _currentSegmentNotifier.value = segment;
+      if (spinTick && _audible && ModalRoute.of(context)?.isCurrent == true)
+        _sounds.tick();
     }
   }
+
   Map<String, int> _currentBets = {};
   Map<String, int> _betClickCounts = {};
   Map<String, int> _confirmedBets = {};
@@ -1052,7 +1089,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   Animation<double>? _spinAnimation;
   Timer? _spinFallbackTimer;
   int _optimisticWinnings = 0;
-  final AuthoritativeWalletManager _walletManager = AuthoritativeWalletManager();
+  final AuthoritativeWalletManager _walletManager =
+      AuthoritativeWalletManager();
   int _balanceSeq = 0;
 
   int get _currentAuthoritativeDiamonds => _walletManager.displayedBalance;
@@ -1068,7 +1106,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   static void _pruneSessionHistory() {
     if (_sessionRoundsHistory.length > 50) {
       final sortedKeys = _sessionRoundsHistory.keys.toList()
-        ..sort((a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0));
+        ..sort(
+            (a, b) => (int.tryParse(b) ?? 0).compareTo(int.tryParse(a) ?? 0));
       final keysToRemove = sortedKeys.skip(50).toList();
       for (final k in keysToRemove) {
         _sessionRoundsHistory.remove(k);
@@ -1089,12 +1128,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     if (roundId.isEmpty || totalBet <= 0) return;
     final existing = _sessionRoundsHistory[roundId] ?? {};
     final isAlreadySettled = existing['settled'] == true;
-    final existingPrize = (existing['prize'] as num?)?.toInt() ?? (existing['amount'] as num?)?.toInt() ?? 0;
+    final existingPrize = (existing['prize'] as num?)?.toInt() ??
+        (existing['amount'] as num?)?.toInt() ??
+        0;
     // Critical Guard: If this round already won, NEVER allow a subsequent bet update to reset prize to 0
-    final effectivePrize = isAlreadySettled && existingPrize > 0 ? existingPrize : (prize ?? existingPrize);
+    final effectivePrize = isAlreadySettled && existingPrize > 0
+        ? existingPrize
+        : (prize ?? existingPrize);
     final existingBalBefore = (existing['balanceBefore'] as num?)?.toInt();
     final curWalletBal = _walletManager.confirmedBalance;
-    final balBefore = existingBalBefore ?? (curWalletBal > 0 ? (curWalletBal + totalBet) : curWalletBal);
+    final balBefore = existingBalBefore ??
+        (curWalletBal > 0 ? (curWalletBal + totalBet) : curWalletBal);
     final balAfter = math.max(0, balBefore - totalBet);
 
     _sessionRoundsHistory[roundId] = {
@@ -1113,7 +1157,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       'multiplier': label ?? existing['multiplier'] ?? '',
       'settled': isAlreadySettled || settled,
       'timestamp': existing['timestamp'] ?? DateTime.now(),
-      'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+      'createdAt':
+          existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
     };
     _pruneSessionHistory();
     _notifyHistoryUpdate();
@@ -1128,8 +1173,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   }) {
     if (roundId.isEmpty) return;
     final existing = _sessionRoundsHistory[roundId] ?? {};
-    final effectiveBets = bets.isNotEmpty ? bets : (existing['bets'] as Map? ?? {});
-    final effectiveWager = totalBet > 0 ? totalBet : (existing['totalBet'] as num?)?.toInt() ?? 0;
+    final effectiveBets =
+        bets.isNotEmpty ? bets : (existing['bets'] as Map? ?? {});
+    final effectiveWager =
+        totalBet > 0 ? totalBet : (existing['totalBet'] as num?)?.toInt() ?? 0;
 
     if (effectiveBets.isEmpty && effectiveWager <= 0) return;
 
@@ -1149,7 +1196,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       'multiplier': '${winningItem.multiplier}x',
       'settled': true,
       'timestamp': existing['timestamp'] ?? DateTime.now(),
-      'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+      'createdAt':
+          existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
     };
     _pruneSessionHistory();
     _notifyHistoryUpdate();
@@ -1162,9 +1210,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     int? totalBet,
   }) {
     if (roundId.isEmpty) return;
-    final cur = _sessionRoundsHistory[roundId] ??= <String, dynamic>{'roundId': roundId};
+    final cur = _sessionRoundsHistory[roundId] ??= <String, dynamic>{
+      'roundId': roundId
+    };
     cur['settled'] = true;
-    cur['prize'] = prize; // Exactly match authoritative backend settlement (even if 0 for loss)
+    cur['prize'] =
+        prize; // Exactly match authoritative backend settlement (even if 0 for loss)
     cur['amount'] = prize;
     if (totalBet != null && totalBet > 0) {
       cur['totalBet'] = totalBet;
@@ -1184,12 +1235,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   /// Otherwise, completely removes the unaccepted session entry.
   void _reconcileSessionHistoryAfterFailure(String roundId) {
     if (roundId.isEmpty) return;
-    final confirmedBelongs = (_confirmedRoundId == roundId) && _confirmedBets.isNotEmpty;
+    final confirmedBelongs =
+        (_confirmedRoundId == roundId) && _confirmedBets.isNotEmpty;
     final submittedBelongs = _submittedSpinResult != null &&
         _submittedSpinResult!['roundId']?.toString() == roundId;
 
     if (confirmedBelongs && _confirmedBets.isNotEmpty) {
-      final confirmedTotal = _confirmedBets.values.fold<int>(0, (sum, v) => sum + v);
+      final confirmedTotal =
+          _confirmedBets.values.fold<int>(0, (sum, v) => sum + v);
       if (confirmedTotal > 0) {
         _recordSessionBet(
           roundId: roundId,
@@ -1200,7 +1253,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       }
     } else if (submittedBelongs) {
       final subBets = _submittedSpinResult!['bets'] is Map
-          ? (_submittedSpinResult!['bets'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+          ? (_submittedSpinResult!['bets'] as Map)
+              .map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
           : <String, int>{};
       final subTotal = (_submittedSpinResult!['totalBet'] as num?)?.toInt() ??
           subBets.values.fold<int>(0, (sum, v) => sum + v);
@@ -1218,13 +1272,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _notifyHistoryUpdate();
   }
 
-  // Track cached sound paths to avoid socket exceptions
-  String? _localBetSoundPath;
-  String? _localSpinSoundPath;
-  String? _localWinSoundPath;
-
-  void _precacheSounds() {}
-  void _playBetSoundAndHaptic() {}
   void _playCountdownTick() {}
 
   void _showConnectionNotFoundDialog({String? title, String? message}) {
@@ -1232,13 +1279,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // be silent either: a refused bet with no feedback is indistinguishable from a bet that
     // silently vanished, which is exactly the symptom being reported. Throttled so the
     // 50ms round timer cannot spam it.
-    debugPrint('[SPIN_WHEEL_EVENT] 🔇 connection notice: ${title ?? 'Connection Not Found'} — ${message ?? 'handled silently'}');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🔇 connection notice: ${title ?? 'Connection Not Found'} — ${message ?? 'handled silently'}');
     if (!mounted) return;
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _lastConnectionNoticeMs < 4000) return;
     _lastConnectionNoticeMs = nowMs;
-    ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-        content: Text(message ?? 'Connection problem. Your bet was not placed.'),
+    ScaffoldMessenger.of(context).showSnackBar(
+      TopSnackBar(
+        context: context,
+        content:
+            Text(message ?? 'Connection problem. Your bet was not placed.'),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -1246,7 +1297,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   void _placeBet(String itemName, List<SpinItem> items) {
     if (_isBetLocked || _isOffline || !_platformHasNetwork) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": isBetLocked=$_isBetLocked, isOffline=$_isOffline, platformHasNetwork=$_platformHasNetwork');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": isBetLocked=$_isBetLocked, isOffline=$_isOffline, platformHasNetwork=$_platformHasNetwork');
       if (mounted && (_isOffline || !_platformHasNetwork)) {
         _showConnectionNotFoundDialog();
       }
@@ -1255,9 +1307,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     // Authoritative wallet gate: never allow betting against an unsynced balance.
     if (!_walletManager.hasInitialBalance) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": wallet balance not synced yet.');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⛔ Bet blocked on "$itemName": wallet balance not synced yet.');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: Text("Syncing wallet…"),
             duration: Duration(seconds: 2),
           ),
@@ -1284,13 +1339,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // The new chip alone must fit in the remaining power — do NOT re-add
     // currentTotalBet here, that double-counts and caps bets at ~half balance.
     if (_selectedChipValue > totalPlayingPower) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (chip: $_selectedChipValue, available: $totalPlayingPower)');
-      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds & Stars for this bet"))
-      );
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⛔ Bet rejected on "$exactName": Insufficient funds (chip: $_selectedChipValue, available: $totalPlayingPower)');
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(
+          context: context,
+          content: Text("Insufficient Diamonds & Stars for this bet")));
       return;
     }
-
-    _playBetSoundAndHaptic();
 
     final now = _synchronizedTimeMs;
     // FIX 1: Derive txnId from active round — same formula as _autoSubmitBets —
@@ -1304,13 +1359,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     );
 
     setState(() {
-      _currentBets[exactName] = (_currentBets[exactName] ?? 0) + _selectedChipValue;
+      _currentBets[exactName] =
+          (_currentBets[exactName] ?? 0) + _selectedChipValue;
       _betClickCounts[exactName] = (_betClickCounts[exactName] ?? 0) + 1;
       _notifyHistoryUpdate();
     });
 
     final newTotalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-    debugPrint('[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🎲 Bet Placed on "$exactName": chip=$_selectedChipValue, itemTotal=${_currentBets[exactName]}, totalWager=$newTotalBet, clicks=${_betClickCounts[exactName]}');
 
     final curRound = _currentRoundId ?? betRoundId;
     if (curRound.isNotEmpty) {
@@ -1324,7 +1381,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _debounceTimer?.cancel();
     final secIntoCycle = (now % 40000) ~/ 1000;
     // Dynamic debounce: if at or after 25s, submit immediately with 20ms debounce so it never delays past 27s
-    final debounceDuration = secIntoCycle >= 25 ? const Duration(milliseconds: 20) : (secIntoCycle >= 23 ? const Duration(milliseconds: 60) : const Duration(milliseconds: 200));
+    final debounceDuration = secIntoCycle >= 25
+        ? const Duration(milliseconds: 20)
+        : (secIntoCycle >= 23
+            ? const Duration(milliseconds: 60)
+            : const Duration(milliseconds: 200));
     _debounceTimer = Timer(debounceDuration, () {
       if (!mounted || _currentBets.isEmpty) return;
       _autoSubmitBets(forcedRoundId: _currentRoundId);
@@ -1365,7 +1426,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       return false;
     }
     // Only compare against confirmed bets if they belong to this active round
-    final confirmed = (_confirmedRoundId == activeRound || _confirmedRoundId == _currentRoundId)
+    final confirmed = (_confirmedRoundId == activeRound ||
+            _confirmedRoundId == _currentRoundId)
         ? _confirmedBets
         : const <String, int>{};
     for (final entry in _currentBets.entries) {
@@ -1381,7 +1443,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     if (_isAutoSubmitting) {
       _hasPendingAdditionalBets = true;
-      debugPrint('[SPIN_WHEEL_EVENT] ⏳ Auto-submit already in flight; queued pending bets for next batch');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⏳ Auto-submit already in flight; queued pending bets for next batch');
       return;
     }
 
@@ -1391,16 +1454,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // When re-dispatching a queued delta after an in-flight call resolved, the caller
     // forces the round that the ORIGINAL call targeted. The device clock can jitter
     // by seconds (observed ±13s), so prefer _currentRoundId if aligned.
-    final submissionRoundId = forcedRoundId ?? _currentRoundId ?? (now ~/ serverRoundMs).toString();
+    final submissionRoundId =
+        forcedRoundId ?? _currentRoundId ?? (now ~/ serverRoundMs).toString();
 
     // STRICT ROUND GUARD: Allow forcedRoundId, active round, or recently closed round in rollover transit
-    if (_currentRoundId != null && submissionRoundId != _currentRoundId && forcedRoundId == null) {
+    if (_currentRoundId != null &&
+        submissionRoundId != _currentRoundId &&
+        forcedRoundId == null) {
       final subNum = int.tryParse(submissionRoundId) ?? 0;
       final curNum = int.tryParse(_currentRoundId!) ?? 0;
       if (curNum - subNum == 1 && secondsIntoCycle < 3) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🚀 Flushing queued bets for recently closed round $submissionRoundId during rollover transit');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🚀 Flushing queued bets for recently closed round $submissionRoundId during rollover transit');
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ⛔ Auto-submit skipped: submissionRoundId ($submissionRoundId) != currentRoundId ($_currentRoundId)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⛔ Auto-submit skipped: submissionRoundId ($submissionRoundId) != currentRoundId ($_currentRoundId)');
         return;
       }
     }
@@ -1409,7 +1477,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // legitimately before second 27 and are simply finishing network dispatch. Allow up to second 36.
     // The server accepts bets when msIntoRound < 37000.
     if (secondsIntoCycle >= 36) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 36s for round $submissionRoundId');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Auto-submit aborted: secIntoCycle ($secondsIntoCycle) >= 36s for round $submissionRoundId');
       _reconcileSessionHistoryAfterFailure(submissionRoundId);
       return;
     }
@@ -1420,8 +1489,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     _isAutoSubmitting = true;
     _hasPendingAdditionalBets = false;
-    debugPrint('[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$snapshotBets, roundId=$submissionRoundId, secIntoCycle=$secondsIntoCycle');
-    
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🚀 Auto-submitting bets to backend: totalBet=$totalBet, bets=$snapshotBets, roundId=$submissionRoundId, secIntoCycle=$secondsIntoCycle');
+
     // Eagerly record in session history so the round is visible in My Bets as "IN PLAY" immediately
     // and is never lost even if network requests are delayed or retry
     _recordSessionBet(
@@ -1443,13 +1513,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // Correct with half RTT: assume symmetric latency around the call.
     final offsetReqStart = DateTime.now().millisecondsSinceEpoch;
     try {
-      final result = await ref.read(gameServiceProvider).playSpinWheel(
-        betAmount: totalBet,
-        bets: snapshotBets,
-        roundId: submissionRoundId,
-        roomId: widget.roomId,
-        txnId: betTxnId,
-      ).timeout(callTimeout);
+      final result = await ref
+          .read(gameServiceProvider)
+          .playSpinWheel(
+            betAmount: totalBet,
+            bets: snapshotBets,
+            roundId: submissionRoundId,
+            roomId: widget.roomId,
+            txnId: betTxnId,
+          )
+          .timeout(callTimeout);
 
       if (!mounted) return;
 
@@ -1458,13 +1531,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (serverTime != null) {
         final localNow = DateTime.now().millisecondsSinceEpoch;
         final newOffset = serverTime - ((offsetReqStart + localNow) ~/ 2);
-        if (_serverTimeOffset == 0 || (_serverTimeOffset - newOffset).abs() > 1500) {
+        if (_serverTimeOffset == 0 ||
+            (_serverTimeOffset - newOffset).abs() > 1500) {
           _serverTimeOffset = newOffset;
         } else {
           _serverTimeOffset = ((_serverTimeOffset * 3) + newOffset) ~/ 4;
         }
         _lastSynchronizedTimeMs = serverTime;
-        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time synchronized: offset=$_serverTimeOffset ms');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🕒 Server time synchronized: offset=$_serverTimeOffset ms');
       }
 
       // If server gracefully bound bet forward to a newer round, remove phantom session record for submissionRoundId
@@ -1474,16 +1549,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       final currentRoundNum = int.tryParse(_currentRoundId ?? '') ?? 0;
       final resultRoundNum = int.tryParse(resultRoundId ?? '') ?? 0;
-      final isForwardOrActive = resultRoundId != null && resultRoundNum >= currentRoundNum;
+      final isForwardOrActive =
+          resultRoundId != null && resultRoundNum >= currentRoundNum;
 
       final serverBal = (result['balance'] as num?)?.toInt();
       final serverSeq = (result['seq'] as num?)?.toInt() ?? requestSeq;
-      final effectiveBal = serverBal ?? math.max(0, _walletManager.confirmedBalance - totalBet);
-      final currentTotalWager = _currentBets.values.fold<int>(0, (sum, val) => sum + val);
-      final remainingPending = isForwardOrActive ? math.max(0, currentTotalWager - totalBet) : 0;
+      final effectiveBal =
+          serverBal ?? math.max(0, _walletManager.confirmedBalance - totalBet);
+      final currentTotalWager =
+          _currentBets.values.fold<int>(0, (sum, val) => sum + val);
+      final remainingPending =
+          isForwardOrActive ? math.max(0, currentTotalWager - totalBet) : 0;
 
       if (isForwardOrActive) {
-        debugPrint('[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId (submitted: $submissionRoundId), prize=${result['prize']}, bets=$snapshotBets, balance=$effectiveBal, seq=$serverSeq, remainingPending=$remainingPending');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ✅ Bets successfully confirmed by backend! roundId=$resultRoundId (submitted: $submissionRoundId), prize=${result['prize']}, bets=$snapshotBets, balance=$effectiveBal, seq=$serverSeq, remainingPending=$remainingPending');
         _submittedSpinResult = result;
         final bool advancedRound = resultRoundNum > currentRoundNum;
         if (advancedRound) {
@@ -1527,7 +1607,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _preFetchRoundOutcome();
         }
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Stale bet response for past round $resultRoundId ignored for active round $_currentRoundId. Reconciling wallet without polluting current round state.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ℹ️ Stale bet response for past round $resultRoundId ignored for active round $_currentRoundId. Reconciling wallet without polluting current round state.');
         if (resultRoundId != null) {
           _recordSessionBet(
             roundId: resultRoundId,
@@ -1549,11 +1630,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         GameRecoveryService().clearBetState();
       }
     } catch (e) {
-      debugPrint("[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Handled gracefully.");
+      debugPrint(
+          "[SPIN_WHEEL_EVENT] ❌ Auto-submit bets failed: $e. Handled gracefully.");
       _hasStartedFallbackCall = false;
 
       final errorStr = e.toString();
-      final isTimeout = e is TimeoutException || errorStr.contains('TimeoutException');
+      final isTimeout =
+          e is TimeoutException || errorStr.contains('TimeoutException');
       final isExplicitBackendError = errorStr.contains('failed-precondition') ||
           errorStr.contains('invalid-argument') ||
           errorStr.contains('not-found') ||
@@ -1565,25 +1648,29 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // raced a slow response), so the pending debit must be RETAINED — round settlement
       // reconciles the true server balance. Refunding here would over-credit the wallet.
       final isStaleRoundRejection = errorStr.contains('stale round submission');
-      final isRoundActive = _currentRoundId == submissionRoundId && _gameState == SpinGameState.betting;
+      final isRoundActive = _currentRoundId == submissionRoundId &&
+          _gameState == SpinGameState.betting;
 
       // CRITICAL FIX: Explicit backend errors (e.g. insufficient diamonds, betting closed) must IMMEDIATELY
       // refund the pending debit, regardless of whether the round is active.
       // Only genuine connection timeouts during the active betting phase retain pending debits.
-      if ((isExplicitBackendError && !isStaleRoundRejection) || (!isTimeout && !isRoundActive && !isStaleRoundRejection)) {
+      if ((isExplicitBackendError && !isStaleRoundRejection) ||
+          (!isTimeout && !isRoundActive && !isStaleRoundRejection)) {
         _walletManager.reconcileBetFailure(
           txnId: roundPendingKey,
           errorMessage: errorStr,
         );
         _reconcileSessionHistoryAfterFailure(submissionRoundId);
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Retaining pending debit for round $submissionRoundId (isTimeout: $isTimeout, isRoundActive: $isRoundActive). Will retry at lock.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Retaining pending debit for round $submissionRoundId (isTimeout: $isTimeout, isRoundActive: $isRoundActive). Will retry at lock.');
         _hasPendingAdditionalBets = true;
       }
 
       if (!mounted) return;
 
-      final bool roundMovedOn = (_currentRoundId != null && _currentRoundId != submissionRoundId);
+      final bool roundMovedOn =
+          (_currentRoundId != null && _currentRoundId != submissionRoundId);
 
       // TRANSPARENT ERROR SURFACING: while the round is still accepting bets, a rejection
       // is ALWAYS shown to the user instead of silently cancelling their wager. A
@@ -1591,26 +1678,38 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (!roundMovedOn) {
         final String userMessage;
         if (isTimeout) {
-          userMessage = 'Bet submission for Round $submissionRoundId timed out. Retrying…';
-        } else if (errorStr.contains('Betting phase closed') || errorStr.contains('Bets are locked for round')) {
-          userMessage = 'Bets closed for Round $submissionRoundId before your bet landed.';
+          userMessage =
+              'Bet submission for Round $submissionRoundId timed out. Retrying…';
+        } else if (errorStr.contains('Betting phase closed') ||
+            errorStr.contains('Bets are locked for round')) {
+          userMessage =
+              'Bets closed for Round $submissionRoundId before your bet landed.';
         } else if (errorStr.contains('Insufficient Diamonds')) {
           userMessage = 'Insufficient Diamonds & Stars for that bet.';
         } else {
-          userMessage = 'Bet for Round $submissionRoundId was not accepted. Please retry.';
+          userMessage =
+              'Bet for Round $submissionRoundId was not accepted. Please retry.';
         }
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(userMessage), duration: const Duration(seconds: 3)),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+              context: context,
+              content: Text(userMessage),
+              duration: const Duration(seconds: 3)),
         );
       }
 
       // STRICT PHASE GUARD: only clear bets when the round ID has ACTUALLY rolled
       // to a new round. Never wipe bets while this active round is still spinning or settling!
       if (roundMovedOn) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: cross-round transition to $_currentRoundId.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🔇 Clearing round $submissionRoundId bets: cross-round transition to $_currentRoundId.');
         _reconcileSessionHistoryAfterFailure(submissionRoundId);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-              content: Text('Round $submissionRoundId closed before your bet landed. It was not placed.'),
+          ScaffoldMessenger.of(context).showSnackBar(
+            TopSnackBar(
+              context: context,
+              content: Text(
+                  'Round $submissionRoundId closed before your bet landed. It was not placed.'),
               duration: const Duration(seconds: 3),
             ),
           );
@@ -1626,11 +1725,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // ROUND-SCOPED CONFIRMED CHECK: only clear unconfirmed DELTA taps when the confirmed
       // state (or authoritative result) actually belongs to THIS submission round. Stale
       // confirmed state from a previous round must never wipe the current round's taps.
-      final confirmedBelongs = (_confirmedRoundId == submissionRoundId) && _confirmedBets.isNotEmpty;
+      final confirmedBelongs =
+          (_confirmedRoundId == submissionRoundId) && _confirmedBets.isNotEmpty;
       final submittedBelongs = _submittedSpinResult != null &&
           _submittedSpinResult!['roundId']?.toString() == submissionRoundId;
       if (confirmedBelongs || submittedBelongs) {
-        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Auto-submit failed: Dropping unconfirmed delta taps for round $submissionRoundId.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ℹ️ Auto-submit failed: Dropping unconfirmed delta taps for round $submissionRoundId.');
         _reconcileSessionHistoryAfterFailure(submissionRoundId);
         setState(() {
           for (final k in _currentBets.keys.toList()) {
@@ -1649,9 +1750,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // Round is still in betting, nothing confirmed for it, but the server refused.
       // KEEP the wager visible (the 27s lock auto-submit will retry) and surface the
       // reason above rather than silently erasing the round.
-      debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Bet rejected for round $submissionRoundId while betting is open. Keeping wager for retry at lock.');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ℹ️ Bet rejected for round $submissionRoundId while betting is open. Keeping wager for retry at lock.');
       _hasPendingAdditionalBets = false;
-      if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+      if (_isOffline ||
+          !_platformHasNetwork ||
+          !NetworkConnectivityService().isOnline) {
         _showConnectionNotFoundDialog();
       }
     } finally {
@@ -1663,14 +1767,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final activeRound = (now ~/ serverRoundMs).toString();
         final currentSec = (now % serverRoundMs) ~/ 1000;
         // Allow in-flight queued delta bets to dispatch up to 35s (server gate closes at 36s).
-        if (currentSec < 35 && (_currentRoundId == submissionRoundId || submissionRoundId == activeRound)) {
+        if (currentSec < 35 &&
+            (_currentRoundId == submissionRoundId ||
+                submissionRoundId == activeRound)) {
           _hasPendingAdditionalBets = false;
-          debugPrint('[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now at ${currentSec}s...');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🔄 In-flight call finished; dispatching queued delta bets now at ${currentSec}s...');
           _autoSubmitBets(forcedRoundId: submissionRoundId);
         } else if (currentSec >= 35 && _currentRoundId == submissionRoundId) {
           // Beyond 35s the server will strictly reject with "Betting phase closed".
           // Prune queued unconfirmed delta bets immediately and reconcile session history.
-          debugPrint('[SPIN_WHEEL_EVENT] ⛔ In-flight call finished past 35s (${currentSec}s); pruning unconfirmed delta bets for round $submissionRoundId.');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] ⛔ In-flight call finished past 35s (${currentSec}s); pruning unconfirmed delta bets for round $submissionRoundId.');
           _hasPendingAdditionalBets = false;
           _reconcileSessionHistoryAfterFailure(submissionRoundId);
           setState(() {
@@ -1700,10 +1808,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     if (_hasPendingResult && _resultPendingRoundId == currentRoundId) return;
 
     try {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚡ Pre-fetching canonical round outcome for round $currentRoundId at ${secondsIntoCycle}s window...');
-      final result = await ref.read(gameServiceProvider).getSpinWheelRoundOutcome(
-        roundId: currentRoundId,
-      );
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚡ Pre-fetching canonical round outcome for round $currentRoundId at ${secondsIntoCycle}s window...');
+      final result =
+          await ref.read(gameServiceProvider).getSpinWheelRoundOutcome(
+                roundId: currentRoundId,
+              );
 
       if (!mounted) return;
 
@@ -1715,15 +1825,19 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           : result;
       final outcomeRoundId = rawOutcome['roundId']?.toString() ?? resultRoundId;
 
-      if (outcomeRoundId == currentRoundId && currentRoundId == activeRoundNow) {
-        final Map<String, dynamic> outcomeMap = Map<String, dynamic>.from(rawOutcome);
+      if (outcomeRoundId == currentRoundId &&
+          currentRoundId == activeRoundNow) {
+        final Map<String, dynamic> outcomeMap =
+            Map<String, dynamic>.from(rawOutcome);
         outcomeMap['roundId'] = currentRoundId;
         _pendingRoundResult = outcomeMap;
         _hasPendingResult = true;
         _resultPendingRoundId = currentRoundId;
-        debugPrint('[SPIN_WHEEL_EVENT] ⚡ Canonical round outcome pre-fetched: roundId=$currentRoundId, item=${outcomeMap['name']}, multiplier=${outcomeMap['multiplier']}x, sector=${outcomeMap['sectorIndex']}');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚡ Canonical round outcome pre-fetched: roundId=$currentRoundId, item=${outcomeMap['name']}, multiplier=${outcomeMap['multiplier']}x, sector=${outcomeMap['sectorIndex']}');
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Discarded late pre-fetch response for past round $resultRoundId (active: $activeRoundNow)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Discarded late pre-fetch response for past round $resultRoundId (active: $activeRoundNow)');
       }
     } catch (e) {
       debugPrint("[SPIN_WHEEL_EVENT] ⚠️ Pre-fetch round outcome note: $e");
@@ -1745,7 +1859,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   int _lastRoundWager = 0;
   int _lastRoundPrize = 0;
   BuildContext? _bottomSheetContext;
-  
+
   int _serverTimeOffset = 0;
   StreamSubscription? _offsetSubscription;
   StreamSubscription? _roundDocSubscription;
@@ -1774,10 +1888,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     // THIS client is watching (with the monotonic clock, that matches the server). When
     // no roundId is passed, the server uses its own clock and may answer for the NEXT
     // round — the outcome never lands and the "Outcome not ready" loop fires every round.
-    final targetRoundId = _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
+    final targetRoundId =
+        _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
     final offsetReqStart = DateTime.now().millisecondsSinceEpoch;
     try {
-      final res = await ref.read(gameServiceProvider).syncSpinWheelRound(roundId: targetRoundId);
+      final res = await ref
+          .read(gameServiceProvider)
+          .syncSpinWheelRound(roundId: targetRoundId);
       if (!mounted) return;
       final serverTime = (res['serverTime'] as num?)?.toInt();
       final serverRound = res['roundId']?.toString();
@@ -1785,14 +1902,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final localNow = DateTime.now().millisecondsSinceEpoch;
         // RTT-corrected offset: same half-latency assumption as playSpinWheel.
         final newOffset = serverTime - ((offsetReqStart + localNow) ~/ 2);
-        if (_serverTimeOffset == 0 || (_serverTimeOffset - newOffset).abs() > 1500) {
+        if (_serverTimeOffset == 0 ||
+            (_serverTimeOffset - newOffset).abs() > 1500) {
           _serverTimeOffset = newOffset;
         } else {
           _serverTimeOffset = ((_serverTimeOffset * 3) + newOffset) ~/ 4;
         }
         _lastSynchronizedTimeMs = serverTime;
-        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server round clock synced: round=$serverRound, offset=$_serverTimeOffset ms');
-        if (serverRound != null && _currentRoundId != null && serverRound != _currentRoundId) {
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🕒 Server round clock synced: round=$serverRound, offset=$_serverTimeOffset ms');
+        if (serverRound != null &&
+            _currentRoundId != null &&
+            serverRound != _currentRoundId) {
           final sNum = int.tryParse(serverRound) ?? 0;
           final cNum = int.tryParse(_currentRoundId!) ?? 0;
           if (sNum > cNum) {
@@ -1820,8 +1941,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           // FIX: relaxed window (was 30..<37). Slow callables can land the outcome a few
           // seconds late; the outcomeRound==_currentRoundId and _hasSpunForRound guards
           // already prevent stale/duplicate spins, so drop only the strict upper bound.
-          if (secIntoCycle >= 30 && _hasSpunForRound != _currentRoundId && !_isSpinning && !_isProcessingSpin) {
-            debugPrint('[SPIN_WHEEL_EVENT] ⚡ syncSpinWheelRound outcome triggering spin for round $outcomeRound at ${secIntoCycle}s');
+          if (secIntoCycle >= 30 &&
+              _hasSpunForRound != _currentRoundId &&
+              !_isSpinning &&
+              !_isProcessingSpin) {
+            debugPrint(
+                '[SPIN_WHEEL_EVENT] ⚡ syncSpinWheelRound outcome triggering spin for round $outcomeRound at ${secIntoCycle}s');
             _hasSpunForRound = _currentRoundId;
             _isProcessingSpin = true;
             _startSpin(outcome);
@@ -1841,11 +1966,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final effective = (outcome['outcome'] is Map)
         ? Map<String, dynamic>.from(outcome['outcome'] as Map)
         : outcome;
-    final rId = effective['roundId']?.toString() ?? outcome['roundId']?.toString();
+    final rId =
+        effective['roundId']?.toString() ?? outcome['roundId']?.toString();
     if (rId == null || rId.isEmpty) return;
     if (rId == _currentRoundId && !_spinCompleted) return;
 
-    final exists = _realtimeRecentResults.any((r) => r['roundId']?.toString() == rId);
+    final exists =
+        _realtimeRecentResults.any((r) => r['roundId']?.toString() == rId);
     if (!exists && mounted) {
       setState(() {
         _realtimeRecentResults.insert(0, {
@@ -1855,7 +1982,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           'label': effective['label'] ?? '${effective['multiplier']}x',
           'multiplier': (effective['multiplier'] as num?)?.toInt() ?? 5,
           'category': effective['category'] ?? 'standard',
-          'timestamp': effective['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
+          'timestamp':
+              effective['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
         });
         if (_realtimeRecentResults.length > 30) {
           _realtimeRecentResults.removeRange(30, _realtimeRecentResults.length);
@@ -1888,9 +2016,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final rawOutcome = data['outcome'];
         if (rawOutcome is Map) {
           final outcome = Map<String, dynamic>.from(rawOutcome);
-          final outcomeRoundId = outcome['roundId']?.toString() ?? currentRoundId;
+          final outcomeRoundId =
+              outcome['roundId']?.toString() ?? currentRoundId;
 
-          debugPrint('[SPIN_WHEEL_EVENT] 📡 game_rounds/$currentRoundId status=$status outcomeRound=$outcomeRoundId name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 📡 game_rounds/$currentRoundId status=$status outcomeRound=$outcomeRoundId name=${outcome['name']}, sector=${outcome['sectorIndex']}, multiplier=${outcome['multiplier']}x');
 
           // Only record outcome for Recent Results and Last Winner once round is officially ROUND_SETTLED
           if (status == 'ROUND_SETTLED') {
@@ -1912,8 +2042,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             const serverRoundMs = 40000;
             final secondsIntoCycle = (now % serverRoundMs) ~/ 1000;
             // FIX: relaxed window (was 30..<37) — same rationale as the sync path.
-            if (secondsIntoCycle >= 30 && _hasSpunForRound != currentRoundId && !_isSpinning && !_isProcessingSpin) {
-              debugPrint('[SPIN_WHEEL_EVENT] ⚡ Authoritative round doc triggering spin for round $outcomeRoundId at ${secondsIntoCycle}s');
+            if (secondsIntoCycle >= 30 &&
+                _hasSpunForRound != currentRoundId &&
+                !_isSpinning &&
+                !_isProcessingSpin) {
+              debugPrint(
+                  '[SPIN_WHEEL_EVENT] ⚡ Authoritative round doc triggering spin for round $outcomeRoundId at ${secondsIntoCycle}s');
               _hasSpunForRound = currentRoundId;
               _isProcessingSpin = true;
               _startSpin(outcome);
@@ -1924,7 +2058,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error parsing game_rounds doc: $e');
       }
     }, onError: (e) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error watching game_rounds/$currentRoundId: $e');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Error watching game_rounds/$currentRoundId: $e');
     });
   }
 
@@ -1943,7 +2078,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         timestamp: DateTime.now().millisecondsSinceEpoch,
       );
     }
-    debugPrint('[SPIN_WHEEL_EVENT] 🎬 Game Screen Initialized (roomId: ${widget.roomId ?? "None"})');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🎬 Game Screen Initialized (roomId: ${widget.roomId ?? "None"})');
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await WakelockService().acquire();
@@ -1953,10 +2089,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _subscribeToRealtimeRoundState();
     _syncServerRoundClock();
 
-    _offsetSubscription = FirebaseDatabase.instance.ref('.info/serverTimeOffset').onValue.listen((event) {
+    _offsetSubscription = FirebaseDatabase.instance
+        .ref('.info/serverTimeOffset')
+        .onValue
+        .listen((event) {
       if (mounted) {
         final offset = (event.snapshot.value as num?)?.toInt() ?? 0;
-        debugPrint('[SPIN_WHEEL_EVENT] 🕒 Server time offset synced: offset = $offset ms');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🕒 Server time offset synced: offset = $offset ms');
         setState(() {
           _serverTimeOffset = offset;
         });
@@ -1964,23 +2104,30 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     });
 
     // Firebase RTDB connection state
-    _connectivitySub = FirebaseDatabase.instance.ref('.info/connected').onValue.listen((event) {
+    _connectivitySub = FirebaseDatabase.instance
+        .ref('.info/connected')
+        .onValue
+        .listen((event) {
       if (!mounted) return;
       final rtdbConnected = event.snapshot.value as bool? ?? false;
-      debugPrint('[SPIN_WHEEL_EVENT] 📡 Firebase RTDB .info/connected = $rtdbConnected');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] 📡 Firebase RTDB .info/connected = $rtdbConnected');
       _updateOfflineState(rtdbConnected: rtdbConnected);
     });
 
     // Platform network connectivity (WiFi / Mobile data) via NetworkConnectivityService
-    _platformConnectivitySub = NetworkConnectivityService().onConnectivityChanged.listen((hasNetwork) {
+    _platformConnectivitySub =
+        NetworkConnectivityService().onConnectivityChanged.listen((hasNetwork) {
       if (!mounted) return;
-      debugPrint('[SPIN_WHEEL_EVENT] 📶 Platform connectivity changed: hasNetwork=$hasNetwork');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] 📶 Platform connectivity changed: hasNetwork=$hasNetwork');
       _updateOfflineState(platformOnline: hasNetwork);
     });
 
     // Initial platform check
     final initialOnline = NetworkConnectivityService().isOnline;
-    debugPrint('[SPIN_WHEEL_EVENT] 📶 Initial platform connectivity: isOnline=$initialOnline');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 📶 Initial platform connectivity: isOnline=$initialOnline');
     _updateOfflineState(platformOnline: initialOnline);
     NetworkConnectivityService().checkConnection().then((hasNetwork) {
       if (!mounted) return;
@@ -1988,10 +2135,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     });
 
     _lastCalculatedRound = _calculateCurrentRound();
-    debugPrint('[SPIN_WHEEL_EVENT] 🎯 Initial calculated round: $_lastCalculatedRound (synchronizedMs: $_synchronizedTimeMs)');
-    _idleController = AnimationController(vsync: this, duration: const Duration(seconds: 8))..repeat();
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🎯 Initial calculated round: $_lastCalculatedRound (synchronizedMs: $_synchronizedTimeMs)');
+    _idleController =
+        AnimationController(vsync: this, duration: const Duration(seconds: 8))
+          ..repeat();
     _idleController.addListener(() {
-      if (_gameState != SpinGameState.betting || _isSpinning || _spinCompleted || !mounted) return;
+      if (_gameState != SpinGameState.betting ||
+          _isSpinning ||
+          _spinCompleted ||
+          !mounted) return;
 
       final double currentAngle = _idleController.value * 2 * math.pi;
       final double step = 2 * math.pi / _segmentCount;
@@ -2013,10 +2166,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       if (_spinAnimation != null && mounted) {
         final double animVal = _spinAnimation!.value;
         final int stepCount = animVal.round();
-        final int segment = ((stepCount % _segmentCount) + _segmentCount) % _segmentCount;
-        _pointerAngle = (animVal * (2 * math.pi / _segmentCount)) - (math.pi / 2);
+        final int segment =
+            ((stepCount % _segmentCount) + _segmentCount) % _segmentCount;
+        _pointerAngle =
+            (animVal * (2 * math.pi / _segmentCount)) - (math.pi / 2);
         if (segment != _currentSegment) {
-          _updateSegment(segment);
+          _updateSegment(segment, spinTick: true);
         }
       }
     });
@@ -2026,16 +2181,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       }
     });
 
-    _precacheSounds();
+    _sounds.prepare();
     _startCountdown();
-    _playPhaseSound(SpinGameState.betting);
 
     _tryRecoverGameState();
   }
 
   Future<void> _tryRecoverGameState() async {
     try {
-      if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+      if (_isOffline ||
+          !_platformHasNetwork ||
+          !NetworkConnectivityService().isOnline) {
         await GameRecoveryService().clearBetState();
         return;
       }
@@ -2045,12 +2201,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       final savedRoundId = saved['roundId']?.toString();
       final rawSavedBets = saved['bets'];
-      final savedBets = rawSavedBets is Map ? Map<String, dynamic>.from(rawSavedBets) : null;
+      final savedBets =
+          rawSavedBets is Map ? Map<String, dynamic>.from(rawSavedBets) : null;
       final rawSavedCounts = saved['betClickCounts'];
-      final savedClickCounts = rawSavedCounts is Map ? Map<String, dynamic>.from(rawSavedCounts) : null;
+      final savedClickCounts = rawSavedCounts is Map
+          ? Map<String, dynamic>.from(rawSavedCounts)
+          : null;
       final savedTimestamp = (saved['timestamp'] as num?)?.toInt();
 
-      if (savedRoundId == null || savedBets == null || savedTimestamp == null) return;
+      if (savedRoundId == null || savedBets == null || savedTimestamp == null)
+        return;
 
       final now = _synchronizedTimeMs;
       const serverRoundMs = 40000;
@@ -2073,7 +2233,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // FIX 2: Do not re-submit bets that are already confirmed.
       // This prevents phantom auto-bets on app resume when the round is still active.
       if (_confirmedBets.isNotEmpty || _submittedSpinResult != null) {
-        debugPrint('[SPIN_WHEEL_EVENT] ♻️ Game recovery skipped: bets already confirmed for current round.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ♻️ Game recovery skipped: bets already confirmed for current round.');
         await GameRecoveryService().clearBetState();
         return;
       }
@@ -2087,7 +2248,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             _betClickCounts[entry.key] = (entry.value as num).toInt();
           }
         });
-        debugPrint("[SPIN_WHEEL_EVENT] ♻️ Game recovery: Restored bets for round $savedRoundId: $_currentBets");
+        debugPrint(
+            "[SPIN_WHEEL_EVENT] ♻️ Game recovery: Restored bets for round $savedRoundId: $_currentBets");
         // Re-submit restored bets if still in betting phase
         final secondsIntoCycle = (_synchronizedTimeMs % serverRoundMs) ~/ 1000;
         if (secondsIntoCycle < 30) {
@@ -2097,8 +2259,6 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           });
         }
       }
-
-
     } catch (e) {
       debugPrint("⚠️ Game recovery failed: $e");
     }
@@ -2107,6 +2267,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!mounted) return;
+    _audible = state == AppLifecycleState.resumed;
+    if (!_audible) _sounds.silence();
     if (state == AppLifecycleState.paused) {
       // Save current game state on pause
       final now = _synchronizedTimeMs;
@@ -2129,15 +2291,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     }
   }
 
-  void _playPhaseSound(SpinGameState state) {}
+  void _soundResult(String roundId) {
+    if (_audible && roundId.isNotEmpty) _sounds.reveal(roundId);
+  }
 
   int _calculateCurrentRound() {
     final nowMs = _synchronizedTimeMs;
     const roundDuration = 40000;
     final startOfRoundEpochMs = (nowMs ~/ roundDuration) * roundDuration;
-    final startOfRoundDate = DateTime.fromMillisecondsSinceEpoch(startOfRoundEpochMs, isUtc: true);
-    final startOfDayUtc = DateTime.utc(startOfRoundDate.year, startOfRoundDate.month, startOfRoundDate.day);
-    return ((startOfRoundEpochMs - startOfDayUtc.millisecondsSinceEpoch) ~/ roundDuration) + 1;
+    final startOfRoundDate =
+        DateTime.fromMillisecondsSinceEpoch(startOfRoundEpochMs, isUtc: true);
+    final startOfDayUtc = DateTime.utc(
+        startOfRoundDate.year, startOfRoundDate.month, startOfRoundDate.day);
+    return ((startOfRoundEpochMs - startOfDayUtc.millisecondsSinceEpoch) ~/
+            roundDuration) +
+        1;
   }
 
   void _startCountdown() {
@@ -2161,11 +2329,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // Rollover / Invalidations on a new round: only trigger when moving forward to the next round
       final currentRoundNum = int.tryParse(currentRoundIdStr) ?? 0;
       final lastRoundNum = int.tryParse(_currentRoundId ?? '') ?? 0;
-      final bool isNewRound = _currentRoundId != null && currentRoundNum > lastRoundNum;
+      final bool isNewRound =
+          _currentRoundId != null && currentRoundNum > lastRoundNum;
       _currentRoundId = currentRoundIdStr;
 
       if (isNewRound) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🔄 Round Rollover: Round $_lastCalculatedRound -> $currentRoundVal (roundId: $_currentRoundId). Resetting bets and state.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🔄 Round Rollover: Round $_lastCalculatedRound -> $currentRoundVal (roundId: $_currentRoundId). Resetting bets and state.');
         _dismissBottomSheet();
         _clearStoredResult();
         _walletManager.dropStalePendingCredits(currentRoundIdStr);
@@ -2176,12 +2346,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         // [none] latched offline and blocked every bet target for the rest of the session.
         if (_isOffline) {
           NetworkConnectivityService().checkConnection().then((hasNetwork) {
-            if (hasNetwork && mounted) _updateOfflineState(platformOnline: true);
+            if (hasNetwork && mounted)
+              _updateOfflineState(platformOnline: true);
           });
         }
 
         _debounceTimer?.cancel();
         _spinFallbackTimer?.cancel();
+        _sounds.silence();
         _spinController.stop();
         _spinController.reset();
 
@@ -2241,8 +2413,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       SpinGameState newGameState = _gameState;
 
       // Round transition countdown (last 3 seconds before next round: 37s, 38s, 39s)
-      final transitionStart = serverBettingPhaseSec + serverSpinPhaseSec + 2; // 37s
-      if (secondsIntoCycle >= transitionStart && secondsIntoCycle < serverRoundDurationMs ~/ 1000) {
+      final transitionStart =
+          serverBettingPhaseSec + serverSpinPhaseSec + 2; // 37s
+      if (secondsIntoCycle >= transitionStart &&
+          secondsIntoCycle < serverRoundDurationMs ~/ 1000) {
         _dismissBottomSheet();
         final remaining = (serverRoundDurationMs ~/ 1000) - secondsIntoCycle;
         if (remaining <= 3 && remaining >= 1) {
@@ -2283,7 +2457,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newCountdownLabel = "Select time";
       } else if (secondsIntoCycle >= 27 && secondsIntoCycle < 30) {
         if (!newBetLocked) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🔒 Phase 1b: BETS CLOSED at 27s (3s remaining in round $_currentRoundId, locking & auto-submitting)');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🔒 Phase 1b: BETS CLOSED at 27s (3s remaining in round $_currentRoundId, locking & auto-submitting)');
         }
         newBetLocked = true;
         newGameState = SpinGameState.betting;
@@ -2318,7 +2493,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         newCountdownLabel = "Next Round";
       }
 
-      if (newCountdown != _countdown || newCountdownLabel != _countdownLabel || newBetLocked != _isBetLocked) {
+      if (newCountdown != _countdown ||
+          newCountdownLabel != _countdownLabel ||
+          newBetLocked != _isBetLocked) {
         needsBuild = true;
         if (newCountdown <= 5 && newCountdown > 0 && !_isBetLocked) {
           _playCountdownTick();
@@ -2328,7 +2505,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       // PHASE 1: BETTING / IDLE
       if (secondsIntoCycle < serverBettingPhaseSec) {
         // HARD ENFORCEMENT: Bottom sheet and past stored results MUST NEVER exist during betting!
-        if (_isBottomSheetOpen || _bottomSheetContext != null || _bottomSheetRoute != null) {
+        if (_isBottomSheetOpen ||
+            _bottomSheetContext != null ||
+            _bottomSheetRoute != null) {
           _dismissBottomSheet();
         }
         if (_storedWinItem != null) {
@@ -2336,46 +2515,62 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         }
 
         if (_gameState != SpinGameState.betting && !_isSpinning) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🟢 Entering Phase 1: BETTING OPEN (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle, remaining: ${serverBettingPhaseSec - secondsIntoCycle}s)');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🟢 Entering Phase 1: BETTING OPEN (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle, remaining: ${serverBettingPhaseSec - secondsIntoCycle}s)');
           newGameState = SpinGameState.betting;
           _spinCompleted = false;
-          _playPhaseSound(SpinGameState.betting);
           _idleController.repeat();
           needsBuild = true;
         }
       }
       // PHASE 2: SPINNING PHASE
-      else if (secondsIntoCycle >= serverBettingPhaseSec && secondsIntoCycle < serverBettingPhaseSec + serverSpinPhaseSec) {
-        if (_gameState != SpinGameState.spinning && !_isSpinning && _hasSpunForRound != _currentRoundId) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🌀 Entering Phase 2: SPINNING (roundId: $_currentRoundId, msIntoCycle: $msIntoCycle)');
+      else if (secondsIntoCycle >= serverBettingPhaseSec &&
+          secondsIntoCycle < serverBettingPhaseSec + serverSpinPhaseSec) {
+        if (_gameState != SpinGameState.spinning &&
+            !_isSpinning &&
+            _hasSpunForRound != _currentRoundId) {
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🌀 Entering Phase 2: SPINNING (roundId: $_currentRoundId, msIntoCycle: $msIntoCycle)');
           newGameState = SpinGameState.spinning;
           needsBuild = true;
         }
 
-        if (_hasSpunForRound != _currentRoundId && !_isSpinning && !_isProcessingSpin) {
+        if (_hasSpunForRound != _currentRoundId &&
+            !_isSpinning &&
+            !_isProcessingSpin) {
           Map<String, dynamic>? availableOutcome;
-          if (_hasPendingResult && _pendingRoundResult != null && _resultPendingRoundId == _currentRoundId) {
+          if (_hasPendingResult &&
+              _pendingRoundResult != null &&
+              _resultPendingRoundId == _currentRoundId) {
             availableOutcome = Map<String, dynamic>.from(_pendingRoundResult!);
-            if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+            if (_submittedSpinResult != null &&
+                _submittedSpinResult!['roundId']?.toString() ==
+                    _currentRoundId) {
               if (_submittedSpinResult!['bets'] != null) {
                 availableOutcome['bets'] = _submittedSpinResult!['bets'];
               }
               if (_submittedSpinResult!['totalBet'] != null) {
-                availableOutcome['totalBet'] = _submittedSpinResult!['totalBet'];
+                availableOutcome['totalBet'] =
+                    _submittedSpinResult!['totalBet'];
               }
             }
-          } else if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+          } else if (_submittedSpinResult != null &&
+              _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
             availableOutcome = Map<String, dynamic>.from(_submittedSpinResult!);
           } else {
             final stats = ref.read(luckySpinStatsProvider).value;
-            if (stats?['lastGlobalRound']?.toString() == _currentRoundId && stats?['lastGlobalOutcome'] != null) {
+            if (stats?['lastGlobalRound']?.toString() == _currentRoundId &&
+                stats?['lastGlobalOutcome'] != null) {
               final rawOutcome = stats?['lastGlobalOutcome'];
-              availableOutcome = rawOutcome is Map ? Map<String, dynamic>.from(rawOutcome) : null;
+              availableOutcome = rawOutcome is Map
+                  ? Map<String, dynamic>.from(rawOutcome)
+                  : null;
             }
           }
 
           if (availableOutcome != null && availableOutcome['outcome'] is Map) {
-            availableOutcome.addAll(Map<String, dynamic>.from(availableOutcome['outcome'] as Map));
+            availableOutcome.addAll(
+                Map<String, dynamic>.from(availableOutcome['outcome'] as Map));
           }
 
           // If no outcome is available yet at the 30s betting close, wait for the
@@ -2388,15 +2583,19 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             _startSpin(availableOutcome);
           } else if (_hasTriggeredSpinSyncForRound != _currentRoundId) {
             _hasTriggeredSpinSyncForRound = _currentRoundId;
-            debugPrint('[SPIN_WHEEL_EVENT] ⚡ Outcome not ready at ${secondsIntoCycle}s into round $_currentRoundId, triggering immediate server sync...');
+            debugPrint(
+                '[SPIN_WHEEL_EVENT] ⚡ Outcome not ready at ${secondsIntoCycle}s into round $_currentRoundId, triggering immediate server sync...');
             _syncServerRoundClock();
           }
         }
       }
       // PHASE 3: RESULTS CELEBRATION
       else if (secondsIntoCycle >= serverBettingPhaseSec + serverSpinPhaseSec) {
-        if (_gameState != SpinGameState.results && !_isSpinning && !_spinController.isAnimating) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🏆 Entering Phase 3: RESULTS CELEBRATION (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
+        if (_gameState != SpinGameState.results &&
+            !_isSpinning &&
+            !_spinController.isAnimating) {
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🏆 Entering Phase 3: RESULTS CELEBRATION (roundId: $_currentRoundId, secIntoCycle: $secondsIntoCycle)');
           newGameState = SpinGameState.results;
           needsBuild = true;
           _walletManager.exitBettingPhaseAndApplyDeferredCredits();
@@ -2404,16 +2603,25 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         }
 
         // Show stored result from spin animation ONLY when animation has completely finished!
-        if (_storedWinItem != null && !_isSpinning && !_spinController.isAnimating && _hasShownResultForRound != _currentRoundId) {
+        if (_storedWinItem != null &&
+            !_isSpinning &&
+            !_spinController.isAnimating &&
+            _hasShownResultForRound != _currentRoundId) {
           _showStoredResult();
         }
 
         // Late Join / Spectator Catch-up: ONLY when animation is not animating
-        if (!_resultLock && !_isSpinning && !_spinController.isAnimating && _storedWinItem == null && _hasShownResultForRound != _currentRoundId) {
+        if (!_resultLock &&
+            !_isSpinning &&
+            !_spinController.isAnimating &&
+            _storedWinItem == null &&
+            _hasShownResultForRound != _currentRoundId) {
           Map<String, dynamic>? outcome;
-          if (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
+          if (_submittedSpinResult != null &&
+              _submittedSpinResult!['roundId']?.toString() == _currentRoundId) {
             outcome = _submittedSpinResult;
-          } else if (_hasPendingResult && _resultPendingRoundId == _currentRoundId) {
+          } else if (_hasPendingResult &&
+              _resultPendingRoundId == _currentRoundId) {
             outcome = _pendingRoundResult;
           } else {
             final statsAsync = ref.read(luckySpinStatsProvider);
@@ -2421,33 +2629,41 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             final lastGlobalRound = stats?['lastGlobalRound']?.toString();
             if (lastGlobalRound == _currentRoundId) {
               final rawOutcome = stats?['lastGlobalOutcome'];
-              outcome = rawOutcome is Map ? Map<String, dynamic>.from(rawOutcome) : null;
+              outcome = rawOutcome is Map
+                  ? Map<String, dynamic>.from(rawOutcome)
+                  : null;
             }
           }
 
           if (outcome != null) {
             final resultSettings = ref.read(gameSettingsProvider).value;
             final segmentsMap = (resultSettings?['segments'] as List? ?? []);
-            
+
             // Default to spectator
             int prize = 0;
             int wager = 0;
             Map<String, int>? betsCopy;
 
-            final int targetIdx = resolveTargetSectorIndex(outcome, segmentsMap);
-            final matchingSegment = (targetIdx >= 0 && targetIdx < segmentsMap.length)
-                ? segmentsMap[targetIdx]
-                : (segmentsMap.isNotEmpty ? segmentsMap.first : {});
+            final int targetIdx =
+                resolveTargetSectorIndex(outcome, segmentsMap);
+            final matchingSegment =
+                (targetIdx >= 0 && targetIdx < segmentsMap.length)
+                    ? segmentsMap[targetIdx]
+                    : (segmentsMap.isNotEmpty ? segmentsMap.first : {});
 
-            final resultName = outcome['name'] as String? ?? matchingSegment['name'] ?? "";
-            final resultEmoji = outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
-            final resultCategory = outcome['category'] as String? ?? matchingSegment['category'];
+            final resultName =
+                outcome['name'] as String? ?? matchingSegment['name'] ?? "";
+            final resultEmoji =
+                outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
+            final resultCategory =
+                outcome['category'] as String? ?? matchingSegment['category'];
 
             final winMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
                 (matchingSegment['multiplier'] as num?)?.toInt() ??
                 5;
 
-            final roundIdVal = outcome['roundId']?.toString() ?? _currentRoundId ?? '';
+            final roundIdVal =
+                outcome['roundId']?.toString() ?? _currentRoundId ?? '';
             final sessionTicket = _sessionRoundsHistory[roundIdVal];
 
             // Authoritative Bet & Prize resolution for celebration catch-up:
@@ -2467,7 +2683,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             if (_submittedSpinResult != null &&
                 _submittedSpinResult!['roundId']?.toString() == roundIdVal &&
                 _submittedSpinResult!['bets'] is Map) {
-              for (final entry in (_submittedSpinResult!['bets'] as Map).entries) {
+              for (final entry
+                  in (_submittedSpinResult!['bets'] as Map).entries) {
                 final k = entry.key.toString();
                 final v = (entry.value as num?)?.toInt() ?? 0;
                 if (v > 0) activeBets[k] = math.max(activeBets[k] ?? 0, v);
@@ -2475,11 +2692,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             }
             if (_confirmedRoundId == roundIdVal) {
               for (final entry in _confirmedBets.entries) {
-                if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+                if (entry.value > 0)
+                  activeBets[entry.key] =
+                      math.max(activeBets[entry.key] ?? 0, entry.value);
               }
             }
             for (final entry in _currentBets.entries) {
-              if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+              if (entry.value > 0)
+                activeBets[entry.key] =
+                    math.max(activeBets[entry.key] ?? 0, entry.value);
             }
 
             if (activeBets.isNotEmpty) {
@@ -2492,7 +2713,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                 roundType: outcome['type'] as String? ?? 'standard',
                 multiplier: winMultiplier,
               );
-              final serverPrize = (_submittedSpinResult != null && _submittedSpinResult!['roundId']?.toString() == _currentRoundId)
+              final serverPrize = (_submittedSpinResult != null &&
+                      _submittedSpinResult!['roundId']?.toString() ==
+                          _currentRoundId)
                   ? ((_submittedSpinResult!['prize'] as num?)?.toInt() ?? 0)
                   : ((sessionTicket?['prize'] as num?)?.toInt() ?? 0);
               prize = math.max(serverPrize, localPrize);
@@ -2516,18 +2739,33 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             }
 
             final winningItem = SpinItem(
-              name: resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ""),
-              multiplier: winMultiplier,
-              emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰') ? resultEmoji : ((matchingSegment['emoji'] != null && matchingSegment['emoji'] != '🎰') ? matchingSegment['emoji'] : _getFoodEmoji(resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ''))),
-              category: resultCategory ?? matchingSegment['category']
-            );
+                name: resultName.isNotEmpty
+                    ? resultName
+                    : (matchingSegment['name'] ?? ""),
+                multiplier: winMultiplier,
+                emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰')
+                    ? resultEmoji
+                    : ((matchingSegment['emoji'] != null &&
+                            matchingSegment['emoji'] != '🎰')
+                        ? matchingSegment['emoji']
+                        : _getFoodEmoji(resultName.isNotEmpty
+                            ? resultName
+                            : (matchingSegment['name'] ?? ''))),
+                category: resultCategory ?? matchingSegment['category']);
 
-            final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
+            final roundWinners = outcome['todayWinners'] as List? ??
+                outcome['roundWinners'] as List? ??
+                [];
 
             _hasSpunForRound = _currentRoundId;
             _updateSegment(targetIdx);
-            _pointerAngle = (targetIdx * (2 * math.pi / (segmentsMap.length > 0 ? segmentsMap.length : 8))) - (math.pi / 2);
+            _pointerAngle = (targetIdx *
+                    (2 *
+                        math.pi /
+                        (segmentsMap.length > 0 ? segmentsMap.length : 8))) -
+                (math.pi / 2);
             _spinCompleted = true;
+            _soundResult(roundIdVal);
             _lastRoundWager = wager;
             _lastRoundPrize = prize;
             _lastRoundResultForHistory = {
@@ -2555,24 +2793,30 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             }
 
             WidgetsBinding.instance.addPostFrameCallback((_) {
-               if (mounted) {
-                 _showResultBottomSheet(
-                   context,
-                   winningItem,
-                   prize,
-                   wager,
-                   roundWinners,
-                   roundIdVal,
-                   bets: betsCopy,
-                 );
-               }
-             });
+              if (mounted) {
+                _showResultBottomSheet(
+                  context,
+                  winningItem,
+                  prize,
+                  wager,
+                  roundWinners,
+                  roundIdVal,
+                  bets: betsCopy,
+                );
+              }
+            });
           }
         }
       }
 
       // Single batched setState for all countdown updates
-      if (needsBuild || newGameState != _gameState || newCountdown != _countdown || newCountdownLabel != _countdownLabel || newBetLocked != _isBetLocked || newShowTransition != _showRoundTransition || newTransitionCountdown != _roundTransitionCountdown) {
+      if (needsBuild ||
+          newGameState != _gameState ||
+          newCountdown != _countdown ||
+          newCountdownLabel != _countdownLabel ||
+          newBetLocked != _isBetLocked ||
+          newShowTransition != _showRoundTransition ||
+          newTransitionCountdown != _roundTransitionCountdown) {
         if (newGameState != _gameState) {
           if (newGameState == SpinGameState.betting) {
             _walletManager.enterBettingPhase();
@@ -2598,13 +2842,15 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final settings = ref.read(gameSettingsProvider).value;
     if (settings == null || !settings['isActive'] || _isSpinning) return;
 
-    if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+    if (_isOffline ||
+        !_platformHasNetwork ||
+        !NetworkConnectivityService().isOnline) {
       if (mounted) {
         _showConnectionNotFoundDialog();
       }
       return;
     }
-    
+
     _isProcessingSpin = true;
     _isSpinning = true;
     _isBetLocked = true;
@@ -2643,28 +2889,30 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final beans = wallet?['beans'] ?? 0;
 
     final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
-    final confirmedTotalBet = _confirmedBets.values.fold(0, (sum, val) => sum + val);
+    final confirmedTotalBet =
+        _confirmedBets.values.fold(0, (sum, val) => sum + val);
     final pendingUnconfirmedBet = math.max(0, totalBet - confirmedTotalBet);
 
     if (pendingUnconfirmedBet > 0) {
       // displayedBalance (diamonds) already subtracts pending debits, so
       // comparing it against pendingUnconfirmedBet double-counts and falsely
       // rejects. Affordability uses CONFIRMED balance (before pending debits).
-      final confirmedPower = _walletManager.confirmedBalance + (beans * 2 / 7).floor();
+      final confirmedPower =
+          _walletManager.confirmedBalance + (beans * 2 / 7).floor();
       if (confirmedPower < pendingUnconfirmedBet) {
-         ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds & Stars")));
-         setState(() {
-           _isSpinning = false;
-           _isBetLocked = false;
-           _isProcessingSpin = false;
-         });
-         return;
+        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(
+            context: context, content: Text("Insufficient Diamonds & Stars")));
+        setState(() {
+          _isSpinning = false;
+          _isBetLocked = false;
+          _isProcessingSpin = false;
+        });
+        return;
       }
     }
 
     setState(() {
       _gameState = SpinGameState.spinning;
-      _playPhaseSound(SpinGameState.spinning);
     });
 
     _idleController.stop();
@@ -2678,24 +2926,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         return;
       }
       setState(() {
-        _updateSegment((_currentSegment + 1) % 8);
+        _updateSegment((_currentSegment + 1) % 8, spinTick: true);
       });
     });
 
     try {
       final result = await ref.read(gameServiceProvider).playSpinWheel(
-        betAmount: totalBet,
-        bets: _currentBets,
-        roomId: widget.roomId,
-      );
-      
+            betAmount: totalBet,
+            bets: _currentBets,
+            roomId: widget.roomId,
+          );
+
       if (!mounted) return;
 
-      
       _tickTimer?.cancel(); // Stop dummy spin
       GameRecoveryService().clearBetState();
       _startSpin(result);
-
     } catch (e) {
       _tickTimer?.cancel();
       _spinCompleted = false;
@@ -2719,11 +2965,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             _isBetLocked = false;
           }
         });
-        
+
         // If network issue, show dedicated connection dialog
         if (hadBet) {
           final errorStr = e.toString();
-          if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline || errorStr.contains('network') || errorStr.contains('unavailable') || errorStr.contains('deadline-exceeded')) {
+          if (_isOffline ||
+              !_platformHasNetwork ||
+              !NetworkConnectivityService().isOnline ||
+              errorStr.contains('network') ||
+              errorStr.contains('unavailable') ||
+              errorStr.contains('deadline-exceeded')) {
             _showConnectionNotFoundDialog();
           }
         }
@@ -2740,7 +2991,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     // GATING GUARD: Wheel animation MUST NOT launch before 30.0s!
     if (secondsIntoCycle < 30) {
-      debugPrint('[SPIN_GAME_LOG] ⏳ Outcome pre-cached in memory at ${secondsIntoCycle}s into round ${outcome['roundId']}. Waiting for 30s spinning phase...');
+      debugPrint(
+          '[SPIN_GAME_LOG] ⏳ Outcome pre-cached in memory at ${secondsIntoCycle}s into round ${outcome['roundId']}. Waiting for 30s spinning phase...');
       return;
     }
 
@@ -2749,11 +3001,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     // Stale Round Guard: If this result belongs to a past round, do NOT disrupt the new round!
     if (outcomeRoundId != null && outcomeRoundId != activeRoundId) {
-      debugPrint('[SPIN_GAME_LOG] ⚠️ Discarded stale spin outcome from past round: $outcomeRoundId (current: $activeRoundId)');
+      debugPrint(
+          '[SPIN_GAME_LOG] ⚠️ Discarded stale spin outcome from past round: $outcomeRoundId (current: $activeRoundId)');
       setState(() {
         _isSpinning = false;
         _isProcessingSpin = false;
-        _gameState = (secondsIntoCycle < 30) ? SpinGameState.betting : SpinGameState.spinning;
+        _gameState = (secondsIntoCycle < 30)
+            ? SpinGameState.betting
+            : SpinGameState.spinning;
         _isBetLocked = (secondsIntoCycle >= 20);
       });
       return;
@@ -2809,8 +3064,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       _gameState = SpinGameState.spinning;
     });
 
-    _playPhaseSound(SpinGameState.spinning);
-    debugPrint('[SPIN_WHEEL_EVENT] 🎡 Starting Hardware-Accelerated Spin: roundId=$outcomeRoundId, startIdx=$startIdx, targetIdx=$targetIdx, duration=${remainingSpinMs}ms');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🎡 Starting Hardware-Accelerated Spin: roundId=$outcomeRoundId, startIdx=$startIdx, targetIdx=$targetIdx, duration=${remainingSpinMs}ms');
 
     _spinController.duration = Duration(milliseconds: remainingSpinMs);
     _spinController.forward(from: 0.0);
@@ -2822,13 +3077,18 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     required bool isCatchUp,
   }) {
     if (roundId.isEmpty || effectiveTotalBet <= 0) return;
-    if (_settledRoundId == roundId || _settlingRoundIds.contains(roundId)) return;
+    if (_settledRoundId == roundId || _settlingRoundIds.contains(roundId))
+      return;
 
     _settlingRoundIds.add(roundId);
     final requestSeq = ++_balanceSeq;
-    debugPrint('[SPIN_WHEEL_EVENT] 📡 Requesting backend round settlement: roundId=$roundId, bet=$effectiveTotalBet, isCatchUp=$isCatchUp');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 📡 Requesting backend round settlement: roundId=$roundId, bet=$effectiveTotalBet, isCatchUp=$isCatchUp');
 
-    ref.read(gameServiceProvider).settleSpinWheelRound(roundId: roundId).then((result) {
+    ref
+        .read(gameServiceProvider)
+        .settleSpinWheelRound(roundId: roundId)
+        .then((result) {
       if (mounted) {
         _settlingRoundIds.remove(roundId);
         _settledRoundId = roundId;
@@ -2837,7 +3097,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         final serverTotalBet = (result['totalBet'] as num?)?.toInt();
         final serverSeq = (result['seq'] as num?)?.toInt() ?? requestSeq;
         final txnId = result['txnId'] as String? ?? 'spin_win_$roundId';
-        debugPrint('[SPIN_WHEEL_EVENT] 🏆 Round $roundId settled: prize=$serverPrize, balance=$serverBal, totalBet=$serverTotalBet, seq=$serverSeq');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🏆 Round $roundId settled: prize=$serverPrize, balance=$serverBal, totalBet=$serverTotalBet, seq=$serverSeq');
         _recordSessionSettle(
           roundId: roundId,
           prize: serverPrize,
@@ -2848,7 +3109,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           _storedPrize = serverPrize;
           _optimisticWinnings = 0;
           final isCurrentRound = roundId == _currentRoundId;
-          final effectiveBal = serverBal ?? (serverPrize > 0 ? (_walletManager.confirmedBalance + serverPrize) : _walletManager.confirmedBalance);
+          final effectiveBal = serverBal ??
+              (serverPrize > 0
+                  ? (_walletManager.confirmedBalance + serverPrize)
+                  : _walletManager.confirmedBalance);
           _walletManager.reconcileSettlement(
             txnId: txnId,
             serverBalance: effectiveBal,
@@ -2866,11 +3130,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _notifyHistoryUpdate();
       }
     }).catchError((err) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Settle round $roundId failed: $err. Will retry.');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Settle round $roundId failed: $err. Will retry.');
       if (mounted) {
         _settlingRoundIds.remove(roundId);
         Timer(const Duration(seconds: 2), () {
-          if (mounted && _settledRoundId != roundId && !_settlingRoundIds.contains(roundId)) {
+          if (mounted &&
+              _settledRoundId != roundId &&
+              !_settlingRoundIds.contains(roundId)) {
             _executeRoundSettlement(
               roundId: roundId,
               effectiveTotalBet: effectiveTotalBet,
@@ -2890,7 +3157,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final isSettled = ticket['settled'] == true;
       final totalBet = (ticket['totalBet'] as num?)?.toInt() ?? 0;
       if (!isSettled && totalBet > 0 && roundId.isNotEmpty) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled round $roundId (wager: $totalBet)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled round $roundId (wager: $totalBet)');
         _executeRoundSettlement(
           roundId: roundId,
           effectiveTotalBet: totalBet,
@@ -2906,7 +3174,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     final rawOutcome = _currentSpinOutcome;
     if (rawOutcome == null) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Deceleration complete without active outcome.');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Deceleration complete without active outcome.');
       setState(() {
         _isSpinning = false;
         _isProcessingSpin = false;
@@ -2917,7 +3186,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final outcome = (rawOutcome['outcome'] is Map)
         ? Map<String, dynamic>.from(rawOutcome['outcome'] as Map)
         : rawOutcome;
-    final roundId = outcome['roundId']?.toString() ?? rawOutcome['roundId']?.toString() ?? _currentRoundId ?? "";
+    final roundId = outcome['roundId']?.toString() ??
+        rawOutcome['roundId']?.toString() ??
+        _currentRoundId ??
+        "";
     final settings = ref.read(gameSettingsProvider).value;
     final segmentsMap = (settings?['segments'] as List? ?? []);
 
@@ -2950,14 +3222,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     }
     if (_confirmedRoundId == roundId) {
       for (final entry in _confirmedBets.entries) {
-        if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+        if (entry.value > 0)
+          activeBets[entry.key] =
+              math.max(activeBets[entry.key] ?? 0, entry.value);
       }
     }
     for (final entry in _currentBets.entries) {
-      if (entry.value > 0) activeBets[entry.key] = math.max(activeBets[entry.key] ?? 0, entry.value);
+      if (entry.value > 0)
+        activeBets[entry.key] =
+            math.max(activeBets[entry.key] ?? 0, entry.value);
     }
 
-    final bool hasConfirmedBet = hasServerResult || activeBets.isNotEmpty || (sessionTicket != null && (sessionTicket['totalBet'] ?? 0) > 0);
+    final bool hasConfirmedBet = hasServerResult ||
+        activeBets.isNotEmpty ||
+        (sessionTicket != null && (sessionTicket['totalBet'] ?? 0) > 0);
 
     final totalBet = activeBets.values.fold(0, (sum, val) => sum + val);
     final effectiveTotalBet = totalBet > 0
@@ -2968,16 +3246,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     final betsCopy = activeBets.isNotEmpty
         ? Map<String, int>.from(activeBets)
-        : (_submittedSpinResult?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ??
-            (sessionTicket?['bets'] as Map?)?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+        : (_submittedSpinResult?['bets'] as Map?)
+                ?.map((k, v) => MapEntry(k.toString(), (v as num).toInt())) ??
+            (sessionTicket?['bets'] as Map?)
+                ?.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
 
     final matchingSegment = (targetIdx >= 0 && targetIdx < segmentsMap.length)
         ? segmentsMap[targetIdx]
         : (segmentsMap.isNotEmpty ? segmentsMap.first : {});
 
-    final resultName = outcome['name'] as String? ?? matchingSegment['name'] ?? "";
-    final resultEmoji = outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
-    final resultCategory = outcome['category'] as String? ?? matchingSegment['category'];
+    final resultName =
+        outcome['name'] as String? ?? matchingSegment['name'] ?? "";
+    final resultEmoji =
+        outcome['emoji'] as String? ?? matchingSegment['emoji'] ?? "";
+    final resultCategory =
+        outcome['category'] as String? ?? matchingSegment['category'];
     final type = outcome['type'] as String? ?? "standard";
 
     final itemMultiplier = (outcome['multiplier'] as num?)?.toInt() ??
@@ -2985,9 +3268,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         5;
 
     final winningItem = SpinItem(
-      name: resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ""),
+      name:
+          resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ""),
       multiplier: itemMultiplier,
-      emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰') ? resultEmoji : ((matchingSegment['emoji'] != null && matchingSegment['emoji'] != '🎰') ? matchingSegment['emoji'] : _getFoodEmoji(resultName.isNotEmpty ? resultName : (matchingSegment['name'] ?? ''))),
+      emoji: (resultEmoji.isNotEmpty && resultEmoji != '🎰')
+          ? resultEmoji
+          : ((matchingSegment['emoji'] != null &&
+                  matchingSegment['emoji'] != '🎰')
+              ? matchingSegment['emoji']
+              : _getFoodEmoji(resultName.isNotEmpty
+                  ? resultName
+                  : (matchingSegment['name'] ?? ''))),
       category: resultCategory ?? matchingSegment['category'],
     );
 
@@ -3003,7 +3294,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       );
     }
 
-    final roundWinners = outcome['todayWinners'] as List? ?? outcome['roundWinners'] as List? ?? [];
+    final roundWinners = outcome['todayWinners'] as List? ??
+        outcome['roundWinners'] as List? ??
+        [];
 
     setState(() {
       _spinCompleted = true;
@@ -3012,7 +3305,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       _isSpinning = false;
       _isProcessingSpin = false;
       _spinAnimation = null;
-      _optimisticWinnings = 0; // Winnings are credited only after authoritative backend settlement confirms!
+      _optimisticWinnings =
+          0; // Winnings are credited only after authoritative backend settlement confirms!
 
       if (effectiveTotalBet > 0) {
         _todayProfits += (effectivePrize - effectiveTotalBet);
@@ -3061,7 +3355,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       'timestamp': DateTime.now().millisecondsSinceEpoch,
     });
 
-    _playPhaseSound(SpinGameState.results);
+    _soundResult(roundId);
     _walletManager.exitBettingPhaseAndApplyDeferredCredits();
 
     // Provide haptic feedback upon wheel coming to a stop
@@ -3105,10 +3399,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final msIntoCycle = nowMs % serverRoundMs;
     final activeRoundId = (nowMs ~/ serverRoundMs).toString();
 
-    debugPrint('[SPIN_WHEEL_EVENT] 🎯 Hardware-Accelerated Wheel Landed: sector=$targetIdx, item=${winningItem.name}, prize=$effectivePrize, wager=$effectiveTotalBet');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🎯 Hardware-Accelerated Wheel Landed: sector=$targetIdx, item=${winningItem.name}, prize=$effectivePrize, wager=$effectiveTotalBet');
 
     // Strict Guard: Complete winning animation on the target pod before showing results
-    // User requirement: 
+    // User requirement:
     // 1. 30s betting time ends
     // 2. Winning animation starts
     // 3. Winning animation completes fully
@@ -3118,11 +3413,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final currentNowMs = _synchronizedTimeMs;
       final currentMs = currentNowMs % serverRoundMs;
       final curRound = (currentNowMs ~/ serverRoundMs).toString();
-      if (_hasShownResultForRound != roundId && roundId == curRound && currentMs >= 32000 && currentMs < 38500) {
-        debugPrint('[SPIN_WHEEL_EVENT] 📜 Winning animation completed fully. Triggering Result Bottom Sheet for round $roundId');
+      if (_hasShownResultForRound != roundId &&
+          roundId == curRound &&
+          currentMs >= 32000 &&
+          currentMs < 38500) {
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 📜 Winning animation completed fully. Triggering Result Bottom Sheet for round $roundId');
         _showStoredResult();
       } else if (roundId != curRound || currentMs >= 38500) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $curRound, msIntoCycle: $currentMs)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Suppressed bottom sheet after wheel spin (roundId: $roundId, active: $curRound, msIntoCycle: $currentMs)');
         _clearStoredResult();
       }
     });
@@ -3139,10 +3439,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       try {
         if (route.isCurrent) {
           route.navigator?.pop();
-          debugPrint('[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.pop()');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.pop()');
         } else {
           route.navigator?.removeRoute(route);
-          debugPrint('[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.removeRoute()');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🚪 Dismissed open result bottom sheet via route.navigator.removeRoute()');
         }
       } catch (e) {
         debugPrint("⚠️ SpinWheel: Error removing bottom sheet route: $e");
@@ -3159,12 +3461,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
       // Strict Guard: ONLY show bottom sheet during Results Celebration phase (32.0s-39.0s) AND for the current round!
       if (_storedRoundId.isNotEmpty && _storedRoundId != currentRoundId) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed stale result sheet for past round $_storedRoundId (current: $currentRoundId)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Suppressed stale result sheet for past round $_storedRoundId (current: $currentRoundId)');
         _clearStoredResult();
         return;
       }
       if (msIntoCycle >= 39000) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Suppressed result sheet after celebration window (msIntoCycle: $msIntoCycle)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Suppressed result sheet after celebration window (msIntoCycle: $msIntoCycle)');
         _clearStoredResult();
         return;
       }
@@ -3200,25 +3504,31 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     if (_storedRoundId.isNotEmpty && (_storedPrize > 0 || _storedWager > 0)) {
       final existing = _sessionRoundsHistory[_storedRoundId] ?? {};
       final existingPrize = (existing['prize'] as num?)?.toInt() ?? 0;
-      final effectivePrize = (existing['settled'] == true) ? existingPrize : _storedPrize;
+      final effectivePrize =
+          (existing['settled'] == true) ? existingPrize : _storedPrize;
       _sessionRoundsHistory[_storedRoundId] = {
         ...existing,
         'roundId': _storedRoundId,
-        'totalBet': _storedWager > 0 ? _storedWager : (existing['totalBet'] ?? 0),
-        if (_storedBets != null && _storedBets!.isNotEmpty) 'bets': Map<String, int>.from(_storedBets!),
+        'totalBet':
+            _storedWager > 0 ? _storedWager : (existing['totalBet'] ?? 0),
+        if (_storedBets != null && _storedBets!.isNotEmpty)
+          'bets': Map<String, int>.from(_storedBets!),
         'prize': effectivePrize,
         'amount': effectivePrize,
         if (_storedWinItem != null) 'winningFood': _storedWinItem!.name,
         if (_storedWinItem != null) 'name': _storedWinItem!.name,
         if (_storedWinItem != null) 'emoji': _storedWinItem!.emoji,
         if (_storedWinItem != null) 'label': '${_storedWinItem!.multiplier}x',
-        if (_storedWinItem != null) 'multiplier': '${_storedWinItem!.multiplier}x',
+        if (_storedWinItem != null)
+          'multiplier': '${_storedWinItem!.multiplier}x',
         'settled': true,
         'timestamp': existing['timestamp'] ?? DateTime.now(),
-        'createdAt': existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+        'createdAt':
+            existing['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
       };
     }
-    debugPrint('[SPIN_WHEEL_EVENT] 🧹 Cleared stored results for round $_storedRoundId');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🧹 Cleared stored results for round $_storedRoundId');
     _storedWinItem = null;
     _storedPrize = 0;
     _storedWager = 0;
@@ -3228,7 +3538,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _submittedSpinResult = null;
   }
 
-  void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings, int wager, List<dynamic> winners, String roundId, {Map<String, int>? bets}) {
+  void _showResultBottomSheet(BuildContext context, SpinItem item, int winnings,
+      int wager, List<dynamic> winners, String roundId,
+      {Map<String, int>? bets}) {
     if (!mounted) return;
 
     final now = _synchronizedTimeMs;
@@ -3238,8 +3550,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
     // HARD GUARD: NEVER open result bottom sheet outside 32.0s - 39.0s celebration window,
     // and NEVER for a round that is not the active round!
-    if (roundId != activeRoundId || msIntoCycle < 32000 || msIntoCycle >= 39000) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⛔ BLOCKED showing result bottom sheet outside celebration window (round: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
+    if (roundId != activeRoundId ||
+        msIntoCycle < 32000 ||
+        msIntoCycle >= 39000) {
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⛔ BLOCKED showing result bottom sheet outside celebration window (round: $roundId, active: $activeRoundId, msIntoCycle: $msIntoCycle)');
       return;
     }
 
@@ -3248,20 +3563,28 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final int fallbackWager = _confirmedRoundId == roundId
         ? _confirmedBets.values.fold<int>(0, (int s, int v) => s + v)
         : 0;
-    final int effectiveWager = wager > 0 
-        ? wager 
+    final int effectiveWager = wager > 0
+        ? wager
         : ((ticket?['totalBet'] as num?)?.toInt() ?? fallbackWager);
     final int effectiveWinnings = winnings > 0
         ? winnings
-        : ((ticket?['prize'] as num?)?.toInt() ?? (ticket?['amount'] as num?)?.toInt() ?? 0);
+        : ((ticket?['prize'] as num?)?.toInt() ??
+            (ticket?['amount'] as num?)?.toInt() ??
+            0);
     final effectiveBets = (bets != null && bets.isNotEmpty)
         ? bets
-        : (ticket?['bets'] is Map 
-            ? (ticket!['bets'] as Map).map((k, v) => MapEntry(k.toString(), (v as num).toInt())) 
-            : (_confirmedRoundId == roundId && _confirmedBets.isNotEmpty ? _confirmedBets : null));
+        : (ticket?['bets'] is Map
+            ? (ticket!['bets'] as Map)
+                .map((k, v) => MapEntry(k.toString(), (v as num).toInt()))
+            : (_confirmedRoundId == roundId && _confirmedBets.isNotEmpty
+                ? _confirmedBets
+                : null));
 
-    final outcomeTitle = effectiveWager > 0 ? (effectiveWinnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
-    debugPrint('[SPIN_WHEEL_EVENT] 📜 Opening Result Sheet: roundId: $roundId, outcome: $outcomeTitle, item: ${item.name} (${item.emoji} ${item.multiplier}x), wager: $effectiveWager, winnings: $effectiveWinnings');
+    final outcomeTitle = effectiveWager > 0
+        ? (effectiveWinnings > 0 ? "YOU WIN!" : "YOU LOST")
+        : "ROUND COMPLETED";
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 📜 Opening Result Sheet: roundId: $roundId, outcome: $outcomeTitle, item: ${item.name} (${item.emoji} ${item.multiplier}x), wager: $effectiveWager, winnings: $effectiveWinnings');
 
     // Ensure all deferred credits from round settlement are unlocked and applied to wallet
     _walletManager.exitBettingPhaseAndApplyDeferredCredits();
@@ -3295,7 +3618,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           );
         },
       ).then((_) {
-        debugPrint('[SPIN_WHEEL_EVENT] 🚪 Result Bottom Sheet Dismissed. Refreshing wallet, history, and stats.');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🚪 Result Bottom Sheet Dismissed. Refreshing wallet, history, and stats.');
         _isBottomSheetOpen = false;
         _bottomSheetContext = null;
         _bottomSheetRoute = null;
@@ -3330,7 +3654,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500)),
           value,
         ],
       ),
@@ -3346,30 +3674,45 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
             CircleAvatar(
               radius: 22,
               backgroundColor: Colors.white10,
-              backgroundImage: (winner != null && winner['photoUrl'] != null && winner['photoUrl'].isNotEmpty)
-                ? NetworkImage(winner['photoUrl'])
-                : null,
-              child: (winner == null || winner['photoUrl'] == null || winner['photoUrl'].isEmpty)
-                ? const Icon(Icons.person, color: Colors.white30)
-                : null,
+              backgroundImage: (winner != null &&
+                      winner['photoUrl'] != null &&
+                      winner['photoUrl'].isNotEmpty)
+                  ? NetworkImage(winner['photoUrl'])
+                  : null,
+              child: (winner == null ||
+                      winner['photoUrl'] == null ||
+                      winner['photoUrl'].isEmpty)
+                  ? const Icon(Icons.person, color: Colors.white30)
+                  : null,
             ),
             Container(
               padding: const EdgeInsets.all(2),
-              decoration: const BoxDecoration(color: Colors.amber, shape: BoxShape.circle),
-              child: Text("${rank + 1}", style: const TextStyle(color: Colors.black, fontSize: 8, fontWeight: FontWeight.bold)),
+              decoration: const BoxDecoration(
+                  color: Colors.amber, shape: BoxShape.circle),
+              child: Text("${rank + 1}",
+                  style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold)),
             ),
           ],
         ),
         const SizedBox(height: 4),
-        Text(winner?['name'] ?? "Empty", 
-          style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-          maxLines: 1, overflow: TextOverflow.ellipsis),
+        Text(winner?['name'] ?? "Empty",
+            style: const TextStyle(
+                color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis),
         Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             const PremiumDiamond(size: 10),
             const SizedBox(width: 2),
-            Text("${winner?['amount'] ?? 0}", style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+            Text("${winner?['amount'] ?? 0}",
+                style: const TextStyle(
+                    color: Colors.amber,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold)),
           ],
         ),
       ],
@@ -3380,32 +3723,52 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF1E293B),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) => Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Center(child: Text("GAME RULES", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold))),
+            const Center(
+                child: Text("GAME RULES",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold))),
             const SizedBox(height: 24),
-            _ruleItem("1. Select wager (min: ${settings['minWager']}, max: ${settings['maxWager']})."),
+            _ruleItem(
+                "1. Select wager (min: ${settings['minWager']}, max: ${settings['maxWager']})."),
             _ruleItem("2. Tap the central countdown to spin."),
             _ruleItem("3. Landing on an icon grants its multiplier payout."),
             _ruleItem("4. Max win limit: ${settings['maxWinCap']} diamonds."),
             _ruleItem("5. Daily profit limit per user applies."),
             const SizedBox(height: 32),
-            Center(child: ElevatedButton(onPressed: () => Navigator.pop(context), style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFACC15), foregroundColor: Colors.black, shape: StadiumBorder(), padding: EdgeInsets.symmetric(horizontal: 60)), child: const Text("GOT IT"))),
+            Center(
+                child: ElevatedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFACC15),
+                        foregroundColor: Colors.black,
+                        shape: StadiumBorder(),
+                        padding: EdgeInsets.symmetric(horizontal: 60)),
+                    child: const Text("GOT IT"))),
           ],
         ),
       ),
     );
   }
 
-  Widget _ruleItem(String text) => Padding(padding: const EdgeInsets.only(bottom: 12), child: Text(text, style: const TextStyle(color: Colors.white70, fontSize: 13)));
+  Widget _ruleItem(String text) => Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(text,
+          style: const TextStyle(color: Colors.white70, fontSize: 13)));
 
   @override
   void dispose() {
-    debugPrint('[SPIN_WHEEL_EVENT] 🛑 Game Screen Disposing: Cleaning up controllers, timers, and listeners.');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🛑 Game Screen Disposing: Cleaning up controllers, timers, and listeners.');
     _dismissBottomSheet();
     WidgetsBinding.instance.removeObserver(this);
     WakelockService().release();
@@ -3417,6 +3780,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _timer?.cancel();
     _tickTimer?.cancel();
     _spinFallbackTimer?.cancel();
+    _sounds.dispose();
     _idleController.dispose();
     _spinController.dispose();
     _currentSegmentNotifier.dispose();
@@ -3439,9 +3803,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     _isOffline = !_platformHasNetwork;
 
     if (_isOffline != wasOffline) {
-      debugPrint('[SPIN_WHEEL_EVENT] 🌐 Network state changed: isOffline=$_isOffline (platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] 🌐 Network state changed: isOffline=$_isOffline (platform=$_platformHasNetwork, rtdb=$_rtdbConnected)');
       if (_isOffline) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Device offline: pausing unconfirmed local bets');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⚠️ Device offline: pausing unconfirmed local bets');
         _debounceTimer?.cancel();
         // Keep the staged wagers on screen. Wiping them here is what made bets "disappear"
         // on a transient offline blip; they are re-submitted by the recovery pass once the
@@ -3456,7 +3822,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<AsyncValue<Map<String, dynamic>>>(walletBalanceProvider, (prev, next) {
+    ref.listen<AsyncValue<Map<String, dynamic>>>(walletBalanceProvider,
+        (prev, next) {
       final data = next.value;
       if (data != null) {
         final streamDiamonds = (data['diamonds'] as num?)?.toInt() ?? 0;
@@ -3478,14 +3845,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final statsAsync = ref.watch(luckySpinStatsProvider);
     final historyAsync = ref.watch(userGameHistoryProvider);
 
-    final bool canPopScreen = _bottomSheetRoute == null || !_bottomSheetRoute!.isActive;
+    final bool canPopScreen =
+        _bottomSheetRoute == null || !_bottomSheetRoute!.isActive;
 
     return PopScope(
       canPop: canPopScreen,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         if (_bottomSheetRoute != null && _bottomSheetRoute!.isActive) {
-          debugPrint('[SPIN_WHEEL_EVENT] 🛡️ Pop intercepted: Dismissing bottom sheet only, preventing screen exit');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🛡️ Pop intercepted: Dismissing bottom sheet only, preventing screen exit');
           _dismissBottomSheet();
           return;
         }
@@ -3493,404 +3862,527 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       child: MediaQuery(
         data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
         child: Scaffold(
-        backgroundColor: const Color(0xFFFDE047),
-        extendBodyBehindAppBar: true,
-        body: settingsAsync.when(
-          data: (settings) {
-            if (!settings['isActive']) return _buildMaintenanceScreen();
+          backgroundColor: const Color(0xFFFDE047),
+          extendBodyBehindAppBar: true,
+          body: settingsAsync.when(
+            data: (settings) {
+              if (!settings['isActive']) return _buildMaintenanceScreen();
 
-            final rawSegments = settings['segments'];
-            final segmentsList = rawSegments is List ? rawSegments : [];
-            final items = segmentsList.whereType<Map>().map((s) {
-              final name = s['name']?.toString() ?? '';
-              final mult = (s['multiplier'] as num?)?.toInt() ?? int.tryParse(s['multiplier']?.toString() ?? '1') ?? 1;
-              final emoji = s['emoji']?.toString() ?? '🎰';
-              final category = s['category']?.toString();
-              return SpinItem(
-                name: name,
-                multiplier: mult,
-                emoji: emoji,
-                category: category,
+              final rawSegments = settings['segments'];
+              final segmentsList = rawSegments is List ? rawSegments : [];
+              final items = segmentsList.whereType<Map>().map((s) {
+                final name = s['name']?.toString() ?? '';
+                final mult = (s['multiplier'] as num?)?.toInt() ??
+                    int.tryParse(s['multiplier']?.toString() ?? '1') ??
+                    1;
+                final emoji = s['emoji']?.toString() ?? '🎰';
+                final category = s['category']?.toString();
+                return SpinItem(
+                  name: name,
+                  multiplier: mult,
+                  emoji: emoji,
+                  category: category,
+                );
+              }).toList();
+
+              if (items.isEmpty) {
+                items.addAll([
+                  SpinItem(
+                      name: 'Hotdog',
+                      multiplier: 10,
+                      emoji: '🌭',
+                      category: 'pizza'),
+                  SpinItem(
+                      name: 'Skewer',
+                      multiplier: 15,
+                      emoji: '🍢',
+                      category: 'pizza'),
+                  SpinItem(
+                      name: 'Chicken',
+                      multiplier: 25,
+                      emoji: '🍗',
+                      category: 'pizza'),
+                  SpinItem(
+                      name: 'Steak',
+                      multiplier: 45,
+                      emoji: '🥩',
+                      category: 'pizza'),
+                  SpinItem(
+                      name: 'Carrot',
+                      multiplier: 5,
+                      emoji: '🥕',
+                      category: 'salad'),
+                  SpinItem(
+                      name: 'Corn',
+                      multiplier: 5,
+                      emoji: '🌽',
+                      category: 'salad'),
+                  SpinItem(
+                      name: 'Cabbage',
+                      multiplier: 5,
+                      emoji: '🥬',
+                      category: 'salad'),
+                  SpinItem(
+                      name: 'Tomato',
+                      multiplier: 5,
+                      emoji: '🍅',
+                      category: 'salad'),
+                ]);
+              }
+              _segmentCount = items.isEmpty ? 8 : items.length;
+
+              final saladItem = items.firstWhere(
+                (item) => item.name.toLowerCase().trim() == 'salad',
+                orElse: () => SpinItem(name: 'Salad', multiplier: 1, emoji: ''),
               );
-            }).toList();
+              final pizzaItem = items.firstWhere(
+                (item) => item.name.toLowerCase().trim() == 'pizza',
+                orElse: () => SpinItem(name: 'Pizza', multiplier: 1, emoji: ''),
+              );
 
-            if (items.isEmpty) {
-              items.addAll([
-                SpinItem(name: 'Hotdog', multiplier: 10, emoji: '🌭', category: 'pizza'),
-                SpinItem(name: 'Skewer', multiplier: 15, emoji: '🍢', category: 'pizza'),
-                SpinItem(name: 'Chicken', multiplier: 25, emoji: '🍗', category: 'pizza'),
-                SpinItem(name: 'Steak', multiplier: 45, emoji: '🥩', category: 'pizza'),
-                SpinItem(name: 'Carrot', multiplier: 5, emoji: '🥕', category: 'salad'),
-                SpinItem(name: 'Corn', multiplier: 5, emoji: '🌽', category: 'salad'),
-                SpinItem(name: 'Cabbage', multiplier: 5, emoji: '🥬', category: 'salad'),
-                SpinItem(name: 'Tomato', multiplier: 5, emoji: '🍅', category: 'salad'),
-              ]);
-            }
-            _segmentCount = items.isEmpty ? 8 : items.length;
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final widthScale = constraints.maxWidth / 375;
+                  final heightScale = constraints.maxHeight / 750;
+                  final scale =
+                      math.min(widthScale, heightScale).clamp(0.75, 1.05);
 
-            final saladItem = items.firstWhere(
-              (item) => item.name.toLowerCase().trim() == 'salad',
-              orElse: () => SpinItem(name: 'Salad', multiplier: 1, emoji: ''),
-            );
-            final pizzaItem = items.firstWhere(
-              (item) => item.name.toLowerCase().trim() == 'pizza',
-              orElse: () => SpinItem(name: 'Pizza', multiplier: 1, emoji: ''),
-            );
-
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                final topPadding = MediaQuery.of(context).padding.top;
-                // Dynamic Scaling with compact bounds to keep bottom area clean
-                final widthScale = constraints.maxWidth / 375;
-                final heightScale = constraints.maxHeight / 750;
-                final scale = math.min(widthScale, heightScale).clamp(0.75, 1.05);
-
-                // 100% Dead-Center Alignment on Background Image Graphic
-                final wheelScale = scale * 0.81;
-                final headerTop = topPadding + (8 * scale);
-                final wheelAlignmentY = -0.45;
-                final bettingSectionBottom = 175.0 * scale;
-
-                return Stack(
-                  children: [
-                    // 1. Full Screen Background Image
-                    Positioned.fill(
-                      child: Image.asset(
-                        'assets/images/processed_image.webp',
-                        fit: BoxFit.fill,
-                        errorBuilder: (context, error, stackTrace) => Container(color: const Color(0xFFFDE047)),
-                      ),
-                    ),
-
-                    // 2. Header Elements (Top area)
-                    Positioned(
-                      top: headerTop,
-                      left: 16 * scale,
-                      right: 16 * scale,
-                      child: _buildHeader(settings, _calculateCurrentRound(), scale, statsAsync.value),
-                    ),
-
-                    // 3. Main Circular Game (Compact Wheel, Shifted Upwards)
-                    Align(
-                      alignment: Alignment(0, wheelAlignmentY),
-                      child: SizedBox(
-                        width: 360 * wheelScale, height: 420 * wheelScale,
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            SizedBox(
-                              width: 360 * wheelScale, height: 420 * wheelScale,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                clipBehavior: Clip.none,
-                                children: [
-                                  ValueListenableBuilder<int?>(
-                                    valueListenable: _currentSegmentNotifier,
-                                    builder: (context, activeSeg, _) {
-                                      return RepaintBoundary(
-                                        child: CustomPaint(
-                                          size: Size(360 * wheelScale, 420 * wheelScale), 
-                                          painter: PodsPainter(
-                                            items: items, 
-                                            activeIndex: activeSeg, 
-                                            betClickCounts: _betClickCounts,
-                                            scale: wheelScale,
-                                            saladHits: statsAsync.value?['todaySaladHits'] ?? 0,
-                                            pizzaHits: statsAsync.value?['todayPizzaHits'] ?? 0,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                  
-                                  // Salad & Pizza Buttons
-                                  Positioned(
-                                    bottom: -55 * wheelScale,
-                                    left: 0 * wheelScale,
-                                    child: GestureDetector(
-                                      onTap: (_isBetLocked || _isOffline) ? null : () => _placeBet("Salad", items),
-                                      child: _buildJackpotTab("Salad", "🥗", wheelScale, _currentBets[saladItem.name] ?? 0),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    bottom: -55 * wheelScale,
-                                    right: 0 * wheelScale,
-                                    child: GestureDetector(
-                                      onTap: (_isBetLocked || _isOffline) ? null : () => _placeBet("Pizza", items),
-                                      child: _buildJackpotTab("Pizza", "🍕", wheelScale, _currentBets[pizzaItem.name] ?? 0),
-                                    ),
-                                  ),
-                                  
-                                  // Interactive Betting Pods
-                                  ...List.generate(items.length, (index) {
-                                    final angle = index * (2 * math.pi / items.length) - (math.pi / 2);
-                                    const radiusX = 175.0;
-                                    const radiusY = 175.0;
-                                    final podX = math.cos(angle) * radiusX * wheelScale;
-                                    final podY = math.sin(angle) * radiusY * wheelScale;
-                                    final name = items[index].name;
-                                    final bet = _currentBets[name] ?? 0;
-
-                                    return Positioned(
-                                      left: (180 * wheelScale) + podX - (35 * wheelScale),
-                                      top: (210 * wheelScale) + podY - (40 * wheelScale),
-                                      child: GestureDetector(
-                                        behavior: HitTestBehavior.opaque,
-                                        onTap: (_isBetLocked || _isOffline) ? null : () => _placeBet(name, items),
-                                        child: Container(
-                                          width: 70 * wheelScale, height: 80 * wheelScale,
-                                          color: Colors.transparent, // Hit area
-                                          child: Stack(
-                                            alignment: Alignment.center,
-                                            children: [
-                                              if (bet > 0)
-                                                Positioned(
-                                                  top: 0,
-                                                  child: Row(
-                                                    mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Container(
-                                                        padding: EdgeInsets.symmetric(horizontal: 6 * wheelScale, vertical: 2 * wheelScale),
-                                                        decoration: BoxDecoration(
-                                                          color: _confirmedBets[name] == bet ? Colors.green : Colors.amber,
-                                                          borderRadius: BorderRadius.circular(10 * wheelScale),
-                                                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                                                        ),
-                                                        child: Row(
-                                                          mainAxisSize: MainAxisSize.min,
-                                                          children: [
-                                                            Text(
-                                                              bet >= 1000 ? "${(bet/1000).toStringAsFixed(1)}k" : bet.toString(),
-                                                              style: TextStyle(color: Colors.black, fontSize: 10 * wheelScale, fontWeight: FontWeight.w900),
-                                                            ),
-                                                            if (_confirmedBets[name] == bet) ...[
-                                                              SizedBox(width: 3 * wheelScale),
-                                                              Icon(Icons.check_circle, color: Colors.white, size: 12 * wheelScale),
-                                                            ],
-                                                          ],
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }),
-
-                                  RepaintBoundary(
-                                    child: IgnorePointer(
-                                      child: ValueListenableBuilder<int?>(
-                                        valueListenable: _currentSegmentNotifier,
+                  const wheelScale = 1.0;
+                  return Stack(
+                    children: [
+                      SpinWheelLayout(
+                        header: Row(children: [
+                          BackButton(onPressed: () => Navigator.pop(context)),
+                          Expanded(
+                              child: _buildHeader(
+                                  settings,
+                                  _calculateCurrentRound(),
+                                  scale,
+                                  statsAsync.value)),
+                          const SizedBox(width: 12),
+                        ]),
+                        board: SizedBox(
+                          width: 484,
+                          height: 548,
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // The pods are part of the original artwork. Size the image,
+                              // painters and tap regions in the same coordinate system.
+                              Positioned(
+                                top: -94,
+                                left: 0,
+                                width: 484,
+                                height: 960,
+                                child: Image.asset(
+                                    'assets/images/processed_image.webp',
+                                    fit: BoxFit.fill),
+                              ),
+                              Positioned.fill(
+                                  bottom: 44,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      ValueListenableBuilder<int?>(
+                                        valueListenable:
+                                            _currentSegmentNotifier,
                                         builder: (context, activeSeg, _) {
-                                          return CustomPaint(
-                                            size: Size(360 * wheelScale, 420 * wheelScale), 
-                                            painter: GlowPointerPainter(
-                                              activeIndex: activeSeg, 
-                                              scale: wheelScale, 
-                                              segmentCount: _segmentCount,
+                                          return RepaintBoundary(
+                                            child: CustomPaint(
+                                              size: Size(360 * wheelScale,
+                                                  420 * wheelScale),
+                                              painter: PodsPainter(
+                                                items: items,
+                                                activeIndex: activeSeg,
+                                                betClickCounts: _betClickCounts,
+                                                scale: wheelScale,
+                                                saladHits: statsAsync.value?[
+                                                        'todaySaladHits'] ??
+                                                    0,
+                                                pizzaHits: statsAsync.value?[
+                                                        'todayPizzaHits'] ??
+                                                    0,
+                                              ),
                                             ),
                                           );
                                         },
                                       ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    child: Stack(
-                                      alignment: Alignment.center,
-                                      children: [
-                                        // White Hub
-                                        Container(
-                                          width: 120 * wheelScale, height: 120 * wheelScale,
-                                          decoration: BoxDecoration(
-                                            color: Colors.transparent,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(color: Colors.transparent),
-                                            boxShadow: const [],
-                                          ),
-                                          child: Center(
-                                            child: Padding(
-                                              padding: EdgeInsets.only(bottom: 25 * wheelScale),
-                                              child: Text("🐼", style: TextStyle(fontSize: 65 * wheelScale)),
-                                            ),
-                                          ),
-                                        ),
-                                        // Select Time Banner
-                                        Positioned(
-                                          bottom: 0,
-                                          child: Container(
-                                            width: 90 * wheelScale,
-                                            padding: EdgeInsets.symmetric(vertical: 2 * wheelScale),
-                                            decoration: BoxDecoration(
-                                              color: Colors.transparent,
-                                              borderRadius: BorderRadius.circular(10 * wheelScale),
-                                              border: Border.all(color: Colors.transparent),
-                                            ),
-                                            child: Column(
-                                              mainAxisSize: MainAxisSize.min,
+
+                                      // Interactive Betting Pods
+                                      ...List.generate(items.length, (index) {
+                                        final angle = index *
+                                                (2 * math.pi / items.length) -
+                                            (math.pi / 2);
+                                        const radiusX = 175.0;
+                                        const radiusY = 175.0;
+                                        final podX = math.cos(angle) *
+                                            radiusX *
+                                            wheelScale;
+                                        final podY = math.sin(angle) *
+                                            radiusY *
+                                            wheelScale;
+                                        final name = items[index].name;
+                                        final bet = _currentBets[name] ?? 0;
+
+                                        return Positioned(
+                                          left: 242 + podX - (35 * wheelScale),
+                                          top: 252 + podY - (40 * wheelScale),
+                                          child: GestureDetector(
+                                            behavior: HitTestBehavior.opaque,
+                                            onTap: (_isBetLocked || _isOffline)
+                                                ? null
+                                                : () => _placeBet(name, items),
+                                            child: Container(
+                                              width: 70 * wheelScale,
+                                              height: 80 * wheelScale,
+                                              color: Colors
+                                                  .transparent, // Hit area
+                                              child: Stack(
+                                                alignment: Alignment.center,
                                                 children: [
-                                                  Text(_countdownLabel, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 9 * wheelScale)),
-                                                  Text("${_countdown}s", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 14 * wheelScale)),
+                                                  Positioned(
+                                                    top: 8 * wheelScale,
+                                                    child: SpinWheelFoodIcon(
+                                                      food: name,
+                                                      size: 34 * wheelScale,
+                                                      semanticLabel: name,
+                                                    ),
+                                                  ),
+                                                  if (bet > 0)
+                                                    Positioned(
+                                                      top: 0,
+                                                      child: Row(
+                                                        mainAxisSize:
+                                                            MainAxisSize.min,
+                                                        children: [
+                                                          Container(
+                                                            padding: EdgeInsets.symmetric(
+                                                                horizontal: 6 *
+                                                                    wheelScale,
+                                                                vertical: 2 *
+                                                                    wheelScale),
+                                                            decoration:
+                                                                BoxDecoration(
+                                                              color: _confirmedBets[
+                                                                          name] ==
+                                                                      bet
+                                                                  ? Colors.green
+                                                                  : Colors
+                                                                      .amber,
+                                                              borderRadius: BorderRadius
+                                                                  .circular(10 *
+                                                                      wheelScale),
+                                                              boxShadow: const [
+                                                                BoxShadow(
+                                                                    color: Colors
+                                                                        .black26,
+                                                                    blurRadius:
+                                                                        4)
+                                                              ],
+                                                            ),
+                                                            child: Row(
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
+                                                              children: [
+                                                                Text(
+                                                                  bet >= 1000
+                                                                      ? "${(bet / 1000).toStringAsFixed(1)}k"
+                                                                      : bet
+                                                                          .toString(),
+                                                                  style: TextStyle(
+                                                                      color: Colors
+                                                                          .black,
+                                                                      fontSize: 10 *
+                                                                          wheelScale,
+                                                                      fontWeight:
+                                                                          FontWeight
+                                                                              .w900),
+                                                                ),
+                                                                if (_confirmedBets[
+                                                                        name] ==
+                                                                    bet) ...[
+                                                                  SizedBox(
+                                                                      width: 3 *
+                                                                          wheelScale),
+                                                                  Icon(
+                                                                      Icons
+                                                                          .check_circle,
+                                                                      color: Colors
+                                                                          .white,
+                                                                      size: 12 *
+                                                                          wheelScale),
+                                                                ],
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
                                                 ],
+                                              ),
                                             ),
                                           ),
+                                        );
+                                      }),
+
+                                      RepaintBoundary(
+                                        child: IgnorePointer(
+                                          child: ValueListenableBuilder<int?>(
+                                            valueListenable:
+                                                _currentSegmentNotifier,
+                                            builder: (context, activeSeg, _) {
+                                              return CustomPaint(
+                                                size: Size(360 * wheelScale,
+                                                    420 * wheelScale),
+                                                painter: GlowPointerPainter(
+                                                  activeIndex: activeSeg,
+                                                  scale: wheelScale,
+                                                  segmentCount: _segmentCount,
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                                      ),
+                                      Positioned(
+                                        child: Stack(
+                                          alignment: Alignment.center,
+                                          children: [
+                                            // White Hub
+                                            Container(
+                                              width: 120 * wheelScale,
+                                              height: 120 * wheelScale,
+                                              decoration: BoxDecoration(
+                                                color: Colors.transparent,
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                    color: Colors.transparent),
+                                                boxShadow: const [],
+                                              ),
+                                              child: Center(
+                                                child: Padding(
+                                                  padding: EdgeInsets.only(
+                                                      bottom: 25 * wheelScale),
+                                                  child: Text("🐼",
+                                                      style: TextStyle(
+                                                          fontSize:
+                                                              65 * wheelScale)),
+                                                ),
+                                              ),
+                                            ),
+                                            // Select Time Banner
+                                            Positioned(
+                                              bottom: 0,
+                                              child: Container(
+                                                width: 90 * wheelScale,
+                                                padding: EdgeInsets.symmetric(
+                                                    vertical: 2 * wheelScale),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.transparent,
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          10 * wheelScale),
+                                                  border: Border.all(
+                                                      color:
+                                                          Colors.transparent),
+                                                ),
+                                                child: Column(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Text(_countdownLabel,
+                                                        style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontWeight:
+                                                                FontWeight.bold,
+                                                            fontSize: 9 *
+                                                                wheelScale)),
+                                                    Text("${_countdown}s",
+                                                        style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontWeight:
+                                                                FontWeight.w900,
+                                                            fontSize: 14 *
+                                                                wheelScale)),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  )),
+                              // Salad & Pizza Buttons
+                              Positioned(
+                                bottom: 0,
+                                left: 52,
+                                child: GestureDetector(
+                                  onTap: (_isBetLocked || _isOffline)
+                                      ? null
+                                      : () => _placeBet("Salad", items),
+                                  child: _buildJackpotTab("Salad", wheelScale,
+                                      _currentBets[saladItem.name] ?? 0),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // 4. Betting Section Chips
-                    Positioned(
-                      bottom: bettingSectionBottom,
-                      left: 16 * scale,
-                      right: 16 * scale,
-                      child: _buildBettingSection(settings, scale, statsAsync.value),
-                    ),
-
-                    if (_isBetLocked && _countdownLabel == "BETS CLOSED")
-                      IgnorePointer(
-                        child: Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
-                            decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(15)),
-                            child: const Text("BETS CLOSED", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
+                              Positioned(
+                                bottom: 0,
+                                right: 52,
+                                child: GestureDetector(
+                                  onTap: (_isBetLocked || _isOffline)
+                                      ? null
+                                      : () => _placeBet("Pizza", items),
+                                  child: _buildJackpotTab("Pizza", wheelScale,
+                                      _currentBets[pizzaItem.name] ?? 0),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
+                        selectedAmount: _selectedChipValue,
+                        onAmountChanged: _isOffline
+                            ? null
+                            : (amount) =>
+                                setState(() => _selectedChipValue = amount),
+                        footer: ValueListenableBuilder<int>(
+                          valueListenable: _historyUpdateNotifier,
+                          builder: (context, _, __) {
+                            return Consumer(
+                              builder: (context, ref, child) {
+                                final int displayedBalance =
+                                    _walletManager.displayedBalance;
 
-                    // 5. Bottom Stats Panel
-                    ValueListenableBuilder<int>(
-                      valueListenable: _historyUpdateNotifier,
-                      builder: (context, _, __) {
-                        return Consumer(
-                          builder: (context, ref, child) {
-                            final int displayedBalance = _walletManager.displayedBalance;
+                                final rawHistory =
+                                    ref.watch(userGameHistoryProvider).value ??
+                                        [];
+                                final history =
+                                    _getRealtimeMergedHistory(rawHistory);
+                                final stats =
+                                    ref.watch(luckySpinStatsProvider).value;
 
-                            final rawHistory = ref.watch(userGameHistoryProvider).value ?? [];
-                            final history = _getRealtimeMergedHistory(rawHistory);
-                            final stats = ref.watch(luckySpinStatsProvider).value;
+                                // Watch Daily Leaderboard & resolve top player immediately
+                                final serverLeaderboard = ref
+                                        .watch(luckySpinLeaderboardProvider)
+                                        .value ??
+                                    [];
+                                final first = serverLeaderboard.firstOrNull;
+                                final topPlayer =
+                                    ((first?['totalWinnings'] as num?) ?? 0) > 0
+                                        ? first
+                                        : null;
 
-                            // Watch Daily Leaderboard & resolve top player immediately
-                            final serverLeaderboard = ref.watch(luckySpinLeaderboardProvider).value ?? [];
-                            final activeLeaderboard = _getRealtimeLeaderboard(
-                              serverLeaderboard: serverLeaderboard,
-                              stats: stats,
-                            );
-                            final topPlayer = activeLeaderboard.isNotEmpty ? activeLeaderboard.first : null;
-
-                            return _buildBottomPanel(
-                              displayedBalance, 
-                              history,
-                              stats,
-                              scale,
-                              topPlayer,
+                                return _buildBottomPanel(
+                                  displayedBalance,
+                                  history,
+                                  stats,
+                                  scale,
+                                  topPlayer,
+                                );
+                              },
                             );
                           },
-                        );
-                      },
-                    ),
-                    
-                    if (_isOffline && _gameState == SpinGameState.betting && !_isSpinning && !_isBottomSheetOpen)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Container(
-                            color: Colors.black26,
+                        ),
+                      ),
+                      if (_isBetLocked && _countdownLabel == "BETS CLOSED")
+                        const IgnorePointer(
                             child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.6),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: const Text(
-                                  "Reconnecting…",
-                                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                                child: Chip(label: Text("BETS CLOSED")))),
+                      if (_isOffline &&
+                          _gameState == SpinGameState.betting &&
+                          !_isSpinning &&
+                          !_isBottomSheetOpen)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Container(
+                              color: Colors.black26,
+                              child: Center(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
+                                  child: const Text(
+                                    "Reconnecting…",
+                                    style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
-                      ),
 
-                    // Back Button
-                    Positioned(
-                      top: topPadding + 10,
-                      left: 10,
-                      child: IconButton(
-                        icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 22), 
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ),
-
-                    // Round transition countdown overlay
-                    if (_showRoundTransition)
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: Container(
-                            color: Colors.black54,
-                            child: Center(
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    "Next Round",
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18 * scale,
-                                      fontWeight: FontWeight.w600,
+                      // Round transition countdown overlay
+                      if (_showRoundTransition)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Container(
+                              color: Colors.black54,
+                              child: Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      "Next Round",
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 18 * scale,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    "${_roundTransitionCountdown}",
-                                    style: TextStyle(
-                                      color: const Color(0xFFFACC15),
-                                      fontSize: 72 * scale,
-                                      fontWeight: FontWeight.w900,
-                                      shadows: const [
-                                        Shadow(color: Colors.black45, blurRadius: 12, offset: Offset(0, 4)),
-                                      ],
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      "${_roundTransitionCountdown}",
+                                      style: TextStyle(
+                                        color: const Color(0xFFFACC15),
+                                        fontSize: 72 * scale,
+                                        fontWeight: FontWeight.w900,
+                                        shadows: const [
+                                          Shadow(
+                                              color: Colors.black45,
+                                              blurRadius: 12,
+                                              offset: Offset(0, 4)),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                );
-              },
-            );
-          },
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (_, __) => const SizedBox.shrink(),
+                    ],
+                  );
+                },
+              );
+            },
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (_, __) => const SizedBox.shrink(),
+          ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-  Widget _buildHeader(Map<String, dynamic> settings, int currentRound, double scale, Map<String, dynamic>? stats) {
+  Widget _buildHeader(Map<String, dynamic> settings, int currentRound,
+      double scale, Map<String, dynamic>? stats) {
     String? lastWinnerLabel;
     String? lastWinnerEmoji;
     if (_spinCompleted && _storedWinItem != null) {
       lastWinnerLabel = '${_storedWinItem!.multiplier}x';
       lastWinnerEmoji = _storedWinItem!.emoji;
     } else if (_lastRoundResultForHistory != null) {
-      lastWinnerLabel = _lastRoundResultForHistory!['label'] ?? '${_lastRoundResultForHistory!['multiplier']}x';
+      lastWinnerLabel = _lastRoundResultForHistory!['label'] ??
+          '${_lastRoundResultForHistory!['multiplier']}x';
       lastWinnerEmoji = _lastRoundResultForHistory!['emoji'];
-    } else if (_lastGlobalOutcome != null && _lastGlobalOutcome!['roundId']?.toString() != _currentRoundId) {
-      lastWinnerLabel = _lastGlobalOutcome!['label'] ?? '${_lastGlobalOutcome!['multiplier']}x';
+    } else if (_lastGlobalOutcome != null &&
+        _lastGlobalOutcome!['roundId']?.toString() != _currentRoundId) {
+      lastWinnerLabel = _lastGlobalOutcome!['label'] ??
+          '${_lastGlobalOutcome!['multiplier']}x';
       lastWinnerEmoji = _lastGlobalOutcome!['emoji'];
     }
 
@@ -3900,13 +4392,24 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text("Today's $currentRound Round", style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 16)),
+            Text("Today's $currentRound Round",
+                style: const TextStyle(
+                    color: Colors.red,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16)),
             GestureDetector(
               onTap: () => _showRulesSheet(settings),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20)),
-                child: const Text("Rules >", style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20)),
+                child: const Text("Rules >",
+                    style: TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12)),
               ),
             ),
           ],
@@ -3915,7 +4418,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           Padding(
             padding: EdgeInsets.only(top: 4 * scale),
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 3 * scale),
+              padding: EdgeInsets.symmetric(
+                  horizontal: 8 * scale, vertical: 3 * scale),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.35),
                 borderRadius: BorderRadius.circular(12 * scale),
@@ -3923,10 +4427,17 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text("Last Winner: ", style: TextStyle(color: Colors.white70, fontSize: 12 * scale)),
-                  Text(lastWinnerEmoji ?? "🎰", style: TextStyle(fontSize: 14 * scale)),
+                  Text("Last Winner: ",
+                      style: TextStyle(
+                          color: Colors.white70, fontSize: 12 * scale)),
+                  Text(lastWinnerEmoji ?? "🎰",
+                      style: TextStyle(fontSize: 14 * scale)),
                   SizedBox(width: 4 * scale),
-                  Text(lastWinnerLabel, style: TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12 * scale)),
+                  Text(lastWinnerLabel,
+                      style: TextStyle(
+                          color: Colors.amber,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12 * scale)),
                 ],
               ),
             ),
@@ -3941,7 +4452,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final totalBet = _currentBets.values.fold(0, (sum, val) => sum + val);
     if (totalBet <= 0 || _isBetLocked) return;
 
-    if (_isOffline || !_platformHasNetwork || !NetworkConnectivityService().isOnline) {
+    if (_isOffline ||
+        !_platformHasNetwork ||
+        !NetworkConnectivityService().isOnline) {
       _showConnectionNotFoundDialog();
       return;
     }
@@ -3956,17 +4469,24 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text("Revert Bets?"),
-        content: Text("Refund the full wager of $totalBet diamonds and clear your bets for this round?"),
+        content: Text(
+            "Refund the full wager of $totalBet diamonds and clear your bets for this round?"),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text("Cancel")),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text("Revert")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("Cancel")),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("Revert")),
         ],
       ),
     );
     if (confirm != true || !mounted) return;
 
     try {
-      final result = await ref.read(gameServiceProvider).revertSpinWheelBets(roundId: currentRoundId);
+      final result = await ref
+          .read(gameServiceProvider)
+          .revertSpinWheelBets(roundId: currentRoundId);
       if (!mounted) return;
       setState(() {
         _currentBets = {};
@@ -3975,29 +4495,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         _confirmedRoundId = null;
         _hasSpunForRound = null;
         _hasPendingAdditionalBets = false;
-        _walletManager.reconcileBetRevert(txnId: 'bet_$currentRoundId', roundId: currentRoundId);
+        _walletManager.reconcileBetRevert(
+            txnId: 'bet_$currentRoundId', roundId: currentRoundId);
       });
       _notifyHistoryUpdate();
       final refunded = (result['totalBet'] as num?)?.toInt();
-      debugPrint('[SPIN_WHEEL_EVENT] ↩️ Bets reverted for round $currentRoundId: refunded=${refunded ?? totalBet}');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ↩️ Bets reverted for round $currentRoundId: refunded=${refunded ?? totalBet}');
     } catch (e) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Revert failed for round $currentRoundId: $e. Bets preserved; next tick reconciles.');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Revert failed for round $currentRoundId: $e. Bets preserved; next tick reconciles.');
     }
   }
 
-  Widget _buildBettingSection(Map<String, dynamic> settings, double scale, Map<String, dynamic>? stats) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        _buildChip(100, const Color(0xFFFFD700), scale),
-        _buildChip(1000, const Color(0xFFFFD700), scale),
-        _buildChip(10000, const Color(0xFFFFD700), scale),
-        _buildChip(100000, const Color(0xFFFFD700), scale),
-      ],
-    );
-  }
-
-  Widget _buildJackpotTab(String label, String emoji, double scale, int bet) {
+  Widget _buildJackpotTab(String label, double scale, int bet) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -4006,28 +4517,49 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           clipBehavior: Clip.none,
           children: [
             Container(
-              width: 56 * scale, height: 56 * scale,
+              width: 56 * scale,
+              height: 56 * scale,
               decoration: BoxDecoration(
                 color: Colors.white,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFFD700), width: 3 * scale),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8 * scale, offset: const Offset(0, 3))],
+                border: Border.all(
+                    color: const Color(0xFFFFD700), width: 3 * scale),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black26,
+                      blurRadius: 8 * scale,
+                      offset: const Offset(0, 3))
+                ],
               ),
-              child: Center(child: Text(emoji, style: TextStyle(fontSize: 32 * scale))),
+              child: Center(
+                child: SpinWheelFoodIcon(
+                  food: label,
+                  size: 32 * scale,
+                  semanticLabel: label,
+                ),
+              ),
             ),
             if (bet > 0)
               Positioned(
                 top: -8 * scale,
                 child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 6 * scale, vertical: 2 * scale),
                   decoration: BoxDecoration(
                     color: Colors.amber,
                     borderRadius: BorderRadius.circular(10 * scale),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black26, blurRadius: 4)
+                    ],
                   ),
                   child: Text(
-                    bet >= 1000 ? "${(bet/1000).toStringAsFixed(1)}k" : bet.toString(),
-                    style: TextStyle(color: Colors.black, fontSize: 9 * scale, fontWeight: FontWeight.w900),
+                    bet >= 1000
+                        ? "${(bet / 1000).toStringAsFixed(1)}k"
+                        : bet.toString(),
+                    style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 9 * scale,
+                        fontWeight: FontWeight.w900),
                   ),
                 ),
               ),
@@ -4036,72 +4568,31 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         Transform.translate(
           offset: Offset(0, -3 * scale),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+            padding: EdgeInsets.symmetric(
+                horizontal: 6 * scale, vertical: 2 * scale),
             decoration: BoxDecoration(
               color: Colors.transparent,
               borderRadius: BorderRadius.circular(4 * scale),
               border: Border.all(color: Colors.transparent),
               boxShadow: const [],
             ),
-            child: Text("$label >", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10 * scale, letterSpacing: 0.5)),
+            child: Text("$label >",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 10 * scale,
+                    letterSpacing: 0.5)),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildChip(int value, Color color, double scale) {
-    bool isSelected = _selectedChipValue == value;
-
-    return GestureDetector(
-      onTap: _isOffline ? null : () {
-        debugPrint('[SPIN_WHEEL_EVENT] 🪙 Chip selected: ${_selectedChipValue} -> $value');
-        setState(() => _selectedChipValue = value);
-      },
-      child: Container(
-        width: 62 * scale,
-        height: 62 * scale,
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.red : (_isOffline ? color.withOpacity(0.4) : color),
-          borderRadius: BorderRadius.circular(12 * scale),
-          border: Border.all(
-            color: isSelected ? Colors.white : Colors.black26,
-            width: isSelected ? 2.2 * scale : 1 * scale,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 6 * scale,
-              offset: Offset(0, 3 * scale),
-            ),
-          ],
-        ),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (isSelected)
-                Icon(Icons.stars, color: Colors.amber, size: 15 * scale),
-              Text(
-                value >= 1000 ? "${(value / 1000).floor()}k" : value.toString(),
-                style: TextStyle(
-                  color: Colors.black,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12 * scale,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildResultBar(List<dynamic> history, double scale) {
-    final bool isSpinningPhase = _gameState == SpinGameState.spinning || _isSpinning;
-    final bool isResultCelebration = _gameState == SpinGameState.results && _spinCompleted;
-
-
+    final bool isSpinningPhase =
+        _gameState == SpinGameState.spinning || _isSpinning;
+    final bool isResultCelebration =
+        _gameState == SpinGameState.results && _spinCompleted;
 
     // 2. OFFICIAL CONFIRMED RESULT (AFTER BETTING CLOSES & ROUND COMPLETES)
     final Map<String, Map<String, dynamic>> mergedByRoundId = {};
@@ -4126,7 +4617,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
       final rId = entry.key;
       if (rId == _currentRoundId) continue;
       final sessionItem = entry.value;
-      final food = sessionItem['winningFood']?.toString() ?? sessionItem['name']?.toString() ?? '';
+      final food = sessionItem['winningFood']?.toString() ??
+          sessionItem['name']?.toString() ??
+          '';
       if (food.isNotEmpty && !mergedByRoundId.containsKey(rId)) {
         mergedByRoundId[rId] = {
           'roundId': rId,
@@ -4134,7 +4627,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           'emoji': sessionItem['emoji'] ?? _getFoodEmoji(food),
           'label': sessionItem['label'] ?? '${sessionItem['multiplier'] ?? 5}x',
           'multiplier': sessionItem['multiplier'] ?? 5,
-          'timestamp': sessionItem['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
+          'timestamp':
+              sessionItem['timestamp'] ?? DateTime.now().millisecondsSinceEpoch,
         };
       }
     }
@@ -4143,7 +4637,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final visiblePastHistory = mergedByRoundId.values.where((rec) {
       final roundIdStr = rec['roundId']?.toString();
       if (roundIdStr == null || roundIdStr.isEmpty) return false;
-      if (_currentRoundId != null && roundIdStr == _currentRoundId.toString()) return false;
+      if (_currentRoundId != null && roundIdStr == _currentRoundId.toString())
+        return false;
       final aRound = int.tryParse(roundIdStr) ?? 0;
       final cRound = int.tryParse(_currentRoundId ?? '0') ?? 0;
       if (aRound > 0 && cRound > 0 && aRound >= cRound) return false;
@@ -4159,16 +4654,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     final winningName = _storedWinItem?.name ??
         _lastRoundResultForHistory?['name']?.toString() ??
         '';
-    final winningEmoji = (_storedWinItem?.emoji != null && _storedWinItem!.emoji.isNotEmpty && _storedWinItem!.emoji != '🎰')
-        ? _storedWinItem!.emoji
-        : ((_lastRoundResultForHistory?['emoji'] != null && _lastRoundResultForHistory!['emoji'] != '🎰')
-            ? _lastRoundResultForHistory!['emoji'].toString()
-            : _getFoodEmoji(winningName));
     final winningMultiplier = _storedWinItem?.multiplier ??
-        (int.tryParse(_lastRoundResultForHistory?['multiplier']?.toString() ?? '5') ?? 5);
+        (int.tryParse(
+                _lastRoundResultForHistory?['multiplier']?.toString() ?? '5') ??
+            5);
     final winningLabel = _storedWinItem != null
         ? '${_storedWinItem!.multiplier}x'
-        : (_lastRoundResultForHistory?['label']?.toString() ?? '${winningMultiplier}x');
+        : (_lastRoundResultForHistory?['label']?.toString() ??
+            '${winningMultiplier}x');
 
     final effectiveWager = _storedWager > 0 ? _storedWager : _lastRoundWager;
     final effectivePrize = _storedPrize > 0 ? _storedPrize : _lastRoundPrize;
@@ -4195,7 +4688,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
           SizedBox(width: 6 * scale),
           // ── PREMIUM STATUS BADGE (LIVE / SPINNING / SETTLED) ──
           Container(
-            padding: EdgeInsets.symmetric(horizontal: 7 * scale, vertical: 2 * scale),
+            padding: EdgeInsets.symmetric(
+                horizontal: 7 * scale, vertical: 2 * scale),
             decoration: BoxDecoration(
               color: isResultCelebration
                   ? const Color(0xFFFFD700).withOpacity(0.2)
@@ -4277,11 +4771,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                   if (isResultCelebration) ...[
                     Container(
                       margin: EdgeInsets.symmetric(horizontal: 4 * scale),
-                      padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: 4 * scale, vertical: 1 * scale),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(20 * scale),
-                        border: Border.all(color: const Color(0xFFFFD700), width: 1.5 * scale),
+                        border: Border.all(
+                            color: const Color(0xFFFFD700), width: 1.5 * scale),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -4293,22 +4789,34 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                             decoration: BoxDecoration(
                               color: Colors.white,
                               shape: BoxShape.circle,
-                              border: Border.all(color: const Color(0xFFFFD700), width: 2 * scale),
-                              boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                              border: Border.all(
+                                  color: const Color(0xFFFFD700),
+                                  width: 2 * scale),
+                              boxShadow: const [
+                                BoxShadow(color: Colors.black26, blurRadius: 4)
+                              ],
                             ),
                             child: Stack(
                               alignment: Alignment.center,
                               clipBehavior: Clip.none,
                               children: [
-                                Text(winningEmoji, style: TextStyle(fontSize: 18 * scale)),
+                                SpinWheelFoodIcon(
+                                  food: winningName,
+                                  size: 20 * scale,
+                                  semanticLabel: winningName,
+                                ),
                                 Positioned(
                                   bottom: -4 * scale,
                                   child: Container(
-                                    padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 1 * scale),
+                                    padding: EdgeInsets.symmetric(
+                                        horizontal: 4 * scale,
+                                        vertical: 1 * scale),
                                     decoration: BoxDecoration(
                                       color: Colors.yellow,
-                                      borderRadius: BorderRadius.circular(4 * scale),
-                                      border: Border.all(color: Colors.black87, width: 1),
+                                      borderRadius:
+                                          BorderRadius.circular(4 * scale),
+                                      border: Border.all(
+                                          color: Colors.black87, width: 1),
                                     ),
                                     child: Text(
                                       "New",
@@ -4326,11 +4834,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                           SizedBox(width: 6 * scale),
                           // Winning Option Pill
                           Container(
-                            padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 6 * scale, vertical: 2 * scale),
                             decoration: BoxDecoration(
                               color: const Color(0xFFFFD700),
                               borderRadius: BorderRadius.circular(8 * scale),
-                              border: Border.all(color: Colors.black87, width: 1),
+                              border:
+                                  Border.all(color: Colors.black87, width: 1),
                             ),
                             child: Text(
                               "$winningName $winningLabel",
@@ -4346,11 +4856,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                             SizedBox(width: 5 * scale),
                             if (isPlayerWin)
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 8 * scale, vertical: 2 * scale),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF10B981),
-                                  borderRadius: BorderRadius.circular(8 * scale),
-                                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 2)],
+                                  borderRadius:
+                                      BorderRadius.circular(8 * scale),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                        color: Colors.black26, blurRadius: 2)
+                                  ],
                                 ),
                                 child: Text(
                                   "🏆 WON +${_formatNumber(effectivePrize)}",
@@ -4363,10 +4878,12 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                               )
                             else
                               Container(
-                                padding: EdgeInsets.symmetric(horizontal: 6 * scale, vertical: 2 * scale),
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: 6 * scale, vertical: 2 * scale),
                                 decoration: BoxDecoration(
                                   color: Colors.black54,
-                                  borderRadius: BorderRadius.circular(8 * scale),
+                                  borderRadius:
+                                      BorderRadius.circular(8 * scale),
                                 ),
                                 child: Text(
                                   "NO WIN",
@@ -4393,9 +4910,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
 
                   // ── PAST SETTLED ROUNDS HISTORY (WITHOUT ANY "NEW" BADGE) ──
                   ...visiblePastHistory.map((rec) {
-                    final e = rec['emoji']?.toString();
-                    final l = rec['label']?.toString() ?? rec['name']?.toString() ?? '';
-                    final emoji = (e != null && e.isNotEmpty && e != '🎰') ? e : _getFoodEmoji(l);
+                    final l = rec['label']?.toString() ??
+                        rec['name']?.toString() ??
+                        '';
+                    final food = rec['name']?.toString() ?? l;
 
                     return Container(
                       margin: EdgeInsets.symmetric(horizontal: 3 * scale),
@@ -4407,7 +4925,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
                         border: Border.all(color: Colors.black26, width: 1),
                       ),
                       child: Center(
-                        child: Text(emoji, style: TextStyle(fontSize: 16 * scale)),
+                        child: SpinWheelFoodIcon(
+                          food: food,
+                          size: 18 * scale,
+                          semanticLabel: food,
+                        ),
                       ),
                     );
                   }).toList(),
@@ -4420,27 +4942,45 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
     );
   }
 
-  Widget _buildBottomPanel(int balance, List<dynamic> history, Map<String, dynamic>? stats, double scale, Map<String, dynamic>? topPlayer) {
+  Widget _buildBottomPanel(
+      int balance,
+      List<dynamic> history,
+      Map<String, dynamic>? stats,
+      double scale,
+      Map<String, dynamic>? topPlayer) {
     // Robust data extraction with fallbacks
     final todayWinners = (stats?['todayWinners'] as List?) ?? [];
     final rawTop = todayWinners.isNotEmpty ? todayWinners.first : null;
-    final topFromList = rawTop is Map ? Map<String, dynamic>.from(rawTop) : null;
+    final topFromList =
+        rawTop is Map ? Map<String, dynamic>.from(rawTop) : null;
     final rawLastRound = stats?['lastRound'];
-    final lastRound = rawLastRound is Map ? Map<String, dynamic>.from(rawLastRound) : null;
+    final lastRound =
+        rawLastRound is Map ? Map<String, dynamic>.from(rawLastRound) : null;
 
-    final topWinnerName = stats?['topWinnerName'] ?? topFromList?['name'] ?? "No data";
-    final topWinnerAmount = stats?['topWinnerAmount'] ?? topFromList?['amount'] ?? 0;
-    
-    if (stats?['lastWinnerName'] != null && stats!['lastWinnerName'].toString() != 'None' && stats!['lastWinnerName'].toString().isNotEmpty) {
+    final topWinnerName =
+        stats?['topWinnerName'] ?? topFromList?['name'] ?? "No data";
+    final topWinnerAmount =
+        stats?['topWinnerAmount'] ?? topFromList?['amount'] ?? 0;
+
+    if (stats?['lastWinnerName'] != null &&
+        stats!['lastWinnerName'].toString() != 'None' &&
+        stats!['lastWinnerName'].toString().isNotEmpty) {
       _sessionLastWinnerName = stats['lastWinnerName'].toString();
       _sessionLastWinnerAmount = stats['lastWinnerAmount'];
-    } else if (lastRound?['winnerName'] != null && lastRound!['winnerName'].toString() != 'None') {
+    } else if (lastRound?['winnerName'] != null &&
+        lastRound!['winnerName'].toString() != 'None') {
       _sessionLastWinnerName = lastRound['winnerName'].toString();
       _sessionLastWinnerAmount = lastRound['winnerAmount'];
     }
 
-    final lastWinnerName = stats?['lastWinnerName'] ?? lastRound?['winnerName'] ?? _sessionLastWinnerName ?? "None";
-    final lastWinnerAmount = stats?['lastWinnerAmount'] ?? lastRound?['winnerAmount'] ?? _sessionLastWinnerAmount ?? 0;
+    final lastWinnerName = stats?['lastWinnerName'] ??
+        lastRound?['winnerName'] ??
+        _sessionLastWinnerName ??
+        "None";
+    final lastWinnerAmount = stats?['lastWinnerAmount'] ??
+        lastRound?['winnerAmount'] ??
+        _sessionLastWinnerAmount ??
+        0;
 
     // Calculate Today's Stats from local history
     final now = DateTime.now();
@@ -4455,214 +4995,227 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen> with TickerPr
         } else if (h['timestamp'] != null) {
           ts = DateTime.tryParse(h['timestamp'].toString());
         } else if (h['createdAt'] is num) {
-          ts = DateTime.fromMillisecondsSinceEpoch((h['createdAt'] as num).toInt());
+          ts = DateTime.fromMillisecondsSinceEpoch(
+              (h['createdAt'] as num).toInt());
         }
-        if (ts == null) return true; // Default to today for active round/session
-        return ts.year == now.year && ts.month == now.month && ts.day == now.day;
+        if (ts == null)
+          return true; // Default to today for active round/session
+        return ts.year == now.year &&
+            ts.month == now.month &&
+            ts.day == now.day;
       } catch (_) {
         return false;
       }
     }).toList();
-    
+
     final gamesPlayed = todayHistory.length;
     final wins = todayHistory.where((h) => (h['prize'] ?? 0) > 0).length;
 
     // Calculate Daily Top Player display text
     final topPlayerName = topPlayer?['name'] ?? "None";
-    final topScore = (topPlayer?['amount'] as num?)?.toInt() 
-        ?? (topPlayer?['totalWinnings'] as num?)?.toInt() 
-        ?? (topPlayer?['totalBets'] as num?)?.toInt() 
-        ?? 0;
-    final displayText = topPlayer != null ? "1st: $topPlayerName: $topScore" : "None: 0";
+    final topScore = (topPlayer?['amount'] as num?)?.toInt() ??
+        (topPlayer?['totalWinnings'] as num?)?.toInt() ??
+        (topPlayer?['totalBets'] as num?)?.toInt() ??
+        0;
+    final displayText =
+        topPlayer != null ? "1st: $topPlayerName: $topScore" : "None: 0";
 
-    return Positioned(
-      bottom: 0, left: 0, right: 0,
-      child: SafeArea(
-        top: false,
-        child: Container(
-          padding: EdgeInsets.only(top: 12 * scale, bottom: 14 * scale),
-          decoration: const BoxDecoration(
-            color: Color(0xFFE52E2E),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16 * scale),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      ref.invalidate(walletBalanceProvider);
-                      ref.invalidate(currentUserProfileProvider);
-                      ref.invalidate(luckySpinStatsProvider);
-                      ref.invalidate(luckySpinLeaderboardProvider);
-                      _notifyHistoryUpdate();
-                    },
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-_buildSwapButton(isRefresh: true, scale: scale),
-                        Positioned(
-                          top: 0,
-                          left: 0,
-                          right: 0,
-                          child: Align(
-                            alignment: Alignment.center,
-                            child: GestureDetector(
-                              onTap: (_currentBets.isEmpty || _isBetLocked) ? null : _revertCurrentBets,
-                              child: Container(
-                                padding: EdgeInsets.all(8 * scale),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFFD700),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(color: Colors.white, width: 1.5 * scale),
-                                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 4)],
-                                ),
-                                child: Text(
-                                  "↩️",
-                                  style: TextStyle(fontSize: 16 * scale, color: Colors.white, fontWeight: FontWeight.w900),
-                                ),
+    return Container(
+      padding: EdgeInsets.only(top: 12 * scale, bottom: 14 * scale),
+      decoration: const BoxDecoration(
+        color: Color(0xFFE52E2E),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16 * scale),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    ref.invalidate(walletBalanceProvider);
+                    ref.invalidate(currentUserProfileProvider);
+                    ref.invalidate(luckySpinStatsProvider);
+                    ref.invalidate(luckySpinLeaderboardProvider);
+                    _notifyHistoryUpdate();
+                  },
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _buildSwapButton(isRefresh: true, scale: scale),
+                      Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: Align(
+                          alignment: Alignment.center,
+                          child: GestureDetector(
+                            onTap: (_currentBets.isEmpty || _isBetLocked)
+                                ? null
+                                : _revertCurrentBets,
+                            child: Container(
+                              padding: EdgeInsets.all(8 * scale),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFFD700),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                    color: Colors.white, width: 1.5 * scale),
+                                boxShadow: const [
+                                  BoxShadow(
+                                      color: Colors.black38, blurRadius: 4)
+                                ],
+                              ),
+                              child: Text(
+                                "↩️",
+                                style: TextStyle(
+                                    fontSize: 16 * scale,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900),
                               ),
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(width: 8 * scale),
-                  Expanded(
-                    child: _buildBalanceBox(
-                      null, // Use custom icon
-                      Colors.orange, 
-                      "Current Amount", 
-                      balance.toString(), 
-                      false,
-                      scale,
-                      customIcon: const PremiumDiamond(size: 12),
-                      valueContent: _AnimatedBalance(value: balance, scale: scale),
-                    ),
-                  ),
-                  SizedBox(width: 8 * scale),
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(20 * scale),
-                        onTap: () {
-                          _showGameHistorySheet();
-                        },
-                        child: _buildBalanceBox(
-                          Icons.insights, 
-                          Colors.green, 
-                          "My Play History", 
-                          "Games: $gamesPlayed | Win: $wins", 
-                          true, // Show arrow to indicate it's clickable
-                          scale
-                        ),
                       ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 8 * scale),
-            _buildResultBar(stats?['recentResults'] as List<dynamic>? ?? [], scale),
-            SizedBox(height: 8 * scale),
-            
-            // New Shifted Stats Row (Minimum Border Radius)
-            Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16 * scale),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: GestureDetector(
-                      onTap: () => _showLeaderboardSheet(),
-                      child: _buildBalanceBox(
-                        Icons.emoji_events, 
-                        Colors.amber, 
-                        "Daily Top Players", 
-                        displayText, 
-                        true,
-                        scale,
-                        borderRadius: 4 * scale
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 8 * scale),
-                  Expanded(
-                    child: _buildBalanceBox(
-                      Icons.history, 
-                      Colors.cyan, 
-                      "Prev Winner", 
-                      "$lastWinnerName: $lastWinnerAmount", 
-                      false,
-                      scale,
-                      borderRadius: 4 * scale
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            SizedBox(height: 8 * scale),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                GestureDetector(
-                  onTap: () => _showCurrentRoundPlayersSheet(),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12 * scale),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.people_alt_rounded, size: 12 * scale, color: Colors.black87),
-                        SizedBox(width: 4 * scale),
-                        Text(
-                          "Round Players >",
-                          style: TextStyle(color: Colors.black87, fontSize: 11 * scale, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
-                SizedBox(width: 14 * scale),
-                GestureDetector(
-                  onTap: () => _showGameHistorySheet(),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 3 * scale),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(12 * scale),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.history_rounded, size: 12 * scale, color: Colors.black87),
-                        SizedBox(width: 4 * scale),
-                        Text(
-                          "Game Records >",
-                          style: TextStyle(color: Colors.black87, fontSize: 11 * scale, fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                SizedBox(width: 8 * scale),
+                Expanded(
+                  child: _buildBalanceBox(
+                    null, // Use custom icon
+                    Colors.orange,
+                    "Current Amount",
+                    balance.toString(),
+                    false,
+                    scale,
+                    customIcon: const PremiumDiamond(size: 12),
+                    valueContent:
+                        _AnimatedBalance(value: balance, scale: scale),
+                  ),
+                ),
+                SizedBox(width: 8 * scale),
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(20 * scale),
+                      onTap: () {
+                        _showGameHistorySheet();
+                      },
+                      child: _buildBalanceBox(
+                          Icons.insights,
+                          Colors.green,
+                          "My Play History",
+                          "Games: $gamesPlayed | Win: $wins",
+                          true, // Show arrow to indicate it's clickable
+                          scale),
                     ),
                   ),
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+          SizedBox(height: 8 * scale),
+          _buildResultBar(
+              stats?['recentResults'] as List<dynamic>? ?? [], scale),
+          SizedBox(height: 8 * scale),
+
+          // New Shifted Stats Row (Minimum Border Radius)
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16 * scale),
+            child: Row(
+              children: [
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () => _showLeaderboardSheet(),
+                    child: _buildBalanceBox(Icons.emoji_events, Colors.amber,
+                        "Daily Top Players", displayText, true, scale,
+                        borderRadius: 4 * scale),
+                  ),
+                ),
+                SizedBox(width: 8 * scale),
+                Expanded(
+                  child: _buildBalanceBox(
+                      Icons.history,
+                      Colors.cyan,
+                      "Prev Winner",
+                      "$lastWinnerName: $lastWinnerAmount",
+                      false,
+                      scale,
+                      borderRadius: 4 * scale),
+                ),
+              ],
+            ),
+          ),
+
+          SizedBox(height: 8 * scale),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => _showCurrentRoundPlayersSheet(),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 10 * scale, vertical: 3 * scale),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12 * scale),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.people_alt_rounded,
+                          size: 12 * scale, color: Colors.black87),
+                      SizedBox(width: 4 * scale),
+                      Text(
+                        "Round Players >",
+                        style: TextStyle(
+                            color: Colors.black87,
+                            fontSize: 11 * scale,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              SizedBox(width: 14 * scale),
+              GestureDetector(
+                onTap: () => _showGameHistorySheet(),
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: 10 * scale, vertical: 3 * scale),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12 * scale),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.history_rounded,
+                          size: 12 * scale, color: Colors.black87),
+                      SizedBox(width: 4 * scale),
+                      Text(
+                        "Game Records >",
+                        style: TextStyle(
+                            color: Colors.black87,
+                            fontSize: 11 * scale,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
-    ),
-  );
-}
+    );
+  }
 
   void _showCurrentRoundPlayersSheet() {
-    final roundId = _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
+    final roundId =
+        _currentRoundId ?? (_synchronizedTimeMs ~/ 40000).toString();
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF0F172A),
@@ -4672,11 +5225,13 @@ _buildSwapButton(isRefresh: true, scale: scale),
       ),
       builder: (sheetContext) => Consumer(
         builder: (context, ref, child) {
-          final playersAsync = ref.watch(luckySpinRoundPlayersProvider(roundId));
+          final playersAsync =
+              ref.watch(luckySpinRoundPlayersProvider(roundId));
 
           return Container(
             padding: const EdgeInsets.all(24),
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.75),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -4694,7 +5249,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      icon: const Icon(Icons.close_rounded,
+                          color: Colors.white70),
                       onPressed: () => Navigator.pop(sheetContext),
                     ),
                   ],
@@ -4704,7 +5260,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                   alignment: Alignment.centerLeft,
                   child: Text(
                     "All participating players in this round",
-                    style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.6), fontSize: 12),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -4717,16 +5274,21 @@ _buildSwapButton(isRefresh: true, scale: scale),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.sports_esports_outlined, size: 48, color: Colors.white.withOpacity(0.3)),
+                              Icon(Icons.sports_esports_outlined,
+                                  size: 48,
+                                  color: Colors.white.withOpacity(0.3)),
                               const SizedBox(height: 12),
                               const Text(
                                 "No players placed bets yet this round",
-                                style: TextStyle(color: Colors.white70, fontSize: 14),
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 14),
                               ),
                               const SizedBox(height: 6),
                               Text(
                                 "Be the first to place a bet!",
-                                style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 12),
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4),
+                                    fontSize: 12),
                               ),
                             ],
                           ),
@@ -4738,18 +5300,25 @@ _buildSwapButton(isRefresh: true, scale: scale),
                         itemCount: players.length,
                         itemBuilder: (context, index) {
                           final p = players[index];
-                          final name = (p['name'] ?? p['username'] ?? "User").toString();
-                          final avatarUrl = (p['avatar'] ?? p['photoUrl'] ?? "").toString();
-                          final totalBet = (p['totalBet'] as num?)?.toInt() ?? 0;
-                          final winnings = (p['winnings'] as num?)?.toInt() ?? (p['prize'] as num?)?.toInt() ?? 0;
-                          final betsMap = Map<String, dynamic>.from(p['bets'] ?? {});
+                          final name =
+                              (p['name'] ?? p['username'] ?? "User").toString();
+                          final avatarUrl =
+                              (p['avatar'] ?? p['photoUrl'] ?? "").toString();
+                          final totalBet =
+                              (p['totalBet'] as num?)?.toInt() ?? 0;
+                          final winnings = (p['winnings'] as num?)?.toInt() ??
+                              (p['prize'] as num?)?.toInt() ??
+                              0;
+                          final betsMap =
+                              Map<String, dynamic>.from(p['bets'] ?? {});
 
                           final rankColors = [
                             const Color(0xFFFFD700),
                             const Color(0xFFC0C0C0),
                             const Color(0xFFCD7F32),
                           ];
-                          final rankColor = index < 3 ? rankColors[index] : Colors.white70;
+                          final rankColor =
+                              index < 3 ? rankColors[index] : Colors.white70;
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 10),
@@ -4758,7 +5327,9 @@ _buildSwapButton(isRefresh: true, scale: scale),
                               color: Colors.white.withOpacity(0.06),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: index < 3 ? rankColor.withOpacity(0.4) : Colors.white10,
+                                color: index < 3
+                                    ? rankColor.withOpacity(0.4)
+                                    : Colors.white10,
                                 width: 1,
                               ),
                             ),
@@ -4785,15 +5356,19 @@ _buildSwapButton(isRefresh: true, scale: scale),
                                 CircleAvatar(
                                   radius: 18,
                                   backgroundColor: Colors.white10,
-                                  backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                                  backgroundImage: avatarUrl.isNotEmpty
+                                      ? NetworkImage(avatarUrl)
+                                      : null,
                                   child: avatarUrl.isEmpty
-                                      ? const Icon(Icons.person, color: Colors.white54, size: 20)
+                                      ? const Icon(Icons.person,
+                                          color: Colors.white54, size: 20)
                                       : null,
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         name,
@@ -4808,16 +5383,33 @@ _buildSwapButton(isRefresh: true, scale: scale),
                                       const SizedBox(height: 4),
                                       Wrap(
                                         spacing: 4,
-                                        children: betsMap.entries.where((e) => (e.value as num? ?? 0) > 0).map((e) {
+                                        children: betsMap.entries
+                                            .where((e) =>
+                                                (e.value as num? ?? 0) > 0)
+                                            .map((e) {
                                           return Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 5, vertical: 1),
                                             decoration: BoxDecoration(
                                               color: Colors.white10,
-                                              borderRadius: BorderRadius.circular(6),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
                                             ),
-                                            child: Text(
-                                              "${_getFoodEmoji(e.key)} ${_formatNumber((e.value as num).toInt())}",
-                                              style: const TextStyle(color: Colors.white70, fontSize: 10),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                SpinWheelFoodIcon(
+                                                    food: e.key.toString(),
+                                                    size: 12),
+                                                const SizedBox(width: 3),
+                                                Text(
+                                                  _formatNumber(
+                                                      (e.value as num).toInt()),
+                                                  style: const TextStyle(
+                                                      color: Colors.white70,
+                                                      fontSize: 10),
+                                                ),
+                                              ],
                                             ),
                                           );
                                         }).toList(),
@@ -4864,7 +5456,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       );
                     },
                     loading: () => const Center(
-                      child: CircularProgressIndicator(color: Color(0xFFFFD700)),
+                      child:
+                          CircularProgressIndicator(color: Color(0xFFFFD700)),
                     ),
                     error: (_, __) => const SizedBox.shrink(),
                   ),
@@ -4886,140 +5479,10 @@ _buildSwapButton(isRefresh: true, scale: scale),
         border: Border.all(color: Colors.black87, width: 1.5 * scale),
       ),
       child: Icon(
-        isRefresh ? Icons.refresh : Icons.swap_horizontal_circle_outlined, 
-        color: Colors.amber, 
-        size: 24 * scale
-      ),
+          isRefresh ? Icons.refresh : Icons.swap_horizontal_circle_outlined,
+          color: Colors.amber,
+          size: 24 * scale),
     );
-  }
-
-  List<Map<String, dynamic>> _getRealtimeLeaderboard({
-    required List<Map<String, dynamic>> serverLeaderboard,
-    required Map<String, dynamic>? stats,
-  }) {
-    final todayWinners = (stats?['todayWinners'] as List?)
-            ?.whereType<Map<String, dynamic>>()
-            .toList() ?? [];
-
-    final merged = <Map<String, dynamic>>[];
-    final seenUids = <String>{};
-
-    for (final p in serverLeaderboard) {
-      final uid = p['uid']?.toString() ?? '';
-      final copy = Map<String, dynamic>.from(p);
-      if (uid.isNotEmpty) {
-        if (!seenUids.contains(uid)) {
-          seenUids.add(uid);
-          merged.add(copy);
-        }
-      } else {
-        merged.add(copy);
-      }
-    }
-
-    for (final w in todayWinners) {
-      final uid = w['uid']?.toString() ?? '';
-      final copy = Map<String, dynamic>.from(w);
-      if (uid.isNotEmpty) {
-        if (!seenUids.contains(uid)) {
-          seenUids.add(uid);
-          merged.add(copy);
-        }
-      } else {
-        merged.add(copy);
-      }
-    }
-
-    if (stats != null) {
-      final topName = stats['topWinnerName']?.toString().trim();
-      final topAmt = (stats['topWinnerAmount'] as num?)?.toInt() ?? 0;
-      if (topName != null && topName.isNotEmpty && topName != 'None' && topAmt > 0) {
-        final already = merged.any((m) => m['name'] == topName);
-        if (!already) {
-          merged.add({
-            'name': topName,
-            'avatar': stats['topWinnerAvatar'] ?? '',
-            'amount': topAmt,
-            'totalWinnings': topAmt,
-            'totalBets': topAmt,
-          });
-        }
-      }
-      final lastWinner = stats['lastWinnerName']?.toString().trim();
-      final lastAmt = (stats['lastWinnerAmount'] as num?)?.toInt() ?? 0;
-      if (lastWinner != null && lastWinner.isNotEmpty && lastWinner != 'None' && lastAmt > 0) {
-        final already = merged.any((m) => m['name'] == lastWinner);
-        if (!already) {
-          merged.add({
-            'name': lastWinner,
-            'avatar': stats['lastWinnerAvatar'] ?? '',
-            'amount': lastAmt,
-            'totalWinnings': lastAmt,
-            'totalBets': lastAmt,
-          });
-        }
-      }
-    }
-
-    // Merge current user's session standing so their latest win/loss reflects immediately
-    final currentUid = FirebaseAuth.instance.currentUser?.uid;
-    if (currentUid != null && currentUid.isNotEmpty) {
-      int sessionWinnings = 0;
-      int sessionBets = 0;
-      for (final r in _sessionRoundsHistory.values) {
-        // Ranking points must remain stable during active betting; only confirmed settled rounds contribute
-        if (r['settled'] == true) {
-          sessionWinnings += (r['prize'] as num?)?.toInt() ?? 0;
-          sessionBets += (r['totalBet'] as num?)?.toInt() ?? 0;
-        }
-      }
-      final userProfile = ref.read(currentUserProfileProvider).valueOrNull;
-      final currentUserName = userProfile?.displayName ?? userProfile?.username ?? FirebaseAuth.instance.currentUser?.displayName ?? 'You';
-      final currentUserAvatar = userProfile?.profilePhotoUrl ?? FirebaseAuth.instance.currentUser?.photoURL ?? '';
-
-      final idx = merged.indexWhere((m) => m['uid']?.toString() == currentUid);
-      if (idx != -1) {
-        final existing = merged[idx];
-        final curW = (existing['amount'] as num?)?.toInt() ?? (existing['totalWinnings'] as num?)?.toInt() ?? 0;
-        final curB = (existing['totalBets'] as num?)?.toInt() ?? 0;
-        if (sessionWinnings > curW || sessionBets > curB) {
-          existing['amount'] = math.max(curW, sessionWinnings);
-          existing['totalWinnings'] = math.max(curW, sessionWinnings);
-          existing['totalBets'] = math.max(curB, sessionBets);
-          existing['name'] = currentUserName;
-          existing['avatar'] = currentUserAvatar;
-        }
-      } else if (sessionWinnings > 0 || sessionBets > 0) {
-        merged.add({
-          'uid': currentUid,
-          'name': currentUserName,
-          'avatar': currentUserAvatar,
-          'amount': sessionWinnings,
-          'totalWinnings': sessionWinnings,
-          'totalBets': sessionBets,
-        });
-      }
-    }
-
-    // Fallback champions so rankings list is never blank
-    if (merged.isEmpty) {
-      merged.addAll([
-        {'name': 'Top Winner', 'avatar': '', 'amount': 100000, 'totalBets': 50000},
-        {'name': 'Lucky Player', 'avatar': '', 'amount': 50000, 'totalBets': 25000},
-        {'name': 'Diamond Spinner', 'avatar': '', 'amount': 20000, 'totalBets': 10000},
-      ]);
-    }
-
-    merged.sort((a, b) {
-      final aVal = (a['amount'] as num?)?.toInt() ?? (a['totalWinnings'] as num?)?.toInt() ?? (a['totalBets'] as num?)?.toInt() ?? 0;
-      final bVal = (b['amount'] as num?)?.toInt() ?? (b['totalWinnings'] as num?)?.toInt() ?? (b['totalBets'] as num?)?.toInt() ?? 0;
-      if (bVal != aVal) return bVal.compareTo(aVal);
-      final aBets = (a['totalBets'] as num?)?.toInt() ?? 0;
-      final bBets = (b['totalBets'] as num?)?.toInt() ?? 0;
-      return bBets.compareTo(aBets);
-    });
-
-    return merged;
   }
 
   void _showLeaderboardSheet() {
@@ -5027,23 +5490,30 @@ _buildSwapButton(isRefresh: true, scale: scale),
       context: context,
       backgroundColor: const Color(0xFF0F172A),
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => Consumer(
         builder: (context, ref, child) {
-          final dailyList = ref.watch(luckySpinLeaderboardProvider).value ?? [];
-          final stats = ref.watch(luckySpinStatsProvider).value ?? {};
-          final leaderboard = _getRealtimeLeaderboard(
-            serverLeaderboard: dailyList,
-            stats: stats,
-          );
-          
+          final leaderboard =
+              ref.watch(luckySpinLeaderboardProvider).value ?? [];
+
           return Container(
             padding: const EdgeInsets.all(24),
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+            constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.7),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("DAILY TOP PLAYERS", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text("DAILY TOP PLAYERS",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
+                const SizedBox(height: 14),
+                const GlobalWheelWinnerBanner(),
+                if (leaderboard.isEmpty)
+                  const Text('No settled rounds yet',
+                      style: TextStyle(color: Colors.white70)),
                 const SizedBox(height: 20),
                 Flexible(
                   child: ListView.builder(
@@ -5052,19 +5522,21 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     itemBuilder: (context, index) {
                       final p = leaderboard[index];
                       final name = p['name'] ?? p['username'] ?? "Unknown";
-                      final displayScore = (p['amount'] as num?)?.toInt() 
-                          ?? (p['totalWinnings'] as num?)?.toInt() 
-                          ?? (p['totalBets'] as num?)?.toInt() 
-                          ?? 0;
-                      final avatarUrl = (p['avatar'] ?? p['photoUrl'])?.toString() ?? "";
-                      
+                      final displayScore = (p['amount'] as num?)?.toInt() ??
+                          (p['totalWinnings'] as num?)?.toInt() ??
+                          (p['totalBets'] as num?)?.toInt() ??
+                          0;
+                      final avatarUrl =
+                          (p['avatar'] ?? p['photoUrl'])?.toString() ?? "";
+
                       // Custom colors for Top 3 Ranks
                       final rankColors = [
                         const Color(0xFFFFD700), // 1st: Gold
                         const Color(0xFFC0C0C0), // 2nd: Silver
                         const Color(0xFFCD7F32), // 3rd: Bronze
                       ];
-                      final rankColor = index < 3 ? rankColors[index] : Colors.white70;
+                      final rankColor =
+                          index < 3 ? rankColors[index] : Colors.white70;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 12),
@@ -5077,7 +5549,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                               decoration: BoxDecoration(
                                 color: rankColor.withOpacity(0.15),
                                 shape: BoxShape.circle,
-                                border: Border.all(color: rankColor, width: 1.5),
+                                border:
+                                    Border.all(color: rankColor, width: 1.5),
                               ),
                               alignment: Alignment.center,
                               child: Text(
@@ -5094,14 +5567,22 @@ _buildSwapButton(isRefresh: true, scale: scale),
                             CircleAvatar(
                               radius: 18,
                               backgroundColor: Colors.white10,
-                              backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
-                              child: avatarUrl.isEmpty ? const Icon(Icons.person, color: Colors.white54, size: 20) : null,
+                              backgroundImage: avatarUrl.isNotEmpty
+                                  ? NetworkImage(avatarUrl)
+                                  : null,
+                              child: avatarUrl.isEmpty
+                                  ? const Icon(Icons.person,
+                                      color: Colors.white54, size: 20)
+                                  : null,
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 name,
-                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w500, fontSize: 14),
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                    fontSize: 14),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -5111,7 +5592,10 @@ _buildSwapButton(isRefresh: true, scale: scale),
                                 const SizedBox(width: 4),
                                 Text(
                                   _formatNumber(displayScore),
-                                  style: TextStyle(color: rankColor, fontWeight: FontWeight.bold, fontSize: 14),
+                                  style: TextStyle(
+                                      color: rankColor,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14),
                                 ),
                               ],
                             ),
@@ -5127,10 +5611,9 @@ _buildSwapButton(isRefresh: true, scale: scale),
                   child: ElevatedButton(
                     onPressed: () => Navigator.pop(context),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber, 
-                      foregroundColor: Colors.black,
-                      shape: const StadiumBorder()
-                    ),
+                        backgroundColor: Colors.amber,
+                        foregroundColor: Colors.black,
+                        shape: const StadiumBorder()),
                     child: const Text("CLOSE"),
                   ),
                 ),
@@ -5144,7 +5627,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
 
   String _getFoodEmoji(String name) => getSpinWheelFoodEmoji(name);
 
-  String _getFoodNameFromEmoji(String emoji) => getSpinWheelFoodNameFromEmoji(emoji);
+  String _getFoodNameFromEmoji(String emoji) =>
+      getSpinWheelFoodNameFromEmoji(emoji);
 
   String _formatNumber(int number) {
     if (number >= 1000000000) {
@@ -5185,7 +5669,7 @@ _buildSwapButton(isRefresh: true, scale: scale),
     } else {
       dt = DateTime.tryParse(timestamp.toString()) ?? DateTime.now();
     }
-    
+
     String pad(int n) => n.toString().padLeft(2, '0');
     return "${dt.year}.${pad(dt.month)}.${pad(dt.day)} ${pad(dt.hour)}:${pad(dt.minute)}:${pad(dt.second)}";
   }
@@ -5203,12 +5687,17 @@ _buildSwapButton(isRefresh: true, scale: scale),
     final nowMs = roundId * 40000;
     const roundDuration = 40000;
     final startOfRoundEpochMs = (nowMs ~/ roundDuration) * roundDuration;
-    final startOfRoundDate = DateTime.fromMillisecondsSinceEpoch(startOfRoundEpochMs, isUtc: true);
-    final startOfDayUtc = DateTime.utc(startOfRoundDate.year, startOfRoundDate.month, startOfRoundDate.day);
-    return ((startOfRoundEpochMs - startOfDayUtc.millisecondsSinceEpoch) ~/ roundDuration) + 1;
+    final startOfRoundDate =
+        DateTime.fromMillisecondsSinceEpoch(startOfRoundEpochMs, isUtc: true);
+    final startOfDayUtc = DateTime.utc(
+        startOfRoundDate.year, startOfRoundDate.month, startOfRoundDate.day);
+    return ((startOfRoundEpochMs - startOfDayUtc.millisecondsSinceEpoch) ~/
+            roundDuration) +
+        1;
   }
 
-  List<Map<String, dynamic>> _getRealtimeMergedHistory(List<dynamic> remoteHistory) {
+  List<Map<String, dynamic>> _getRealtimeMergedHistory(
+      List<dynamic> remoteHistory) {
     final Map<String, Map<String, dynamic>> merged = {};
 
     // 1. Add all remote history items safely with outcome verification
@@ -5216,9 +5705,12 @@ _buildSwapButton(isRefresh: true, scale: scale),
       if (item is Map) {
         final rId = item['roundId']?.toString();
         final map = Map<String, dynamic>.from(item);
-        final rPrize = (map['prize'] as num?)?.toInt() ?? (map['amount'] as num?)?.toInt() ?? 0;
+        final rPrize = (map['prize'] as num?)?.toInt() ??
+            (map['amount'] as num?)?.toInt() ??
+            0;
         final rBets = map['bets'] is Map ? map['bets'] as Map : {};
-        final rFood = map['winningFood']?.toString() ?? map['name']?.toString() ?? '';
+        final rFood =
+            map['winningFood']?.toString() ?? map['name']?.toString() ?? '';
         final rSettled = map['settled'] == true;
 
         // IMMUTABILITY: once the server has committed a settled row, its prize IS the
@@ -5228,7 +5720,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
           map['prize'] = rPrize;
           map['amount'] = rPrize;
         } else if (rBets.isNotEmpty && rFood.isNotEmpty) {
-          final multVal = int.tryParse((map['multiplier'] ?? map['label'] ?? '5').toString().replaceAll('x', '')) ?? 5;
+          final multVal = int.tryParse(
+                  (map['multiplier'] ?? map['label'] ?? '5')
+                      .toString()
+                      .replaceAll('x', '')) ??
+              5;
           final calculated = calculateSpinWheelPrize(
             bets: positiveSpinBets(rBets),
             winningName: rFood,
@@ -5242,7 +5738,9 @@ _buildSwapButton(isRefresh: true, scale: scale),
         if (rId != null && rId.isNotEmpty) {
           merged[rId] = map;
         } else {
-          final uniqueKey = item['docId']?.toString() ?? item['orderId']?.toString() ?? 'doc_${item.hashCode}';
+          final uniqueKey = item['docId']?.toString() ??
+              item['orderId']?.toString() ??
+              'doc_${item.hashCode}';
           merged[uniqueKey] = map;
         }
       }
@@ -5276,29 +5774,36 @@ _buildSwapButton(isRefresh: true, scale: scale),
 
     if (settledRoundId != null && settledRoundId.isNotEmpty) {
       final existing = merged[settledRoundId];
-      final effectiveBets = (existing != null && existing['bets'] is Map && (existing['bets'] as Map).isNotEmpty)
+      final effectiveBets = (existing != null &&
+              existing['bets'] is Map &&
+              (existing['bets'] as Map).isNotEmpty)
           ? existing['bets'] as Map
           : (_storedBets != null && _storedBets!.isNotEmpty
               ? Map<String, dynamic>.from(_storedBets!)
-              : ((_confirmedRoundId == settledRoundId && _confirmedBets.isNotEmpty)
+              : ((_confirmedRoundId == settledRoundId &&
+                      _confirmedBets.isNotEmpty)
                   ? Map<String, dynamic>.from(_confirmedBets)
-                  : (_currentBets.isNotEmpty ? Map<String, dynamic>.from(_currentBets) : <String, dynamic>{})));
+                  : (_currentBets.isNotEmpty
+                      ? Map<String, dynamic>.from(_currentBets)
+                      : <String, dynamic>{})));
 
       final effectiveTotalBet = _storedWager > 0
           ? _storedWager
           : (existing?['totalBet'] as num?)?.toInt() ??
-              effectiveBets.values.fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
+              effectiveBets.values.fold<int>(
+                  0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
 
       if (effectiveBets.isNotEmpty || effectiveTotalBet > 0) {
         // AUTHORITATIVE: when the remote record is ALREADY settled, the animation outcome
         // (_storedWinItem) must NOT override the server's committed winner. The animation
         // may have been driven by a distinct/older outcome body; the server's settled row
         // is the permanent truth.
-        final existingSettledName = (existing != null && existing['settled'] == true)
-            ? (existing['winningFood']?.toString().isNotEmpty == true
-                ? existing['winningFood'].toString()
-                : (existing['name']?.toString() ?? ''))
-            : '';
+        final existingSettledName =
+            (existing != null && existing['settled'] == true)
+                ? (existing['winningFood']?.toString().isNotEmpty == true
+                    ? existing['winningFood'].toString()
+                    : (existing['name']?.toString() ?? ''))
+                : '';
         final winName = existingSettledName.isNotEmpty
             ? existingSettledName
             : (_storedWinItem?.name ??
@@ -5306,13 +5811,15 @@ _buildSwapButton(isRefresh: true, scale: scale),
                 existing?['winningFood']?.toString() ??
                 existing?['name']?.toString() ??
                 '');
-        final winEmoji = existingSettledName.isNotEmpty && existing?['emoji']?.toString().isNotEmpty == true
+        final winEmoji = existingSettledName.isNotEmpty &&
+                existing?['emoji']?.toString().isNotEmpty == true
             ? existing!['emoji'].toString()
             : (_storedWinItem?.emoji ??
                 _lastRoundResultForHistory?['emoji']?.toString() ??
                 existing?['emoji']?.toString() ??
                 '🎰');
-        final winMult = existingSettledName.isNotEmpty && existing?['label']?.toString().isNotEmpty == true
+        final winMult = existingSettledName.isNotEmpty &&
+                existing?['label']?.toString().isNotEmpty == true
             ? existing!['label'].toString()
             : (_storedWinItem != null
                 ? '${_storedWinItem!.multiplier}x'
@@ -5321,9 +5828,13 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     existing?['label']?.toString() ??
                     '5x'));
         final int prize = (existing?['settled'] == true)
-            ? ((existing?['prize'] as num?)?.toInt() ?? (existing?['amount'] as num?)?.toInt() ?? 0)
+            ? ((existing?['prize'] as num?)?.toInt() ??
+                (existing?['amount'] as num?)?.toInt() ??
+                0)
             : (_sessionRoundsHistory[settledRoundId]?['settled'] == true
-                ? ((_sessionRoundsHistory[settledRoundId]?['prize'] as num?)?.toInt() ?? 0)
+                ? ((_sessionRoundsHistory[settledRoundId]?['prize'] as num?)
+                        ?.toInt() ??
+                    0)
                 : _storedPrize);
 
         merged[settledRoundId] = {
@@ -5340,7 +5851,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
           'multiplier': winMult,
           'settled': true,
           'timestamp': existing?['timestamp'] ?? DateTime.now(),
-          'createdAt': existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+          'createdAt':
+              existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
         };
       }
     }
@@ -5348,16 +5860,18 @@ _buildSwapButton(isRefresh: true, scale: scale),
     // 4. Merge the current active round if user placed bets in it
     final activeRoundId = _currentRoundId;
     final currentSyncRound = (_synchronizedTimeMs ~/ 40000).toString();
-    final activeBets = (_confirmedRoundId == activeRoundId && _confirmedBets.isNotEmpty)
-        ? _confirmedBets
-        : _currentBets;
+    final activeBets =
+        (_confirmedRoundId == activeRoundId && _confirmedBets.isNotEmpty)
+            ? _confirmedBets
+            : _currentBets;
     if (activeRoundId != null &&
         activeRoundId.isNotEmpty &&
         activeRoundId == currentSyncRound &&
         activeBets.isNotEmpty &&
         activeRoundId != settledRoundId) {
       final existing = merged[activeRoundId];
-      final totalWager = activeBets.values.fold<int>(0, (sum, val) => sum + val);
+      final totalWager =
+          activeBets.values.fold<int>(0, (sum, val) => sum + val);
 
       if (existing == null || existing['settled'] != true) {
         merged[activeRoundId] = {
@@ -5374,7 +5888,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
           'multiplier': '',
           'settled': false,
           'timestamp': existing?['timestamp'] ?? DateTime.now(),
-          'createdAt': existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
+          'createdAt':
+              existing?['createdAt'] ?? DateTime.now().millisecondsSinceEpoch,
         };
       }
     }
@@ -5402,7 +5917,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
 
       // 2. Authoritative settled rows with existing winningFood must NOT be overwritten
       if (row['settled'] == true &&
-          ((row['winningFood']?.toString().isNotEmpty == true) || (row['name']?.toString().isNotEmpty == true))) {
+          ((row['winningFood']?.toString().isNotEmpty == true) ||
+              (row['name']?.toString().isNotEmpty == true))) {
         continue;
       }
 
@@ -5452,8 +5968,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
     // Filter out spectator rounds where user placed NO bets so My Bets strictly displays actual bets
     return list.where((item) {
       final bets = item['bets'] is Map ? item['bets'] as Map : {};
-      final wager = (item['totalBet'] as num?)?.toInt() ?? 
-          (bets.isNotEmpty ? bets.values.fold<int>(0, (s, v) => s + ((v as num?)?.toInt() ?? 0)) : 0);
+      final wager = (item['totalBet'] as num?)?.toInt() ??
+          (bets.isNotEmpty
+              ? bets.values
+                  .fold<int>(0, (s, v) => s + ((v as num?)?.toInt() ?? 0))
+              : 0);
       return wager > 0 || bets.isNotEmpty;
     }).toList();
   }
@@ -5464,35 +5983,51 @@ _buildSwapButton(isRefresh: true, scale: scale),
       context: context,
       backgroundColor: const Color(0xFF0F172A),
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
           return Stack(
             children: [
               Container(
-                padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 12),
-                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+                padding: const EdgeInsets.only(
+                    top: 24, left: 24, right: 24, bottom: 12),
+                constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.8),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Premium Styled Gold "Game Records" Title Banner
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 36, vertical: 10),
                       decoration: BoxDecoration(
                         gradient: const LinearGradient(
-                          colors: [Color(0xFFFBBF24), Color(0xFFF59E0B), Color(0xFFD97706)],
+                          colors: [
+                            Color(0xFFFBBF24),
+                            Color(0xFFF59E0B),
+                            Color(0xFFD97706)
+                          ],
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                         ),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFFFDE68A), width: 1.5),
+                        border: Border.all(
+                            color: const Color(0xFFFDE68A), width: 1.5),
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, offset: const Offset(0, 2)),
+                          BoxShadow(
+                              color: Colors.black.withOpacity(0.3),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2)),
                         ],
                       ),
                       child: const Text(
                         "Game Records",
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.5),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -5510,15 +6045,20 @@ _buildSwapButton(isRefresh: true, scale: scale),
                           GestureDetector(
                             onTap: () => setSheetState(() => activeTab = 0),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 8),
                               decoration: BoxDecoration(
-                                color: activeTab == 0 ? const Color(0xFFF59E0B) : Colors.transparent,
+                                color: activeTab == 0
+                                    ? const Color(0xFFF59E0B)
+                                    : Colors.transparent,
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 "My Bets",
                                 style: TextStyle(
-                                  color: activeTab == 0 ? Colors.white : Colors.white70,
+                                  color: activeTab == 0
+                                      ? Colors.white
+                                      : Colors.white70,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
                                 ),
@@ -5528,15 +6068,20 @@ _buildSwapButton(isRefresh: true, scale: scale),
                           GestureDetector(
                             onTap: () => setSheetState(() => activeTab = 1),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 8),
                               decoration: BoxDecoration(
-                                color: activeTab == 1 ? const Color(0xFFF59E0B) : Colors.transparent,
+                                color: activeTab == 1
+                                    ? const Color(0xFFF59E0B)
+                                    : Colors.transparent,
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 "All Rounds",
                                 style: TextStyle(
-                                  color: activeTab == 1 ? Colors.white : Colors.white70,
+                                  color: activeTab == 1
+                                      ? Colors.white
+                                      : Colors.white70,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 13,
                                 ),
@@ -5547,7 +6092,7 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     Flexible(
                       child: activeTab == 0
                           ? ValueListenableBuilder<int>(
@@ -5555,15 +6100,20 @@ _buildSwapButton(isRefresh: true, scale: scale),
                               builder: (context, _, __) {
                                 return Consumer(
                                   builder: (context, ref, child) {
-                                    final historyAsync = ref.watch(userGameHistoryProvider);
+                                    final historyAsync =
+                                        ref.watch(userGameHistoryProvider);
                                     final rawHistory = historyAsync.value ?? [];
-                                    final mergedHistory = _getRealtimeMergedHistory(rawHistory);
+                                    final mergedHistory =
+                                        _getRealtimeMergedHistory(rawHistory);
 
-                                    if (mergedHistory.isEmpty && historyAsync.isLoading) {
+                                    if (mergedHistory.isEmpty &&
+                                        historyAsync.isLoading) {
                                       return const Center(
                                         child: Padding(
-                                          padding: EdgeInsets.symmetric(vertical: 40),
-                                          child: CircularProgressIndicator(color: Colors.amber),
+                                          padding: EdgeInsets.symmetric(
+                                              vertical: 40),
+                                          child: CircularProgressIndicator(
+                                              color: Colors.amber),
                                         ),
                                       );
                                     }
@@ -5577,17 +6127,25 @@ _buildSwapButton(isRefresh: true, scale: scale),
                                       itemCount: mergedHistory.length + 1,
                                       itemBuilder: (context, index) {
                                         if (index == 0) {
-                                          return _buildHistorySummaryHeader(mergedHistory);
+                                          return _buildHistorySummaryHeader(
+                                              mergedHistory);
                                         }
                                         final recordIndex = index - 1;
                                         final h = mergedHistory[recordIndex];
                                         // Key by the stable record id. Without a Key the
                                         // builder reuses elements by position, so prepending a
                                         // new round re-renders old rows under new data.
-                                        final rowKey = h['orderId'] ?? h['docId'] ?? h['roundId'] ?? recordIndex;
+                                        final rowKey = h['orderId'] ??
+                                            h['docId'] ??
+                                            h['roundId'] ??
+                                            recordIndex;
                                         return KeyedSubtree(
                                           key: ValueKey(rowKey),
-                                          child: _buildMyBetCard(context, h, recordIndex, mergedHistory.length),
+                                          child: _buildMyBetCard(
+                                              context,
+                                              h,
+                                              recordIndex,
+                                              mergedHistory.length),
                                         );
                                       },
                                     );
@@ -5601,10 +6159,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
                   ],
                 ),
               ),
-              
+
               // Absolute Positioned Close Button at the top right
               Positioned(
-                top: 16, right: 16,
+                top: 16,
+                right: 16,
                 child: GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
@@ -5613,7 +6172,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       color: Colors.white.withOpacity(0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.close, color: Colors.white, size: 20),
+                    child:
+                        const Icon(Icons.close, color: Colors.white, size: 20),
                   ),
                 ),
               ),
@@ -5627,14 +6187,18 @@ _buildSwapButton(isRefresh: true, scale: scale),
   Widget _buildHistorySummaryHeader(List<Map<String, dynamic>> history) {
     final totalRounds = history.length;
     final totalWins = history.where((h) {
-      final prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
+      final prize =
+          (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
       return prize > 0;
     }).length;
     final totalWonCoins = history.fold(0, (sum, h) {
-      final prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
+      final prize =
+          (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
       return sum + prize;
     });
-    final winRate = totalRounds > 0 ? ((totalWins / totalRounds) * 100).toStringAsFixed(0) : "0";
+    final winRate = totalRounds > 0
+        ? ((totalWins / totalRounds) * 100).toStringAsFixed(0)
+        : "0";
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -5648,23 +6212,30 @@ _buildSwapButton(isRefresh: true, scale: scale),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFF818CF8).withOpacity(0.35)),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.3),
+              blurRadius: 6,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
-          _buildStatItem("Total Games", "$totalRounds", Icons.sports_esports_outlined, const Color(0xFF60A5FA)),
+          _buildStatItem("Total Games", "$totalRounds",
+              Icons.sports_esports_outlined, const Color(0xFF60A5FA)),
           Container(width: 1, height: 26, color: Colors.white12),
-          _buildStatItem("Total Won", "+${_formatNumber(totalWonCoins)}", Icons.stars_rounded, const Color(0xFFFBBF24)),
+          _buildStatItem("Total Won", "+${_formatNumber(totalWonCoins)}",
+              Icons.stars_rounded, const Color(0xFFFBBF24)),
           Container(width: 1, height: 26, color: Colors.white12),
-          _buildStatItem("Win Rate", "$winRate%", Icons.trending_up_rounded, const Color(0xFF34D399)),
+          _buildStatItem("Win Rate", "$winRate%", Icons.trending_up_rounded,
+              const Color(0xFF34D399)),
         ],
       ),
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+  Widget _buildStatItem(
+      String label, String value, IconData icon, Color color) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -5673,11 +6244,14 @@ _buildSwapButton(isRefresh: true, scale: scale),
           children: [
             Icon(icon, size: 12, color: color),
             const SizedBox(width: 4),
-            Text(value, style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.w900)),
+            Text(value,
+                style: TextStyle(
+                    color: color, fontSize: 13, fontWeight: FontWeight.w900)),
           ],
         ),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(color: Colors.white60, fontSize: 10)),
+        Text(label,
+            style: const TextStyle(color: Colors.white60, fontSize: 10)),
       ],
     );
   }
@@ -5695,12 +6269,16 @@ _buildSwapButton(isRefresh: true, scale: scale),
                 color: Colors.white.withOpacity(0.06),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.history_rounded, size: 40, color: Colors.amber),
+              child: const Icon(Icons.history_rounded,
+                  size: 40, color: Colors.amber),
             ),
             const SizedBox(height: 14),
             const Text(
               "No Bet Records Yet",
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
             const Text(
@@ -5714,22 +6292,30 @@ _buildSwapButton(isRefresh: true, scale: scale),
     );
   }
 
-  Widget _buildMyBetCard(BuildContext context, Map<String, dynamic> h, int index, int totalCount) {
+  Widget _buildMyBetCard(
+      BuildContext context, Map<String, dynamic> h, int index, int totalCount) {
     final betsMap = Map<String, dynamic>.from(h['bets'] ?? {});
-    int prize = (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
-    final totalWager = (h['totalBet'] as num?)?.toInt() ?? betsMap.values.fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
+    int prize =
+        (h['prize'] as num?)?.toInt() ?? (h['amount'] as num?)?.toInt() ?? 0;
+    final totalWager = (h['totalBet'] as num?)?.toInt() ??
+        betsMap.values
+            .fold<int>(0, (sum, val) => sum + ((val as num?)?.toInt() ?? 0));
     final relativeRound = _getRelativeRoundNumber(h['roundId']);
     final serialNo = h['serialNumber'] ?? relativeRound;
     final roundNum = int.tryParse(h['roundId']?.toString() ?? '') ?? 0;
     final currentSyncRound = _synchronizedTimeMs ~/ 40000;
     final isPastRound = roundNum > 0 && roundNum < currentSyncRound;
-    final isCurrentRound = (h['roundId']?.toString() == _currentRoundId) || (!isPastRound && roundNum == currentSyncRound);
+    final isCurrentRound = (h['roundId']?.toString() == _currentRoundId) ||
+        (!isPastRound && roundNum == currentSyncRound);
     final bool isRowSettled = h['settled'] == true ||
-        (isPastRound && (h['status'] == 'ROUND_SETTLED' || h['status'] == 'SETTLED' || (h['prize'] as num? ?? 0) > 0));
-    final bool isPendingInPlay = !isRowSettled || (isCurrentRound && _gameState != SpinGameState.results);
+        (isPastRound &&
+            (h['status'] == 'ROUND_SETTLED' ||
+                h['status'] == 'SETTLED' ||
+                (h['prize'] as num? ?? 0) > 0));
+    final bool isPendingInPlay = !isRowSettled ||
+        (isCurrentRound && _gameState != SpinGameState.results);
 
     final String foodName;
-    final String winningEmoji;
     final String cleanMult;
     final bool isWin;
     final bool isPendingCard;
@@ -5741,20 +6327,22 @@ _buildSwapButton(isRefresh: true, scale: scale),
       isWin = false;
       isPendingCard = true;
       foodName = "PENDING";
-      winningEmoji = "🎰";
       cleanMult = "";
       stampColor = const Color(0xFFF59E0B);
       stampText = "PENDING";
     } else {
       isPendingCard = false;
-      final rawName = h['winningFood']?.toString() ?? h['name']?.toString() ?? '';
+      final rawName =
+          h['winningFood']?.toString() ?? h['name']?.toString() ?? '';
       final rawLabel = h['label']?.toString() ?? '';
 
       // Authoritative Win Evaluation: For settled rows or rows with server prize present,
       // display h['prize'] as-is; do NOT recompute.
       final bool hasServerPrize = h['prize'] != null || h['amount'] != null;
       final effectiveWinnerName = rawName.isNotEmpty ? rawName : rawLabel;
-      final multVal = int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? '') ?? resolveFoodMultiplier(effectiveWinnerName);
+      final multVal =
+          int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? '') ??
+              resolveFoodMultiplier(effectiveWinnerName);
       prize = resolveCardDisplayPrize(
         isSettled: isRowSettled,
         hasServerPrize: hasServerPrize,
@@ -5781,9 +6369,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                   ? rawLabel.toUpperCase()
                   : _getFoodNameFromEmoji(h['emoji']?.toString() ?? '')));
 
-      winningEmoji = _getFoodEmoji(foodName);
-
-      final mult = resolveFoodMultiplier(foodName, int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? ''));
+      final mult = resolveFoodMultiplier(foodName,
+          int.tryParse(h['multiplier']?.toString().replaceAll('x', '') ?? ''));
       cleanMult = mult.toString();
 
       isWin = prize > 0;
@@ -5832,7 +6419,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                   child: Transform.rotate(
                     angle: -0.18,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
                       decoration: BoxDecoration(
                         border: Border.all(color: stampColor, width: 3),
                         borderRadius: BorderRadius.circular(8),
@@ -5840,7 +6428,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text("★ ★ ★", style: TextStyle(color: stampColor, fontSize: 8, letterSpacing: 2)),
+                          Text("★ ★ ★",
+                              style: TextStyle(
+                                  color: stampColor,
+                                  fontSize: 8,
+                                  letterSpacing: 2)),
                           Text(
                             stampText,
                             style: TextStyle(
@@ -5867,30 +6459,40 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     children: [
                       // S/N Badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2.5),
                         decoration: BoxDecoration(
                           color: const Color(0xFF8B5CF6).withOpacity(0.25),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.5)),
+                          border: Border.all(
+                              color: const Color(0xFF8B5CF6).withOpacity(0.5)),
                         ),
                         child: Text(
                           "S/N: #$serialNo",
-                          style: const TextStyle(color: Color(0xFFDDD6FE), fontSize: 10.5, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              color: Color(0xFFDDD6FE),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(width: 6),
 
                       // Round Badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 7, vertical: 2.5),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF59E0B).withOpacity(0.2),
                           borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.5)),
+                          border: Border.all(
+                              color: const Color(0xFFF59E0B).withOpacity(0.5)),
                         ),
                         child: Text(
                           "Round #$relativeRound",
-                          style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 10.5, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              color: Color(0xFFFDE68A),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold),
                         ),
                       ),
                       const SizedBox(width: 6),
@@ -5899,7 +6501,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       Expanded(
                         child: Text(
                           _formatTimestamp(h['timestamp']),
-                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 10),
                           textAlign: TextAlign.right,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -5910,7 +6513,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       // Win/Lose Pill
                       if (isPendingInPlay)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: Colors.amber.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(8),
@@ -5919,26 +6523,44 @@ _buildSwapButton(isRefresh: true, scale: scale),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text("⏳ IN PLAY", style: TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.w900)),
+                              Text("⏳ IN PLAY",
+                                  style: TextStyle(
+                                      color: Colors.amber,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900)),
                             ],
                           ),
                         )
                       else
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 3),
                           decoration: BoxDecoration(
                             gradient: isWin
-                                ? const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)])
-                                : const LinearGradient(colors: [Color(0xFF475569), Color(0xFF334155)]),
+                                ? const LinearGradient(colors: [
+                                    Color(0xFF10B981),
+                                    Color(0xFF059669)
+                                  ])
+                                : const LinearGradient(colors: [
+                                    Color(0xFF475569),
+                                    Color(0xFF334155)
+                                  ]),
                             borderRadius: BorderRadius.circular(8),
                             boxShadow: [
                               if (isWin)
-                                BoxShadow(color: const Color(0xFF10B981).withOpacity(0.4), blurRadius: 6),
+                                BoxShadow(
+                                    color: const Color(0xFF10B981)
+                                        .withOpacity(0.4),
+                                    blurRadius: 6),
                             ],
                           ),
                           child: Text(
                             isWin ? "WIN" : "LOSE",
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5),
                           ),
                         ),
                     ],
@@ -5951,10 +6573,14 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     children: [
                       const Text(
                         "Selected Food & Stakes:",
-                        style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
                           color: Colors.black.withOpacity(0.3),
                           borderRadius: BorderRadius.circular(6),
@@ -5963,12 +6589,17 @@ _buildSwapButton(isRefresh: true, scale: scale),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text("Total Bet: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            const Text("Total Bet: ",
+                                style: TextStyle(
+                                    color: Colors.white54, fontSize: 11)),
                             const PremiumDiamond(size: 11),
                             const SizedBox(width: 3),
                             Text(
                               _formatCommas(totalWager),
-                              style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                  color: Colors.amber,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
@@ -5984,23 +6615,35 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     children: betsMap.entries.map((entry) {
                       final itemEmoji = _getFoodEmoji(entry.key);
                       final itemName = entry.key.toString().toUpperCase();
-                      final normEntryKey = normalizeFoodKey(entry.key.toString());
+                      final normEntryKey =
+                          normalizeFoodKey(entry.key.toString());
                       final normFoodName = normalizeFoodKey(foodName);
                       final isAliasMatch = normEntryKey == normFoodName ||
-                          (normEntryKey == 'burger' && normFoodName == 'hotdog') ||
-                          (normEntryKey == 'hotdog' && normFoodName == 'burger') ||
-                          (normEntryKey == 'kebab' && normFoodName == 'skewer') ||
-                          (normEntryKey == 'skewer' && normFoodName == 'kebab') ||
+                          (normEntryKey == 'burger' &&
+                              normFoodName == 'hotdog') ||
+                          (normEntryKey == 'hotdog' &&
+                              normFoodName == 'burger') ||
+                          (normEntryKey == 'kebab' &&
+                              normFoodName == 'skewer') ||
+                          (normEntryKey == 'skewer' &&
+                              normFoodName == 'kebab') ||
                           (normEntryKey == 'steak' && normFoodName == 'meat') ||
                           (normEntryKey == 'meat' && normFoodName == 'steak') ||
-                          (normEntryKey == 'cabbage' && (normFoodName == 'leaf' || normFoodName == 'veg'));
-                      final isMatch = !isPendingInPlay && isWin && (
-                          isAliasMatch ||
-                          entry.key.toString().toLowerCase().trim() == (h['resultType'] ?? '').toString().toLowerCase().trim()
-                      );
+                          (normEntryKey == 'cabbage' &&
+                              (normFoodName == 'leaf' ||
+                                  normFoodName == 'veg'));
+                      final isMatch = !isPendingInPlay &&
+                          isWin &&
+                          (isAliasMatch ||
+                              entry.key.toString().toLowerCase().trim() ==
+                                  (h['resultType'] ?? '')
+                                      .toString()
+                                      .toLowerCase()
+                                      .trim());
 
                       return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
                           color: isMatch
                               ? const Color(0xFFF59E0B).withOpacity(0.25)
@@ -6016,27 +6659,34 @@ _buildSwapButton(isRefresh: true, scale: scale),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text(itemEmoji, style: const TextStyle(fontSize: 13)),
+                            SpinWheelFoodIcon(
+                                food: entry.key.toString(), size: 14),
                             const SizedBox(width: 4),
                             Text(
                               "$itemName ",
                               style: TextStyle(
-                                color: isMatch ? const Color(0xFFFDE68A) : Colors.white70,
+                                color: isMatch
+                                    ? const Color(0xFFFDE68A)
+                                    : Colors.white70,
                                 fontSize: 11,
-                                fontWeight: isMatch ? FontWeight.bold : FontWeight.w500,
+                                fontWeight:
+                                    isMatch ? FontWeight.bold : FontWeight.w500,
                               ),
                             ),
                             Text(
                               _formatCommas(entry.value),
                               style: TextStyle(
-                                color: isMatch ? Colors.white : const Color(0xFFDDD6FE),
+                                color: isMatch
+                                    ? Colors.white
+                                    : const Color(0xFFDDD6FE),
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             if (isMatch) ...[
                               const SizedBox(width: 4),
-                              const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF10B981)),
+                              const Icon(Icons.check_circle_rounded,
+                                  size: 12, color: Color(0xFF10B981)),
                             ],
                           ],
                         ),
@@ -6056,40 +6706,64 @@ _buildSwapButton(isRefresh: true, scale: scale),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("Winning Food", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                            const Text("Winning Food",
+                                style: TextStyle(
+                                    color: Colors.white54, fontSize: 11)),
                             const SizedBox(height: 4),
                             Row(
                               children: [
                                 Container(
-                                  width: 28, height: 28,
+                                  width: 28,
+                                  height: 28,
                                   decoration: BoxDecoration(
                                     color: Colors.black26,
                                     shape: BoxShape.circle,
-                                    border: Border.all(color: const Color(0xFFF59E0B), width: 1.2),
+                                    border: Border.all(
+                                        color: const Color(0xFFF59E0B),
+                                        width: 1.2),
                                   ),
                                   alignment: Alignment.center,
-                                  child: Text(winningEmoji.isNotEmpty ? winningEmoji : '🎰', style: const TextStyle(fontSize: 14)),
+                                  child: isPendingInPlay
+                                      ? const Icon(Icons.hourglass_top_rounded,
+                                          size: 16, color: Color(0xFFF59E0B))
+                                      : SpinWheelFoodIcon(
+                                          food: foodName,
+                                          size: 17,
+                                          semanticLabel: foodName,
+                                        ),
                                 ),
                                 const SizedBox(width: 6),
                                 Flexible(
                                   child: Text(
                                     foodName.isNotEmpty ? foodName : "SETTLED",
-                                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                                    style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                if (!isPendingInPlay && cleanMult.isNotEmpty) ...[
+                                if (!isPendingInPlay &&
+                                    cleanMult.isNotEmpty) ...[
                                   const SizedBox(width: 4),
                                   Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 5, vertical: 1.5),
                                     decoration: BoxDecoration(
-                                      color: const Color(0xFFF59E0B).withOpacity(0.2),
+                                      color: const Color(0xFFF59E0B)
+                                          .withOpacity(0.2),
                                       borderRadius: BorderRadius.circular(4),
-                                      border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.6), width: 0.8),
+                                      border: Border.all(
+                                          color: const Color(0xFFF59E0B)
+                                              .withOpacity(0.6),
+                                          width: 0.8),
                                     ),
                                     child: Text(
                                       "${cleanMult}x",
-                                      style: const TextStyle(color: Color(0xFFFBBF24), fontSize: 10, fontWeight: FontWeight.w900),
+                                      style: const TextStyle(
+                                          color: Color(0xFFFBBF24),
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w900),
                                     ),
                                   ),
                                 ],
@@ -6103,7 +6777,9 @@ _buildSwapButton(isRefresh: true, scale: scale),
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          const Text("Win Coins", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          const Text("Win Coins",
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 11)),
                           const SizedBox(height: 4),
                           Row(
                             mainAxisSize: MainAxisSize.min,
@@ -6111,9 +6787,13 @@ _buildSwapButton(isRefresh: true, scale: scale),
                               const PremiumDiamond(size: 14),
                               const SizedBox(width: 4),
                               Text(
-                                (!isPendingInPlay && isWin) ? "+${_formatCommas(prize)}" : "0",
+                                (!isPendingInPlay && isWin)
+                                    ? "+${_formatCommas(prize)}"
+                                    : "0",
                                 style: TextStyle(
-                                  color: (!isPendingInPlay && isWin) ? const Color(0xFFFBBF24) : Colors.white60,
+                                  color: (!isPendingInPlay && isWin)
+                                      ? const Color(0xFFFBBF24)
+                                      : Colors.white60,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -6135,20 +6815,27 @@ _buildSwapButton(isRefresh: true, scale: scale),
                             : math.max(0, startBal - totalWager);
                         return Container(
                           margin: const EdgeInsets.only(top: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.25),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.account_balance_wallet_outlined, size: 12, color: Colors.white54),
+                              const Icon(Icons.account_balance_wallet_outlined,
+                                  size: 12, color: Colors.white54),
                               const SizedBox(width: 6),
-                              const Text("Balance: ", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                              const Text("Balance: ",
+                                  style: TextStyle(
+                                      color: Colors.white54, fontSize: 11)),
                               Expanded(
                                 child: Text(
                                   "${_formatCommas(startBal)} → ${_formatCommas(calculatedFinalBal)}",
-                                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                                  style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -6166,20 +6853,28 @@ _buildSwapButton(isRefresh: true, scale: scale),
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        const Text("Order ID: ", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                        const Text("Order ID: ",
+                            style:
+                                TextStyle(color: Colors.white38, fontSize: 10)),
                         Expanded(
                           child: Text(
                             "${h['orderId']}",
-                            style: const TextStyle(color: Colors.white38, fontSize: 10, fontFamily: 'monospace'),
+                            style: const TextStyle(
+                                color: Colors.white38,
+                                fontSize: 10,
+                                fontFamily: 'monospace'),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 6),
                         GestureDetector(
                           onTap: () {
-                            Clipboard.setData(ClipboardData(text: h['orderId'].toString()));
+                            Clipboard.setData(
+                                ClipboardData(text: h['orderId'].toString()));
                             HapticFeedback.lightImpact();
-                            ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              TopSnackBar(
+                                context: context,
                                 content: Text("Order ID copied to clipboard"),
                                 duration: Duration(seconds: 2),
                                 behavior: SnackBarBehavior.floating,
@@ -6187,7 +6882,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
                             );
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.08),
                               borderRadius: BorderRadius.circular(4),
@@ -6195,9 +6891,14 @@ _buildSwapButton(isRefresh: true, scale: scale),
                             child: const Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.copy_rounded, color: Colors.white70, size: 11),
+                                Icon(Icons.copy_rounded,
+                                    color: Colors.white70, size: 11),
                                 SizedBox(width: 3),
-                                Text("COPY", style: TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold)),
+                                Text("COPY",
+                                    style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold)),
                               ],
                             ),
                           ),
@@ -6222,14 +6923,16 @@ _buildSwapButton(isRefresh: true, scale: scale),
     final Map<String, Map<String, dynamic>> merged = {};
     for (final item in _realtimeRecentResults) {
       final rId = item['roundId']?.toString();
-      if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+      if (rId != null && rId.isNotEmpty)
+        merged[rId] = Map<String, dynamic>.from(item);
     }
     final stats = ref.read(luckySpinStatsProvider).value;
     final serverRecents = stats?['recentResults'] as List? ?? [];
     for (final item in serverRecents) {
       if (item is Map) {
         final rId = item['roundId']?.toString();
-        if (rId != null && rId.isNotEmpty) merged[rId] = Map<String, dynamic>.from(item);
+        if (rId != null && rId.isNotEmpty)
+          merged[rId] = Map<String, dynamic>.from(item);
       }
     }
     return merged;
@@ -6250,7 +6953,8 @@ _buildSwapButton(isRefresh: true, scale: scale),
         if (sortedRounds.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 40),
-            child: Text("Waiting for round outcomes...", style: TextStyle(color: Colors.white70, fontSize: 14)),
+            child: Text("Waiting for round outcomes...",
+                style: TextStyle(color: Colors.white70, fontSize: 14)),
           );
         }
 
@@ -6259,7 +6963,6 @@ _buildSwapButton(isRefresh: true, scale: scale),
           itemCount: sortedRounds.length,
           itemBuilder: (context, index) {
             final rec = sortedRounds[index];
-            final emoji = rec['emoji']?.toString() ?? _getFoodEmoji(rec['name']?.toString() ?? '');
             final name = rec['name']?.toString() ?? 'Unknown';
             final mult = rec['multiplier'] ?? 5;
             final rId = rec['roundId']?.toString() ?? '';
@@ -6280,34 +6983,51 @@ _buildSwapButton(isRefresh: true, scale: scale),
               child: Row(
                 children: [
                   Container(
-                    width: 44, height: 44,
+                    width: 44,
+                    height: 44,
                     decoration: BoxDecoration(
                       color: Colors.black26,
                       shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFFFBBF24), width: 1.5),
+                      border: Border.all(
+                          color: const Color(0xFFFBBF24), width: 1.5),
                     ),
                     alignment: Alignment.center,
-                    child: Text(emoji.isNotEmpty ? emoji : '🎰', style: const TextStyle(fontSize: 22)),
+                    child: SpinWheelFoodIcon(
+                      food: name,
+                      size: 25,
+                      semanticLabel: name,
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text("Round: #$roundNum", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                        Text("Round: #$roundNum",
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14)),
                         const SizedBox(height: 2),
-                        Text(name, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(name,
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 13)),
                       ],
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF59E0B).withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: const Color(0xFFF59E0B)),
                     ),
-                    child: Text("${mult}x", style: const TextStyle(color: Color(0xFFFBBF24), fontWeight: FontWeight.w900, fontSize: 14)),
+                    child: Text("${mult}x",
+                        style: const TextStyle(
+                            color: Color(0xFFFBBF24),
+                            fontWeight: FontWeight.w900,
+                            fontSize: 14)),
                   ),
                 ],
               ),
@@ -6318,7 +7038,9 @@ _buildSwapButton(isRefresh: true, scale: scale),
     );
   }
 
-  Widget _buildBalanceBox(IconData? icon, Color iconColor, String label, String value, bool hasArrow, double scale, {double? borderRadius, Widget? customIcon, Widget? valueContent}) {
+  Widget _buildBalanceBox(IconData? icon, Color iconColor, String label,
+      String value, bool hasArrow, double scale,
+      {double? borderRadius, Widget? customIcon, Widget? valueContent}) {
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
       decoration: BoxDecoration(
@@ -6329,29 +7051,38 @@ _buildSwapButton(isRefresh: true, scale: scale),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: TextStyle(color: Colors.black87, fontSize: 8 * scale, fontWeight: FontWeight.bold)),
+          Text(label,
+              style: TextStyle(
+                  color: Colors.black87,
+                  fontSize: 8 * scale,
+                  fontWeight: FontWeight.bold)),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               if (customIcon != null) customIcon,
-              if (customIcon == null && icon != null) Icon(icon, color: iconColor, size: 12 * scale),
+              if (customIcon == null && icon != null)
+                Icon(icon, color: iconColor, size: 12 * scale),
               SizedBox(width: 4 * scale),
               Flexible(
                 child: valueContent ??
                     Text(
                       value,
-                      style: TextStyle(color: Colors.black, fontSize: 10 * scale, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                          color: Colors.black,
+                          fontSize: 10 * scale,
+                          fontWeight: FontWeight.w900),
                       overflow: TextOverflow.ellipsis,
                     ),
               ),
-              if (hasArrow) Icon(Icons.chevron_right, color: Colors.black54, size: 12 * scale),
+              if (hasArrow)
+                Icon(Icons.chevron_right,
+                    color: Colors.black54, size: 12 * scale),
             ],
           ),
         ],
       ),
     );
   }
-
 
   Widget _buildMaintenanceScreen() {
     return Center(
@@ -6360,7 +7091,11 @@ _buildSwapButton(isRefresh: true, scale: scale),
         children: [
           const Icon(Icons.build_circle, color: Colors.brown, size: 80),
           const SizedBox(height: 16),
-          const Text("GAME UNAVAILABLE", style: TextStyle(color: Colors.brown, fontWeight: FontWeight.w900, fontSize: 24)),
+          const Text("GAME UNAVAILABLE",
+              style: TextStyle(
+                  color: Colors.brown,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 24)),
         ],
       ),
     );
@@ -6417,7 +7152,8 @@ class _AnimatedBalanceState extends State<_AnimatedBalance> {
   @override
   Widget build(BuildContext context) {
     return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: _previousValue.toDouble(), end: widget.value.toDouble()),
+      tween: Tween<double>(
+          begin: _previousValue.toDouble(), end: widget.value.toDouble()),
       duration: const Duration(milliseconds: 500),
       curve: Curves.easeOutCubic,
       builder: (context, anim, child) {
@@ -6435,7 +7171,8 @@ class _AnimatedBalanceState extends State<_AnimatedBalance> {
   }
 }
 
-int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmentsMap) {
+int resolveTargetSectorIndex(
+    Map<String, dynamic>? outcome, List<dynamic> segmentsMap) {
   if (outcome == null) return 0;
 
   final Map<String, dynamic> eff = (outcome['outcome'] is Map)
@@ -6455,7 +7192,8 @@ int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmen
           {'name': 'Tomato', 'multiplier': 5, 'category': 'salad'},
         ];
 
-  final outcomeName = normalizeFoodKey((eff['name'] as String? ?? '').toLowerCase().trim());
+  final outcomeName =
+      normalizeFoodKey((eff['name'] as String? ?? '').toLowerCase().trim());
 
   // 1. Direct match on segment name
   if (outcomeName.isNotEmpty) {
@@ -6473,7 +7211,11 @@ int resolveTargetSectorIndex(Map<String, dynamic>? outcome, List<dynamic> segmen
   }
 
   // 3. Category match fallback (e.g. outcome is 'pizza' or 'salad' celebration)
-  final cat = (eff['type'] as String? ?? eff['category'] as String? ?? (outcomeName == 'pizza' || outcomeName == 'salad' ? outcomeName : '')).toLowerCase().trim();
+  final cat = (eff['type'] as String? ??
+          eff['category'] as String? ??
+          (outcomeName == 'pizza' || outcomeName == 'salad' ? outcomeName : ''))
+      .toLowerCase()
+      .trim();
   if (cat.isNotEmpty) {
     final catIdx = effectiveSegments.indexWhere((s) {
       final sCat = (s['category']?.toString() ?? '').toLowerCase().trim();
@@ -6540,7 +7282,8 @@ String getSpinWheelFoodEmoji(String name) {
   if (norm.contains('hotdog')) return '🌭';
   if (norm.contains('carrot')) return '🥕';
   if (norm.contains('corn')) return '🌽';
-  if (norm.contains('cabbage') || norm.contains('leaf') || norm.contains('veg')) return '🥬';
+  if (norm.contains('cabbage') || norm.contains('leaf') || norm.contains('veg'))
+    return '🥬';
   if (norm.contains('tomato')) return '🍅';
   if (norm.contains('kebab') || norm.contains('skewer')) return '🍢';
   if (norm.contains('chicken')) return '🍗';
@@ -6552,18 +7295,30 @@ String getSpinWheelFoodEmoji(String name) {
 
 String getSpinWheelFoodNameFromEmoji(String emoji) {
   switch (emoji) {
-    case '🥕': return 'CARROT';
-    case '🌽': return 'CORN';
-    case '🥬': return 'CABBAGE';
-    case '🍅': return 'TOMATO';
-    case '🍔': return 'BURGER';
-    case '🌭': return 'HOTDOG';
-    case '🍢': return 'KEBAB';
-    case '🍗': return 'CHICKEN';
-    case '🥩': return 'STEAK';
-    case '🥗': return 'SALAD';
-    case '🍕': return 'PIZZA';
-    default: return '';
+    case '🥕':
+      return 'CARROT';
+    case '🌽':
+      return 'CORN';
+    case '🥬':
+      return 'CABBAGE';
+    case '🍅':
+      return 'TOMATO';
+    case '🍔':
+      return 'BURGER';
+    case '🌭':
+      return 'HOTDOG';
+    case '🍢':
+      return 'KEBAB';
+    case '🍗':
+      return 'CHICKEN';
+    case '🥩':
+      return 'STEAK';
+    case '🥗':
+      return 'SALAD';
+    case '🍕':
+      return 'PIZZA';
+    default:
+      return '';
   }
 }
 
@@ -6587,7 +7342,8 @@ int calculateSpinWheelPrize({
   final normWinner = normalizeFoodKey(winningName);
   if (normWinner.isEmpty) return 0;
 
-  final effRoundType = (roundType ?? winningCategory ?? '').toLowerCase().trim();
+  final effRoundType =
+      (roundType ?? winningCategory ?? '').toLowerCase().trim();
 
   // Special celebration round handling (e.g. roundType == 'salad' or 'pizza')
   if (effRoundType == 'salad' || normWinner == 'salad') {
@@ -6612,7 +7368,8 @@ int calculateSpinWheelPrize({
     return prize;
   }
 
-  final effectiveMult = (multiplier > 0) ? multiplier : resolveFoodMultiplier(normWinner);
+  final effectiveMult =
+      (multiplier > 0) ? multiplier : resolveFoodMultiplier(normWinner);
 
   int totalPrize = 0;
 
@@ -6642,13 +7399,23 @@ int calculateSpinWheelPrize({
 }
 
 class SpinItem {
-  final String name; final int multiplier; final String emoji; final String? category;
-  SpinItem({required this.name, required this.multiplier, required this.emoji, this.category});
+  final String name;
+  final int multiplier;
+  final String emoji;
+  final String? category;
+  SpinItem(
+      {required this.name,
+      required this.multiplier,
+      required this.emoji,
+      this.category});
 }
 
 class PodsPainter extends CustomPainter {
-  final List<SpinItem> items; final int? activeIndex; final double scale;
-  final int saladHits; final int pizzaHits;
+  final List<SpinItem> items;
+  final int? activeIndex;
+  final double scale;
+  final int saladHits;
+  final int pizzaHits;
   final Map<String, int> betClickCounts;
 
   static final Paint _podPaint = Paint()
@@ -6678,74 +7445,80 @@ class PodsPainter extends CustomPainter {
     return p;
   }
 
-  PodsPainter({required this.items, required this.activeIndex, required this.betClickCounts, this.scale = 1.0, this.saladHits = 0, this.pizzaHits = 0});
+  PodsPainter(
+      {required this.items,
+      required this.activeIndex,
+      required this.betClickCounts,
+      this.scale = 1.0,
+      this.saladHits = 0,
+      this.pizzaHits = 0});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2); 
+    final center = Offset(size.width / 2, size.height / 2);
     final radiusX = 175.0 * scale;
     final radiusY = 175.0 * scale;
 
     _pulsePaint.strokeWidth = 3 * scale;
 
     for (int i = 0; i < items.length; i++) {
-        final angle = i * (2 * math.pi / (items.length > 0 ? items.length : 8)) - (math.pi / 2);
-        final podCenter = Offset(center.dx + math.cos(angle) * radiusX, center.dy + math.sin(angle) * radiusY);
-        
-        // 1. Transparent Pod (No Border)
-        canvas.drawCircle(podCenter, 70 * scale, _podPaint);
+      final angle = i * (2 * math.pi / (items.length > 0 ? items.length : 8)) -
+          (math.pi / 2);
+      final podCenter = Offset(center.dx + math.cos(angle) * radiusX,
+          center.dy + math.sin(angle) * radiusY);
 
-        // 2. Pulse Highlight for Winning Segment
-        final isHighlighted = activeIndex != null && i == activeIndex;
-        if (isHighlighted) {
-          canvas.drawCircle(podCenter, 65 * scale, _pulsePaint);
-          canvas.drawCircle(podCenter, 60 * scale, _glowPaint);
-        }
+      // 1. Transparent Pod (No Border)
+      canvas.drawCircle(podCenter, 70 * scale, _podPaint);
 
-        // 4. Draw Emoji (Top) - Cached TextPainter
-        final emojiKey = 'e_${items[i].emoji}_$scale';
-        final emojiPainter = _getOrCreatePainter(
-          emojiKey,
-          TextSpan(text: items[i].emoji, style: TextStyle(fontSize: 32 * scale)),
-        );
-        emojiPainter.paint(canvas, podCenter - Offset(emojiPainter.width / 2, 25 * scale));
+      // 2. Pulse Highlight for Winning Segment
+      final isHighlighted = activeIndex != null && i == activeIndex;
+      if (isHighlighted) {
+        canvas.drawCircle(podCenter, 65 * scale, _pulsePaint);
+        canvas.drawCircle(podCenter, 60 * scale, _glowPaint);
+      }
 
-        // 5. Draw Win Label (Bottom) - Cached TextPainter
-        final labelKey = 'l_${items[i].multiplier}_${isHighlighted}_$scale';
-        final labelPainter = _getOrCreatePainter(
-          labelKey,
+      // 4. Draw Win Label (Bottom) - Cached TextPainter. Food artwork is
+      // rendered by bundled SVG widgets above this painter, never OS emoji.
+      final labelKey = 'l_${items[i].multiplier}_${isHighlighted}_$scale';
+      final labelPainter = _getOrCreatePainter(
+        labelKey,
+        TextSpan(
+          text: "win ${items[i].multiplier} times",
+          style: TextStyle(
+            color: isHighlighted ? Colors.black : Colors.black87,
+            fontSize: 9 * scale,
+            fontWeight: FontWeight.w900,
+            shadows: isHighlighted
+                ? [
+                    const Shadow(color: Colors.white, blurRadius: 6),
+                    const Shadow(color: Colors.amber, blurRadius: 2),
+                  ]
+                : null,
+          ),
+        ),
+      );
+      labelPainter.paint(
+          canvas, podCenter - Offset(labelPainter.width / 2, -15 * scale));
+
+      // 6. Draw Coin Icons (Dynamic based on Clicks) - Cached TextPainter
+      final clickCount = betClickCounts[items[i].name] ?? 0;
+      if (clickCount > 0) {
+        final coinsKey = 'c_${clickCount.clamp(1, 3)}_$scale';
+        final coinsPainter = _getOrCreatePainter(
+          coinsKey,
           TextSpan(
-            text: "win ${items[i].multiplier} times", 
-            style: TextStyle(
-              color: isHighlighted ? Colors.black : Colors.black87, 
-              fontSize: 9 * scale, 
-              fontWeight: FontWeight.w900,
-              shadows: isHighlighted ? [
-                const Shadow(color: Colors.white, blurRadius: 6),
-                const Shadow(color: Colors.amber, blurRadius: 2),
-              ] : null,
-            ),
+            text: "🪙" * clickCount.clamp(1, 3), // Max 3 coins
+            style: TextStyle(fontSize: 10 * scale),
           ),
         );
-        labelPainter.paint(canvas, podCenter - Offset(labelPainter.width / 2, -15 * scale));
+        coinsPainter.paint(
+            canvas, podCenter - Offset(coinsPainter.width / 2, -25 * scale));
+      }
 
-        // 6. Draw Coin Icons (Dynamic based on Clicks) - Cached TextPainter
-        final clickCount = betClickCounts[items[i].name] ?? 0;
-        if (clickCount > 0) {
-          final coinsKey = 'c_${clickCount.clamp(1, 3)}_$scale';
-          final coinsPainter = _getOrCreatePainter(
-            coinsKey,
-            TextSpan(
-              text: "🪙" * clickCount.clamp(1, 3), // Max 3 coins
-              style: TextStyle(fontSize: 10 * scale),
-            ),
-          );
-          coinsPainter.paint(canvas, podCenter - Offset(coinsPainter.width / 2, -25 * scale));
-        }
-
-        // Sold Out Overlay
+      // Sold Out Overlay
     }
   }
+
   @override
   bool shouldRepaint(covariant PodsPainter oldDelegate) {
     if (oldDelegate.activeIndex != activeIndex) return true;
@@ -6780,10 +7553,13 @@ class GlowPointerPainter extends CustomPainter {
     ..color = Colors.white
     ..style = PaintingStyle.fill;
 
-  GlowPointerPainter({required this.activeIndex, this.scale = 1.0, this.segmentCount = 8});
+  GlowPointerPainter(
+      {required this.activeIndex, this.scale = 1.0, this.segmentCount = 8});
 
   static void _ensurePaints(double scale) {
-    if (_cachedGlowScale != scale || _cachedGlowPaint1 == null || _cachedGlowPaint2 == null) {
+    if (_cachedGlowScale != scale ||
+        _cachedGlowPaint1 == null ||
+        _cachedGlowPaint2 == null) {
       _cachedGlowScale = scale;
       _cachedGlowPaint1 = Paint()
         ..color = const Color(0xFFFFD700).withOpacity(0.4)
@@ -6798,13 +7574,16 @@ class GlowPointerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (activeIndex == null) return;
 
-    final center = Offset(size.width / 2, size.height / 2); 
+    final center = Offset(size.width / 2, size.height / 2);
     final radiusX = 130.0 * scale;
     final radiusY = 148.0 * scale;
-    
-    final double lightAngle = (activeIndex! * (2 * math.pi / (segmentCount > 0 ? segmentCount : 8))) - (math.pi / 2);
-    final lightPos = Offset(center.dx + math.cos(lightAngle) * radiusX, center.dy + math.sin(lightAngle) * radiusY);
-    
+
+    final double lightAngle =
+        (activeIndex! * (2 * math.pi / (segmentCount > 0 ? segmentCount : 8))) -
+            (math.pi / 2);
+    final lightPos = Offset(center.dx + math.cos(lightAngle) * radiusX,
+        center.dy + math.sin(lightAngle) * radiusY);
+
     _ensurePaints(scale);
     canvas.drawCircle(lightPos, 50 * scale, _cachedGlowPaint1!);
     canvas.drawCircle(lightPos, 40 * scale, _cachedGlowPaint2!);
@@ -6813,7 +7592,9 @@ class GlowPointerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant GlowPointerPainter oldDelegate) {
-    return oldDelegate.activeIndex != activeIndex || oldDelegate.scale != scale || oldDelegate.segmentCount != segmentCount;
+    return oldDelegate.activeIndex != activeIndex ||
+        oldDelegate.scale != scale ||
+        oldDelegate.segmentCount != segmentCount;
   }
 }
 
@@ -6838,10 +7619,13 @@ class SpinWheelResultBottomSheet extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<SpinWheelResultBottomSheet> createState() => _SpinWheelResultBottomSheetState();
+  ConsumerState<SpinWheelResultBottomSheet> createState() =>
+      _SpinWheelResultBottomSheetState();
 }
 
-class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBottomSheet> with TickerProviderStateMixin {
+class _SpinWheelResultBottomSheetState
+    extends ConsumerState<SpinWheelResultBottomSheet>
+    with TickerProviderStateMixin {
   late AnimationController _mainController;
   late Animation<double> _slideAnimation;
   late Animation<double> _fadeAnimation;
@@ -6861,29 +7645,38 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
       final route = ModalRoute.of(context);
       if (route != null && route.isActive && route.isCurrent) {
         route.navigator?.pop();
-        debugPrint('[SPIN_WHEEL_EVENT] 🚪 Result bottom sheet safely dismissed itself');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🚪 Result bottom sheet safely dismissed itself');
       } else {
-        debugPrint('[SPIN_WHEEL_EVENT] ℹ️ Result bottom sheet dismiss skipped (route is not current/active)');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ℹ️ Result bottom sheet dismiss skipped (route is not current/active)');
       }
     } catch (e) {
-      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Error dismissing result bottom sheet: $e');
+      debugPrint(
+          '[SPIN_WHEEL_EVENT] ⚠️ Error dismissing result bottom sheet: $e');
     }
   }
 
   @override
   void initState() {
     super.initState();
-    final outcomeTitle = widget.wager > 0 ? (widget.winnings > 0 ? "YOU WIN!" : "YOU LOST") : "ROUND COMPLETED";
-    debugPrint('[SPIN_WHEEL_EVENT] 🌟 Result Bottom Sheet Initialized: title="$outcomeTitle", item="${widget.item.name}" (${widget.item.emoji} ${widget.item.multiplier}x), wager=${widget.wager}, winnings=${widget.winnings}');
+    final outcomeTitle = widget.wager > 0
+        ? (widget.winnings > 0 ? "YOU WIN!" : "YOU LOST")
+        : "ROUND COMPLETED";
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] 🌟 Result Bottom Sheet Initialized: title="$outcomeTitle", item="${widget.item.name}" (${widget.item.emoji} ${widget.item.multiplier}x), wager=${widget.wager}, winnings=${widget.winnings}');
 
     if (widget.serverTimeOffset != null) {
-      final syncMs = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+      final syncMs =
+          DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
       const serverRoundMs = 40000;
       final msIntoCycle = syncMs % serverRoundMs;
       final activeRoundId = (syncMs ~/ serverRoundMs).toString();
 
       // Guard: If sheet opens outside the 32s - 38.5s results window, dismiss immediately!
-      if ((widget.roundId != null && widget.roundId != activeRoundId) || msIntoCycle < 32000 || msIntoCycle >= 38500) {
+      if ((widget.roundId != null && widget.roundId != activeRoundId) ||
+          msIntoCycle < 32000 ||
+          msIntoCycle >= 38500) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && !_isDismissingOrDismissed) {
             _safeDismiss();
@@ -6915,7 +7708,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     // Automatically close before 38.5s of cycle (maximum 2.5s display)
     int remainingMsInPhase = 2500;
     if (widget.serverTimeOffset != null) {
-      final syncMs = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+      final syncMs =
+          DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
       final msIntoCycle = syncMs % 40000;
       if (msIntoCycle < 38500) {
         remainingMsInPhase = (38500 - msIntoCycle).clamp(800, 2500);
@@ -6923,11 +7717,13 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
         remainingMsInPhase = 600;
       }
     }
-    debugPrint('[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-close scheduled in ${remainingMsInPhase}ms');
+    debugPrint(
+        '[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-close scheduled in ${remainingMsInPhase}ms');
 
     _autoCloseTimer = Timer(Duration(milliseconds: remainingMsInPhase), () {
       if (mounted && !_isDismissingOrDismissed) {
-        debugPrint('[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-closing on timer expiration');
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] ⏱️ Result Bottom Sheet auto-closing on timer expiration');
         _safeDismiss();
       }
     });
@@ -6939,12 +7735,16 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
           _safetyTimer?.cancel();
           return;
         }
-        final curSync = DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
+        final curSync =
+            DateTime.now().millisecondsSinceEpoch + widget.serverTimeOffset!;
         final curMs = curSync % 40000;
         final curRound = (curSync ~/ 40000).toString();
-        if (curMs < 32000 || curMs >= 38200 || (widget.roundId != null && widget.roundId != curRound)) {
+        if (curMs < 32000 ||
+            curMs >= 38200 ||
+            (widget.roundId != null && widget.roundId != curRound)) {
           _safetyTimer?.cancel();
-          debugPrint('[SPIN_WHEEL_EVENT] 🚨 Safety watcher closed result sheet before betting phase');
+          debugPrint(
+              '[SPIN_WHEEL_EVENT] 🚨 Safety watcher closed result sheet before betting phase');
           _safeDismiss();
         }
       });
@@ -6985,10 +7785,12 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          color: const Color(0xFB0B0B13), // Ultra-premium semi-transparent deep navy
+          color: const Color(
+              0xFB0B0B13), // Ultra-premium semi-transparent deep navy
           borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
           border: Border(
-            top: BorderSide(color: const Color(0xFFFFD700).withOpacity(0.35), width: 1.5),
+            top: BorderSide(
+                color: const Color(0xFFFFD700).withOpacity(0.35), width: 1.5),
           ),
           boxShadow: [
             BoxShadow(
@@ -7027,8 +7829,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
               right: 0,
               child: IgnorePointer(
                 child: Center(
-                  child: StickerEmojiWidget(
-                    emoji: widget.item.emoji,
+                  child: StickerFoodIconWidget(
+                    food: widget.item.name,
                     size: 46,
                   ),
                 ),
@@ -7037,271 +7839,324 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
 
             // 3. Main Body Column
             Padding(
-              padding: const EdgeInsets.only(top: 60, left: 20, right: 20, bottom: 32),
+              padding: const EdgeInsets.only(
+                  top: 60, left: 20, right: 20, bottom: 32),
               child: SingleChildScrollView(
                 child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildOutcomeHeader(),
-                  const SizedBox(height: 20),
-                  // RESULTS ROW (Panda Mascot + Dynamic Backend Data Column)
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Cute White 🐼 Circle Mascot matching the Wheel Hub
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: const Color(0xFF1E293B), width: 2.2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildOutcomeHeader(),
+                    const SizedBox(height: 20),
+                    // RESULTS ROW (Panda Mascot + Dynamic Backend Data Column)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Cute White 🐼 Circle Mascot matching the Wheel Hub
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                                color: const Color(0xFF1E293B), width: 2.2),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            "🐼",
+                            style: TextStyle(
+                              fontSize: 50,
+                              height: 1.1,
                             ),
-                          ],
-                        ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          "🐼",
-                          style: TextStyle(
-                            fontSize: 50,
-                            height: 1.1,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 18),
-                      // Dynamic Backend Data
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  "This round's results: ",
-                                  style: TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
+                        const SizedBox(width: 18),
+                        // Dynamic Backend Data
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Text(
+                                    "This round's results: ",
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 4),
-                                Flexible(
-                                  child: Text(
-                                    "${widget.item.emoji} ${widget.item.name}",
-                                    style: const TextStyle(
-                                      color: Color(0xFFFFD700), // Highly prominent Gold result name
+                                  const SizedBox(width: 4),
+                                  Flexible(
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SpinWheelFoodIcon(
+                                          food: widget.item.name,
+                                          size: 20,
+                                          semanticLabel: widget.item.name,
+                                        ),
+                                        const SizedBox(width: 5),
+                                        Flexible(
+                                          child: Text(
+                                            widget.item.name,
+                                            style: const TextStyle(
+                                              color: Color(0xFFFFD700),
+                                              fontSize: 15,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Row(
+                                children: [
+                                  const Flexible(
+                                    child: Text(
+                                      "Gross Payout: ",
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const PremiumDiamond(size: 14),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    "${widget.winnings}",
+                                    style: TextStyle(
+                                      color: widget.winnings > 0
+                                          ? const Color(0xFF4ADE80)
+                                          : Colors.white,
                                       fontSize: 15,
                                       fontWeight: FontWeight.w900,
                                     ),
-                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                const Flexible(
-                                  child: Text(
-                                    "Gross Payout: ",
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const PremiumDiamond(size: 14),
-                                const SizedBox(width: 5),
-                                Text(
-                                  "${widget.winnings}",
-                                  style: TextStyle(
-                                    color: widget.winnings > 0 ? const Color(0xFF4ADE80) : Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                const Flexible(
-                                  child: Text(
-                                    "Total Stake: ",
-                                    style: TextStyle(
-                                      color: Colors.white70,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                                const PremiumDiamond(size: 14),
-                                const SizedBox(width: 5),
-                                Text(
-                                  "${widget.wager}",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            if (widget.wager > 0) ...[
+                                ],
+                              ),
                               const SizedBox(height: 6),
-                              Builder(
-                                builder: (context) {
-                                  final netProfit = widget.winnings - widget.wager;
-                                  final isPositive = netProfit > 0;
-                                  final isNegative = netProfit < 0;
-                                  final netColor = isPositive 
-                                      ? const Color(0xFF4ADE80) 
-                                      : (isNegative ? const Color(0xFFF87171) : Colors.white70);
-                                  final sign = isPositive ? "+" : "";
-                                  return Row(
-                                    children: [
-                                      const Flexible(
-                                        child: Text(
-                                          "Net Profit: ",
-                                          style: TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
+                              Row(
+                                children: [
+                                  const Flexible(
+                                    child: Text(
+                                      "Total Stake: ",
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                  const PremiumDiamond(size: 14),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    "${widget.wager}",
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (widget.wager > 0) ...[
+                                const SizedBox(height: 6),
+                                Builder(
+                                  builder: (context) {
+                                    final netProfit =
+                                        widget.winnings - widget.wager;
+                                    final isPositive = netProfit > 0;
+                                    final isNegative = netProfit < 0;
+                                    final netColor = isPositive
+                                        ? const Color(0xFF4ADE80)
+                                        : (isNegative
+                                            ? const Color(0xFFF87171)
+                                            : Colors.white70);
+                                    final sign = isPositive ? "+" : "";
+                                    return Row(
+                                      children: [
+                                        const Flexible(
+                                          child: Text(
+                                            "Net Profit: ",
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      const PremiumDiamond(size: 14),
-                                      const SizedBox(width: 5),
-                                      Text(
-                                        "$sign$netProfit",
-                                        style: TextStyle(
-                                          color: netColor,
-                                          fontSize: 15,
-                                          fontWeight: FontWeight.w900,
+                                        const PremiumDiamond(size: 14),
+                                        const SizedBox(width: 5),
+                                        Text(
+                                          "$sign$netProfit",
+                                          style: TextStyle(
+                                            color: netColor,
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w900,
+                                          ),
                                         ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ],
                             ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (isSalad) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                              color: const Color(0xFFFFD700).withOpacity(0.25),
+                              width: 1),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                SpinWheelFoodIcon(
+                                  food: 'Salad',
+                                  size: 18,
+                                  semanticLabel: 'Salad',
+                                ),
+                                SizedBox(width: 6),
+                                Text(
+                                  "Salad System Breakdown (5x)",
+                                  style: TextStyle(
+                                    color: Color(0xFFFFD700),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            _buildSaladItemRow(
+                                "Tomato", widget.bets?['tomato'] ?? 0),
+                            _buildSaladItemRow(
+                                "Cabbage", widget.bets?['cabbage'] ?? 0),
+                            _buildSaladItemRow(
+                                "Corn", widget.bets?['corn'] ?? 0),
+                            _buildSaladItemRow(
+                                "Carrot", widget.bets?['carrot'] ?? 0),
                           ],
                         ),
                       ),
                     ],
-                  ),
 
-                  if (isSalad) ...[
-                    const SizedBox(height: 18),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFFFD700).withOpacity(0.25), width: 1),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(
-                            children: [
-                              Text("🥗", style: TextStyle(fontSize: 16)),
-                              SizedBox(width: 6),
-                              Text(
-                                "Salad System Breakdown (5x)",
-                                style: TextStyle(
-                                  color: Color(0xFFFFD700),
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          _buildSaladItemRow("🍅 Tomato", widget.bets?['tomato'] ?? 0),
-                          _buildSaladItemRow("🥬 Lettuce", widget.bets?['cabbage'] ?? 0),
-                          _buildSaladItemRow("🌽 Corn", widget.bets?['corn'] ?? 0),
-                          _buildSaladItemRow("🥕 Carrot", widget.bets?['carrot'] ?? 0),
-                        ],
-                      ),
+                    // TOP 3 WINNERS OF COMPLETED ROUND
+                    Consumer(
+                      builder: (context, ref, child) {
+                        final roundId = widget.roundId ?? '';
+                        final liveWinners = ref
+                                .watch(luckySpinCurrentRoundWinnersProvider(
+                                    roundId))
+                                .valueOrNull ??
+                            [];
+                        final roundWinners = List<Map<String, dynamic>>.from(
+                            liveWinners.isNotEmpty
+                                ? liveWinners
+                                : widget.winners
+                                    .whereType<Map<String, dynamic>>()
+                                    .toList());
+
+                        // Include current user if they placed bets in this round
+                        if (widget.wager > 0) {
+                          String currentUid = '';
+                          try {
+                            currentUid =
+                                FirebaseAuth.instance.currentUser?.uid ?? '';
+                          } catch (_) {}
+                          final hasMe = currentUid.isNotEmpty &&
+                              roundWinners.any((w) =>
+                                  (w['uid'] ?? w['userId'] ?? '').toString() ==
+                                  currentUid);
+                          if (!hasMe && currentUid.isNotEmpty) {
+                            dynamic profile;
+                            try {
+                              profile = ref
+                                  .watch(currentUserProfileProvider)
+                                  .valueOrNull;
+                            } catch (_) {}
+                            roundWinners.add({
+                              'uid': currentUid,
+                              'name': profile?.displayName.isNotEmpty == true
+                                  ? profile!.displayName
+                                  : (profile?.username.isNotEmpty == true
+                                      ? profile!.username
+                                      : 'You'),
+                              'avatar': profile?.profilePhotoUrl ?? '',
+                              'totalBet': widget.wager,
+                              'winnings': widget.winnings,
+                            });
+                          }
+                        }
+
+                        // Deduplicate strictly by uid or name so no user is ever duplicated
+                        final seen = <String>{};
+                        final uniqueList = <Map<String, dynamic>>[];
+                        for (final w in roundWinners) {
+                          final uid =
+                              (w['uid'] ?? w['userId'] ?? '').toString().trim();
+                          final name = (w['name'] ?? w['username'] ?? '')
+                              .toString()
+                              .trim()
+                              .toLowerCase();
+                          final key = uid.isNotEmpty ? uid : name;
+                          if (key.isNotEmpty && seen.contains(key)) continue;
+                          if (key.isNotEmpty) seen.add(key);
+                          uniqueList.add(w);
+                        }
+
+                        // Sort by totalBet descending, then winnings descending
+                        uniqueList.sort((a, b) {
+                          final aBet = (a['totalBet'] as num?)?.toInt() ?? 0;
+                          final bBet = (b['totalBet'] as num?)?.toInt() ?? 0;
+                          if (bBet != aBet) return bBet.compareTo(aBet);
+                          final aWin = (a['winnings'] as num?)?.toInt() ??
+                              (a['prize'] as num?)?.toInt() ??
+                              0;
+                          final bWin = (b['winnings'] as num?)?.toInt() ??
+                              (b['prize'] as num?)?.toInt() ??
+                              0;
+                          return bWin.compareTo(aWin);
+                        });
+
+                        if (uniqueList.isEmpty) return const SizedBox.shrink();
+
+                        return _buildTop3WinnersPodium(
+                            uniqueList.take(3).toList());
+                      },
                     ),
                   ],
-
-                  // TOP 3 WINNERS OF COMPLETED ROUND
-                  Consumer(
-                    builder: (context, ref, child) {
-                      final roundId = widget.roundId ?? '';
-                      final liveWinners = ref.watch(luckySpinCurrentRoundWinnersProvider(roundId)).valueOrNull ?? [];
-                      final roundWinners = List<Map<String, dynamic>>.from(
-                        liveWinners.isNotEmpty 
-                            ? liveWinners 
-                            : widget.winners.whereType<Map<String, dynamic>>().toList()
-                      );
-
-                      // Include current user if they placed bets in this round
-                      if (widget.wager > 0) {
-                        String currentUid = '';
-                        try {
-                          currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
-                        } catch (_) {}
-                        final hasMe = currentUid.isNotEmpty && roundWinners.any((w) => (w['uid'] ?? w['userId'] ?? '').toString() == currentUid);
-                        if (!hasMe && currentUid.isNotEmpty) {
-                          dynamic profile;
-                          try {
-                            profile = ref.watch(currentUserProfileProvider).valueOrNull;
-                          } catch (_) {}
-                          roundWinners.add({
-                            'uid': currentUid,
-                            'name': profile?.displayName.isNotEmpty == true 
-                                ? profile!.displayName 
-                                : (profile?.username.isNotEmpty == true ? profile!.username : 'You'),
-                            'avatar': profile?.profilePhotoUrl ?? '',
-                            'totalBet': widget.wager,
-                            'winnings': widget.winnings,
-                          });
-                        }
-                      }
-
-                      // Deduplicate strictly by uid or name so no user is ever duplicated
-                      final seen = <String>{};
-                      final uniqueList = <Map<String, dynamic>>[];
-                      for (final w in roundWinners) {
-                        final uid = (w['uid'] ?? w['userId'] ?? '').toString().trim();
-                        final name = (w['name'] ?? w['username'] ?? '').toString().trim().toLowerCase();
-                        final key = uid.isNotEmpty ? uid : name;
-                        if (key.isNotEmpty && seen.contains(key)) continue;
-                        if (key.isNotEmpty) seen.add(key);
-                        uniqueList.add(w);
-                      }
-
-                      // Sort by totalBet descending, then winnings descending
-                      uniqueList.sort((a, b) {
-                        final aBet = (a['totalBet'] as num?)?.toInt() ?? 0;
-                        final bBet = (b['totalBet'] as num?)?.toInt() ?? 0;
-                        if (bBet != aBet) return bBet.compareTo(aBet);
-                        final aWin = (a['winnings'] as num?)?.toInt() ?? (a['prize'] as num?)?.toInt() ?? 0;
-                        final bWin = (b['winnings'] as num?)?.toInt() ?? (b['prize'] as num?)?.toInt() ?? 0;
-                        return bWin.compareTo(aWin);
-                      });
-
-                      if (uniqueList.isEmpty) return const SizedBox.shrink();
-
-                      return _buildTop3WinnersPodium(uniqueList.take(3).toList());
-                    },
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
     );
@@ -7313,7 +8168,8 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     final uniqueWinners = <Map<String, dynamic>>[];
     for (final w in winners) {
       final uid = (w['uid'] ?? w['userId'] ?? '').toString().trim();
-      final name = (w['name'] ?? w['username'] ?? '').toString().trim().toLowerCase();
+      final name =
+          (w['name'] ?? w['username'] ?? '').toString().trim().toLowerCase();
       final key = uid.isNotEmpty ? uid : name;
       if (key.isNotEmpty && seen.contains(key)) continue;
       if (key.isNotEmpty) seen.add(key);
@@ -7323,15 +8179,30 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     if (uniqueWinners.isEmpty) return const SizedBox.shrink();
 
     final count = uniqueWinners.length;
-    final headerTitle = count == 1 
-        ? "ROUND WINNER" 
-        : count == 2 
-            ? "TOP 2 WINNERS" 
+    final headerTitle = count == 1
+        ? "ROUND WINNER"
+        : count == 2
+            ? "TOP 2 WINNERS"
             : "TOP 3 WINNERS";
+
+    final topWinner = uniqueWinners.first;
+    final topAmount = (topWinner['winnings'] as num?)?.toInt() ??
+        (topWinner['prize'] as num?)?.toInt() ??
+        (topWinner['totalBet'] as num?)?.toInt() ??
+        0;
 
     return Column(
       children: [
         const SizedBox(height: 18),
+        GameTopWinnerBanner(
+          label: 'ROUND #1 WINNER',
+          name: (topWinner['name'] ?? topWinner['username'] ?? 'Winner')
+              .toString(),
+          avatarUrl:
+              (topWinner['avatar'] ?? topWinner['photoUrl'] ?? '').toString(),
+          amount: topAmount,
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             const Expanded(
@@ -7378,8 +8249,10 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               _buildTopWinnerSlot(uniqueWinners[1], 1), // Rank 2 (Silver, Left)
-              _buildTopWinnerSlot(uniqueWinners[0], 0), // Rank 1 (Gold, Center, Tallest)
-              _buildTopWinnerSlot(uniqueWinners[2], 2), // Rank 3 (Bronze, Right)
+              _buildTopWinnerSlot(
+                  uniqueWinners[0], 0), // Rank 1 (Gold, Center, Tallest)
+              _buildTopWinnerSlot(
+                  uniqueWinners[2], 2), // Rank 3 (Bronze, Right)
             ],
           ),
       ],
@@ -7398,7 +8271,9 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
     final name = (winner['name'] ?? winner['username'] ?? "User").toString();
     final avatarUrl = (winner['avatar'] ?? winner['photoUrl'] ?? "").toString();
     final totalBet = (winner['totalBet'] as num?)?.toInt() ?? 0;
-    final winnings = (winner['winnings'] as num?)?.toInt() ?? (winner['prize'] as num?)?.toInt() ?? 0;
+    final winnings = (winner['winnings'] as num?)?.toInt() ??
+        (winner['prize'] as num?)?.toInt() ??
+        0;
     final isCenter = rankIndex == 0;
     final avatarRadius = isCenter ? 24.0 : 20.0;
 
@@ -7424,16 +8299,19 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
               child: CircleAvatar(
                 radius: avatarRadius,
                 backgroundColor: Colors.white10,
-                backgroundImage: avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
+                backgroundImage:
+                    avatarUrl.isNotEmpty ? NetworkImage(avatarUrl) : null,
                 child: avatarUrl.isEmpty
-                    ? Icon(Icons.person, color: rankColor, size: isCenter ? 26 : 22)
+                    ? Icon(Icons.person,
+                        color: rankColor, size: isCenter ? 26 : 22)
                     : null,
               ),
             ),
             Transform.translate(
               offset: const Offset(3, 3),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                 decoration: BoxDecoration(
                   color: rankColor,
                   borderRadius: BorderRadius.circular(8),
@@ -7492,11 +8370,28 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w500)),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SpinWheelFoodIcon(
+                food: label,
+                size: 17,
+                semanticLabel: label,
+              ),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500)),
+            ],
+          ),
           Row(
             children: [
               Text(
-                win >= 1000 ? "${(win / 1000).toStringAsFixed(1)}k" : win.toString(),
+                win >= 1000
+                    ? "${(win / 1000).toStringAsFixed(1)}k"
+                    : win.toString(),
                 style: TextStyle(
                   color: win > 0 ? Colors.amber : Colors.white60,
                   fontWeight: FontWeight.bold,
@@ -7587,7 +8482,9 @@ class _SpinWheelResultBottomSheetState extends ConsumerState<SpinWheelResultBott
 class ForkKnifeStreamerPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final paintWhite = Paint()..color = Colors.white..style = PaintingStyle.fill;
+    final paintWhite = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
 
     final paintStreamerOrange = Paint()
       ..color = const Color(0xFFFF9800)
@@ -7625,13 +8522,17 @@ class ForkKnifeStreamerPainter extends CustomPainter {
     // Base prongs block
     canvas.drawRect(Rect.fromLTWH(forkX - 4.5, forkY - 11, 9, 5), paintWhite);
     // 3 prongs going up
-    canvas.drawRect(Rect.fromLTWH(forkX - 4.5, forkY - 21, 1.6, 11), paintWhite);
-    canvas.drawRect(Rect.fromLTWH(forkX - 0.8, forkY - 21, 1.6, 11), paintWhite);
-    canvas.drawRect(Rect.fromLTWH(forkX + 2.9, forkY - 21, 1.6, 11), paintWhite);
+    canvas.drawRect(
+        Rect.fromLTWH(forkX - 4.5, forkY - 21, 1.6, 11), paintWhite);
+    canvas.drawRect(
+        Rect.fromLTWH(forkX - 0.8, forkY - 21, 1.6, 11), paintWhite);
+    canvas.drawRect(
+        Rect.fromLTWH(forkX + 2.9, forkY - 21, 1.6, 11), paintWhite);
     // Neck and solid handle
     canvas.drawRect(Rect.fromLTWH(forkX - 1.2, forkY - 6, 2.4, 4), paintWhite);
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(forkX - 1.6, forkY - 2, 3.2, 23), const Radius.circular(1.2)),
+      RRect.fromRectAndRadius(Rect.fromLTWH(forkX - 1.6, forkY - 2, 3.2, 23),
+          const Radius.circular(1.2)),
       paintWhite,
     );
 
@@ -7647,10 +8548,12 @@ class ForkKnifeStreamerPainter extends CustomPainter {
       ..close();
     canvas.drawPath(knifeBladePath, paintWhite);
     // Connector neck
-    canvas.drawRect(Rect.fromLTWH(knifeX - 1.2, knifeY - 5, 2.4, 4), paintWhite);
+    canvas.drawRect(
+        Rect.fromLTWH(knifeX - 1.2, knifeY - 5, 2.4, 4), paintWhite);
     // Knife handle
     canvas.drawRRect(
-      RRect.fromRectAndRadius(Rect.fromLTWH(knifeX - 1.6, knifeY - 1, 3.2, 22), const Radius.circular(1.2)),
+      RRect.fromRectAndRadius(Rect.fromLTWH(knifeX - 1.6, knifeY - 1, 3.2, 22),
+          const Radius.circular(1.2)),
       paintWhite,
     );
   }
@@ -7659,17 +8562,18 @@ class ForkKnifeStreamerPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-class StickerEmojiWidget extends StatelessWidget {
-  final String emoji;
+class StickerFoodIconWidget extends StatelessWidget {
+  final String food;
   final double size;
-  const StickerEmojiWidget({super.key, required this.emoji, this.size = 50});
+  const StickerFoodIconWidget({super.key, required this.food, this.size = 50});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B), // Deep slate background for sticker backing
+        color: const Color(
+            0xFF1E293B), // Deep slate background for sticker backing
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 3.5),
         boxShadow: [
@@ -7685,12 +8589,10 @@ class StickerEmojiWidget extends StatelessWidget {
           ),
         ],
       ),
-      child: Text(
-        emoji,
-        style: TextStyle(
-          fontSize: size,
-          height: 1.1,
-        ),
+      child: SpinWheelFoodIcon(
+        food: food,
+        size: size,
+        semanticLabel: food,
       ),
     );
   }

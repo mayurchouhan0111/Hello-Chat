@@ -16,22 +16,21 @@ class SuperAdminPortalScreen extends ConsumerStatefulWidget {
   const SuperAdminPortalScreen({super.key});
 
   @override
-  ConsumerState<SuperAdminPortalScreen> createState() => _SuperAdminPortalScreenState();
+  ConsumerState<SuperAdminPortalScreen> createState() =>
+      _SuperAdminPortalScreenState();
 }
 
-class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen> {
+class _SuperAdminPortalScreenState
+    extends ConsumerState<SuperAdminPortalScreen> {
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   Map<String, dynamic>? _searchedUserData;
-
-
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
   }
-
 
   Future<void> _searchUser(String query) async {
     final cleanQuery = query.trim();
@@ -97,7 +96,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   }
 
   // ── Admin Hierarchy Appointment & Revocation ─────────────────
-  Future<void> _appointAdmin(UserModel currentUser, String targetUid, String targetName) async {
+  Future<void> _appointAdmin(
+      UserModel currentUser, String targetUid, String targetName) async {
     final branchId = currentUser.branchId ?? 'branch-prod-1';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -111,26 +111,34 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           children: [
             Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF818CF8)),
             Gap(10),
-            Text('Appoint Branch Admin', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Appoint Branch Admin',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
           'Are you sure you want to appoint $targetName as an Admin for Branch $branchId?\n\nThey will be empowered to supervise agencies and hosts under this branch.',
-          style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+          style:
+              const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6366F1),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Confirm Appointment', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Confirm Appointment',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -139,34 +147,23 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     if (confirmed != true) return;
 
     try {
-      try {
-        await FirebaseFunctions.instance.httpsCallable('assignHierarchyRole').call({
-          'targetUid': targetUid,
-          'newRole': 'admin',
-          'targetBranchId': branchId,
-          'targetSuperAdminId': currentUser.uid,
-        });
-      } catch (fnErr) {
-        debugPrint('[SUPER_ADMIN] Callable notice: $fnErr');
-      }
-
-      await FirebaseFirestore.instance.collection('users').doc(targetUid).update({
-        'role': 'admin',
-        'branchId': branchId,
-        'superAdminId': currentUser.uid,
-        'tags': FieldValue.arrayUnion(['Admin']),
-        'roleUpdatedAt': FieldValue.serverTimestamp(),
+      await FirebaseFunctions.instance.httpsCallable('appointAdmin').call({
+        'targetIdentifier': targetUid,
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-            content: Text('✅ $targetName has been appointed as Admin for Branch $branchId'),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
+            content: Text(
+                '✅ $targetName has been appointed as Admin for Branch $branchId'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
           ),
         );
         setState(() {
-          if (_searchedUserData != null && _searchedUserData!['uid'] == targetUid) {
+          if (_searchedUserData != null &&
+              _searchedUserData!['uid'] == targetUid) {
             _searchedUserData!['role'] = 'admin';
             _searchedUserData!['branchId'] = branchId;
           }
@@ -174,7 +171,9 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: Text('Failed to appoint admin: $e'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -184,7 +183,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     }
   }
 
-  Future<void> _revokeAdmin(UserModel currentUser, String targetUid, String targetName) async {
+  Future<void> _revokeAdmin(
+      UserModel currentUser, String targetUid, String targetName) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -197,7 +197,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           children: [
             Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
             Gap(10),
-            Text('Revoke Admin Role', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Revoke Admin Role',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
@@ -207,16 +211,19 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.redAccent,
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Revoke Privileges', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Revoke Privileges',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -225,42 +232,45 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     if (confirmed != true) return;
 
     try {
-      try {
-        await FirebaseFunctions.instance.httpsCallable('assignHierarchyRole').call({
-          'targetUid': targetUid,
-          'newRole': 'host',
-        });
-      } catch (fnErr) {
-        debugPrint('[SUPER_ADMIN] Callable notice: $fnErr');
-      }
-
-      await FirebaseFirestore.instance.collection('users').doc(targetUid).update({
-        'role': 'host',
-        'tags': FieldValue.arrayRemove(['Admin']),
-        'roleUpdatedAt': FieldValue.serverTimestamp(),
+      await FirebaseFunctions.instance.httpsCallable('removeAdmin').call({
+        'targetUid': targetUid,
+        'reason': 'Removed by Super Admin from the mobile management panel',
       });
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: Text('Admin privileges revoked for $targetName'),
             behavior: SnackBarBehavior.floating,
           ),
         );
         setState(() {
-          if (_searchedUserData != null && _searchedUserData!['uid'] == targetUid) {
+          if (_searchedUserData != null &&
+              _searchedUserData!['uid'] == targetUid) {
             _searchedUserData!['role'] = 'host';
           }
         });
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Error: $e'), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+              context: context,
+              content: Text('Error: $e'),
+              backgroundColor: Colors.redAccent),
         );
       }
     }
   }
 
-  Future<void> _replaceAdmin(UserModel currentUser, String oldAdminUid, String oldAdminName, String newAdminUid, String newAdminName, String branchId) async {
+  Future<void> _replaceAdmin(
+      UserModel currentUser,
+      String oldAdminUid,
+      String oldAdminName,
+      String newAdminUid,
+      String newAdminName,
+      String branchId) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -273,26 +283,34 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           children: [
             Icon(Icons.swap_horiz_rounded, color: Color(0xFFF59E0B)),
             Gap(10),
-            Text('Confirm Admin Replacement', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text('Confirm Admin Replacement',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
           'Are you sure you want to replace $oldAdminName with $newAdminName as Admin for Branch $branchId?\n\n$oldAdminName will be reverted to Host, and $newAdminName will be granted full Admin privileges.',
-          style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+          style:
+              const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white54)),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFFF59E0B),
               foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
             ),
-            child: const Text('Confirm Replacement', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Confirm Replacement',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -301,47 +319,19 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     if (confirmed != true) return;
 
     try {
-      final db = FirebaseFirestore.instance;
-      final batch = db.batch();
-
-      // Revoke old admin
-      final oldRef = db.collection('users').doc(oldAdminUid);
-      batch.update(oldRef, {
-        'role': 'host',
-        'tags': FieldValue.arrayRemove(['Admin']),
-        'roleUpdatedAt': FieldValue.serverTimestamp(),
+      // One callable performs both changes atomically so a failed appointment
+      // can never leave the branch without its existing Admin.
+      await FirebaseFunctions.instance.httpsCallable('replaceAdmin').call({
+        'oldAdminUid': oldAdminUid,
+        'newTargetIdentifier': newAdminUid,
       });
-
-      // Appoint new admin
-      final newRef = db.collection('users').doc(newAdminUid);
-      batch.update(newRef, {
-        'role': 'admin',
-        'branchId': branchId,
-        'superAdminId': currentUser.uid,
-        'tags': FieldValue.arrayUnion(['Admin']),
-        'roleUpdatedAt': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
-
-      try {
-        await FirebaseFunctions.instance.httpsCallable('assignHierarchyRole').call({
-          'targetUid': oldAdminUid,
-          'newRole': 'host',
-        });
-        await FirebaseFunctions.instance.httpsCallable('assignHierarchyRole').call({
-          'targetUid': newAdminUid,
-          'newRole': 'admin',
-          'targetBranchId': branchId,
-          'targetSuperAdminId': currentUser.uid,
-        });
-      } catch (fnErr) {
-        debugPrint('[SUPER_ADMIN] Callable notice: $fnErr');
-      }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-            content: Text('✅ $oldAdminName has been successfully replaced by $newAdminName as Admin'),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
+            content: Text(
+                '✅ $oldAdminName has been successfully replaced by $newAdminName as Admin'),
             backgroundColor: const Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
           ),
@@ -349,13 +339,18 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Failed to replace admin: $e'), backgroundColor: Colors.redAccent),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+              context: context,
+              content: Text('Failed to replace admin: $e'),
+              backgroundColor: Colors.redAccent),
         );
       }
     }
   }
 
-  void _showReplaceAdminModal(BuildContext context, UserModel currentUser, String currentAdminUid, String currentAdminName, String branchId) {
+  void _showReplaceAdminModal(BuildContext context, UserModel currentUser,
+      String currentAdminUid, String currentAdminName, String branchId) {
     final queryController = TextEditingController();
     bool isSearchingUser = false;
     Map<String, dynamic>? foundUser;
@@ -386,7 +381,9 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     child: Container(
                       width: 40,
                       height: 4,
-                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                      decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2)),
                     ),
                   ),
                   const Gap(16),
@@ -398,7 +395,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           color: const Color(0xFFF59E0B).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFFF59E0B), size: 22),
+                        child: const Icon(Icons.swap_horiz_rounded,
+                            color: Color(0xFFF59E0B), size: 22),
                       ),
                       const Gap(12),
                       Expanded(
@@ -407,11 +405,15 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           children: [
                             const Text(
                               'Replace Branch Admin',
-                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900),
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900),
                             ),
                             Text(
                               'Replacing: $currentAdminName (Branch $branchId)',
-                              style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 12),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
@@ -430,20 +432,25 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       Expanded(
                         child: TextField(
                           controller: queryController,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
                           decoration: InputDecoration(
                             hintText: 'Enter Hello ID, UID or Username',
-                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                            hintStyle: const TextStyle(
+                                color: Colors.white38, fontSize: 12),
                             filled: true,
                             fillColor: const Color(0xFF131A29),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Colors.white12),
+                              borderSide:
+                                  const BorderSide(color: Colors.white12),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFFF59E0B)),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFFF59E0B)),
                             ),
                           ),
                         ),
@@ -463,17 +470,31 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                 try {
                                   final db = FirebaseFirestore.instance;
                                   final numId = int.tryParse(q);
-                                  DocumentSnapshot<Map<String, dynamic>>? targetDoc;
+                                  DocumentSnapshot<Map<String, dynamic>>?
+                                      targetDoc;
                                   if (numId != null) {
-                                    final snap = await db.collection('users').where('helloId', isEqualTo: numId).limit(1).get();
-                                    if (snap.docs.isNotEmpty) targetDoc = snap.docs.first;
+                                    final snap = await db
+                                        .collection('users')
+                                        .where('helloId', isEqualTo: numId)
+                                        .limit(1)
+                                        .get();
+                                    if (snap.docs.isNotEmpty)
+                                      targetDoc = snap.docs.first;
                                   } else {
-                                    final doc = await db.collection('users').doc(q).get();
+                                    final doc = await db
+                                        .collection('users')
+                                        .doc(q)
+                                        .get();
                                     if (doc.exists) {
                                       targetDoc = doc;
                                     } else {
-                                      final snap = await db.collection('users').where('username', isEqualTo: q).limit(1).get();
-                                      if (snap.docs.isNotEmpty) targetDoc = snap.docs.first;
+                                      final snap = await db
+                                          .collection('users')
+                                          .where('username', isEqualTo: q)
+                                          .limit(1)
+                                          .get();
+                                      if (snap.docs.isNotEmpty)
+                                        targetDoc = snap.docs.first;
                                     }
                                   }
                                   if (targetDoc != null && targetDoc.exists) {
@@ -481,7 +502,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                     d['uid'] = targetDoc.id;
                                     if (targetDoc.id == currentAdminUid) {
                                       setModalState(() {
-                                        searchErr = 'This user is already the current admin being replaced.';
+                                        searchErr =
+                                            'This user is already the current admin being replaced.';
                                         isSearchingUser = false;
                                       });
                                     } else {
@@ -506,18 +528,28 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFFF59E0B),
                           foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         child: isSearchingUser
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
-                            : const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    color: Colors.black, strokeWidth: 2))
+                            : const Text('Search',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ],
                   ),
                   if (searchErr != null) ...[
                     const Gap(12),
-                    Text(searchErr!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    Text(searchErr!,
+                        style: const TextStyle(
+                            color: Colors.redAccent, fontSize: 12)),
                   ],
                   if (foundUser != null) ...[
                     const Gap(16),
@@ -526,29 +558,42 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       decoration: BoxDecoration(
                         color: const Color(0xFF131A29),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.3)),
+                        border: Border.all(
+                            color:
+                                const Color(0xFFF59E0B).withValues(alpha: 0.3)),
                       ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              AppAvatar(imageUrl: foundUser!['profilePhotoUrl'] ?? '', radius: 24),
+                              AppAvatar(
+                                  imageUrl: foundUser!['profilePhotoUrl'] ?? '',
+                                  radius: 24),
                               const Gap(12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      foundUser!['displayName'] ?? foundUser!['username'] ?? 'User',
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                      foundUser!['displayName'] ??
+                                          foundUser!['username'] ??
+                                          'User',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14),
                                     ),
                                     Text(
                                       'Hello ID: ${foundUser!['helloId'] ?? 'N/A'}',
-                                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                      style: const TextStyle(
+                                          color: Colors.white54, fontSize: 11),
                                     ),
                                     Text(
                                       'Current Role: ${(foundUser!['role'] ?? 'user').toString().toUpperCase()}',
-                                      style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 11, fontWeight: FontWeight.bold),
+                                      style: const TextStyle(
+                                          color: Color(0xFFF59E0B),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold),
                                     ),
                                   ],
                                 ),
@@ -562,16 +607,30 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                               onPressed: () {
                                 Navigator.pop(modalCtx);
                                 final newUid = foundUser!['uid'].toString();
-                                final newName = foundUser!['displayName'] ?? foundUser!['username'] ?? 'New Admin';
-                                _replaceAdmin(currentUser, currentAdminUid, currentAdminName, newUid, newName, branchId);
+                                final newName = foundUser!['displayName'] ??
+                                    foundUser!['username'] ??
+                                    'New Admin';
+                                _replaceAdmin(
+                                    currentUser,
+                                    currentAdminUid,
+                                    currentAdminName,
+                                    newUid,
+                                    newName,
+                                    branchId);
                               },
-                              icon: const Icon(Icons.swap_horiz_rounded, size: 16),
-                              label: const Text('Appoint as Replacement Admin', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                              icon: const Icon(Icons.swap_horiz_rounded,
+                                  size: 16),
+                              label: const Text('Appoint as Replacement Admin',
+                                  style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFF59E0B),
                                 foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                           ),
@@ -588,7 +647,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     );
   }
 
-  void _showAdminPerformanceReport(BuildContext context, UserModel currentUser, Map<String, dynamic> adminData, String adminUid) {
+  void _showAdminPerformanceReport(BuildContext context, UserModel currentUser,
+      Map<String, dynamic> adminData, String adminUid) {
     final name = adminData['displayName'] ?? adminData['username'] ?? 'Admin';
     final helloId = adminData['helloId']?.toString() ?? 'N/A';
     final photo = adminData['profilePhotoUrl'] ?? '';
@@ -620,7 +680,9 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     child: Container(
                       width: 40,
                       height: 4,
-                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                      decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2)),
                     ),
                   ),
                   const Gap(16),
@@ -633,7 +695,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: const Icon(Icons.analytics_rounded, color: Color(0xFF818CF8), size: 22),
+                        child: const Icon(Icons.analytics_rounded,
+                            color: Color(0xFF818CF8), size: 22),
                       ),
                       const Gap(12),
                       const Expanded(
@@ -642,17 +705,23 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           children: [
                             Text(
                               'ADMIN PERFORMANCE REPORT',
-                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5),
                             ),
                             Text(
                               'Performance & Activity Oversight',
-                              style: TextStyle(color: Colors.white54, fontSize: 11),
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 11),
                             ),
                           ],
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close_rounded, color: Colors.white54),
+                        icon: const Icon(Icons.close_rounded,
+                            color: Colors.white54),
                         onPressed: () => Navigator.pop(reportCtx),
                       ),
                     ],
@@ -664,7 +733,9 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     decoration: BoxDecoration(
                       color: const Color(0xFF131A29),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.25)),
+                      border: Border.all(
+                          color:
+                              const Color(0xFF6366F1).withValues(alpha: 0.25)),
                       gradient: LinearGradient(
                         colors: [
                           const Color(0xFF6366F1).withValues(alpha: 0.1),
@@ -689,39 +760,64 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                       Flexible(
                                         child: Text(
                                           name,
-                                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                       const Gap(8),
                                       Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 7, vertical: 2),
                                         decoration: BoxDecoration(
                                           color: const Color(0xFF6366F1),
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius:
+                                              BorderRadius.circular(6),
                                         ),
-                                        child: const Text('ADMIN', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900)),
+                                        child: const Text('ADMIN',
+                                            style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w900)),
                                       ),
                                     ],
                                   ),
                                   const Gap(4),
                                   GestureDetector(
                                     onTap: () {
-                                      Clipboard.setData(ClipboardData(text: helloId));
-                                      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text('Admin ID $helloId copied'), behavior: SnackBarBehavior.floating),
+                                      Clipboard.setData(
+                                          ClipboardData(text: helloId));
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                        TopSnackBar(
+                                            context: context,
+                                            content: Text(
+                                                'Admin ID $helloId copied'),
+                                            behavior:
+                                                SnackBarBehavior.floating),
                                       );
                                     },
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text('Hello ID: $helloId', style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
+                                        Text('Hello ID: $helloId',
+                                            style: const TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold)),
                                         const Gap(4),
-                                        const Icon(Icons.copy_rounded, size: 12, color: Colors.white38),
+                                        const Icon(Icons.copy_rounded,
+                                            size: 12, color: Colors.white38),
                                       ],
                                     ),
                                   ),
                                   const Gap(2),
-                                  Text('Branch: $branchId', style: const TextStyle(color: Color(0xFF818CF8), fontSize: 11)),
+                                  Text('Branch: $branchId',
+                                      style: const TextStyle(
+                                          color: Color(0xFF818CF8),
+                                          fontSize: 11)),
                                 ],
                               ),
                             ),
@@ -735,14 +831,20 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           children: [
                             const Row(
                               children: [
-                                Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 14),
+                                Icon(Icons.check_circle_rounded,
+                                    color: Color(0xFF10B981), size: 14),
                                 Gap(6),
-                                Text('Status: Active Admin', style: TextStyle(color: Color(0xFF10B981), fontSize: 12, fontWeight: FontWeight.bold)),
+                                Text('Status: Active Admin',
+                                    style: TextStyle(
+                                        color: Color(0xFF10B981),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold)),
                               ],
                             ),
                             Text(
                               'Appointed: ${appointedDate.year}-${appointedDate.month.toString().padLeft(2, '0')}-${appointedDate.day.toString().padLeft(2, '0')}',
-                              style: const TextStyle(color: Colors.white38, fontSize: 11),
+                              style: const TextStyle(
+                                  color: Colors.white38, fontSize: 11),
                             ),
                           ],
                         ),
@@ -750,11 +852,19 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     ),
                   ),
                   const Gap(16),
-                  const Text('KEY PERFORMANCE INDICATORS', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+                  const Text('KEY PERFORMANCE INDICATORS',
+                      style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8)),
                   const Gap(10),
                   // StreamBuilder for real-time counts of agencies supervised
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance.collection('agencies').where('branchId', isEqualTo: branchId).snapshots(),
+                    stream: FirebaseFirestore.instance
+                        .collection('agencies')
+                        .where('branchId', isEqualTo: branchId)
+                        .snapshots(),
                     builder: (context, agencySnap) {
                       final agencyCount = agencySnap.data?.docs.length ?? 0;
                       return Row(
@@ -788,7 +898,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           icon: Icons.diamond_rounded,
                           iconColor: const Color(0xFF00E5FF),
                           label: 'Monthly Diamond Vol.',
-                          value: '${((adminData['monthlyDiamondsSent'] ?? 0) / 1000).toStringAsFixed(1)}K',
+                          value:
+                              '${((adminData['monthlyDiamondsSent'] ?? 0) / 1000).toStringAsFixed(1)}K',
                         ),
                       ),
                       const Gap(10),
@@ -803,22 +914,40 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     ],
                   ),
                   const Gap(20),
-                  const Text('SUPERVISORY RESPONSIBILITIES', style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8)),
+                  const Text('SUPERVISORY RESPONSIBILITIES',
+                      style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8)),
                   const Gap(10),
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: const Color(0xFF131A29),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                      border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.06)),
                     ),
                     child: Column(
                       children: [
-                        _buildResponsibilityItem(Icons.verified_user_rounded, const Color(0xFF10B981), 'Agency Supervision', 'Monitors agency performance and target completion under branch $branchId.'),
+                        _buildResponsibilityItem(
+                            Icons.verified_user_rounded,
+                            const Color(0xFF10B981),
+                            'Agency Supervision',
+                            'Monitors agency performance and target completion under branch $branchId.'),
                         const Divider(color: Colors.white10, height: 16),
-                        _buildResponsibilityItem(Icons.payments_rounded, const Color(0xFF3B82F6), 'Commission & Turnover Oversight', 'Ensures accurate weekly & monthly distribution of host earnings.'),
+                        _buildResponsibilityItem(
+                            Icons.payments_rounded,
+                            const Color(0xFF3B82F6),
+                            'Commission & Turnover Oversight',
+                            'Ensures accurate weekly & monthly distribution of host earnings.'),
                         const Divider(color: Colors.white10, height: 16),
-                        _buildResponsibilityItem(Icons.gavel_rounded, const Color(0xFFEC4899), 'Disciplinary & Policy Enforcement', 'Enforces platform conduct rules and reviews moderation reports.'),
+                        _buildResponsibilityItem(
+                            Icons.gavel_rounded,
+                            const Color(0xFFEC4899),
+                            'Disciplinary & Policy Enforcement',
+                            'Enforces platform conduct rules and reviews moderation reports.'),
                       ],
                     ),
                   ),
@@ -830,14 +959,20 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                         child: OutlinedButton.icon(
                           onPressed: () {
                             Navigator.pop(reportCtx);
-                            _showReplaceAdminModal(context, currentUser, adminUid, name, branchId);
+                            _showReplaceAdminModal(
+                                context, currentUser, adminUid, name, branchId);
                           },
-                          icon: const Icon(Icons.swap_horiz_rounded, size: 16, color: Color(0xFFF59E0B)),
-                          label: const Text('Replace Admin', style: TextStyle(color: Color(0xFFF59E0B), fontWeight: FontWeight.bold)),
+                          icon: const Icon(Icons.swap_horiz_rounded,
+                              size: 16, color: Color(0xFFF59E0B)),
+                          label: const Text('Replace Admin',
+                              style: TextStyle(
+                                  color: Color(0xFFF59E0B),
+                                  fontWeight: FontWeight.bold)),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: Color(0xFFF59E0B)),
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                         ),
                       ),
@@ -848,13 +983,16 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                             Navigator.pop(reportCtx);
                             _revokeAdmin(currentUser, adminUid, name);
                           },
-                          icon: const Icon(Icons.remove_circle_outline_rounded, size: 16),
-                          label: const Text('Revoke Role', style: TextStyle(fontWeight: FontWeight.bold)),
+                          icon: const Icon(Icons.remove_circle_outline_rounded,
+                              size: 16),
+                          label: const Text('Revoke Role',
+                              style: TextStyle(fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
                           ),
                         ),
                       ),
@@ -870,7 +1008,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     );
   }
 
-  Widget _buildReportMetricTile({required IconData icon, required Color iconColor, required String label, required String value}) {
+  Widget _buildReportMetricTile(
+      {required IconData icon,
+      required Color iconColor,
+      required String label,
+      required String value}) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -883,15 +1025,21 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         children: [
           Icon(icon, color: iconColor, size: 20),
           const Gap(8),
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900)),
           const Gap(2),
-          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+          Text(label,
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
         ],
       ),
     );
   }
 
-  Widget _buildResponsibilityItem(IconData icon, Color color, String title, String subtitle) {
+  Widget _buildResponsibilityItem(
+      IconData icon, Color color, String title, String subtitle) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -901,9 +1049,15 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+              Text(title,
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold)),
               const Gap(2),
-              Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 11, height: 1.3)),
+              Text(subtitle,
+                  style: const TextStyle(
+                      color: Colors.white54, fontSize: 11, height: 1.3)),
             ],
           ),
         ),
@@ -911,7 +1065,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     );
   }
 
-  void _showBranchAdminsManagementSheet(BuildContext context, UserModel currentUser, String branchId) {
+  void _showBranchAdminsManagementSheet(
+      BuildContext context, UserModel currentUser, String branchId) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -933,7 +1088,9 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                   Container(
                     width: 40,
                     height: 4,
-                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2)),
                   ),
                   const Gap(16),
                   Row(
@@ -944,10 +1101,14 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+                              color: const Color(0xFF6366F1)
+                                  .withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(Icons.admin_panel_settings_rounded, color: Color(0xFF818CF8), size: 22),
+                            child: const Icon(
+                                Icons.admin_panel_settings_rounded,
+                                color: Color(0xFF818CF8),
+                                size: 22),
                           ),
                           const Gap(12),
                           Column(
@@ -955,11 +1116,16 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                             children: [
                               const Text(
                                 'BRANCH ADMINS',
-                                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.5),
                               ),
                               Text(
                                 'Branch: $branchId',
-                                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                style: const TextStyle(
+                                    color: Colors.white54, fontSize: 11),
                               ),
                             ],
                           ),
@@ -968,15 +1134,21 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       ElevatedButton.icon(
                         onPressed: () {
                           Navigator.pop(ctx);
-                          _showAppointAdminModal(context, currentUser, branchId);
+                          _showAppointAdminModal(
+                              context, currentUser, branchId);
                         },
-                        icon: const Icon(Icons.person_add_alt_1_rounded, size: 14),
-                        label: const Text('Appoint Admin', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                        icon: const Icon(Icons.person_add_alt_1_rounded,
+                            size: 14),
+                        label: const Text('Appoint Admin',
+                            style: TextStyle(
+                                fontSize: 11, fontWeight: FontWeight.bold)),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF6366F1),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
                         ),
                       ),
                     ],
@@ -991,46 +1163,66 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           .where('role', isEqualTo: 'admin')
                           .snapshots(),
                       builder: (context, snapshot) {
-                        if (snapshot.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)));
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: CircularProgressIndicator(
+                                  color: Color(0xFF6366F1)));
                         }
                         final allDocs = snapshot.data?.docs ?? [];
                         final docs = allDocs.where((d) {
                           final data = d.data();
                           final bId = data['branchId']?.toString();
                           final sId = data['superAdminId']?.toString();
-                          return bId == branchId || sId == currentUser.uid || currentUser.role == 'owner' || branchId == 'branch-prod-1';
+                          return bId == branchId ||
+                              sId == currentUser.uid ||
+                              currentUser.role == 'owner' ||
+                              branchId == 'branch-prod-1';
                         }).toList();
                         if (docs.isEmpty) {
                           return Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.group_off_rounded, size: 48, color: Colors.white.withValues(alpha: 0.2)),
+                                Icon(Icons.group_off_rounded,
+                                    size: 48,
+                                    color: Colors.white.withValues(alpha: 0.2)),
                                 const Gap(12),
                                 const Text(
                                   'No Admins Appointed Yet',
-                                  style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.bold),
                                 ),
                                 const Gap(6),
                                 Text(
                                   'Appoint an Admin under Branch $branchId supervision.',
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                  style: const TextStyle(
+                                      color: Colors.white54, fontSize: 12),
                                 ),
                                 const Gap(14),
                                 ElevatedButton.icon(
                                   onPressed: () {
                                     Navigator.pop(ctx);
-                                    _showAppointAdminModal(context, currentUser, branchId);
+                                    _showAppointAdminModal(
+                                        context, currentUser, branchId);
                                   },
-                                  icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
-                                  label: const Text('Appoint Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  icon: const Icon(
+                                      Icons.person_add_alt_1_rounded,
+                                      size: 16),
+                                  label: const Text('Appoint Admin',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold)),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: const Color(0xFF6366F1),
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 18, vertical: 10),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(10)),
                                   ),
                                 ),
                               ],
@@ -1045,21 +1237,28 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                           itemBuilder: (context, index) {
                             final doc = docs[index];
                             final data = doc.data();
-                            final name = data['displayName'] ?? data['username'] ?? 'Admin';
-                            final helloId = data['helloId']?.toString() ?? 'N/A';
+                            final name = data['displayName'] ??
+                                data['username'] ??
+                                'Admin';
+                            final helloId =
+                                data['helloId']?.toString() ?? 'N/A';
                             final photo = data['profilePhotoUrl'] ?? '';
                             final uid = doc.id;
-                            final adminBranch = data['branchId']?.toString() ?? branchId;
+                            final adminBranch =
+                                data['branchId']?.toString() ?? branchId;
 
                             return InkWell(
-                              onTap: () => _showAdminPerformanceReport(context, currentUser, data, uid),
+                              onTap: () => _showAdminPerformanceReport(
+                                  context, currentUser, data, uid),
                               borderRadius: BorderRadius.circular(16),
                               child: Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF131A29),
                                   borderRadius: BorderRadius.circular(16),
-                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                  border: Border.all(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.08)),
                                 ),
                                 child: Row(
                                   children: [
@@ -1067,52 +1266,100 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                     const Gap(12),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Row(
                                             children: [
                                               Flexible(
                                                 child: Text(
                                                   name,
-                                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
-                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                      fontSize: 13),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                 ),
                                               ),
                                               const Gap(6),
                                               Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 1.5),
                                                 decoration: BoxDecoration(
-                                                  color: const Color(0xFF6366F1).withValues(alpha: 0.2),
-                                                  borderRadius: BorderRadius.circular(6),
+                                                  color: const Color(0xFF6366F1)
+                                                      .withValues(alpha: 0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
                                                 ),
-                                                child: const Text('ADMIN', style: TextStyle(color: Color(0xFF818CF8), fontSize: 9, fontWeight: FontWeight.bold)),
+                                                child: const Text('ADMIN',
+                                                    style: TextStyle(
+                                                        color:
+                                                            Color(0xFF818CF8),
+                                                        fontSize: 9,
+                                                        fontWeight:
+                                                            FontWeight.bold)),
                                               ),
                                             ],
                                           ),
                                           const Gap(4),
                                           GestureDetector(
-                                            onTap: () => _showAdminPerformanceReport(context, currentUser, data, uid),
+                                            onTap: () =>
+                                                _showAdminPerformanceReport(
+                                                    context,
+                                                    currentUser,
+                                                    data,
+                                                    uid),
                                             child: Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 7,
+                                                      vertical: 2),
                                               decoration: BoxDecoration(
-                                                color: const Color(0xFF6366F1).withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(6),
-                                                border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                                                color: const Color(0xFF6366F1)
+                                                    .withValues(alpha: 0.15),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                                border: Border.all(
+                                                    color:
+                                                        const Color(0xFF6366F1)
+                                                            .withValues(
+                                                                alpha: 0.3)),
                                               ),
                                               child: Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  const Icon(Icons.analytics_rounded, size: 11, color: Color(0xFF818CF8)),
+                                                  const Icon(
+                                                      Icons.analytics_rounded,
+                                                      size: 11,
+                                                      color: Color(0xFF818CF8)),
                                                   const Gap(4),
-                                                  Text('ID: $helloId', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                                  Text('ID: $helloId',
+                                                      style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 11,
+                                                          fontWeight:
+                                                              FontWeight.bold)),
                                                   const Gap(4),
-                                                  const Text('• View Report ›', style: TextStyle(color: Color(0xFF818CF8), fontSize: 9, fontWeight: FontWeight.bold)),
+                                                  const Text('• View Report ›',
+                                                      style: TextStyle(
+                                                          color:
+                                                              Color(0xFF818CF8),
+                                                          fontSize: 9,
+                                                          fontWeight:
+                                                              FontWeight.bold)),
                                                 ],
                                               ),
                                             ),
                                           ),
                                           const Gap(2),
-                                          Text('Branch: $adminBranch', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                                          Text('Branch: $adminBranch',
+                                              style: const TextStyle(
+                                                  color: Colors.white38,
+                                                  fontSize: 10)),
                                         ],
                                       ),
                                     ),
@@ -1120,14 +1367,28 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
                                         IconButton(
-                                          icon: const Icon(Icons.swap_horiz_rounded, color: Color(0xFFF59E0B), size: 20),
+                                          icon: const Icon(
+                                              Icons.swap_horiz_rounded,
+                                              color: Color(0xFFF59E0B),
+                                              size: 20),
                                           tooltip: 'Replace Admin',
-                                          onPressed: () => _showReplaceAdminModal(context, currentUser, uid, name, adminBranch),
+                                          onPressed: () =>
+                                              _showReplaceAdminModal(
+                                                  context,
+                                                  currentUser,
+                                                  uid,
+                                                  name,
+                                                  adminBranch),
                                         ),
                                         IconButton(
-                                          icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.redAccent, size: 20),
+                                          icon: const Icon(
+                                              Icons
+                                                  .remove_circle_outline_rounded,
+                                              color: Colors.redAccent,
+                                              size: 20),
                                           tooltip: 'Revoke Admin Privileges',
-                                          onPressed: () => _revokeAdmin(currentUser, uid, name),
+                                          onPressed: () => _revokeAdmin(
+                                              currentUser, uid, name),
                                         ),
                                       ],
                                     ),
@@ -1149,7 +1410,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
     );
   }
 
-  void _showAppointAdminModal(BuildContext context, UserModel currentUser, String branchId) {
+  void _showAppointAdminModal(
+      BuildContext context, UserModel currentUser, String branchId) {
     final queryController = TextEditingController();
     bool isSearchingUser = false;
     Map<String, dynamic>? foundUser;
@@ -1180,17 +1442,23 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     child: Container(
                       width: 40,
                       height: 4,
-                      decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                      decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2)),
                     ),
                   ),
                   const Gap(16),
                   const Row(
                     children: [
-                      Icon(Icons.person_add_alt_1_rounded, color: Color(0xFF818CF8), size: 22),
+                      Icon(Icons.person_add_alt_1_rounded,
+                          color: Color(0xFF818CF8), size: 22),
                       Gap(10),
                       Text(
                         'Appoint New Admin',
-                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900),
                       ),
                     ],
                   ),
@@ -1205,20 +1473,25 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       Expanded(
                         child: TextField(
                           controller: queryController,
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13),
                           decoration: InputDecoration(
                             hintText: 'Enter Hello ID, UID or Username',
-                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                            hintStyle: const TextStyle(
+                                color: Colors.white38, fontSize: 12),
                             filled: true,
                             fillColor: const Color(0xFF131A29),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Colors.white12),
+                              borderSide:
+                                  const BorderSide(color: Colors.white12),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: Color(0xFF6366F1)),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFF6366F1)),
                             ),
                           ),
                         ),
@@ -1238,17 +1511,31 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                 try {
                                   final db = FirebaseFirestore.instance;
                                   final numId = int.tryParse(q);
-                                  DocumentSnapshot<Map<String, dynamic>>? targetDoc;
+                                  DocumentSnapshot<Map<String, dynamic>>?
+                                      targetDoc;
                                   if (numId != null) {
-                                    final snap = await db.collection('users').where('helloId', isEqualTo: numId).limit(1).get();
-                                    if (snap.docs.isNotEmpty) targetDoc = snap.docs.first;
+                                    final snap = await db
+                                        .collection('users')
+                                        .where('helloId', isEqualTo: numId)
+                                        .limit(1)
+                                        .get();
+                                    if (snap.docs.isNotEmpty)
+                                      targetDoc = snap.docs.first;
                                   } else {
-                                    final doc = await db.collection('users').doc(q).get();
+                                    final doc = await db
+                                        .collection('users')
+                                        .doc(q)
+                                        .get();
                                     if (doc.exists) {
                                       targetDoc = doc;
                                     } else {
-                                      final snap = await db.collection('users').where('username', isEqualTo: q).limit(1).get();
-                                      if (snap.docs.isNotEmpty) targetDoc = snap.docs.first;
+                                      final snap = await db
+                                          .collection('users')
+                                          .where('username', isEqualTo: q)
+                                          .limit(1)
+                                          .get();
+                                      if (snap.docs.isNotEmpty)
+                                        targetDoc = snap.docs.first;
                                     }
                                   }
                                   if (targetDoc != null && targetDoc.exists) {
@@ -1274,18 +1561,28 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF6366F1),
                           foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
                         ),
                         child: isSearchingUser
-                            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                            : const Text('Search', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2))
+                            : const Text('Search',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ],
                   ),
                   if (searchErr != null) ...[
                     const Gap(12),
-                    Text(searchErr!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                    Text(searchErr!,
+                        style: const TextStyle(
+                            color: Colors.redAccent, fontSize: 12)),
                   ],
                   if (foundUser != null) ...[
                     const Gap(16),
@@ -1294,29 +1591,42 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       decoration: BoxDecoration(
                         color: const Color(0xFF131A29),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                        border: Border.all(
+                            color:
+                                const Color(0xFF6366F1).withValues(alpha: 0.3)),
                       ),
                       child: Column(
                         children: [
                           Row(
                             children: [
-                              AppAvatar(imageUrl: foundUser!['profilePhotoUrl'] ?? '', radius: 24),
+                              AppAvatar(
+                                  imageUrl: foundUser!['profilePhotoUrl'] ?? '',
+                                  radius: 24),
                               const Gap(12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      foundUser!['displayName'] ?? foundUser!['username'] ?? 'User',
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                      foundUser!['displayName'] ??
+                                          foundUser!['username'] ??
+                                          'User',
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 14),
                                     ),
                                     Text(
                                       'Hello ID: ${foundUser!['helloId'] ?? 'N/A'}',
-                                      style: const TextStyle(color: Colors.white54, fontSize: 11),
+                                      style: const TextStyle(
+                                          color: Colors.white54, fontSize: 11),
                                     ),
                                     Text(
                                       'Current Role: ${(foundUser!['role'] ?? 'user').toString().toUpperCase()}',
-                                      style: const TextStyle(color: Color(0xFF818CF8), fontSize: 11, fontWeight: FontWeight.bold),
+                                      style: const TextStyle(
+                                          color: Color(0xFF818CF8),
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold),
                                     ),
                                   ],
                                 ),
@@ -1332,16 +1642,22 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                                 _appointAdmin(
                                   currentUser,
                                   foundUser!['uid'],
-                                  foundUser!['displayName'] ?? foundUser!['username'] ?? 'User',
+                                  foundUser!['displayName'] ??
+                                      foundUser!['username'] ??
+                                      'User',
                                 );
                               },
                               icon: const Icon(Icons.shield_rounded, size: 16),
-                              label: const Text('Appoint as Branch Admin', style: TextStyle(fontWeight: FontWeight.bold)),
+                              label: const Text('Appoint as Branch Admin',
+                                  style:
+                                      TextStyle(fontWeight: FontWeight.bold)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF10B981),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
                               ),
                             ),
                           ),
@@ -1376,13 +1692,15 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.shield_rounded, color: Color(0xFF818CF8), size: 18),
+            const Icon(Icons.shield_rounded,
+                color: Color(0xFF818CF8), size: 18),
             const Gap(6),
             Text(
               isSuperPortal ? 'SUPER ADMIN PORTAL' : 'ADMIN PORTAL',
@@ -1408,11 +1726,14 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           child: CircularProgressIndicator(color: Color(0xFF6366F1)),
         ),
         error: (err, _) => Center(
-          child: Text('Error: $err', style: const TextStyle(color: Colors.redAccent)),
+          child: Text('Error: $err',
+              style: const TextStyle(color: Colors.redAccent)),
         ),
         data: (user) {
           if (user == null) {
-            return const Center(child: Text("Not authenticated", style: TextStyle(color: Colors.white70)));
+            return const Center(
+                child: Text("Not authenticated",
+                    style: TextStyle(color: Colors.white70)));
           }
 
           if (!user.isAdmin) {
@@ -1422,17 +1743,22 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.lock_rounded, size: 64, color: Color(0xFFEF4444)),
+                    const Icon(Icons.lock_rounded,
+                        size: 64, color: Color(0xFFEF4444)),
                     const Gap(16),
                     const Text(
                       "Access Denied",
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold),
                     ),
                     const Gap(8),
                     Text(
                       "This portal requires the Admin role or higher.\nCurrent Role: ${user.role}",
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white60, fontSize: 13),
+                      style:
+                          const TextStyle(color: Colors.white60, fontSize: 13),
                     ),
                   ],
                 ),
@@ -1472,10 +1798,13 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   }
 
   // ── Executive Profile & Authority Card ─────────────────────
-  Widget _buildExecutiveProfileCard(UserModel user, String branchId, bool isApexOwner) {
+  Widget _buildExecutiveProfileCard(
+      UserModel user, String branchId, bool isApexOwner) {
     final badgeLabel = isApexOwner
         ? 'APEX OWNER'
-        : (user.isSuperAdmin || user.tags.contains('SuperAdmin') || user.role == 'superadmin')
+        : (user.isSuperAdmin ||
+                user.tags.contains('SuperAdmin') ||
+                user.role == 'superadmin')
             ? 'SUPER ADMIN'
             : 'ADMIN';
     return Container(
@@ -1488,7 +1817,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.35), width: 1.5),
+        border: Border.all(
+            color: const Color(0xFF6366F1).withValues(alpha: 0.35), width: 1.5),
         boxShadow: const [
           BoxShadow(
             color: Color(0x334338CA),
@@ -1526,12 +1856,19 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                         ),
                         const Gap(6),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               colors: isApexOwner
-                                  ? [const Color(0xFFF59E0B), const Color(0xFFD97706)]
-                                  : [const Color(0xFF6366F1), const Color(0xFF4F46E5)],
+                                  ? [
+                                      const Color(0xFFF59E0B),
+                                      const Color(0xFFD97706)
+                                    ]
+                                  : [
+                                      const Color(0xFF6366F1),
+                                      const Color(0xFF4F46E5)
+                                    ],
                             ),
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -1561,34 +1898,46 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                     Row(
                       children: [
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2.5),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                            color:
+                                const Color(0xFF10B981).withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
-                            border: Border.all(color: const Color(0xFF10B981).withValues(alpha: 0.3)),
+                            border: Border.all(
+                                color: const Color(0xFF10B981)
+                                    .withValues(alpha: 0.3)),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.circle, color: Color(0xFF10B981), size: 7),
+                              Icon(Icons.circle,
+                                  color: Color(0xFF10B981), size: 7),
                               Gap(4),
                               Text(
                                 "Active & Verified",
-                                style: TextStyle(color: Color(0xFF34D399), fontSize: 10, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    color: Color(0xFF34D399),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold),
                               ),
                             ],
                           ),
                         ),
                         const Gap(8),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2.5),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.08),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
                             "Branch: $branchId",
-                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold),
                           ),
                         ),
                       ],
@@ -1604,8 +1953,10 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _buildAuthorityStat('Authority Scope', isApexOwner ? 'Global Platform' : 'Branch Sandboxed'),
-              _buildAuthorityStat('Hierarchy Tier', isApexOwner ? 'Tier 4 (Apex)' : 'Tier 3 (Branch)'),
+              _buildAuthorityStat('Authority Scope',
+                  isApexOwner ? 'Global Platform' : 'Branch Sandboxed'),
+              _buildAuthorityStat('Hierarchy Tier',
+                  isApexOwner ? 'Tier 4 (Apex)' : 'Tier 3 (Branch)'),
               _buildAuthorityStat('Security Level', 'High Security'),
             ],
           ),
@@ -1617,13 +1968,17 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   Widget _buildAuthorityStat(String label, String value) {
     return Column(
       children: [
-        Text(value, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+        Text(value,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold)),
         const Gap(2),
-        Text(label, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+        Text(label,
+            style: const TextStyle(color: Colors.white54, fontSize: 10)),
       ],
     );
   }
-
 
   // ── Operational Metrics Grid ──────────────────────────────
   Widget _buildOperationalMetricsGrid(String branchId, bool isApexOwner) {
@@ -1632,7 +1987,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       children: [
         const Text(
           "OPERATIONAL SCOPE",
-          style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
+          style: TextStyle(
+              color: Colors.white54,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1),
         ),
         const Gap(10),
         Row(
@@ -1707,13 +2066,22 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Icon(icon, color: iconColor, size: 20),
-              Text(value, style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.bold)),
+              Text(value,
+                  style: TextStyle(
+                      color: iconColor,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold)),
             ],
           ),
           const Gap(8),
-          Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+          Text(title,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
           const Gap(2),
-          Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 10)),
+          Text(subtitle,
+              style: const TextStyle(color: Colors.white54, fontSize: 10)),
         ],
       ),
     );
@@ -1726,7 +2094,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       children: [
         const Text(
           "MANAGEMENT MODULES",
-          style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 1),
+          style: TextStyle(
+              color: Colors.white54,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1),
         ),
         const Gap(10),
         Container(
@@ -1744,8 +2116,10 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                   icon: Icons.admin_panel_settings_rounded,
                   iconColor: const Color(0xFF818CF8),
                   title: "Appoint & Manage Branch Admins",
-                  subtitle: "Appoint admins to supervise agencies & manage staff",
-                  onTap: () => _showBranchAdminsManagementSheet(context, user, user.branchId ?? 'branch-prod-1'),
+                  subtitle:
+                      "Appoint admins to supervise agencies & manage staff",
+                  onTap: () => _showBranchAdminsManagementSheet(
+                      context, user, user.branchId ?? 'branch-prod-1'),
                 ),
                 const Divider(color: Colors.white10, height: 1, indent: 56),
               ],
@@ -1753,7 +2127,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 icon: Icons.analytics_rounded,
                 iconColor: const Color(0xFF10B981),
                 title: "Total Agency Recharge Statistics",
-                subtitle: "Combined monthly recharge & 3-month reports across all agencies",
+                subtitle:
+                    "Combined monthly recharge & 3-month reports across all agencies",
                 onTap: () => _showAdminRechargeStatsSheet(context, user),
               ),
               const Divider(color: Colors.white10, height: 1, indent: 56),
@@ -1785,7 +2160,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 icon: Icons.workspace_premium_rounded,
                 iconColor: const Color(0xFFA855F7),
                 title: "SVIP Privileges Hub",
-                subtitle: "60-day privileges, kick/mute protection & claim vault",
+                subtitle:
+                    "60-day privileges, kick/mute protection & claim vault",
                 onTap: () => context.push(AppRoutes.svipPrivileges),
               ),
               const Divider(color: Colors.white10, height: 1, indent: 56),
@@ -1819,9 +2195,13 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         ),
         child: Icon(icon, color: iconColor, size: 20),
       ),
-      title: Text(title, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-      subtitle: Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-      trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+      title: Text(title,
+          style: const TextStyle(
+              color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+      subtitle: Text(subtitle,
+          style: const TextStyle(color: Colors.white54, fontSize: 11)),
+      trailing: const Icon(Icons.arrow_forward_ios_rounded,
+          color: Colors.white30, size: 14),
       onTap: onTap,
     );
   }
@@ -1841,11 +2221,16 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         children: [
           const Row(
             children: [
-              Icon(Icons.person_search_rounded, color: Color(0xFF818CF8), size: 18),
+              Icon(Icons.person_search_rounded,
+                  color: Color(0xFF818CF8), size: 18),
               Gap(8),
               Text(
                 "USER & STAFF INSPECTOR",
-                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5),
               ),
             ],
           ),
@@ -1858,11 +2243,13 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                   decoration: InputDecoration(
                     hintText: "Enter Hello ID, UID or Username",
-                    hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                    hintStyle:
+                        const TextStyle(color: Colors.white38, fontSize: 12),
                     filled: true,
                     fillColor: const Color(0xFF0F1422),
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 12),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                       borderSide: const BorderSide(color: Colors.white12),
@@ -1877,17 +2264,27 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
               ),
               const Gap(8),
               ElevatedButton(
-                onPressed: _isSearching ? null : () => _searchUser(_searchController.text),
+                onPressed: _isSearching
+                    ? null
+                    : () => _searchUser(_searchController.text),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF6366F1),
                   foregroundColor: Colors.white,
                   minimumSize: const Size(64, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 child: _isSearching
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                    : const Text("Search", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                    : const Text("Search",
+                        style: TextStyle(
+                            fontSize: 12, fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -1910,7 +2307,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           borderRadius: BorderRadius.circular(10),
           border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
         ),
-        child: const Text("No user found with the given query.", style: TextStyle(color: Colors.redAccent, fontSize: 12)),
+        child: const Text("No user found with the given query.",
+            style: TextStyle(color: Colors.redAccent, fontSize: 12)),
       );
     }
     if (data.containsKey('_error')) {
@@ -1920,7 +2318,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           color: Colors.red.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Text("Error: ${data['_error']}", style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+        child: Text("Error: ${data['_error']}",
+            style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
       );
     }
 
@@ -1935,7 +2334,8 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
       decoration: BoxDecoration(
         color: const Color(0xFF0F1422),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+        border:
+            Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1943,7 +2343,11 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
           Row(
             children: [
               Expanded(
-                child: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                child: Text(name,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14)),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1951,14 +2355,20 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                   color: const Color(0xFF6366F1).withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Text(role.toString().toUpperCase(), style: const TextStyle(color: Color(0xFF818CF8), fontSize: 9, fontWeight: FontWeight.bold)),
+                child: Text(role.toString().toUpperCase(),
+                    style: const TextStyle(
+                        color: Color(0xFF818CF8),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
           const Gap(6),
-          Text("Hello ID: $helloId | Branch: $branch", style: const TextStyle(color: Colors.white70, fontSize: 11)),
+          Text("Hello ID: $helloId | Branch: $branch",
+              style: const TextStyle(color: Colors.white70, fontSize: 11)),
           const Gap(2),
-          Text("Tags: $tags", style: const TextStyle(color: Colors.white54, fontSize: 11)),
+          Text("Tags: $tags",
+              style: const TextStyle(color: Colors.white54, fontSize: 11)),
           if ((data['uid'] as String?)?.isNotEmpty == true) ...[
             const Gap(12),
             const Divider(color: Colors.white12, height: 1),
@@ -1969,16 +2379,29 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                 children: [
                   const Row(
                     children: [
-                      Icon(Icons.check_circle_rounded, color: Color(0xFF10B981), size: 16),
+                      Icon(Icons.check_circle_rounded,
+                          color: Color(0xFF10B981), size: 16),
                       Gap(6),
-                      Text('Active Branch Admin', style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.bold)),
+                      Text('Active Branch Admin',
+                          style: TextStyle(
+                              color: Color(0xFF10B981),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold)),
                     ],
                   ),
                   TextButton.icon(
-                    onPressed: () => _revokeAdmin(currentUser, data['uid'] as String, name),
-                    icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.redAccent, size: 14),
-                    label: const Text('Revoke Admin', style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold)),
-                    style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4)),
+                    onPressed: () =>
+                        _revokeAdmin(currentUser, data['uid'] as String, name),
+                    icon: const Icon(Icons.remove_circle_outline_rounded,
+                        color: Colors.redAccent, size: 14),
+                    label: const Text('Revoke Admin',
+                        style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold)),
+                    style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4)),
                   ),
                 ],
               ),
@@ -1986,14 +2409,18 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton.icon(
-                  onPressed: () => _appointAdmin(currentUser, data['uid'] as String, name),
+                  onPressed: () =>
+                      _appointAdmin(currentUser, data['uid'] as String, name),
                   icon: const Icon(Icons.shield_rounded, size: 15),
-                  label: const Text('Appoint as Branch Admin', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                  label: const Text('Appoint as Branch Admin',
+                      style:
+                          TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF6366F1),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
               ),
@@ -2007,14 +2434,36 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   // ── Permissions Matrix ────────────────────────────────────
   Widget _buildPermissionsMatrix(bool isApexOwner) {
     final permissions = [
-      {'name': 'Branch Sandboxing', 'desc': 'Strict data isolation per branch', 'enabled': true},
-      {'name': 'Admin Creation & Oversight', 'desc': 'Manage branch middle managers', 'enabled': true},
-      {'name': 'Agency Supervision', 'desc': 'Onboard and monitor operational agencies', 'enabled': true},
-      {'name': 'Host Talent Monitoring', 'desc': 'Live performance and target tracking', 'enabled': true},
-      {'name': 'Payout & Withdrawal Review', 'desc': 'Approve salaries per Owner rules', 'enabled': true},
+      {
+        'name': 'Branch Sandboxing',
+        'desc': 'Strict data isolation per branch',
+        'enabled': true
+      },
+      {
+        'name': 'Admin Creation & Oversight',
+        'desc': 'Manage branch middle managers',
+        'enabled': true
+      },
+      {
+        'name': 'Agency Supervision',
+        'desc': 'Onboard and monitor operational agencies',
+        'enabled': true
+      },
+      {
+        'name': 'Host Talent Monitoring',
+        'desc': 'Live performance and target tracking',
+        'enabled': true
+      },
+      {
+        'name': 'Payout & Withdrawal Review',
+        'desc': 'Approve salaries per Owner rules',
+        'enabled': true
+      },
       {
         'name': 'Company Financial Policies',
-        'desc': isApexOwner ? 'Full Authority (Apex Owner)' : 'Locked to Platform Owner',
+        'desc': isApexOwner
+            ? 'Full Authority (Apex Owner)'
+            : 'Locked to Platform Owner',
         'enabled': isApexOwner,
       },
     ];
@@ -2032,11 +2481,16 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
         children: [
           const Row(
             children: [
-              Icon(Icons.verified_user_rounded, color: Color(0xFF10B981), size: 18),
+              Icon(Icons.verified_user_rounded,
+                  color: Color(0xFF10B981), size: 18),
               Gap(8),
               Text(
                 "HB-PMS PERMISSIONS VERIFICATION",
-                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5),
               ),
             ],
           ),
@@ -2059,11 +2513,15 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
                       children: [
                         Text(
                           p['name'] as String,
-                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold),
                         ),
                         Text(
                           p['desc'] as String,
-                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 10),
                         ),
                       ],
                     ),
@@ -2086,24 +2544,25 @@ class _SuperAdminPortalScreenState extends ConsumerState<SuperAdminPortalScreen>
   }
 }
 
-  void _showAdminRechargeStatsSheet(BuildContext context, UserModel user) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF0F172A),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => _AdminRechargeStatsSheet(adminUid: user.uid),
-    );
-  }
+void _showAdminRechargeStatsSheet(BuildContext context, UserModel user) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: const Color(0xFF0F172A),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (ctx) => _AdminRechargeStatsSheet(adminUid: user.uid),
+  );
+}
 
 class _AdminRechargeStatsSheet extends StatefulWidget {
   final String adminUid;
   const _AdminRechargeStatsSheet({required this.adminUid});
 
   @override
-  State<_AdminRechargeStatsSheet> createState() => _AdminRechargeStatsSheetState();
+  State<_AdminRechargeStatsSheet> createState() =>
+      _AdminRechargeStatsSheetState();
 }
 
 class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
@@ -2120,7 +2579,8 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
   Future<void> _fetchStats([String? month]) async {
     setState(() => _loading = true);
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('getAdminRechargeStats');
+      final callable =
+          FirebaseFunctions.instance.httpsCallable('getAdminRechargeStats');
       final res = await callable.call({
         'adminId': widget.adminUid,
         if (month != null && month.isNotEmpty) 'yearMonth': month,
@@ -2142,18 +2602,23 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
   Widget build(BuildContext context) {
     final history = (_statsData?['monthlyHistory'] as List<dynamic>?) ?? [];
     final agencies = (_statsData?['agencyBreakdown'] as List<dynamic>?) ?? [];
-    final combinedTotal = (_statsData?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
+    final combinedTotal =
+        (_statsData?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
+      constraints:
+          BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Center(
             child: Container(
-              width: 36, height: 4,
-              decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2)),
             ),
           ),
           const Gap(16),
@@ -2163,9 +2628,14 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
               const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Total Agency Recharge", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+                  Text("Total Agency Recharge",
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold)),
                   Gap(2),
-                  Text("Monthly statistics across all supervised agencies", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                  Text("Monthly statistics across all supervised agencies",
+                      style: TextStyle(color: Colors.white54, fontSize: 11)),
                 ],
               ),
               IconButton(
@@ -2186,7 +2656,11 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(ym, style: TextStyle(color: isSel ? Colors.black : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+                      label: Text(ym,
+                          style: TextStyle(
+                              color: isSel ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12)),
                       selected: isSel,
                       selectedColor: const Color(0xFF10B981),
                       backgroundColor: const Color(0xFF1E293B),
@@ -2199,63 +2673,107 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
             const Gap(14),
           ],
           if (_loading) ...[
-            const Expanded(child: Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))),
+            const Expanded(
+                child: Center(
+                    child:
+                        CircularProgressIndicator(color: Color(0xFF10B981)))),
           ] else ...[
             // Combined Total Card
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(colors: [Color(0xFF064E3B), Color(0xFF022C22)]),
+                gradient: const LinearGradient(
+                    colors: [Color(0xFF064E3B), Color(0xFF022C22)]),
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: const Color(0xFF059669)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("COMBINED AGENCIES RECHARGE", style: TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.bold)),
+                  const Text("COMBINED AGENCIES RECHARGE",
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold)),
                   const Gap(4),
                   Text(
                     "\$" + combinedTotal.toStringAsFixed(2),
-                    style: const TextStyle(color: Color(0xFF34D399), fontSize: 26, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
+                    style: const TextStyle(
+                        color: Color(0xFF34D399),
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        fontFamily: 'monospace'),
                   ),
                   const Gap(4),
-                  Text("Month: " + _selectedMonth + " (Starts fresh from zero on 1st of month)", style: const TextStyle(color: Colors.white54, fontSize: 10.5)),
+                  Text(
+                      "Month: " +
+                          _selectedMonth +
+                          " (Starts fresh from zero on 1st of month)",
+                      style: const TextStyle(
+                          color: Colors.white54, fontSize: 10.5)),
                 ],
               ),
             ),
             const Gap(16),
-            const Text("Agencies Breakdown", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
+            const Text("Agencies Breakdown",
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold)),
             const Gap(8),
             Expanded(
               child: agencies.isEmpty
-                  ? const Center(child: Text("No agencies found.", style: TextStyle(color: Colors.white54)))
+                  ? const Center(
+                      child: Text("No agencies found.",
+                          style: TextStyle(color: Colors.white54)))
                   : ListView.separated(
                       itemCount: agencies.length,
                       separatorBuilder: (_, __) => const Gap(8),
                       itemBuilder: (ctx, i) {
                         final a = agencies[i] as Map;
                         final name = a['name']?.toString() ?? 'Agency';
-                        final rUSD = (a['rechargeUSD'] as num?)?.toDouble() ?? 0.0;
+                        final rUSD =
+                            (a['rechargeUSD'] as num?)?.toDouble() ?? 0.0;
                         final hCount = (a['hostCount'] as num?)?.toInt() ?? 0;
                         final status = a['status']?.toString() ?? 'active';
                         return Container(
                           padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: const Color(0xFF1E293B), borderRadius: BorderRadius.circular(12)),
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              borderRadius: BorderRadius.circular(12)),
                           child: Row(
                             children: [
-                              const CircleAvatar(backgroundColor: Color(0xFF0F172A), child: Icon(Icons.business_rounded, color: Color(0xFF10B981), size: 18)),
+                              const CircleAvatar(
+                                  backgroundColor: Color(0xFF0F172A),
+                                  child: Icon(Icons.business_rounded,
+                                      color: Color(0xFF10B981), size: 18)),
                               const Gap(12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                                    Text(hCount.toString() + " hosts • " + status, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                    Text(name,
+                                        style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13)),
+                                    Text(
+                                        hCount.toString() +
+                                            " hosts • " +
+                                            status,
+                                        style: const TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 11)),
                                   ],
                                 ),
                               ),
-                              Text("\$" + rUSD.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold, fontSize: 14, fontFamily: 'monospace')),
+                              Text("\$" + rUSD.toStringAsFixed(2),
+                                  style: const TextStyle(
+                                      color: Color(0xFF34D399),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                      fontFamily: 'monospace')),
                             ],
                           ),
                         );

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="meat1_grad" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#C26A3A" />
+      <stop offset="50%" stop-color="#8C3518" />
+      <stop offset="85%" stop-color="#541B08" />
+      <stop offset="100%" stop-color="#2D0A00" />
+    </radialGradient>
+    <radialGradient id="pepper_grad" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#73E64C" />
+      <stop offset="45%" stop-color="#34A813" />
+      <stop offset="85%" stop-color="#1B6306" />
+      <stop offset="100%" stop-color="#0E3802" />
+    </radialGradient>
+    <radialGradient id="tomato_chunk_grad" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FF6B6B" />
+      <stop offset="50%" stop-color="#D91E1E" />
+      <stop offset="85%" stop-color="#8A0808" />
+      <stop offset="100%" stop-color="#4A0202" />
+    </radialGradient>
+    <linearGradient id="skewer_stick" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#EED5AE" />
+      <stop offset="50%" stop-color="#D4AA6A" />
+      <stop offset="100%" stop-color="#9C6B28" />
+    </linearGradient>
+    <filter id="skewer_shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="64" cy="114" rx="48" ry="10" fill="#000000" opacity="0.25" filter="url(#skewer_shadow)"/>
+
+  <!-- Wooden Skewer Stick -->
+  <line x1="16" y1="112" x2="114" y2="16" stroke="url(#skewer_stick)" stroke-width="5" stroke-linecap="round" filter="url(#skewer_shadow)"/>
+  <polygon points="112,18 120,10 114,14" fill="#EED5AE"/>
+
+  <!-- Meat Cube 1 (Bottom) -->
+  <g transform="translate(30, 80) rotate(-45)">
+    <rect x="-14" y="-14" width="28" height="28" rx="8" fill="url(#meat1_grad)" filter="url(#skewer_shadow)"/>
+    <!-- Charred grill marks -->
+    <line x1="-10" y1="-4" x2="10" y2="-4" stroke="#2D0A00" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-8" y1="4" x2="8" y2="4" stroke="#2D0A00" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Specular highlight -->
+    <path d="M -10,-10 Q 0,-14 8,-10" stroke="#FF9D73" stroke-width="2" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Green Bell Pepper Chunk -->
+  <g transform="translate(48, 62) rotate(-35)">
+    <rect x="-12" y="-12" width="24" height="24" rx="6" fill="url(#pepper_grad)" filter="url(#skewer_shadow)"/>
+    <path d="M -8,-9 Q 0,-12 6,-9" stroke="#B8FFA3" stroke-width="2.2" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Tomato / Onion Slice -->
+  <g transform="translate(68, 44) rotate(-50)">
+    <rect x="-13" y="-13" width="26" height="26" rx="7" fill="url(#tomato_chunk_grad)" filter="url(#skewer_shadow)"/>
+    <!-- Highlights -->
+    <circle cx="-4" cy="-4" r="3.5" fill="#FFA3A3" opacity="0.8"/>
+    <line x1="-6" y1="5" x2="6" y2="5" stroke="#4A0202" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <!-- Meat Cube 2 (Top) -->
+  <g transform="translate(88, 26) rotate(-40)">
+    <rect x="-15" y="-15" width="30" height="30" rx="9" fill="url(#meat1_grad)" filter="url(#skewer_shadow)"/>
+    <line x1="-10" y1="-5" x2="10" y2="-5" stroke="#2D0A00" stroke-width="2.5" stroke-linecap="round"/>
+    <line x1="-8" y1="5" x2="8" y2="5" stroke="#2D0A00" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M -11,-11 Q 0,-15 9,-11" stroke="#FF9D73" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+  </g>
+
+  <!-- Juicy Glaze Sparkles -->
+  <circle cx="34" cy="74" r="2.5" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="72" cy="38" r="2" fill="#FFFFFF" opacity="0.8"/>
+  <circle cx="92" cy="20" r="3" fill="#FFFFFF" opacity="0.9"/>
+</svg>\n

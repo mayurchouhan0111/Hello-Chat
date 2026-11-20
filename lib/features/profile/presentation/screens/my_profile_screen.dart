@@ -29,7 +29,32 @@ class MyProfileScreen extends ConsumerWidget {
       backgroundColor: Colors.white,
       body: profileAsync.when(
         loading: () => _buildMyProfileShimmerLoading(),
-        error: (err, stack) => Center(child: Text("Error: $err")),
+        error: (err, stack) => Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.cloud_off_rounded, size: 44, color: Colors.grey),
+              const Gap(12),
+              const Text(
+                "Could not load your profile",
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.black87),
+              ),
+              const Gap(4),
+              const Text(
+                "Please check your connection and try again.",
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+              const Gap(16),
+              TextButton.icon(
+                onPressed: () {
+                  ref.invalidate(currentUserProfileProvider);
+                },
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text("Retry"),
+              ),
+            ],
+          ),
+        ),
         data: (userData) {
           if (userData == null) return const Center(child: Text("Not logged in"));
           

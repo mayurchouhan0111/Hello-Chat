@@ -728,8 +728,9 @@ this.verificationStatus = 'unverified',
     if (prettyId.isNotEmpty && prettyId.toLowerCase() != 'none') {
       return prettyId;
     }
-    return helloId != null 
-      ? helloId.toString().padLeft(10, '0') 
-      : "Pending...";
+    if (helloId != null && helloId! > 0) {
+      return helloId.toString();
+    }
+    return uid.isNotEmpty ? (uid.length > 8 ? uid.substring(0, 8) : uid) : "User";
   }
 }

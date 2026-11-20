@@ -364,7 +364,8 @@ void main() {
       expect(find.text("ROUND WINNER"), findsOneWidget);
 
       // Verify Winner Name
-      expect(find.text('Alex Pro'), findsOneWidget);
+        // The winner appears in both the podium and the live winner banner.
+        expect(find.text('Alex Pro'), findsNWidgets(2));
 
       // Verify Rank 1 badge
       expect(find.text('#1'), findsOneWidget);

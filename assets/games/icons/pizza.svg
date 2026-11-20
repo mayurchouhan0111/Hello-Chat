@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="pizza_crust" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FFD699" />
+      <stop offset="45%" stop-color="#E6994D" />
+      <stop offset="80%" stop-color="#B86614" />
+      <stop offset="100%" stop-color="#6E3803" />
+    </radialGradient>
+    <radialGradient id="pizza_cheese" cx="45%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FFF566" />
+      <stop offset="50%" stop-color="#FFC400" />
+      <stop offset="85%" stop-color="#FF9100" />
+      <stop offset="100%" stop-color="#CC5200" />
+    </radialGradient>
+    <radialGradient id="pepperoni_grad" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FF4D4D" />
+      <stop offset="55%" stop-color="#C41C1C" />
+      <stop offset="85%" stop-color="#730808" />
+      <stop offset="100%" stop-color="#3D0000" />
+    </radialGradient>
+    <linearGradient id="pizza_gold_base" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF275" />
+      <stop offset="40%" stop-color="#FFD700" />
+      <stop offset="85%" stop-color="#D49A00" />
+      <stop offset="100%" stop-color="#805500" />
+    </linearGradient>
+    <filter id="pizza_shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="64" cy="116" rx="48" ry="8" fill="#000000" opacity="0.25" filter="url(#pizza_shadow)"/>
+
+  <!-- Golden Pedestal Base (matching Reference Image 1 "Pizza >") -->
+  <ellipse cx="64" cy="112" rx="38" ry="9" fill="url(#pizza_gold_base)" filter="url(#pizza_shadow)"/>
+  <path d="M 26,112 L 28,106 C 28,106 44,103 64,103 C 84,103 100,106 100,106 L 102,112 Z" fill="#996E00"/>
+  <ellipse cx="64" cy="106" rx="36" ry="8" fill="url(#pizza_gold_base)"/>
+  <ellipse cx="64" cy="105" rx="34" ry="6" fill="#FFF275" opacity="0.6"/>
+
+  <!-- Whole 3D Pizza (Angled perspective view) -->
+  <!-- Golden-brown Puffed Crust Outer Rim -->
+  <ellipse cx="64" cy="62" rx="48" ry="32" fill="url(#pizza_crust)" filter="url(#pizza_shadow)"/>
+
+  <!-- 3D Crust Rim Depth -->
+  <path d="M 16,62 C 16,78 38,94 64,94 C 90,94 112,78 112,62 C 112,70 90,88 64,88 C 38,88 16,70 16,62 Z" fill="#6E3803"/>
+
+  <!-- Melted Gooey Yellow/Orange Cheese Layer -->
+  <ellipse cx="64" cy="61" rx="42" ry="26" fill="url(#pizza_cheese)"/>
+  <!-- Cheese texture swirls -->
+  <path d="M 36,54 Q 48,46 64,52 Q 80,58 92,50" stroke="#FFF9A8" stroke-width="2.5" stroke-linecap="round" fill="none" opacity="0.8"/>
+
+  <!-- Delicious Pepperoni Slices -->
+  <!-- Slice 1 (Left) -->
+  <ellipse cx="44" cy="56" rx="8" ry="6" fill="url(#pepperoni_grad)"/>
+  <circle cx="42" cy="54" r="1.8" fill="#FFA3A3" opacity="0.8"/>
+  <circle cx="46" cy="57" r="1" fill="#3D0000"/>
+
+  <!-- Slice 2 (Center) -->
+  <ellipse cx="64" cy="64" rx="9" ry="6.5" fill="url(#pepperoni_grad)"/>
+  <circle cx="62" cy="62" r="2" fill="#FFA3A3" opacity="0.8"/>
+  <circle cx="66" cy="65" r="1" fill="#3D0000"/>
+
+  <!-- Slice 3 (Right) -->
+  <ellipse cx="84" cy="56" rx="8" ry="6" fill="url(#pepperoni_grad)"/>
+  <circle cx="82" cy="54" r="1.8" fill="#FFA3A3" opacity="0.8"/>
+
+  <!-- Slice 4 (Top) -->
+  <ellipse cx="64" cy="46" rx="7.5" ry="5" fill="url(#pepperoni_grad)"/>
+  <circle cx="63" cy="45" r="1.5" fill="#FFA3A3" opacity="0.8"/>
+
+  <!-- Slice 5 (Bottom) -->
+  <ellipse cx="52" cy="72" rx="7" ry="5" fill="url(#pepperoni_grad)"/>
+  <ellipse cx="76" cy="72" rx="7" ry="5" fill="url(#pepperoni_grad)"/>
+
+  <!-- Green Herb Specks (Oregano/Basil) -->
+  <circle cx="54" cy="50" r="1.2" fill="#2E8B0C"/>
+  <circle cx="74" cy="58" r="1.2" fill="#2E8B0C"/>
+  <circle cx="60" cy="74" r="1.2" fill="#2E8B0C"/>
+  <circle cx="40" cy="66" r="1.2" fill="#2E8B0C"/>
+  <circle cx="86" cy="68" r="1.2" fill="#2E8B0C"/>
+
+  <!-- Specular cheese shine -->
+  <ellipse cx="50" cy="52" rx="4" ry="2" fill="#FFFFFF" opacity="0.8" transform="rotate(-15 50 52)"/>
+  <ellipse cx="78" cy="62" rx="4" ry="2" fill="#FFFFFF" opacity="0.7" transform="rotate(10 78 62)"/>
+</svg>\n

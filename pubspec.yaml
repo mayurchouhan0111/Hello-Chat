@@ -1,7 +1,7 @@
 name: hello_chat
 description: Hello Chat - Real-time Voice Room & Social Entertainment Platform
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.0+5
 
 environment:
   sdk: '>=3.2.0 <4.0.0'
@@ -26,7 +26,6 @@ dependencies:
   firebase_messaging: ^14.7.19      # Push notifications (FCM)
   firebase_database: ^10.4.9        # Realtime DB for live chat
   cloud_functions: ^4.6.0           # Call Cloud Functions
-  firebase_app_check: ^0.2.1+17     # Resolve UNAUTHENTICATED errors
 
   # ── Auth Providers ──────────────────────────────────────
   google_sign_in: ^6.2.1            # Google OAuth
@@ -93,8 +92,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  # integration_test:
-  #   sdk: flutter
+  integration_test:
+    sdk: flutter
   flutter_lints: ^4.0.0
 
   # Code generation
@@ -176,3 +175,5 @@ flutter:
     - assets/SVIP Kit/svip 5/
     - assets/SVIP Kit/SVIP 6/
     - assets/games/
+    - assets/games/icons/
+    - assets/newassets/

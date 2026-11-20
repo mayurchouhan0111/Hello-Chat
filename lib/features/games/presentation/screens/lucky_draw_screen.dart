@@ -15,6 +15,7 @@ import '../../../../core/utils/app_persistent_cache.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/services/network_connectivity_service.dart';
+import '../widgets/game_top_winner_banner.dart';
 import 'dart:async';
 
 class LuckyDrawScreen extends ConsumerStatefulWidget {
@@ -33,7 +34,7 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   bool _isOffline = false;
   StreamSubscription<bool>? _connectivitySub;
   double _prizePool = 1250450;
-  
+
   // For sphere animation
   late AnimationController _sphereController;
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -43,7 +44,8 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
   void initState() {
     super.initState();
     _isOffline = !NetworkConnectivityService().isOnline;
-    _connectivitySub = NetworkConnectivityService().onConnectivityChanged.listen((isOnline) {
+    _connectivitySub =
+        NetworkConnectivityService().onConnectivityChanged.listen((isOnline) {
       if (mounted) setState(() => _isOffline = !isOnline);
     });
     _sphereController = AnimationController(
@@ -70,8 +72,11 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
 
     if (_isOffline || !NetworkConnectivityService().isOnline) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-            content: Text("Cannot play while offline. Please check your internet connection."),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
+            content: Text(
+                "Cannot play while offline. Please check your internet connection."),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -79,10 +84,12 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       return;
     }
 
-    final balance = ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
+    final balance =
+        ref.read(currentUserProfileProvider).value?.diamondBalance ?? 0;
     final cost = _selectedTickets * 100;
     if (balance < cost) {
-      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Insufficient Diamonds")),
+      ScaffoldMessenger.of(context).showSnackBar(
+        TopSnackBar(context: context, content: Text("Insufficient Diamonds")),
       );
       return;
     }
@@ -96,8 +103,10 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     try {
       // Simulate real draw delay for drama
       await Future.delayed(const Duration(seconds: 3));
-      
-      await ref.read(gameActionProvider.notifier).playLuckyDraw(_selectedTickets * 100);
+
+      await ref
+          .read(gameActionProvider.notifier)
+          .playLuckyDraw(_selectedTickets * 100);
       final result = ref.read(gameActionProvider).value;
 
       if (result == null) throw Exception("No result from server");
@@ -105,9 +114,11 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       if (mounted) {
         // Play result sound
         if (result.multiplier > 0) {
-          _playSound("https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav"); // Win/Jackpot
+          _playSound(
+              "https://assets.mixkit.co/active_storage/sfx/2020/2020-84.wav"); // Win/Jackpot
         } else {
-          _playSound("https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav"); // Loss/Consolation
+          _playSound(
+              "https://assets.mixkit.co/active_storage/sfx/2573/2573-84.wav"); // Loss/Consolation
         }
 
         _showResult(result);
@@ -118,21 +129,30 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       if (mounted) {
         setState(() => _isDrawing = false);
         _audioPlayer.stop(); // Stop audio if error occurs
-        
+
         String errorMessage = "An error occurred. Please try again.";
         final errorStr = e.toString();
-        if (errorStr.contains('failed-precondition') || errorStr.contains('Betting phase closed')) {
-          errorMessage = "Betting phase closed. Please wait for the next round.";
+        if (errorStr.contains('failed-precondition') ||
+            errorStr.contains('Betting phase closed')) {
+          errorMessage =
+              "Betting phase closed. Please wait for the next round.";
         } else {
           errorMessage = "Error: ${errorStr.split('\n').first}";
         }
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(errorMessage)));
+        ScaffoldMessenger.of(context).showSnackBar(
+            TopSnackBar(context: context, content: Text(errorMessage)));
       }
     }
   }
 
   void _showResult(dynamic result) {
     bool dialogOpen = true;
+    final profile = ref.read(currentUserProfileProvider).value;
+    final winnerName = profile?.displayName.trim().isNotEmpty == true
+        ? profile!.displayName
+        : (profile?.username.trim().isNotEmpty == true
+            ? profile!.username
+            : 'You');
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
@@ -147,39 +167,56 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (isWin)
-                  const Icon(Icons.emoji_events, color: Color(0xFFFFD700), size: 120)
-                      .animate()
-                      .scale(duration: 600.ms, curve: Curves.elasticOut)
-                      .shimmer(delay: 600.ms)
+                  SizedBox(
+                    width: 330,
+                    child: GameTopWinnerBanner(
+                      label: 'LUCKY DRAW JACKPOT',
+                      name: winnerName,
+                      avatarUrl: profile?.profilePhotoUrl ?? '',
+                      amount: (result.prize as num?)?.toInt() ?? 0,
+                      gameIconAsset: 'assets/images/game_lucky_draw_art.jpg',
+                    ),
+                  ).animate().scale(duration: 600.ms, curve: Curves.elasticOut)
                 else
-                  const Icon(Icons.sentiment_very_dissatisfied, color: Colors.white24, size: 100)
+                  const Icon(Icons.sentiment_very_dissatisfied,
+                          color: Colors.white24, size: 100)
                       .animate()
                       .shake(),
                 const Gap(24),
                 Text(
                   isWin ? "JACKPOT HIT!" : "NEXT TIME...",
                   style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 32, 
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 2
-                  ),
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2),
                 ),
                 const Gap(8),
                 Text(
-                  isWin ? "You won ${result.prize} Diamonds" : "Every ticket is a new chance.",
-                  style: const TextStyle(color: Color(0xFFFFD700), fontSize: 18, fontWeight: FontWeight.bold),
+                  isWin
+                      ? "You won ${result.prize} Diamonds"
+                      : "Every ticket is a new chance.",
+                  style: const TextStyle(
+                      color: Color(0xFFFFD700),
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold),
                 ),
                 const Gap(40),
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 18),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 50, vertical: 18),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF00B8D4)]),
+                      gradient: const LinearGradient(
+                          colors: [Color(0xFF00E5FF), Color(0xFF00B8D4)]),
                       borderRadius: BorderRadius.circular(30),
                     ),
-                    child: const Text("CONTINUE", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                    child: const Text("CONTINUE",
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 1.5)),
                   ),
                 ),
               ],
@@ -205,7 +242,8 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     final balance = userAsync.value?.diamondBalance ?? 0;
     final luckyDrawSettingsAsync = ref.watch(luckyDrawSettingsProvider);
     final livePrizePool = luckyDrawSettingsAsync.when(
-      data: (settings) => (settings['currentPrizePool'] as num?)?.toDouble() ?? 1250450.0,
+      data: (settings) =>
+          (settings['currentPrizePool'] as num?)?.toDouble() ?? 1250450.0,
       loading: () => 1250450.0,
       error: (_, __) => 1250450.0,
     );
@@ -234,13 +272,17 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
 
             return Positioned(
               left: random.nextDouble() * MediaQuery.of(context).size.width,
-              top: random.nextDouble() * MediaQuery.of(context).size.height * 0.6,
+              top: random.nextDouble() *
+                  MediaQuery.of(context).size.height *
+                  0.6,
               child: RepaintBoundary(
                 child: AnimatedBuilder(
                   animation: _sphereController,
                   child: sphereChild,
                   builder: (context, cachedChild) {
-                    final offset = math.sin(_sphereController.value * 2 * math.pi + index) * 20;
+                    final offset = math.sin(
+                            _sphereController.value * 2 * math.pi + index) *
+                        20;
                     return Transform.translate(
                       offset: Offset(0, offset),
                       child: cachedChild,
@@ -272,21 +314,35 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                       ),
                       const Column(
                         children: [
-                          Text("SQUARE", style: TextStyle(color: Color(0xFF00E5FF), fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 5)),
-                          Text("LUCKY DRAW", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w900)),
+                          Text("SQUARE",
+                              style: TextStyle(
+                                  color: Color(0xFF00E5FF),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 5)),
+                          Text("LUCKY DRAW",
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w900)),
                         ],
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Row(
                           children: [
-                            const Icon(Icons.diamond, color: Color(0xFFFFD700), size: 14),
+                            const Icon(Icons.diamond,
+                                color: Color(0xFFFFD700), size: 14),
                             const Gap(6),
-                            Text("$balance", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            Text("$balance",
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -309,23 +365,36 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                     ),
                     child: Column(
                       children: [
-                        const Text("TOTAL PRIZE POOL", style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 3)),
+                        const Text("TOTAL PRIZE POOL",
+                            style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 3)),
                         const Gap(10),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.diamond, color: Color(0xFFFFD700), size: 30),
+                            const Icon(Icons.diamond,
+                                color: Color(0xFFFFD700), size: 30),
                             const Gap(12),
                             Text(
-                              livePrizePool.toStringAsFixed(0).replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]},'),
+                              livePrizePool.toStringAsFixed(0).replaceAllMapped(
+                                  RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+                                  (Match m) => '${m[1]},'),
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 44,
-                                fontWeight: FontWeight.w900,
-                                fontFamily: 'monospace',
-                                shadows: [Shadow(color: Color(0xFF00E5FF), blurRadius: 20)]
-                              ),
-                            ).animate(onPlay: (c) => c.repeat()).shimmer(duration: 3.seconds),
+                                  color: Colors.white,
+                                  fontSize: 44,
+                                  fontWeight: FontWeight.w900,
+                                  fontFamily: 'monospace',
+                                  shadows: [
+                                    Shadow(
+                                        color: Color(0xFF00E5FF),
+                                        blurRadius: 20)
+                                  ]),
+                            )
+                                .animate(onPlay: (c) => c.repeat())
+                                .shimmer(duration: 3.seconds),
                           ],
                         ),
                       ],
@@ -346,31 +415,44 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                           width: 280,
                           height: 280,
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.2), width: 2),
-                            boxShadow: [
-                              BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.05), blurRadius: 40, spreadRadius: 10)
-                            ]
-                          ),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                  color:
+                                      const Color(0xFF00E5FF).withOpacity(0.2),
+                                  width: 2),
+                              boxShadow: [
+                                BoxShadow(
+                                    color: const Color(0xFF00E5FF)
+                                        .withOpacity(0.05),
+                                    blurRadius: 40,
+                                    spreadRadius: 10)
+                              ]),
                           child: ClipOval(
                             child: BackdropFilter(
                               filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                              child: Container(color: Colors.white.withOpacity(0.02)),
+                              child: Container(
+                                  color: Colors.white.withOpacity(0.02)),
                             ),
                           ),
                         ),
-                        
+
                         // Floating Balls
                         ...List.generate(8, (i) {
                           return _buildFloatingBall(i);
                         }),
-                        
+
                         if (_isDrawing)
-                          const Text("DRAWING...", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900, letterSpacing: 2))
-                            .animate(onPlay: (c) => c.repeat())
-                            .shimmer(duration: 1.seconds)
+                          const Text("DRAWING...",
+                                  style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 2))
+                              .animate(onPlay: (c) => c.repeat())
+                              .shimmer(duration: 1.seconds)
                         else
-                          const Icon(Icons.play_arrow_rounded, color: Colors.white24, size: 80),
+                          const Icon(Icons.play_arrow_rounded,
+                              color: Colors.white24, size: 80),
                       ],
                     ),
                   ),
@@ -380,23 +462,35 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                 Container(
                   padding: const EdgeInsets.all(30),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF111827),
-                    borderRadius: const BorderRadius.only(topLeft: Radius.circular(40), topRight: Radius.circular(40)),
-                    border: Border.all(color: Colors.white10)
-                  ),
+                      color: const Color(0xFF111827),
+                      borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(40),
+                          topRight: Radius.circular(40)),
+                      border: Border.all(color: Colors.white10)),
                   child: Column(
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Text("PURCHASE TICKETS", style: TextStyle(color: Colors.white38, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
-                          Text("1 TICKET = 100", style: const TextStyle(color: Color(0xFFFFD700), fontSize: 10, fontWeight: FontWeight.bold)),
+                          const Text("PURCHASE TICKETS",
+                              style: TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 2)),
+                          Text("1 TICKET = 100",
+                              style: const TextStyle(
+                                  color: Color(0xFFFFD700),
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold)),
                         ],
                       ),
                       const Gap(20),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: _ticketOptions.map((opt) => _buildTicketChip(opt)).toList(),
+                        children: _ticketOptions
+                            .map((opt) => _buildTicketChip(opt))
+                            .toList(),
                       ),
                       const Gap(30),
                       SizedBox(
@@ -407,29 +501,45 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: (_isDrawing || _isOffline)
-                                  ? [Colors.grey.shade800, Colors.grey.shade900]
-                                  : [const Color(0xFF00E5FF), const Color(0xFF00B8D4)]
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                              boxShadow: (_isDrawing || _isOffline) ? [] : [
-                                BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.3), blurRadius: 15)
-                              ]
-                            ),
+                                gradient: LinearGradient(
+                                    colors: (_isDrawing || _isOffline)
+                                        ? [
+                                            Colors.grey.shade800,
+                                            Colors.grey.shade900
+                                          ]
+                                        : [
+                                            const Color(0xFF00E5FF),
+                                            const Color(0xFF00B8D4)
+                                          ]),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: (_isDrawing || _isOffline)
+                                    ? []
+                                    : [
+                                        BoxShadow(
+                                            color: const Color(0xFF00E5FF)
+                                                .withOpacity(0.3),
+                                            blurRadius: 15)
+                                      ]),
                             alignment: Alignment.center,
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 if (_isOffline) ...[
-                                  const Icon(Icons.wifi_off_rounded, color: Colors.white70, size: 20),
+                                  const Icon(Icons.wifi_off_rounded,
+                                      color: Colors.white70, size: 20),
                                   const Gap(8),
                                 ],
                                 Text(
                                   _isOffline
                                       ? "NO INTERNET CONNECTION"
-                                      : (_isDrawing ? "DRAWING IN PROGRESS..." : "CONFIRM DRAW"),
-                                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900, letterSpacing: 1.5),
+                                      : (_isDrawing
+                                          ? "DRAWING IN PROGRESS..."
+                                          : "CONFIRM DRAW"),
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: 1.5),
                                 ),
                               ],
                             ),
@@ -453,50 +563,66 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          gradient: const LinearGradient(colors: [Color(0xFF00E5FF), Color(0xFF00B8D4)]),
-          boxShadow: [BoxShadow(color: const Color(0xFF00E5FF).withOpacity(0.5), blurRadius: 10)]
-        ),
-        child: Text("${random.nextInt(99)}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-      )
-      .animate(onPlay: (c) => c.repeat(reverse: true))
-      .move(
-        begin: Offset(random.nextDouble() * 100 - 50, random.nextDouble() * 100 - 50),
-        end: Offset(random.nextDouble() * 100 - 50, random.nextDouble() * 100 - 50),
-        duration: (2000 + random.nextInt(2000)).ms,
-        curve: Curves.easeInOut
-      ),
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+                colors: [Color(0xFF00E5FF), Color(0xFF00B8D4)]),
+            boxShadow: [
+              BoxShadow(
+                  color: const Color(0xFF00E5FF).withOpacity(0.5),
+                  blurRadius: 10)
+            ]),
+        child: Text("${random.nextInt(99)}",
+            style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 12)),
+      ).animate(onPlay: (c) => c.repeat(reverse: true)).move(
+          begin: Offset(
+              random.nextDouble() * 100 - 50, random.nextDouble() * 100 - 50),
+          end: Offset(
+              random.nextDouble() * 100 - 50, random.nextDouble() * 100 - 50),
+          duration: (2000 + random.nextInt(2000)).ms,
+          curve: Curves.easeInOut),
     );
   }
 
   Widget _buildTicketChip(int count) {
     bool isSelected = _selectedTickets == count;
     return GestureDetector(
-      onTap: (_isDrawing || _isOffline) ? null : () {
-        // HapticFeedback.selectionClick();
-        _playSound("https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
-        setState(() => _selectedTickets = count);
-      },
+      onTap: (_isDrawing || _isOffline)
+          ? null
+          : () {
+              // HapticFeedback.selectionClick();
+              _playSound(
+                  "https://assets.mixkit.co/active_storage/sfx/2568/2568-84.wav");
+              setState(() => _selectedTickets = count);
+            },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
-          color: isSelected 
+          color: isSelected
               ? (_isOffline ? Colors.grey.shade700 : const Color(0xFF00E5FF))
-              : ((_isDrawing || _isOffline) ? Colors.white.withOpacity(0.02) : Colors.white.withOpacity(0.05)),
+              : ((_isDrawing || _isOffline)
+                  ? Colors.white.withOpacity(0.02)
+                  : Colors.white.withOpacity(0.05)),
           borderRadius: BorderRadius.circular(15),
           border: Border.all(
-            color: isSelected 
-                ? Colors.white38 
-                : ((_isDrawing || _isOffline) ? Colors.white.withOpacity(0.02) : Colors.white10),
+            color: isSelected
+                ? Colors.white38
+                : ((_isDrawing || _isOffline)
+                    ? Colors.white.withOpacity(0.02)
+                    : Colors.white10),
           ),
         ),
         child: Text(
           "x$count",
           style: TextStyle(
-            color: isSelected 
-                ? Colors.white 
-                : ((_isDrawing || _isOffline) ? Colors.white24 : Colors.white54),
+            color: isSelected
+                ? Colors.white
+                : ((_isDrawing || _isOffline)
+                    ? Colors.white24
+                    : Colors.white54),
             fontWeight: FontWeight.bold,
             fontSize: 16,
           ),

@@ -40,6 +40,10 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Locally generated client delivery binaries
+*.apk
+/releases/client-testing/*.apk
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile

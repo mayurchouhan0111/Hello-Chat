@@ -48,6 +48,7 @@ export const AgencyManagement = () => {
   // Form states
   const [appointForm, setAppointForm] = useState({
     ownerIdentifier: '',
+    adminIdentifier: '',
     name: '',
     commissionRate: 10, // percentage (e.g. 10%)
     country: '',
@@ -64,6 +65,10 @@ export const AgencyManagement = () => {
   });
 
   const [recruitIdentifier, setRecruitIdentifier] = useState('');
+  const callerRole = String(currentUser?.role || '').toLowerCase();
+  const requiresAdminBinding = callerRole === 'owner' ||
+    callerRole === 'superadmin' ||
+    callerRole === 'super_admin';
 
   useEffect(() => {
     if (isAdmin) {
@@ -123,8 +128,11 @@ export const AgencyManagement = () => {
 
   const handleAppointAgency = async (e) => {
     e.preventDefault();
-    if (!appointForm.ownerIdentifier.trim() || !appointForm.name.trim()) {
-      alert('Please provide Owner Hello ID / UID and Agency Name.');
+    if (!appointForm.ownerIdentifier.trim() || !appointForm.name.trim() ||
+        (requiresAdminBinding && !appointForm.adminIdentifier.trim())) {
+      alert(requiresAdminBinding
+        ? 'Please provide Owner ID, supervising Admin ID, and Agency Name.'
+        : 'Please provide Owner Hello ID / UID and Agency Name.');
       return;
     }
 
@@ -135,6 +143,9 @@ export const AgencyManagement = () => {
       const rateDecimal = parseFloat(appointForm.commissionRate) / 100 || 0.1;
       const res = await createFn({
         ownerIdentifier: appointForm.ownerIdentifier.trim(),
+        ...(appointForm.adminIdentifier.trim()
+          ? { adminId: appointForm.adminIdentifier.trim() }
+          : {}),
         name: appointForm.name.trim(),
         commissionRate: rateDecimal,
         country: appointForm.country.trim(),
@@ -147,6 +158,7 @@ export const AgencyManagement = () => {
         setShowAppointModal(false);
         setAppointForm({
           ownerIdentifier: '',
+          adminIdentifier: '',
           name: '',
           commissionRate: 10,
           country: '',
@@ -209,7 +221,10 @@ export const AgencyManagement = () => {
     try {
       const statusFn = httpsCallable(functions, 'setAgencyStatus');
       const agencyId = target.agencyId || target.id;
-      const res = await statusFn({ agencyId, isActive: newActive });
+      const res = await statusFn({
+        agencyId,
+        status: newActive ? 'active' : 'suspended'
+      });
       if (res.data?.success) {
         if (selectedAgency && (selectedAgency.agencyId === agencyId || selectedAgency.id === agencyId)) {
           setSelectedAgency(prev => ({ ...prev, isActive: newActive, status: res.data.status }));
@@ -219,6 +234,33 @@ export const AgencyManagement = () => {
     } catch (err) {
       console.error('Failed to set agency status:', err);
       alert('Status Change Failed: ' + (err.message || err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRemoveAgency = async (agency) => {
+    const target = agency || selectedAgency;
+    if (!target || actionLoading) return;
+    const reason = window.prompt(
+      `Remove agency "${target.name}" permanently? Its owner will lose the Agency role and all linked hosts will be released.\n\nOptional audit reason:`,
+      ''
+    );
+    if (reason === null) return;
+
+    setActionLoading(true);
+    try {
+      const removeFn = httpsCallable(functions, 'removeAgency');
+      const agencyId = target.agencyId || target.id;
+      const res = await removeFn({ agencyId, reason: reason.trim() });
+      if (res.data?.success) {
+        setSelectedAgency(null);
+        setHosts([]);
+        await fetchAgencies();
+      }
+    } catch (err) {
+      console.error('Failed to remove agency:', err);
+      alert('Remove Agency Failed: ' + (err.message || err));
     } finally {
       setActionLoading(false);
     }
@@ -378,6 +420,13 @@ export const AgencyManagement = () => {
                     }`}
                   >
                     <Power size={16} /> {selectedAgency.isActive !== false ? 'Suspend' : 'Activate'}
+                  </button>
+                  <button
+                    onClick={() => handleRemoveAgency(selectedAgency)}
+                    disabled={actionLoading}
+                    className="flex items-center gap-2 px-4 py-3.5 bg-rose-600/15 hover:bg-rose-600/25 disabled:opacity-50 text-rose-300 border border-rose-500/40 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                  >
+                    <Trash2 size={16} /> Remove
                   </button>
                 </>
               )}
@@ -739,6 +788,22 @@ export const AgencyManagement = () => {
                   />
                   <p className="text-[10px] text-slate-500 mt-1">Accepts numeric Hello ID or standard Firebase Auth UID.</p>
                 </div>
+
+                {requiresAdminBinding && (
+                  <div>
+                    <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
+                      Supervising Admin (Hello ID or UID) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Admin who will supervise this agency"
+                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                      value={appointForm.adminIdentifier}
+                      onChange={(e) => setAppointForm({ ...appointForm, adminIdentifier: e.target.value })}
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">

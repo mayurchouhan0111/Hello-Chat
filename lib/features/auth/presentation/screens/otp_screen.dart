@@ -45,8 +45,22 @@ class _OtpScreenState extends ConsumerState<OtpScreen> {
         smsCode: pin,
       );
       // 🚀 Step 1: Perform the sign-in with a 15-second timeout safety
-      await ref.read(authServiceProvider).signInWithCredential(credential)
+      final cred = await ref.read(authServiceProvider).signInWithCredential(credential)
           .timeout(const Duration(seconds: 15));
+
+      // Guard: plain "Login with OTP" must never silently create a fresh account.
+      // A brand-new identity here means this phone number has no phone account yet.
+      if ((cred.additionalUserInfo?.isNewUser ?? false) &&
+          !widget.isRegistration &&
+          !widget.isPasswordReset) {
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          setState(() => _isLoading = false);
+          AppToast.showError(context,
+              "No existing account found for this number. Please use 'New Register' to create one, or log in with your email and password.");
+        }
+        return;
+      }
       
       // 🚀 Step 2: Clear loading immediately on success
       if (mounted) setState(() => _isLoading = false);

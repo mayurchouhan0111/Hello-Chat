@@ -3,30 +3,31 @@ import 'package:hello_chat/services/room_support_service.dart';
 
 void main() {
   group('Room Support Level & Reward Calculation Parity', () {
-    test('10M Coins achieves Level 1 with 2M Total Reward across default tiers', () {
-      final level = RoomSupportService.calculateLevel(10000000);
+    test('100K Coins achieves Level 1 with current default rewards', () {
+      final level = RoomSupportService.calculateLevel(100000);
       expect(level, equals(1));
 
       final targetLevelCfg = RoomSupportService.defaultLevels.firstWhere(
         (l) => l['level'] == level,
       );
-      expect(targetLevelCfg['coinsTarget'], equals(10000000));
-      expect(targetLevelCfg['totalReward'], equals(2000000));
-      expect(targetLevelCfg['ownerReward'], equals(1000000));
-      expect(targetLevelCfg['partnerReward'], equals(250000));
+      expect(targetLevelCfg['coinsTarget'], equals(100000));
+      expect(targetLevelCfg['totalReward'], equals(18750));
+      expect(targetLevelCfg['ownerReward'], equals(11250));
+      expect(targetLevelCfg['partnerReward'], equals(1875));
     });
 
     test('Coins progression matches exact tier thresholds', () {
       expect(RoomSupportService.calculateLevel(0), equals(0));
-      expect(RoomSupportService.calculateLevel(9999999), equals(0));
-      expect(RoomSupportService.calculateLevel(10000000), equals(1));
-      expect(RoomSupportService.calculateLevel(20000000), equals(2));
-      expect(RoomSupportService.calculateLevel(30000000), equals(3));
-      expect(RoomSupportService.calculateLevel(50000000), equals(4));
-      expect(RoomSupportService.calculateLevel(100000000), equals(5));
-      expect(RoomSupportService.calculateLevel(200000000), equals(6));
-      expect(RoomSupportService.calculateLevel(300000000), equals(7));
-      expect(RoomSupportService.calculateLevel(500000000), equals(7));
+      expect(RoomSupportService.calculateLevel(99999), equals(0));
+      expect(RoomSupportService.calculateLevel(100000), equals(1));
+      expect(RoomSupportService.calculateLevel(300000), equals(2));
+      expect(RoomSupportService.calculateLevel(500000), equals(3));
+      expect(RoomSupportService.calculateLevel(1000000), equals(4));
+      expect(RoomSupportService.calculateLevel(2000000), equals(5));
+      expect(RoomSupportService.calculateLevel(3500000), equals(6));
+      expect(RoomSupportService.calculateLevel(5000000), equals(7));
+      expect(RoomSupportService.calculateLevel(8000000), equals(8));
+      expect(RoomSupportService.calculateLevel(600000000), equals(20));
     });
 
     test('Custom levels from dynamic config calculate accurately', () {

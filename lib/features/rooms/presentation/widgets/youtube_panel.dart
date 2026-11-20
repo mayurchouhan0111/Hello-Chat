@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
+import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
@@ -21,7 +22,8 @@ class YouTubePanel extends ConsumerStatefulWidget {
   ConsumerState<YouTubePanel> createState() => _YouTubePanelState();
 }
 
-class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerProviderStateMixin {
+class _YouTubePanelState extends ConsumerState<YouTubePanel>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   late TabController _categoryController;
   final yt.YoutubeExplode _yt = yt.YoutubeExplode();
@@ -41,7 +43,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _categoryController = TabController(length: _categories.length, vsync: this, initialIndex: 0);
+    _categoryController =
+        TabController(length: _categories.length, vsync: this, initialIndex: 0);
     _categoryController.addListener(() {
       if (!_categoryController.indexIsChanging && mounted) {
         setState(() {});
@@ -113,14 +116,32 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
   }
 
   void _onVideoTap(String videoId) async {
+    final room = ref.read(currentRoomStreamProvider(widget.roomId)).valueOrNull;
+    final uid = ref.read(authStateProvider).valueOrNull?.uid;
+    final canManage = room != null &&
+        uid != null &&
+        (room.isUserOwner(uid) || room.isUserAdmin(uid));
+    if (!canManage) {
+      AppToast.showWarning(
+        context,
+        'Only the Room Owner or a Room Admin can control YouTube.',
+        title: 'Permission required',
+      );
+      return;
+    }
     try {
-      await ref.read(roomServiceProvider).setYoutubeVideo(widget.roomId, videoId);
+      await ref
+          .read(roomServiceProvider)
+          .setYoutubeVideo(widget.roomId, videoId);
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: Row(
               children: [
-                Icon(Icons.play_circle_fill_rounded, color: Colors.white, size: 20),
+                Icon(Icons.play_circle_fill_rounded,
+                    color: Colors.white, size: 20),
                 Gap(8),
                 Text(
                   "Playing video in room...",
@@ -135,7 +156,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Failed to play: $e")),
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(context: context, content: Text("Failed to play: $e")),
         );
       }
     }
@@ -150,11 +172,40 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
+    final roomAsync = ref.watch(currentRoomStreamProvider(widget.roomId));
+    final uid = ref.watch(authStateProvider).valueOrNull?.uid;
+    final room = roomAsync.valueOrNull;
+    final canManage = room != null &&
+        uid != null &&
+        (room.isUserOwner(uid) || room.isUserAdmin(uid));
+    if (roomAsync.isLoading) {
+      return const SizedBox(
+        height: 240,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!canManage) {
+      return Container(
+        height: 240,
+        color: const Color(0xFF0F111E),
+        padding: const EdgeInsets.all(24),
+        child: const Center(
+          child: Text(
+            'Only the Room Owner or a Room Admin can manage YouTube.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ),
+      );
+    }
     return Container(
-      height: widget.isEmbedded ? null : MediaQuery.of(context).size.height * 0.85,
+      height:
+          widget.isEmbedded ? null : MediaQuery.of(context).size.height * 0.85,
       decoration: BoxDecoration(
         color: widget.isEmbedded ? Colors.transparent : const Color(0xFF0F111E),
-        borderRadius: widget.isEmbedded ? null : const BorderRadius.vertical(top: Radius.circular(28)),
+        borderRadius: widget.isEmbedded
+            ? null
+            : const BorderRadius.vertical(top: Radius.circular(28)),
       ),
       child: Column(
         children: [
@@ -170,7 +221,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                       color: const Color(0xFFEF4444).withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.play_circle_filled_rounded, color: Color(0xFFEF4444), size: 22),
+                    child: const Icon(Icons.play_circle_filled_rounded,
+                        color: Color(0xFFEF4444), size: 22),
                   ),
                   const Gap(10),
                   const Text(
@@ -185,7 +237,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                   const Spacer(),
                   IconButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                    icon: const Icon(Icons.close_rounded,
+                        color: Colors.white70, size: 22),
                   ),
                 ],
               ),
@@ -213,21 +266,29 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
               ),
               child: TextField(
                 controller: _searchController,
-                style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w500),
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w500),
                 cursorColor: const Color(0xFFEF4444),
                 decoration: InputDecoration(
                   filled: true,
                   fillColor: const Color(0xFF16192A),
                   hintText: "Search songs, videos or paste link...",
-                  hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 12.5),
-                  prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFFEF4444), size: 20),
+                  hintStyle: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      fontSize: 12.5),
+                  prefixIcon: const Icon(Icons.search_rounded,
+                      color: Color(0xFFEF4444), size: 20),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.cancel_rounded, color: Colors.white54, size: 18),
+                          icon: const Icon(Icons.cancel_rounded,
+                              color: Colors.white54, size: 18),
                           onPressed: () {
                             _searchController.clear();
                             setState(() {});
-                            _fetchCategory(_categories[_categoryController.index]);
+                            _fetchCategory(
+                                _categories[_categoryController.index]);
                           },
                         )
                       : null,
@@ -241,9 +302,11 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(24),
-                    borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.2),
+                    borderSide:
+                        const BorderSide(color: Color(0xFFEF4444), width: 1.2),
                   ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                 ),
                 onChanged: (_) => setState(() {}),
                 onSubmitted: _onSearch,
@@ -283,12 +346,17 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                 final isSelected = _categoryController.index == entry.key;
                 return Tab(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(
-                      color: isSelected ? Colors.transparent : Colors.white.withValues(alpha: 0.05),
+                      color: isSelected
+                          ? Colors.transparent
+                          : Colors.white.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(18),
                       border: Border.all(
-                        color: isSelected ? Colors.transparent : Colors.white.withValues(alpha: 0.08),
+                        color: isSelected
+                            ? Colors.transparent
+                            : Colors.white.withValues(alpha: 0.08),
                         width: 0.8,
                       ),
                     ),
@@ -296,7 +364,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                       entry.value,
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                        fontWeight:
+                            isSelected ? FontWeight.w900 : FontWeight.w600,
                         letterSpacing: 0.3,
                       ),
                     ),
@@ -338,17 +407,22 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                                 color: Colors.white.withValues(alpha: 0.05),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.search_off_rounded, color: Colors.white38, size: 42),
+                              child: const Icon(Icons.search_off_rounded,
+                                  color: Colors.white38, size: 42),
                             ),
                             const Gap(12),
                             const Text(
                               "No videos found",
-                              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold),
                             ),
                             const Gap(4),
                             const Text(
                               "Try another search term or paste a link",
-                              style: TextStyle(color: Colors.white54, fontSize: 12),
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 12),
                             ),
                           ],
                         ),
@@ -420,7 +494,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                         height: 74,
                         color: const Color(0xFF1E2338),
                         child: const Center(
-                          child: Icon(Icons.movie_outlined, color: Colors.white24, size: 24),
+                          child: Icon(Icons.movie_outlined,
+                              color: Colors.white24, size: 24),
                         ),
                       ),
                       errorWidget: (context, url, error) => Container(
@@ -428,7 +503,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                         height: 74,
                         color: const Color(0xFF1E2338),
                         child: const Center(
-                          child: Icon(Icons.play_arrow_rounded, color: Colors.white38, size: 28),
+                          child: Icon(Icons.play_arrow_rounded,
+                              color: Colors.white38, size: 28),
                         ),
                       ),
                     ),
@@ -439,7 +515,8 @@ class _YouTubePanelState extends ConsumerState<YouTubePanel> with SingleTickerPr
                     bottom: 5,
                     right: 5,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1.5),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.8),
                         borderRadius: BorderRadius.circular(5),

@@ -3,18 +3,18 @@ import 'package:flutter/material.dart';
 class LevelUtils {
   /// Returns the color assigned to a specific level (1-100)
   static Color getLevelColor(int level) {
-    if (level <= 9) return const Color(0xFFB0BEC5); // Silver
-    if (level <= 19) return const Color(0xFF4DB6AC); // Teal/Green
-    if (level <= 29) return const Color(0xFFFFD700); // Gold
-    if (level <= 39) return const Color(0xFFFF4081); // Pink
-    if (level <= 49) return const Color(0xFF00E5FF); // Cyan
-    if (level <= 59) return const Color(0xFF4CAF50); // Green
-    if (level <= 69) return const Color(0xFF2196F3); // Blue
-    if (level <= 79) return const Color(0xFF9C27B0); // Purple
-    if (level <= 89) return const Color(0xFFFF9800); // Orange
-    if (level <= 99) return const Color(0xFFF44336); // Red
-    if (level == 100) return const Color(0xFF212121); // Obsidian/Gold
-    return const Color(0xFFF58A4C);
+    if (level <= 9) return const Color(0xFF8EA8C4); // Lv1: Silver / Ice Slate
+    if (level <= 19) return const Color(0xFF2E7D32); // Lv10: Emerald Forest Green
+    if (level <= 29) return const Color(0xFFFFA000); // Lv20: Warm Amber Gold
+    if (level <= 39) return const Color(0xFF8E24AA); // Lv30: Royal Amethyst Purple
+    if (level <= 49) return const Color(0xFF00ACC1); // Lv40: Vivid Diamond Cyan
+    if (level <= 59) return const Color(0xFF4CAF50); // Lv50: Jade Green
+    if (level <= 69) return const Color(0xFF1976D2); // Lv60: Royal Sapphire Blue
+    if (level <= 79) return const Color(0xFFD84315); // Lv70: Bronze Copper
+    if (level <= 89) return const Color(0xFFE53935); // Lv80: Ruby Crimson Red
+    if (level <= 99) return const Color(0xFF212121); // Lv90: Dark Obsidian Black
+    if (level == 100) return const Color(0xFFFFB300); // Lv100: Supreme Celestial Gold
+    return const Color(0xFFFFA000);
   }
 
   /// Returns total XP required to reach a specific level

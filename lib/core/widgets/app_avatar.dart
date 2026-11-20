@@ -18,6 +18,7 @@ class AppAvatar extends ConsumerWidget {
   final double radius;
   final bool showFrame;
   final double frameMultiplier;
+  final bool uniformFrameSize;
   final bool staticFrame;
   final double? maxFps;
   final Size? maxRenderSize;
@@ -34,6 +35,7 @@ class AppAvatar extends ConsumerWidget {
     this.radius = 20.0,
     this.showFrame = true,
     this.frameMultiplier = 1.5, // Increased size
+    this.uniformFrameSize = false,
     this.staticFrame = false,
     this.maxFps,
     this.maxRenderSize,
@@ -43,23 +45,27 @@ class AppAvatar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     String finalFrameUrl = frameUrl ?? '';
     final bool isExplicitNone = finalFrameUrl.toLowerCase() == 'none';
-    
+
     final localVipTier = vipTier;
     int parsedVipLevel = 0;
     if (localVipTier != null && localVipTier != 'none') {
       parsedVipLevel = _getVipLevel(localVipTier);
     }
 
-    final bool hasExplicitFrame = finalFrameUrl.isNotEmpty && finalFrameUrl != 'none';
+    final bool hasExplicitFrame =
+        finalFrameUrl.isNotEmpty && finalFrameUrl != 'none';
 
     if (isExplicitNone) {
       finalFrameUrl = '';
     } else if (hasExplicitFrame) {
       // USER-EXPLICIT FRAME: Highest priority per VIP policy.
       final lowerUrl = finalFrameUrl.toLowerCase();
-      if (lowerUrl.contains('rocket_frame') || lowerUrl.contains('rockeet_svga') || lowerUrl.contains('rocket.svga')) {
+      if (lowerUrl.contains('rocket_frame') ||
+          lowerUrl.contains('rockeet_svga') ||
+          lowerUrl.contains('rocket.svga')) {
         finalFrameUrl = 'assets/Helo chat/Rockeet_SVGA.svga';
-      } else if (lowerUrl.contains('super-admin') || lowerUrl.contains('superadmin')) {
+      } else if (lowerUrl.contains('super-admin') ||
+          lowerUrl.contains('superadmin')) {
         finalFrameUrl = 'assets/Helo chat/Superadmin.svga';
       } else if (lowerUrl.contains('admin') && !lowerUrl.contains('super')) {
         finalFrameUrl = 'assets/images/super/admin.svga';
@@ -69,11 +75,16 @@ class AppAvatar extends ConsumerWidget {
         finalFrameUrl = 'assets/Helo chat/Agency.svga';
       } else if (lowerUrl.contains('official')) {
         finalFrameUrl = 'assets/Helo chat/Official.svga';
-      } else if (lowerUrl.contains('cp_frame_3') || lowerUrl.contains('3.svga')) {
+      } else if (lowerUrl.contains('cp_frame_3') ||
+          lowerUrl.contains('3.svga')) {
         finalFrameUrl = 'assets/Helo chat/3.svga';
-      } else if (lowerUrl.contains('cp_frame_2') || lowerUrl.contains('2.svga')) {
+      } else if (lowerUrl.contains('cp_frame_2') ||
+          lowerUrl.contains('2.svga')) {
         finalFrameUrl = 'assets/Helo chat/2.svga';
-      } else if (lowerUrl.contains('cp_frame_1') || lowerUrl.contains('cp_frame') || lowerUrl.contains('cp.svga') || lowerUrl.contains('1.svga')) {
+      } else if (lowerUrl.contains('cp_frame_1') ||
+          lowerUrl.contains('cp_frame') ||
+          lowerUrl.contains('cp.svga') ||
+          lowerUrl.contains('1.svga')) {
         finalFrameUrl = 'assets/Helo chat/1.svga';
       } else if (lowerUrl.contains('top 1') || lowerUrl.contains('top1')) {
         finalFrameUrl = 'assets/Helo chat/Top 1.svga';
@@ -94,7 +105,9 @@ class AppAvatar extends ConsumerWidget {
             break;
           }
         }
-        if (!matched && lowerFrame.startsWith('http') && lowerFrame.contains('vip')) {
+        if (!matched &&
+            lowerFrame.startsWith('http') &&
+            lowerFrame.contains('vip')) {
           finalFrameUrl = '';
         }
       }
@@ -128,25 +141,32 @@ class AppAvatar extends ConsumerWidget {
 
     // Resolve static frame if requested
     if (staticFrame && finalFrameUrl.toLowerCase().endsWith('.svga')) {
-      finalFrameUrl = SvgaStaticUtil.staticPathForSvga(finalFrameUrl, category: 'frame');
+      finalFrameUrl =
+          SvgaStaticUtil.staticPathForSvga(finalFrameUrl, category: 'frame');
     }
 
     // Now calculate sizes
     double customFrameMultiplier = frameMultiplier;
-    if (tags != null && (tags!.contains('Admin') || tags!.contains('SuperAdmin'))) {
+    if (!uniformFrameSize &&
+        tags != null &&
+        (tags!.contains('Admin') || tags!.contains('SuperAdmin'))) {
       customFrameMultiplier *= 0.85;
     }
 
-    if (finalFrameUrl.toLowerCase().endsWith('.svga')) {
+    if (!uniformFrameSize && finalFrameUrl.toLowerCase().endsWith('.svga')) {
       // SVGA frames don't have as much internal padding as PNGs.
       // Scale proportionally with frameMultiplier so SVGA frames match requested avatar sizes.
-      customFrameMultiplier = (frameMultiplier * 0.85).clamp(1.2, 1.85); 
+      customFrameMultiplier = (frameMultiplier * 0.85).clamp(1.2, 1.85);
     }
 
     final String lowerFrame = finalFrameUrl.toLowerCase();
-    final bool isSvip1Frame = (svipLevel == 1) || lowerFrame.contains('svip 1') || lowerFrame.contains('svip_1') || lowerFrame.contains('svip1');
-    if (isSvip1Frame && lowerFrame.contains('frame')) {
-      customFrameMultiplier *= 0.84; // Reduced frame radius specifically for SVIP 1 frame per user request
+    final bool isSvip1Frame = (svipLevel == 1) ||
+        lowerFrame.contains('svip 1') ||
+        lowerFrame.contains('svip_1') ||
+        lowerFrame.contains('svip1');
+    if (!uniformFrameSize && isSvip1Frame && lowerFrame.contains('frame')) {
+      customFrameMultiplier *=
+          0.84; // Reduced frame radius specifically for SVIP 1 frame per user request
     }
 
     final double avatarSize = radius * 2;
@@ -156,18 +176,23 @@ class AppAvatar extends ConsumerWidget {
     final Color borderColor = (userLevel != null && userLevel! > 1 && !hasFrame)
         ? LevelUtils.getLevelColor(userLevel!)
         : Colors.white;
-    final double borderWidth = (userLevel != null && userLevel! > 1 && !hasFrame) ? 2.0 : 0.5;
-    final List<BoxShadow> boxShadows = (userLevel != null && userLevel! > 1 && !hasFrame)
-        ? [
-            BoxShadow(
-              color: LevelUtils.getLevelColor(userLevel!).withOpacity(0.45),
-              blurRadius: 8,
-              spreadRadius: 1.5,
-            )
-          ]
-        : [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, spreadRadius: 0),
-          ];
+    final double borderWidth =
+        (userLevel != null && userLevel! > 1 && !hasFrame) ? 2.0 : 0.5;
+    final List<BoxShadow> boxShadows =
+        (userLevel != null && userLevel! > 1 && !hasFrame)
+            ? [
+                BoxShadow(
+                  color: LevelUtils.getLevelColor(userLevel!).withOpacity(0.45),
+                  blurRadius: 8,
+                  spreadRadius: 1.5,
+                )
+              ]
+            : [
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 4,
+                    spreadRadius: 0),
+              ];
 
     final double frameOffset = (avatarSize - frameSize) / 2;
 
@@ -192,17 +217,21 @@ class AppAvatar extends ConsumerWidget {
                       ? Image.asset(
                           imageUrl,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
+                          errorBuilder: (_, __, ___) =>
+                              const Icon(Icons.person, color: Colors.grey),
                         )
                       : CachedNetworkImage(
                           imageUrl: imageUrl,
                           fit: BoxFit.cover,
                           memCacheWidth: (radius * 3.5).toInt().clamp(60, 300),
                           memCacheHeight: (radius * 3.5).toInt().clamp(60, 300),
-                          placeholder: (_, __) => Container(color: Colors.grey[100]),
-                          errorWidget: (_, __, ___) => const Icon(Icons.person, color: Colors.grey),
+                          placeholder: (_, __) =>
+                              Container(color: Colors.grey[100]),
+                          errorWidget: (_, __, ___) =>
+                              const Icon(Icons.person, color: Colors.grey),
                         ))
-                  : Icon(Icons.person, color: AppColors.textTertiary, size: radius),
+                  : Icon(Icons.person,
+                      color: AppColors.textTertiary, size: radius),
             ),
           ),
         ),
@@ -217,46 +246,56 @@ class AppAvatar extends ConsumerWidget {
             child: IgnorePointer(
               child: RepaintBoundary(
                 child: Transform.translate(
-                  offset: finalFrameUrl.toLowerCase().endsWith('.svga') 
-                      ? Offset.zero 
+                  offset: finalFrameUrl.toLowerCase().endsWith('.svga')
+                      ? Offset.zero
                       : Offset(0, -radius * 0.15),
                   child: SizedBox(
                     width: frameSize,
                     height: frameSize,
                     child: finalFrameUrl.startsWith('assets/')
-                      ? finalFrameUrl.toLowerCase().endsWith('.svga')
-                          ? SvgaPlayer(
-                              key: ValueKey(finalFrameUrl),
-                              assetPath: finalFrameUrl,
-                              fallbackImagePath: SvgaStaticUtil.staticPathForSvga(finalFrameUrl),
-                              maxFps: maxFps,
-                              maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
-                              pauseWhenInvisible: false,
-                              showShimmer: false,
-                            )
-                          : Image.asset(
-                              finalFrameUrl,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                            )
-                      : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
                         ? finalFrameUrl.toLowerCase().endsWith('.svga')
                             ? SvgaPlayer(
                                 key: ValueKey(finalFrameUrl),
-                                url: finalFrameUrl,
+                                assetPath: finalFrameUrl,
+                                fallbackImagePath:
+                                    SvgaStaticUtil.staticPathForSvga(
+                                        finalFrameUrl),
                                 maxFps: maxFps,
-                                maxRenderSize: maxRenderSize ?? Size(frameSize * 2, frameSize * 2),
+                                maxRenderSize: maxRenderSize ??
+                                    Size(frameSize * 2, frameSize * 2),
                                 pauseWhenInvisible: false,
                                 showShimmer: false,
                               )
-                            : CachedNetworkImage(
-                                imageUrl: finalFrameUrl,
+                            : Image.asset(
+                                finalFrameUrl,
                                 fit: BoxFit.contain,
-                                memCacheWidth: (frameSize * 2.0).toInt().clamp(60, 400),
-                                memCacheHeight: (frameSize * 2.0).toInt().clamp(60, 400),
-                                errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                                errorBuilder: (_, __, ___) =>
+                                    const SizedBox.shrink(),
                               )
-                        : const SizedBox.shrink(),
+                        : (Uri.tryParse(finalFrameUrl)?.hasAbsolutePath == true)
+                            ? finalFrameUrl.toLowerCase().endsWith('.svga')
+                                ? SvgaPlayer(
+                                    key: ValueKey(finalFrameUrl),
+                                    url: finalFrameUrl,
+                                    maxFps: maxFps,
+                                    maxRenderSize: maxRenderSize ??
+                                        Size(frameSize * 2, frameSize * 2),
+                                    pauseWhenInvisible: false,
+                                    showShimmer: false,
+                                  )
+                                : CachedNetworkImage(
+                                    imageUrl: finalFrameUrl,
+                                    fit: BoxFit.contain,
+                                    memCacheWidth: (frameSize * 2.0)
+                                        .toInt()
+                                        .clamp(60, 400),
+                                    memCacheHeight: (frameSize * 2.0)
+                                        .toInt()
+                                        .clamp(60, 400),
+                                    errorWidget: (_, __, ___) =>
+                                        const SizedBox.shrink(),
+                                  )
+                            : const SizedBox.shrink(),
                   ),
                 ),
               ),

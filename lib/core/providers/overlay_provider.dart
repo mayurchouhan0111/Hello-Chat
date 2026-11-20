@@ -46,13 +46,14 @@ class RoomOverlayNotifier extends StateNotifier<RoomOverlayState> {
   }
 
   void endSession(String roomId) {
+    final wasDisplayedRoom = state.roomId == roomId;
     final updated = Set<String>.from(state.activeRoomSessions)..remove(roomId);
     state = state.copyWith(
       activeRoomSessions: updated,
-      clearRoomId: state.roomId == roomId,
-      isMinimized: state.roomId == roomId ? false : state.isMinimized,
+      clearRoomId: wasDisplayedRoom,
+      isMinimized: wasDisplayedRoom ? false : state.isMinimized,
     );
-    if (state.roomId == roomId) {
+    if (wasDisplayedRoom) {
       floatingRoomOverlayManager.removeOverlay();
     }
   }

@@ -63,6 +63,4 @@ dependencies {
     // 🛡️ FIREBASE BoM: Ensures compatible versions of all Firebase libraries
     implementation(platform("com.google.firebase:firebase-bom:33.0.0"))
     
-    // 🛡️ APP CHECK: Native Play Integrity library
-    implementation("com.google.firebase:firebase-appcheck-playintegrity")
 }

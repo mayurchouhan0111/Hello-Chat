@@ -120,11 +120,12 @@ void main() {
   });
 
   group('Module 8 & 9: Emoji Replacement & Stickers', () {
-    test('StickersData contains 4 dedicated professional packs without legacy emoji sets', () {
+    test('StickersData contains the five current packs including Fluent emojis', () {
       const packs = StickersData.activePacks;
-      expect(packs.length, 4);
+      expect(packs.length, 5);
 
       final packIds = packs.map((p) => p.id).toList();
+      expect(packIds, contains('pack_emoji'));
       expect(packIds, contains('pack_audio'));
       expect(packIds, contains('pack_mascot'));
       expect(packIds, contains('pack_cuppy'));

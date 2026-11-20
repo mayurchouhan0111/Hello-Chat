@@ -458,6 +458,130 @@ async function main() {
     assert.equal(withdrawals.docs[0].data().amount, 1000);
   });
 
+  await test('room clear: owner/admin allowed, audience and unauthenticated denied', async () => {
+    await seedUsers({ owner: {}, moderator: {}, audience: {} });
+    const roomRef = db.doc('rooms/clear-acceptance');
+    await roomRef.set({ ownerUid: 'owner', admins: ['moderator'], status: 'active' });
+    await roomRef.collection('messages').doc('history').set({ uid: 'owner', text: 'Preserve history' });
+    const ownerToken = await tokenFor('owner');
+    const adminToken = await tokenFor('moderator');
+    const audienceToken = await tokenFor('audience');
+    await expectFail(call('clearRoomMessages', null, { roomId: roomRef.id }), 'unauthenticated', 'anonymous');
+    await expectFail(call('clearRoomMessages', audienceToken, { roomId: roomRef.id }), 'permission-denied', 'audience');
+    assert.equal((await roomRef.get()).get('messagesClearedAt'), undefined);
+    await call('clearRoomMessages', ownerToken, { roomId: roomRef.id });
+    const first = (await roomRef.get()).get('messagesClearedAt');
+    assert.ok(first?.toMillis() > 0);
+    await call('clearRoomMessages', adminToken, { roomId: roomRef.id });
+    assert.ok((await roomRef.get()).get('messagesClearedAt').toMillis() >= first.toMillis());
+    assert.equal((await roomRef.collection('messages').doc('history').get()).exists, true);
+  });
+
+  await test('admin lifecycle: Super Admin can appoint and remove a branch Admin', async () => {
+    await seedUsers({
+      super_one: {
+        role: 'superadmin',
+        tags: ['SuperAdmin'],
+        branchId: 'branch_acceptance',
+      },
+      candidate_admin: {
+        role: 'host',
+        tags: ['Host'],
+      },
+    });
+    const token = await tokenFor('super_one');
+
+    const appointed = await call('appointAdmin', token, {
+      targetIdentifier: 'candidate_admin',
+    });
+    assert.equal(appointed.success, true);
+    let candidate = await get('users/candidate_admin');
+    assert.equal(candidate.role, 'admin');
+    assert.equal(candidate.branchId, 'branch_acceptance');
+    assert.equal(candidate.superAdminId, 'super_one');
+
+    const removed = await call('removeAdmin', token, {
+      targetUid: 'candidate_admin',
+      reason: 'Acceptance test',
+    });
+    assert.equal(removed.success, true);
+    candidate = await get('users/candidate_admin');
+    assert.equal(candidate.role, 'host');
+    assert.equal(candidate.branchId, null);
+    assert.ok(!candidate.tags.includes('Admin'));
+  });
+
+  await test('agency lifecycle: Admin can appoint, edit, suspend, activate, and remove', async () => {
+    await seedUsers({
+      branch_admin: {
+        role: 'admin',
+        tags: ['Admin'],
+        branchId: 'branch_acceptance',
+        superAdminId: 'super_one',
+      },
+      agency_candidate: {
+        role: 'user',
+        tags: [],
+      },
+      agency_host: {
+        role: 'host',
+        tags: ['Host'],
+        agencyId: null,
+      },
+    });
+    const token = await tokenFor('branch_admin');
+
+    const created = await call('createAgency', token, {
+      ownerIdentifier: 'agency_candidate',
+      name: 'Acceptance Agency',
+      commissionRate: 0.12,
+      logoUrl: 'https://example.com/agency.png',
+      country: 'India',
+    });
+    assert.equal(created.success, true);
+    const agencyId = created.agencyId;
+
+    await call('addHost', token, {
+      agencyId,
+      hostIdentifier: 'agency_host',
+    });
+    await call('updateAgency', token, {
+      agencyId,
+      name: 'Acceptance Agency Updated',
+      commissionRate: 0.18,
+      logoUrl: 'https://example.com/agency-v2.png',
+    });
+    let agency = await get(`agencies/${agencyId}`);
+    assert.equal(agency.name, 'Acceptance Agency Updated');
+    assert.equal(agency.commissionRate, 0.18);
+    assert.equal(agency.logoUrl, 'https://example.com/agency-v2.png');
+
+    const suspended = await call('setAgencyStatus', token, {
+      agencyId,
+      status: 'suspended',
+    });
+    assert.equal(suspended.isActive, false);
+    assert.equal((await get('users/agency_candidate')).isAgencyOwner, false);
+
+    const activated = await call('setAgencyStatus', token, {
+      agencyId,
+      status: 'active',
+    });
+    assert.equal(activated.isActive, true);
+    assert.equal((await get('users/agency_candidate')).isAgencyOwner, true);
+
+    const removed = await call('removeAgency', token, {
+      agencyId,
+      reason: 'Acceptance test',
+    });
+    assert.equal(removed.status, 'removed');
+    agency = await get(`agencies/${agencyId}`);
+    assert.equal(agency.status, 'removed');
+    assert.deepEqual(agency.hostUids, []);
+    assert.equal((await get('users/agency_candidate')).agencyId, null);
+    assert.equal((await get('users/agency_host')).agencyId, null);
+  });
+
   console.log(`\n${passed} passed, ${failures} failed`);
   await admin.app().delete();
   if (failures > 0) process.exit(1);

@@ -4,7 +4,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:flutter/foundation.dart';
 import 'firebase_options.dart';
 import 'core/theme/app_theme.dart';
@@ -161,23 +160,6 @@ void main() async {
   }
   debugPrint('--- [FIREBASE INITIALIZED] ---');
 
-
-  // 🛡️ INITIALIZE APP CHECK
-  // App Check is optional monitoring on backend. In debug/development, do not activate to prevent
-  // native rate-limiting ("Too many attempts") from blocking Cloud Functions calls.
-  if (!kDebugMode) {
-    try {
-      await FirebaseAppCheck.instance.activate(
-        androidProvider: AndroidProvider.playIntegrity,
-        appleProvider: AppleProvider.deviceCheck,
-      );
-      debugPrint('--- [APP CHECK READY] ---');
-    } catch (e) {
-      debugPrint('⚠️ AppCheck initialization warning: $e');
-    }
-  } else {
-    debugPrint('--- [APP CHECK BYPASSED IN DEBUG MODE] ---');
-  }
 
   /*
   // Connect to Local Emulators (Used for development)

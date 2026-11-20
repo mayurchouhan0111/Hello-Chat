@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="bowl_grad" cx="45%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="70%" stop-color="#E8ECEF" />
+      <stop offset="100%" stop-color="#A8B4BD" />
+    </radialGradient>
+    <linearGradient id="salad_gold_base" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFF275" />
+      <stop offset="40%" stop-color="#FFD700" />
+      <stop offset="85%" stop-color="#D49A00" />
+      <stop offset="100%" stop-color="#805500" />
+    </linearGradient>
+    <radialGradient id="salad_greens" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#7CE843" />
+      <stop offset="50%" stop-color="#34A813" />
+      <stop offset="100%" stop-color="#145E03" />
+    </radialGradient>
+    <radialGradient id="cherry_tomato" cx="40%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#FF6B6B" />
+      <stop offset="55%" stop-color="#D91E1E" />
+      <stop offset="100%" stop-color="#590000" />
+    </radialGradient>
+    <filter id="salad_shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="5" stdDeviation="4" flood-color="#000000" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+
+  <!-- Ground Shadow -->
+  <ellipse cx="64" cy="116" rx="48" ry="8" fill="#000000" opacity="0.25" filter="url(#salad_shadow)"/>
+
+  <!-- Golden Pedestal Base (matching Reference Image 1 "Salad >") -->
+  <ellipse cx="64" cy="112" rx="38" ry="9" fill="url(#salad_gold_base)" filter="url(#salad_shadow)"/>
+  <path d="M 26,112 L 28,106 C 28,106 44,103 64,103 C 84,103 100,106 100,106 L 102,112 Z" fill="#996E00"/>
+  <ellipse cx="64" cy="106" rx="36" ry="8" fill="url(#salad_gold_base)"/>
+  <ellipse cx="64" cy="105" rx="34" ry="6" fill="#FFF275" opacity="0.6"/>
+
+  <!-- White Porcelain Salad Bowl -->
+  <path d="M 16,66 C 18,94 36,104 64,104 C 92,104 110,94 112,66 C 112,66 94,62 64,62 C 34,62 16,66 16,66 Z" fill="url(#bowl_grad)" filter="url(#salad_shadow)"/>
+  <!-- Bowl Rim Highlight -->
+  <ellipse cx="64" cy="65" rx="48" ry="12" fill="#FFFFFF" stroke="#D1D8DD" stroke-width="1"/>
+
+  <!-- Fresh Curly Romaine Lettuce & Greens inside bowl -->
+  <path d="M 24,62 C 22,46 38,34 50,42 C 60,32 74,34 82,44 C 94,36 106,48 104,62 Z" fill="url(#salad_greens)"/>
+  <path d="M 32,54 C 36,44 48,46 54,54 C 62,44 76,46 80,56 C 88,48 98,54 96,62 Z" fill="#99F05B"/>
+
+  <!-- Sliced Cucumber Rings -->
+  <g transform="translate(42, 54)">
+    <circle cx="0" cy="0" r="10" fill="#2E8B0C" stroke="#145E03" stroke-width="2"/>
+    <circle cx="0" cy="0" r="7.5" fill="#D4FFA8"/>
+    <circle cx="-2" cy="-2" r="1" fill="#2E8B0C"/>
+    <circle cx="2" cy="2" r="1" fill="#2E8B0C"/>
+  </g>
+
+  <!-- Cherry Tomatoes -->
+  <g transform="translate(68, 50)">
+    <circle cx="0" cy="0" r="9" fill="url(#cherry_tomato)"/>
+    <circle cx="-3" cy="-3" r="2.5" fill="#FFFFFF" opacity="0.9"/>
+    <!-- Tiny green stem -->
+    <path d="M -2,-8 L 0,-6 L 3,-7" stroke="#34A813" stroke-width="1.5" fill="none"/>
+  </g>
+  <g transform="translate(86, 60)">
+    <circle cx="0" cy="0" r="7.5" fill="url(#cherry_tomato)"/>
+    <circle cx="-2" cy="-2" r="2" fill="#FFFFFF" opacity="0.85"/>
+  </g>
+
+  <!-- Salad Bowl Highlights -->
+  <path d="M 28,78 C 36,92 52,98 64,98" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.75"/>
+</svg>\n

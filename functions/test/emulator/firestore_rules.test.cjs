@@ -45,6 +45,7 @@ async function seed() {
       await setDoc(doc(c, 'users', uid), data);
     }
     await setDoc(doc(c, 'publicUsers', 'alice'), { displayName: 'Alice' });
+    await setDoc(doc(c, 'lucky_bags', 'bag1'), { roomId: 'room1', status: 'active', remainingDiamonds: 100 });
     await setDoc(doc(c, 'chats', 'c1'), { participants: ['alice', 'bob'] });
     await setDoc(doc(c, 'chats', 'c1', 'messages', 'm1'), { text: 'hi', senderUid: 'alice' });
     await setDoc(doc(c, 'gifts', 'g1'), { name: 'Rose', price: 10 });
@@ -53,6 +54,15 @@ async function seed() {
     await setDoc(doc(c, 'cp_invites', 'ci1'), { senderUid: 'alice', targetUid: 'bob' });
     await setDoc(doc(c, 'withdrawals', 'w1'), { uid: 'alice', amount: 10 });
     await setDoc(doc(c, 'commission_transactions', 't1'), { agencyOwnerUid: 'alice', amount: 1 });
+    await setDoc(doc(c, 'rooms', 'youtube-room'), {
+      ownerUid: 'alice',
+      admins: ['bob'],
+      name: 'YouTube Room',
+      youtubeStatus: 'stopped',
+      youtubeSeekTime: 0,
+      youtubeVolume: 100,
+      isYoutubeActive: false,
+    });
   });
 }
 
@@ -86,6 +96,19 @@ async function main() {
   const owner = () => testEnv.authenticatedContext('owner');
   const anon = () => testEnv.unauthenticatedContext();
 
+  await test('lucky bags: signed-in can read active room pool', async () => {
+    await assertSucceeds(getDocs(query(collection(db(alice()), 'lucky_bags'), where('roomId', '==', 'room1'), where('status', '==', 'active'))));
+  });
+  await test('lucky bags: anonymous read denied', async () => {
+    await assertFails(getDoc(ref(anon(), 'lucky_bags/bag1')));
+  });
+  await test('lucky bags: clients including staff cannot create or change funds', async () => {
+    for (const context of [alice(), admin(), owner()]) {
+      await assertFails(setDoc(ref(context, 'lucky_bags/forged'), { remainingDiamonds: 999 }));
+      await assertFails(updateDoc(ref(context, 'lucky_bags/bag1'), { remainingDiamonds: 999 }));
+    }
+  });
+
   await test('publicUsers: signed-in can read', async () => {
     await assertSucceeds(getDoc(ref(alice(), 'publicUsers/alice')));
     await assertSucceeds(getDoc(ref(bob(), 'publicUsers/alice')));
@@ -98,6 +121,35 @@ async function main() {
   await test('publicUsers: clients cannot write, even admin', async () => {
     await assertFails(setDoc(ref(alice(), 'publicUsers/alice'), { displayName: 'X' }));
     await assertFails(setDoc(ref(admin(), 'publicUsers/alice'), { displayName: 'X' }));
+  });
+
+  await test('room YouTube: owner and designated Room Admin can control playback', async () => {
+    await assertSucceeds(updateDoc(ref(alice(), 'rooms/youtube-room'), {
+      youtubeVideoId: 'owner-video',
+      isYoutubeActive: true,
+      youtubeStatus: 'playing',
+    }));
+    await assertSucceeds(updateDoc(ref(bob(), 'rooms/youtube-room'), {
+      youtubeStatus: 'paused',
+      youtubeSeekTime: 42,
+    }));
+  });
+
+  await test('room YouTube: regular members cannot start or control playback', async () => {
+    const carol = testEnv.authenticatedContext('carol');
+    await assertFails(updateDoc(ref(carol, 'rooms/youtube-room'), {
+      youtubeVideoId: 'forged-video',
+      isYoutubeActive: true,
+      youtubeStatus: 'playing',
+    }));
+    await assertFails(updateDoc(ref(carol, 'rooms/youtube-room'), {
+      youtubeStatus: 'paused',
+      youtubeSeekTime: 99,
+      youtubeVolume: 0,
+    }));
+    await assertSucceeds(updateDoc(ref(carol, 'rooms/youtube-room'), {
+      name: 'Allowed by existing room policy',
+    }));
   });
 
   await test('users: self read allowed', async () => {
@@ -186,10 +238,11 @@ async function main() {
     await assertSucceeds(getDoc(ref(alice(), 'chats/c1/messages/m1')));
   });
 
-  await test('gifts: public read, user/admin write split', async () => {
+  await test('gifts: public read, only superadmin can edit catalog', async () => {
     await assertSucceeds(getDoc(ref(anon(), 'gifts/g1')));
     await assertFails(setDoc(ref(alice(), 'gifts/g2'), { name: 'Hack', price: 0 }));
-    await assertSucceeds(setDoc(ref(admin(), 'gifts/g2'), { name: 'Rose', price: 10 }));
+    await assertFails(setDoc(ref(admin(), 'gifts/g2'), { name: 'Rose', price: 10 }));
+    await assertSucceeds(setDoc(ref(testEnv.authenticatedContext('sa1'), 'gifts/g2'), { name: 'Rose', price: 10 }));
   });
 
   await test('relationships: participant read only, clients cannot write', async () => {

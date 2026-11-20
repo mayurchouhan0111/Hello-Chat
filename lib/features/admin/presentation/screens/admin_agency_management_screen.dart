@@ -171,7 +171,7 @@ class _AdminAgencyManagementScreenState
     );
   }
 
-    Future<void> _showAgencyReports(Map<String, dynamic> agency) async {
+  Future<void> _showAgencyReports(Map<String, dynamic> agency) async {
     final agencyId = agency['agencyId'].toString();
     showModalBottomSheet(
       context: context,
@@ -248,6 +248,89 @@ class _AdminAgencyManagementScreenState
       }),
       isActive ? 'Agency suspended.' : 'Agency activated.',
     );
+  }
+
+  Future<void> _removeAgency() async {
+    final agency = _selectedAgency;
+    if (agency == null || _acting) return;
+    final reasonController = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _card,
+        title: const Text(
+          'Remove Agency Permanently?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${agency['name']} will be removed from the panel. Its owner '
+              'will lose the Agency role and all linked hosts will be released.',
+              style: const TextStyle(color: Colors.white70, height: 1.4),
+            ),
+            const Gap(12),
+            TextField(
+              controller: reasonController,
+              maxLength: 300,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                labelStyle: TextStyle(color: Colors.white54),
+                hintText: 'Reason recorded in the audit log',
+                hintStyle: TextStyle(color: Colors.white30),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, reasonController.text.trim()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Remove Agency'),
+          ),
+        ],
+      ),
+    );
+    reasonController.dispose();
+    if (reason == null || !mounted) return;
+
+    setState(() => _acting = true);
+    try {
+      await _call('removeAgency', {
+        'agencyId': agency['agencyId'],
+        'reason': reason,
+      });
+      if (!mounted) return;
+      _backToList();
+      await _loadAgencies(showSpinner: false);
+      if (mounted) {
+        AppToast.showOverlay(
+          context,
+          message: 'Agency removed and linked hosts released.',
+          type: ToastType.success,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppToast.showOverlay(
+          context,
+          message: _message(e),
+          type: ToastType.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
   }
 
   Future<void> _recruitHost() async {
@@ -583,7 +666,6 @@ class _AdminAgencyManagementScreenState
     final agency = _selectedAgency!;
     final active = agency['isActive'] != false;
 
-
     return RefreshIndicator(
       onRefresh: () => _openAgency(agency['agencyId'].toString()),
       color: _accent,
@@ -606,7 +688,8 @@ class _AdminAgencyManagementScreenState
               children: [
                 Row(
                   children: [
-                    (agency['logoUrl'] != null && agency['logoUrl'].toString().isNotEmpty)
+                    (agency['logoUrl'] != null &&
+                            agency['logoUrl'].toString().isNotEmpty)
                         ? ClipRRect(
                             borderRadius: BorderRadius.circular(16),
                             child: Image.network(
@@ -758,6 +841,19 @@ class _AdminAgencyManagementScreenState
             style: ElevatedButton.styleFrom(
               backgroundColor: _accent,
               foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 14),
+            ),
+          ),
+          const Gap(8),
+          OutlinedButton.icon(
+            onPressed: _acting ? null : _removeAgency,
+            icon: const Icon(Icons.delete_forever_rounded, size: 18),
+            label: const Text('Remove Agency'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.redAccent,
+              side: BorderSide(
+                color: Colors.redAccent.withValues(alpha: 0.55),
+              ),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
           ),
@@ -1030,7 +1126,8 @@ class _AgencyCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  (agency['logoUrl'] != null && agency['logoUrl'].toString().isNotEmpty)
+                  (agency['logoUrl'] != null &&
+                          agency['logoUrl'].toString().isNotEmpty)
                       ? ClipRRect(
                           borderRadius: BorderRadius.circular(12),
                           child: Image.network(
@@ -1042,7 +1139,8 @@ class _AgencyCard extends StatelessWidget {
                               width: 42,
                               height: 42,
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                                color: const Color(0xFFF59E0B)
+                                    .withValues(alpha: 0.12),
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: const Icon(Icons.business_rounded,
@@ -1054,7 +1152,8 @@ class _AgencyCard extends StatelessWidget {
                           width: 42,
                           height: 42,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF59E0B).withValues(alpha: 0.12),
+                            color:
+                                const Color(0xFFF59E0B).withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: const Icon(Icons.business_rounded,
@@ -1094,9 +1193,7 @@ class _AgencyCard extends StatelessWidget {
                       text: '${agency['hostCount'] ?? 0} hosts'),
                   if ((agency['code'] ?? '').toString().isNotEmpty) ...[
                     const Gap(6),
-                    _Pill(
-                        icon: Icons.tag_rounded,
-                        text: '#${agency['code']}'),
+                    _Pill(icon: Icons.tag_rounded, text: '#${agency['code']}'),
                   ],
                   const Spacer(),
                   const Icon(Icons.chevron_right_rounded,
@@ -1230,6 +1327,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
   late final TextEditingController _owner;
   late final TextEditingController _admin;
   late final TextEditingController _name;
+  late final TextEditingController _commission;
   late final TextEditingController _country;
   late final TextEditingController _phone;
   late final TextEditingController _description;
@@ -1245,6 +1343,12 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     _owner = TextEditingController();
     _admin = TextEditingController();
     _name = TextEditingController(text: initial?['name']?.toString() ?? '');
+    final commission = (initial?['commissionRate'] as num?)?.toDouble() ?? 0.1;
+    _commission = TextEditingController(
+      text: (commission * 100).toStringAsFixed(
+        commission * 100 == (commission * 100).roundToDouble() ? 0 : 2,
+      ),
+    );
     _logoUrl = initial?['logoUrl']?.toString();
     _country =
         TextEditingController(text: initial?['country']?.toString() ?? '');
@@ -1259,6 +1363,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     _owner.dispose();
     _admin.dispose();
     _name.dispose();
+    _commission.dispose();
     _country.dispose();
     _phone.dispose();
     _description.dispose();
@@ -1288,6 +1393,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     final name = _name.text.trim();
     final owner = _owner.text.trim();
     final admin = _admin.text.trim();
+    final commissionPercent = double.tryParse(_commission.text.trim());
     if (widget.initial == null && owner.isEmpty) {
       setState(() => _error = 'Owner Hello ID or UID is required.');
       return;
@@ -1296,11 +1402,19 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
       setState(() => _error = 'Agency name is required.');
       return;
     }
+    if (commissionPercent == null ||
+        commissionPercent < 0 ||
+        commissionPercent > 100) {
+      setState(() => _error = 'Commission must be between 0 and 100%.');
+      return;
+    }
     if (widget.initial == null && !widget.isPlainAdmin && admin.isEmpty) {
       setState(() => _error = 'Bind this agency to an Admin UID or Hello ID.');
       return;
     }
-    if (widget.initial == null && _logoFile == null && (_logoUrl == null || _logoUrl!.isEmpty)) {
+    if (widget.initial == null &&
+        _logoFile == null &&
+        (_logoUrl == null || _logoUrl!.isEmpty)) {
       setState(() => _error = 'Agency logo or profile photo is required.');
       return;
     }
@@ -1309,9 +1423,8 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     String? finalLogoUrl = _logoUrl;
     if (_logoFile != null) {
       try {
-        final storageRef = FirebaseStorage.instance
-            .ref()
-            .child('agencies/logos/${DateTime.now().millisecondsSinceEpoch}.jpg');
+        final storageRef = FirebaseStorage.instance.ref().child(
+            'agencies/logos/${DateTime.now().millisecondsSinceEpoch}.jpg');
         await storageRef.putFile(_logoFile!);
         finalLogoUrl = await storageRef.getDownloadURL();
       } catch (e) {
@@ -1325,6 +1438,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
 
     final data = <String, dynamic>{
       'name': name,
+      'commissionRate': commissionPercent / 100,
       if (finalLogoUrl != null) 'logoUrl': finalLogoUrl,
       'country': _country.text.trim(),
       'contactPhone': _phone.text.trim(),
@@ -1360,7 +1474,8 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
                       color: Colors.white.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: _logoFile != null || (_logoUrl != null && _logoUrl!.isNotEmpty)
+                        color: _logoFile != null ||
+                                (_logoUrl != null && _logoUrl!.isNotEmpty)
                             ? const Color(0xFF6366F1)
                             : Colors.white24,
                         width: 1.5,
@@ -1377,7 +1492,8 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
                                 )
                               : null),
                     ),
-                    child: _logoFile == null && (_logoUrl == null || _logoUrl!.isEmpty)
+                    child: _logoFile == null &&
+                            (_logoUrl == null || _logoUrl!.isEmpty)
                         ? const Icon(Icons.add_a_photo_rounded,
                             color: Colors.white54, size: 28)
                         : null,
@@ -1410,6 +1526,14 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
             ],
             _field(_name, 'Agency Name', 'e.g. Starlight Talent Group'),
             const Gap(10),
+            _field(
+              _commission,
+              'Commission (%)',
+              '0 to 100',
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+            ),
+            const Gap(10),
             _field(_country, 'Country', 'e.g. India'),
             const Gap(10),
             _field(_phone, 'Contact Phone', 'e.g. +91 9876543210'),
@@ -1436,7 +1560,8 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
                 )
               : Text(widget.submitLabel),
         ),
@@ -1571,7 +1696,6 @@ class _TextPromptDialogState extends State<_TextPromptDialog> {
   }
 }
 
-
 class _AgencyReportsSheet extends StatefulWidget {
   const _AgencyReportsSheet({
     required this.agencyId,
@@ -1588,7 +1712,8 @@ class _AgencyReportsSheet extends StatefulWidget {
 }
 
 class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
-  int _tab = 0; // 0: Daily, 1: Time, 2: Total, 3: Host-Wise, 4: Beans, 5: Monthly
+  int _tab =
+      0; // 0: Daily, 1: Time, 2: Total, 3: Host-Wise, 4: Beans, 5: Monthly
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _data;
@@ -1738,7 +1863,8 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
     final records = (_data?['recentRecords'] as List? ?? [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
-    final totalUSD = (_data?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
+    final totalUSD =
+        (_data?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
     final history = (_data?['monthlyHistory'] as List? ?? [])
         .map((e) => Map<String, dynamic>.from(e as Map))
         .toList();
@@ -1754,32 +1880,50 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
           Row(
             children: [
               Text('Day: $_selectedDay',
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  style: const TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.bold)),
               const Spacer(),
               TextButton(
-                onPressed: () => setState(() =>
-                    _selectedDay = DateTime.now().toIso8601String().substring(0, 10)),
+                onPressed: () => setState(() => _selectedDay =
+                    DateTime.now().toIso8601String().substring(0, 10)),
                 child: const Text('Today'),
               ),
             ],
           ),
           const Gap(10),
-          _statCard('Total Daily Recharge', '\$${dailyUSD.toStringAsFixed(2)}', const Color(0xFF10B981)),
+          _statCard('Total Daily Recharge', '\$${dailyUSD.toStringAsFixed(2)}',
+              const Color(0xFF10B981)),
           const Gap(8),
-          _statCard('30% Agency Commission', '\$${(dailyUSD * 0.3).toStringAsFixed(2)}', const Color(0xFF6366F1)),
+          _statCard(
+              '30% Agency Commission',
+              '\$${(dailyUSD * 0.3).toStringAsFixed(2)}',
+              const Color(0xFF6366F1)),
           const Gap(16),
           const Text('Transactions Today:',
-              style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w700, fontSize: 12)),
+              style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12)),
           const Gap(8),
           if (dailyRecs.isEmpty)
-            const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No recharges on this day', style: TextStyle(color: Colors.white38))))
+            const Center(
+                child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text('No recharges on this day',
+                        style: TextStyle(color: Colors.white38))))
           else
             for (final r in dailyRecs)
               ListTile(
                 contentPadding: EdgeInsets.zero,
-                title: Text(r['hostName']?.toString() ?? 'Host', style: const TextStyle(color: Colors.white)),
-                subtitle: Text('ID: ${r['hostHelloId']}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                trailing: Text('\$${(r['usdAmount'] as num?)?.toDouble().toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
+                title: Text(r['hostName']?.toString() ?? 'Host',
+                    style: const TextStyle(color: Colors.white)),
+                subtitle: Text('ID: ${r['hostHelloId']}',
+                    style:
+                        const TextStyle(color: Colors.white54, fontSize: 11)),
+                trailing: Text(
+                    '\$${(r['usdAmount'] as num?)?.toDouble().toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
               ),
         ],
       );
@@ -1789,14 +1933,20 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
         padding: const EdgeInsets.all(16),
         children: [
           const Text('Time-Based Recharge Log (Recent 50 transactions)',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           const Gap(12),
           for (final r in records)
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(r['hostName']?.toString() ?? 'Host', style: const TextStyle(color: Colors.white)),
-              subtitle: Text('${r['day']}  •  ID: ${r['hostHelloId']}', style: const TextStyle(color: Colors.white54, fontSize: 11)),
-              trailing: Text('\$${(r['usdAmount'] as num?)?.toDouble().toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
+              title: Text(r['hostName']?.toString() ?? 'Host',
+                  style: const TextStyle(color: Colors.white)),
+              subtitle: Text('${r['day']}  •  ID: ${r['hostHelloId']}',
+                  style: const TextStyle(color: Colors.white54, fontSize: 11)),
+              trailing: Text(
+                  '\$${(r['usdAmount'] as num?)?.toDouble().toStringAsFixed(2)}',
+                  style: const TextStyle(
+                      color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
             ),
         ],
       );
@@ -1805,9 +1955,13 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _statCard('Combined Total Recharge', '\$${totalUSD.toStringAsFixed(2)}', const Color(0xFF10B981)),
+          _statCard('Combined Total Recharge',
+              '\$${totalUSD.toStringAsFixed(2)}', const Color(0xFF10B981)),
           const Gap(8),
-          _statCard('Agency 30% Commission', '\$${(totalUSD * 0.3).toStringAsFixed(2)}', const Color(0xFF6366F1)),
+          _statCard(
+              'Agency 30% Commission',
+              '\$${(totalUSD * 0.3).toStringAsFixed(2)}',
+              const Color(0xFF6366F1)),
           const Gap(8),
           _statCard('Total Hosts', '${hosts.length}', Colors.amber),
         ],
@@ -1831,16 +1985,27 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(h['name']?.toString() ?? 'Host', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                        Text('ID: ${h['helloId']}  •  Mic: ${h['micHours']}h', style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                        Text(h['name']?.toString() ?? 'Host',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
+                        Text('ID: ${h['helloId']}  •  Mic: ${h['micHours']}h',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 11)),
                       ],
                     ),
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('\$${(h['rechargeUSD'] as num?)?.toDouble().toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
-                      Text('${h['beansEarned']} beans', style: const TextStyle(color: Colors.amber, fontSize: 11)),
+                      Text(
+                          '\$${(h['rechargeUSD'] as num?)?.toDouble().toStringAsFixed(2)}',
+                          style: const TextStyle(
+                              color: Color(0xFF10B981),
+                              fontWeight: FontWeight.bold)),
+                      Text('${h['beansEarned']} beans',
+                          style: const TextStyle(
+                              color: Colors.amber, fontSize: 11)),
                     ],
                   ),
                 ],
@@ -1850,13 +2015,17 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
       );
     } else if (_tab == 4) {
       // Total Beans
-      final totalBeans = hosts.fold<int>(0, (sum, h) => sum + ((h['beansEarned'] as num?)?.toInt() ?? 0));
+      final totalBeans = hosts.fold<int>(
+          0, (sum, h) => sum + ((h['beansEarned'] as num?)?.toInt() ?? 0));
       return ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _statCard('Hosts Combined Beans', '$totalBeans', Colors.amber),
           const Gap(8),
-          _statCard('Valuation (\$)', '\$${(totalBeans / 100).toStringAsFixed(2)}', const Color(0xFF10B981)),
+          _statCard(
+              'Valuation (\$)',
+              '\$${(totalBeans / 100).toStringAsFixed(2)}',
+              const Color(0xFF10B981)),
         ],
       );
     } else {
@@ -1874,13 +2043,22 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
               ),
               child: Row(
                 children: [
-                  Text(m['yearMonth']?.toString() ?? '', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text(m['yearMonth']?.toString() ?? '',
+                      style: const TextStyle(
+                          color: Colors.white, fontWeight: FontWeight.bold)),
                   const Spacer(),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('\$${(m['totalRechargeUSD'] as num?)?.toDouble().toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF10B981), fontWeight: FontWeight.bold)),
-                      Text('Commission: \$${((m['totalCommissionUSD'] ?? ((m['totalRechargeUSD'] as num?)?.toDouble() ?? 0) * 0.3) as num).toDouble().toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF6366F1), fontSize: 11)),
+                      Text(
+                          '\$${(m['totalRechargeUSD'] as num?)?.toDouble().toStringAsFixed(2)}',
+                          style: const TextStyle(
+                              color: Color(0xFF10B981),
+                              fontWeight: FontWeight.bold)),
+                      Text(
+                          'Commission: \$${((m['totalCommissionUSD'] ?? ((m['totalRechargeUSD'] as num?)?.toDouble() ?? 0) * 0.3) as num).toDouble().toStringAsFixed(2)}',
+                          style: const TextStyle(
+                              color: Color(0xFF6366F1), fontSize: 11)),
                     ],
                   ),
                 ],
@@ -1902,9 +2080,15 @@ class _AgencyReportsSheetState extends State<_AgencyReportsSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w700)),
+          Text(label,
+              style: const TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700)),
           const Gap(4),
-          Text(value, style: TextStyle(color: color, fontSize: 20, fontWeight: FontWeight.w900)),
+          Text(value,
+              style: TextStyle(
+                  color: color, fontSize: 20, fontWeight: FontWeight.w900)),
         ],
       ),
     );

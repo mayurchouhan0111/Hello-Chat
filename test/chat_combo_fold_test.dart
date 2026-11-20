@@ -8,6 +8,7 @@ import 'package:hello_chat/core/providers/auth_provider.dart';
 import 'package:hello_chat/core/providers/profile_provider.dart';
 import 'package:hello_chat/core/providers/room_provider.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/chat_widget.dart';
+import 'package:hello_chat/services/gift_service.dart';
 
 /// `sendGiftWithCombo` writes one Firestore document per tap, so a 3x combo is
 /// three messages. The chat must still paint ONE row, because the row's "xN" is
@@ -41,6 +42,7 @@ RoomMessage _chat(String id, DateTime at) => RoomMessage(
 
 Widget _wrap(List<RoomMessage> messages) => ProviderScope(
       overrides: [
+        giftsStreamProvider.overrideWith((ref) => Stream.value([])),
         authStateProvider.overrideWith((ref) => Stream<User?>.value(null)),
         cachedUserProfileProvider.overrideWith((ref, uid) => Stream<UserModel?>.value(null)),
         currentRoomStreamProvider.overrideWith((ref, roomId) => Stream.value(null)),

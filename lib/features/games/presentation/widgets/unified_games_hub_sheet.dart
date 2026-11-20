@@ -8,6 +8,7 @@ import 'package:hello_chat/features/rooms/presentation/widgets/mixer_sheet.dart'
 import 'package:hello_chat/features/rooms/presentation/widgets/pk_matching_bottom_sheet.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/room_settings_sheet.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/youtube_panel.dart';
+import 'package:hello_chat/features/rooms/presentation/widgets/lucky_bag_dialog.dart';
 import '../screens/spin_wheel_screen.dart';
 import '../screens/lucky_draw_screen.dart';
 
@@ -26,7 +27,8 @@ class UnifiedGamesHubSheet extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<UnifiedGamesHubSheet> createState() => _UnifiedGamesHubSheetState();
+  ConsumerState<UnifiedGamesHubSheet> createState() =>
+      _UnifiedGamesHubSheetState();
 }
 
 class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
@@ -35,10 +37,15 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
     final room = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
     final myUid = ref.watch(authStateProvider).value?.uid;
     final bool isHost = room != null && myUid != null && room.ownerUid == myUid;
+    final bool isRoomAdmin =
+        room != null && myUid != null && room.isUserAdmin(myUid);
+    final bool canManageYoutube = isHost || isRoomAdmin;
 
-    final participants = ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
+    final participants =
+        ref.watch(roomParticipantsProvider(widget.roomId)).value ?? [];
     final myPart = participants.where((p) => p.uid == myUid).firstOrNull;
-    final bool isOnMic = isHost || (myPart != null && (myPart.seatIndex ?? -1) >= 0);
+    final bool isOnMic =
+        isHost || (myPart != null && (myPart.seatIndex ?? -1) >= 0);
 
     return Container(
       decoration: const BoxDecoration(
@@ -91,12 +98,13 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // 1. Music (YouTube Player) - always visible
-                    _buildToolItem(
-                      title: "Music",
-                      iconWidget: _buildMusicIcon(),
-                      onTap: () => _handleMusic(context),
-                    ),
+                    // YouTube management belongs only to this room's owner/admins.
+                    if (canManageYoutube)
+                      _buildToolItem(
+                        title: "Music",
+                        iconWidget: _buildMusicIcon(),
+                        onTap: () => _handleMusic(context, canManageYoutube),
+                      ),
                     // 2. PK Battle - host only
                     if (isHost)
                       _buildToolItem(
@@ -166,7 +174,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => SpinWheelScreen(roomId: widget.roomId),
+                            builder: (_) =>
+                                SpinWheelScreen(roomId: widget.roomId),
                           ),
                         );
                       },
@@ -187,7 +196,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => LuckyDrawScreen(roomId: widget.roomId),
+                            builder: (_) =>
+                                LuckyDrawScreen(roomId: widget.roomId),
                           ),
                         );
                       },
@@ -256,7 +266,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
             height: 36,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: Colors.white.withValues(alpha: 0.12), width: 1),
+              border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.12), width: 1),
             ),
           ),
           Container(
@@ -428,7 +439,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
               color: Color(0xFFFFD700),
             ),
             child: const Center(
-              child: Icon(Icons.diamond_rounded, size: 10, color: Color(0xFFB71C1C)),
+              child: Icon(Icons.diamond_rounded,
+                  size: 10, color: Color(0xFFB71C1C)),
             ),
           ),
         ],
@@ -495,7 +507,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                         ),
                       ),
                       child: const Center(
-                        child: Icon(Icons.sports_esports_rounded, size: 40, color: Colors.white38),
+                        child: Icon(Icons.sports_esports_rounded,
+                            size: 40, color: Colors.white38),
                       ),
                     ),
                   ),
@@ -525,7 +538,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                       children: [
                         // Top badge
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: Colors.black.withValues(alpha: 0.6),
                             borderRadius: BorderRadius.circular(10),
@@ -575,7 +589,10 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                           padding: const EdgeInsets.symmetric(vertical: 6),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
-                              colors: [accentColor, accentColor.withValues(alpha: 0.85)],
+                              colors: [
+                                accentColor,
+                                accentColor.withValues(alpha: 0.85)
+                              ],
                             ),
                             borderRadius: BorderRadius.circular(14),
                             boxShadow: [
@@ -589,7 +606,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.play_arrow_rounded, size: 14, color: Colors.black),
+                              Icon(Icons.play_arrow_rounded,
+                                  size: 14, color: Colors.black),
                               Gap(4),
                               Text(
                                 "PLAY NOW",
@@ -619,7 +637,15 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
   // INTERACTIVE ACTION HANDLERS
   // ═════════════════════════════════════════════════════════════════════════
 
-  void _handleMusic(BuildContext context) {
+  void _handleMusic(BuildContext context, bool canManageYoutube) {
+    if (!canManageYoutube) {
+      AppToast.showWarning(
+        context,
+        'Only the Room Owner or a Room Admin can control YouTube.',
+        title: 'Permission required',
+      );
+      return;
+    }
     Navigator.pop(context);
     showModalBottomSheet(
       context: context,
@@ -631,7 +657,8 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
 
   void _handlePkBattle(BuildContext context, bool isHost) {
     if (!isHost) {
-      AppToast.showWarning(context, "Only the room host can initiate PK Battle", title: "Host Only");
+      AppToast.showWarning(context, "Only the room host can initiate PK Battle",
+          title: "Host Only");
       return;
     }
     Navigator.pop(context);
@@ -645,7 +672,9 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
 
   void _handleMixer(BuildContext context, bool isHost, bool isOnMic) {
     if (!isHost && !isOnMic) {
-      AppToast.showWarning(context, "Mixer controls are available when seated on a mic", title: "Mic Seat Required");
+      AppToast.showWarning(
+          context, "Mixer controls are available when seated on a mic",
+          title: "Mic Seat Required");
       return;
     }
     Navigator.pop(context);
@@ -659,7 +688,9 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
 
   void _handleSettings(BuildContext context, bool isHost) {
     if (!isHost) {
-      AppToast.showWarning(context, "Only the room host can access room settings", title: "Host Only");
+      AppToast.showWarning(
+          context, "Only the room host can access room settings",
+          title: "Host Only");
       return;
     }
     final room = ref.read(currentRoomStreamProvider(widget.roomId)).value;
@@ -680,6 +711,10 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
 
   void _handleLuckyBag(BuildContext context) {
     Navigator.pop(context);
-    AppToast.showInfo(context, "Lucky Bag is active! Send a Lucky Bag to room members.");
+    showLuckyBagDialog(
+      context: context,
+      ref: ref,
+      roomId: widget.roomId,
+    );
   }
 }

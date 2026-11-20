@@ -17,7 +17,8 @@ class YouTubeRoomPlayer extends ConsumerStatefulWidget {
   ConsumerState<YouTubeRoomPlayer> createState() => _YouTubeRoomPlayerState();
 }
 
-class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with AutomaticKeepAliveClientMixin {
+class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -35,7 +36,14 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
   late final _roomService = ref.read(roomServiceProvider);
   YoutubeError _errorCode = YoutubeError.none;
 
-  bool get _isOwner => (widget.myUid ?? ref.read(authStateProvider).value?.uid) == widget.room.ownerUid;
+  String? get _currentUid =>
+      widget.myUid ?? ref.read(authStateProvider).value?.uid;
+  bool get _canControl {
+    final uid = _currentUid;
+    return uid != null &&
+        (widget.room.isUserOwner(uid) || widget.room.isUserAdmin(uid));
+  }
+
   int _lastSyncedVolume = 100;
   bool _lastSyncedMute = true;
   DateTime? _lastVolumeSyncTime;
@@ -49,18 +57,22 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
   @override
   void didUpdateWidget(YouTubeRoomPlayer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    
+
     final newId = widget.room.youtubeVideoId;
     final oldId = oldWidget.room.youtubeVideoId;
-    
-    final newParsed = newId != null ? (YoutubePlayerController.convertUrlToId(newId) ?? newId) : null;
-    final oldParsed = oldId != null ? (YoutubePlayerController.convertUrlToId(oldId) ?? oldId) : null;
+
+    final newParsed = newId != null
+        ? (YoutubePlayerController.convertUrlToId(newId) ?? newId)
+        : null;
+    final oldParsed = oldId != null
+        ? (YoutubePlayerController.convertUrlToId(oldId) ?? oldId)
+        : null;
 
     if (newParsed != oldParsed) {
       _initPlayer(newId);
     } else if (_controller != null) {
       final room = widget.room;
-      
+
       // Sync Play/Pause
       final isPlaying = _controller!.value.playerState == PlayerState.playing;
       if (room.youtubeStatus == 'playing' && !isPlaying) {
@@ -100,28 +112,30 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
 
   void _onPlayerStateChange(YoutubePlayerValue value) {
     if (!mounted || _isDisposed || _controller == null) return;
-    
+
     final state = value.playerState;
     final isPlaying = state == PlayerState.playing;
     final hasError = value.hasError;
     final errorCode = value.error;
-    
-    debugPrint("📺 [YouTubeRoomPlayer] State Update: state=$state, isPlaying=$isPlaying, hasError=$hasError, errorCode=$errorCode");
-    
+
+    debugPrint(
+        "📺 [YouTubeRoomPlayer] State Update: state=$state, isPlaying=$isPlaying, hasError=$hasError, errorCode=$errorCode");
+
     if (hasError) {
       _errorCode = errorCode;
     } else if (state == PlayerState.playing || state == PlayerState.buffering) {
       _errorCode = YoutubeError.none;
     }
-    
-    if (!_hasAutoplayed && (state == PlayerState.unStarted || state == PlayerState.cued)) {
-      final shouldPlay = widget.room.youtubeStatus == 'playing' || widget.room.youtubeStatus == 'stopped';
+
+    if (!_hasAutoplayed &&
+        (state == PlayerState.unStarted || state == PlayerState.cued)) {
+      final shouldPlay = widget.room.youtubeStatus == 'playing';
       _hasAutoplayed = true;
       if (shouldPlay) {
         Future.microtask(() {
           if (_controller != null && mounted) {
             _controller!.playVideo();
-            
+
             final shouldBeMuted = !widget.room.backgroundMusic;
             _lastSyncedMute = shouldBeMuted;
             if (shouldBeMuted) {
@@ -130,35 +144,40 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
               _controller!.unMute();
               _controller!.setVolume(widget.room.youtubeVolume);
             }
-            
-            if (widget.room.youtubeStatus != 'playing') {
+
+            if (_canControl && widget.room.youtubeStatus != 'playing') {
               _roomService.updateRoomSettings(widget.room.roomId, {
                 'youtubeStatus': 'playing',
                 'youtubeSeekTime': _currentPosition.inSeconds,
               });
             }
             if (widget.room.youtubeSeekTime > 0) {
-              _controller!.seekTo(seconds: widget.room.youtubeSeekTime.toDouble());
+              _controller!
+                  .seekTo(seconds: widget.room.youtubeSeekTime.toDouble());
             }
           }
         });
       }
     }
 
-    final newStatus = state == PlayerState.playing ? 'playing' : (state == PlayerState.paused ? 'paused' : null);
-    if (newStatus != null && newStatus != widget.room.youtubeStatus) {
+    final newStatus = state == PlayerState.playing
+        ? 'playing'
+        : (state == PlayerState.paused ? 'paused' : null);
+    if (_canControl &&
+        newStatus != null &&
+        newStatus != widget.room.youtubeStatus) {
       _roomService.updateRoomSettings(widget.room.roomId, {
         'youtubeStatus': newStatus,
         'youtubeSeekTime': _currentPosition.inSeconds,
       });
     }
-    
+
     setState(() {});
   }
 
   Future<void> _initPlayer(String? videoId) async {
     if (videoId == null || videoId.isEmpty || _isLoading || _isDisposed) return;
-    
+
     final parsedId = YoutubePlayerController.convertUrlToId(videoId) ?? videoId;
     if (_currentVideoId == parsedId && _controller != null) return;
 
@@ -167,7 +186,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
       _currentPosition = Duration.zero;
       _errorCode = YoutubeError.none;
     });
-    
+
     _currentVideoId = parsedId;
 
     try {
@@ -183,32 +202,36 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
       final controller = YoutubePlayerController.fromVideoId(
         videoId: parsedId,
         autoPlay: true,
-        params: const YoutubePlayerParams(
-          showControls: true,
+        params: YoutubePlayerParams(
+          showControls: _canControl,
           showFullscreenButton: false,
           mute: true,
           showVideoAnnotations: false,
           origin: 'https://www.youtube-nocookie.com',
-          userAgent: 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36',
+          userAgent:
+              'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36',
         ),
       );
-      
+
       _controller = controller;
-      
+
       _playerStateSubscription = _controller!.stream.listen((value) {
         _onPlayerStateChange(value);
       });
-      
+
       _videoStateSubscription = _controller!.videoStateStream.listen((state) {
         if (!mounted || _isDisposed) return;
-        
+
         final newPosition = state.position;
-        
-        if (_controller != null) {
-          final diff = (newPosition.inSeconds - _currentPosition.inSeconds).abs();
+
+        if (_controller != null && _canControl) {
+          final diff =
+              (newPosition.inSeconds - _currentPosition.inSeconds).abs();
           if (diff > 3) {
             final now = DateTime.now();
-            if (_lastSeekSyncTime == null || now.difference(_lastSeekSyncTime!) > const Duration(milliseconds: 1000)) {
+            if (_lastSeekSyncTime == null ||
+                now.difference(_lastSeekSyncTime!) >
+                    const Duration(milliseconds: 1000)) {
               _lastSeekSyncTime = now;
               _roomService.updateRoomSettings(widget.room.roomId, {
                 'youtubeSeekTime': newPosition.inSeconds,
@@ -217,9 +240,12 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
           }
 
           _controller!.volume.then((currentVol) {
-            if (currentVol != widget.room.youtubeVolume && currentVol != _lastSyncedVolume) {
+            if (currentVol != widget.room.youtubeVolume &&
+                currentVol != _lastSyncedVolume) {
               final now = DateTime.now();
-              if (_lastVolumeSyncTime == null || now.difference(_lastVolumeSyncTime!) > const Duration(milliseconds: 1000)) {
+              if (_lastVolumeSyncTime == null ||
+                  now.difference(_lastVolumeSyncTime!) >
+                      const Duration(milliseconds: 1000)) {
                 _lastVolumeSyncTime = now;
                 _lastSyncedVolume = currentVol;
                 _roomService.updateRoomSettings(widget.room.roomId, {
@@ -229,7 +255,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
             }
           }).catchError((_) {});
         }
-        
+
         setState(() {
           _currentPosition = newPosition;
         });
@@ -249,6 +275,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
   }
 
   void _stopVideo() {
+    if (!_canControl) return;
     _roomService.stopYoutube(widget.room.roomId);
   }
 
@@ -277,8 +304,14 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
       return const SizedBox.shrink();
     }
 
-    final parsedId = _currentVideoId ?? (widget.room.youtubeVideoId != null ? YoutubePlayerController.convertUrlToId(widget.room.youtubeVideoId!) : null);
-    final thumbnailUrl = parsedId != null ? 'https://img.youtube.com/vi/$parsedId/hqdefault.jpg' : null;
+    final parsedId = _currentVideoId ??
+        (widget.room.youtubeVideoId != null
+            ? YoutubePlayerController.convertUrlToId(
+                widget.room.youtubeVideoId!)
+            : null);
+    final thumbnailUrl = parsedId != null
+        ? 'https://img.youtube.com/vi/$parsedId/hqdefault.jpg'
+        : null;
 
     if (_controller == null || _isLoading) {
       return Container(
@@ -291,7 +324,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
               ? DecorationImage(
                   image: NetworkImage(thumbnailUrl),
                   fit: BoxFit.cover,
-                  colorFilter: ColorFilter.mode(Colors.black.withOpacity(0.4), BlendMode.darken),
+                  colorFilter: ColorFilter.mode(
+                      Colors.black.withOpacity(0.4), BlendMode.darken),
                 )
               : null,
         ),
@@ -301,7 +335,11 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
             children: [
               CircularProgressIndicator(color: Colors.red, strokeWidth: 2),
               Gap(12),
-              Text("Synchronizing Video...", style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+              Text("Synchronizing Video...",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
             ],
           ),
         ),
@@ -327,13 +365,15 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
         child: Stack(
           children: [
             Positioned.fill(
-              child: YoutubePlayer(
-                key: ValueKey(_currentVideoId),
-                controller: _controller!,
-                aspectRatio: 16 / 10,
+              child: IgnorePointer(
+                ignoring: !_canControl,
+                child: YoutubePlayer(
+                  key: ValueKey(_currentVideoId),
+                  controller: _controller!,
+                  aspectRatio: 16 / 10,
+                ),
               ),
             ),
-
             if (_errorCode != YoutubeError.none)
               Positioned.fill(
                 child: Container(
@@ -347,7 +387,9 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                         decoration: BoxDecoration(
                           color: Colors.redAccent.withOpacity(0.1),
                           shape: BoxShape.circle,
-                          border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 1.5),
+                          border: Border.all(
+                              color: Colors.redAccent.withOpacity(0.3),
+                              width: 1.5),
                         ),
                         child: const Icon(
                           Icons.warning_amber_rounded,
@@ -375,17 +417,21 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                           fontSize: 11,
                         ),
                       ),
-                      if (_isOwner) ...[
+                      if (_canControl) ...[
                         const Gap(24),
                         ElevatedButton.icon(
                           onPressed: _stopVideo,
                           icon: const Icon(Icons.refresh_rounded, size: 16),
-                          label: const Text("Select Another Video", style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          label: const Text("Select Another Video",
+                              style: TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold)),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20)),
                             elevation: 0,
                           ),
                         ),
@@ -394,8 +440,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                   ),
                 ),
               ),
-
-            if (_isOwner)
+            if (_canControl)
               Positioned(
                 right: 12,
                 top: 0,
@@ -411,13 +456,17 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.7),
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.15),
+                                width: 1),
                           ),
                           child: SliderTheme(
                             data: SliderThemeData(
                               trackHeight: 2,
-                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                              thumbShape: const RoundSliderThumbShape(
+                                  enabledThumbRadius: 6),
+                              overlayShape: const RoundSliderOverlayShape(
+                                  overlayRadius: 12),
                             ),
                             child: Slider(
                               value: widget.room.youtubeVolume.toDouble(),
@@ -428,7 +477,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                               onChanged: (val) {
                                 if (_controller != null) {
                                   _controller!.setVolume(val.toInt());
-                                  _roomService.updateRoomSettings(widget.room.roomId, {
+                                  _roomService
+                                      .updateRoomSettings(widget.room.roomId, {
                                     'youtubeVolume': val.toInt(),
                                   });
                                 }
@@ -448,13 +498,20 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                           decoration: BoxDecoration(
                             color: Colors.black.withOpacity(0.7),
                             shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.15),
+                                width: 1),
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 3)),
+                              BoxShadow(
+                                  color: Colors.black.withOpacity(0.3),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 3)),
                             ],
                           ),
                           child: Icon(
-                            widget.room.youtubeVolume == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                            widget.room.youtubeVolume == 0
+                                ? Icons.volume_off_rounded
+                                : Icons.volume_up_rounded,
                             color: Colors.white,
                             size: 16,
                           ),
@@ -464,8 +521,7 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                   ),
                 ),
               ),
-
-            if (_isOwner)
+            if (_canControl)
               Positioned(
                 top: 12,
                 left: 12,
@@ -477,7 +533,8 @@ class _YouTubeRoomPlayerState extends ConsumerState<YouTubeRoomPlayer> with Auto
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.7),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white.withOpacity(0.15), width: 1),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.15), width: 1),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withOpacity(0.3),

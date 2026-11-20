@@ -29,7 +29,7 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
     final password = _passwordController.text.trim();
 
     if (identifier.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text("Please enter identifier and password")),
+      ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: const Text("Please enter identifier and password")),
       );
       return;
     }
@@ -44,27 +44,25 @@ class _EmailAuthScreenState extends ConsumerState<EmailAuthScreen> {
     }
 
     try {
-      // Logic: Try to login first, if user not found, try to register
-      try {
-        await ref.read(authServiceProvider).loginWithEmail(finalIdentifier, password);
-      } on FirebaseAuthException catch (e) {
-        if (e.code == 'user-not-found' || e.code == 'invalid-credential' || e.code == 'invalid-email') {
-          // If login fails because user doesn't exist, try to register
-          await ref.read(authServiceProvider).registerWithEmail(finalIdentifier, password);
-        } else {
-          rethrow;
-        }
-      }
+      await ref.read(authServiceProvider).loginWithEmail(finalIdentifier, password);
       
       if (mounted) {
         ref.invalidate(currentUserStreamProvider);
         context.go(AppRoutes.home);
       }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        String msg = "Login failed: ${e.message ?? 'Invalid credentials'}";
+        if (e.code == 'user-not-found' || e.code == 'invalid-credential' || e.code == 'wrong-password') {
+          msg = "Incorrect login details or account not found. Please check your password or use 'Forgot Password'.";
+        }
+        AppToast.showError(context, msg);
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, content: Text(e.toString().replaceAll("Exception:", ""))),
-        );
+        AppToast.showError(context, e.toString().replaceAll("Exception:", ""));
       }
     }
   }

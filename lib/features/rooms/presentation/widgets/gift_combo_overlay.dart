@@ -260,7 +260,6 @@ class GiftComboOverlay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final combos = ref.watch(giftComboControllerProvider(roomId)).active;
-    if (combos.isEmpty) return const SizedBox.shrink();
 
     final screenH = MediaQuery.of(context).size.height;
     final bottomInset = MediaQuery.of(context).padding.bottom;
@@ -268,20 +267,20 @@ class GiftComboOverlay extends ConsumerWidget {
     // Positioned directly above the chat message area, under the seats (matching reference image)
     final bannerBottom = 56 + 8 + bottomInset + chatHeight + 6;
 
+    // Fixed Positioned wrapper ensures the parent Stack never suffers layout thrashing
+    // when a combo appears or vanishes. RepaintBoundary isolates paint passes.
     return Positioned(
       bottom: bannerBottom,
       left: 10,
-      child: IgnorePointer(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final combo in combos.take(1))
-              RepaintBoundary(
-                key: ValueKey('combo_banner_${combo.comboKey}'),
-                child: _ComboBanner(combo: combo),
-              ),
-          ],
+      child: RepaintBoundary(
+        child: IgnorePointer(
+          ignoring: true,
+          child: combos.isEmpty
+              ? const SizedBox.shrink()
+              : _ComboBanner(
+                  key: ValueKey('combo_banner_${combos.first.comboKey}'),
+                  combo: combos.first,
+                ),
         ),
       ),
     );
@@ -291,7 +290,7 @@ class GiftComboOverlay extends ConsumerWidget {
 class _ComboBanner extends ConsumerStatefulWidget {
   final ActiveGiftCombo combo;
 
-  const _ComboBanner({required this.combo});
+  const _ComboBanner({super.key, required this.combo});
 
   @override
   ConsumerState<_ComboBanner> createState() => _ComboBannerState();
@@ -299,23 +298,23 @@ class _ComboBanner extends ConsumerStatefulWidget {
 
 class _ComboBannerState extends ConsumerState<_ComboBanner>
     with SingleTickerProviderStateMixin {
-  /// Drives the count bump. Keyed on the value we last painted, because the
-  /// ActiveGiftCombo instance is mutated in place and so never "changes".
+  /// Drives the count bump. Snappy 200ms duration with smooth quad curves
+  /// eliminates multi-frame elastic oscillation jank.
   late final AnimationController _pulse = AnimationController(
     vsync: this,
-    duration: kComboBannerExit,
+    duration: const Duration(milliseconds: 200),
   );
 
   late int _shown = widget.combo.count;
 
   late final Animation<double> _bump = TweenSequence<double>([
     TweenSequenceItem(
-      tween: Tween(begin: 1.0, end: 1.25).chain(CurveTween(curve: Curves.easeOutCubic)),
-      weight: 40,
+      tween: Tween(begin: 1.0, end: 1.22).chain(CurveTween(curve: Curves.easeOutQuad)),
+      weight: 45,
     ),
     TweenSequenceItem(
-      tween: Tween(begin: 1.25, end: 1.0).chain(CurveTween(curve: Curves.elasticOut)),
-      weight: 60,
+      tween: Tween(begin: 1.22, end: 1.0).chain(CurveTween(curve: Curves.easeInQuad)),
+      weight: 55,
     ),
   ]).animate(_pulse);
 
@@ -323,14 +322,8 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
   void didUpdateWidget(covariant _ComboBanner oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.combo.count != _shown) {
-      setState(() {
-        _shown = widget.combo.count;
-      });
-      if (_pulse.isAnimating) {
-        _pulse.forward(from: 0.15);
-      } else {
-        _pulse.forward(from: 0);
-      }
+      _shown = widget.combo.count;
+      _pulse.forward(from: 0);
     }
   }
 
@@ -374,9 +367,9 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
               ),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x666D28D9),
-                  blurRadius: 6,
-                  offset: Offset(0, 2),
+                  color: Color(0x33000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1),
                 ),
               ],
             ),
@@ -384,7 +377,7 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Sender Avatar in golden circular ring
+                // Sender Avatar in golden circular ring (memory-cached, zero external HTTP fetch)
                 Container(
                   width: 22,
                   height: 22,
@@ -397,21 +390,12 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
                         ? CachedNetworkImage(
                             imageUrl: sender!.profilePhotoUrl,
                             fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const Icon(
-                              Icons.person,
-                              size: 13,
-                              color: Colors.white70,
-                            ),
+                            memCacheWidth: 44,
+                            memCacheHeight: 44,
+                            fadeInDuration: Duration.zero,
+                            errorWidget: (_, __, ___) => _defaultAvatar(senderName),
                           )
-                        : Image.network(
-                            "https://picsum.photos/seed/${combo.senderUid}/100",
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.person,
-                              size: 13,
-                              color: Colors.white70,
-                            ),
-                          ),
+                        : _defaultAvatar(senderName),
                   ),
                 ),
                 const SizedBox(width: 5),
@@ -451,31 +435,48 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
                 // Dedicated Gift Image/Icon
                 _giftIcon(combo.giftIconUrl, combo.giftId),
                 const SizedBox(width: 4),
-                // Multiplier count
-                AnimatedBuilder(
-                  animation: _pulse,
-                  builder: (context, child) =>
-                      Transform.scale(scale: _bump.value, child: child),
-                  child: Text(
-                    'x${widget.combo.count}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontStyle: FontStyle.italic,
-                      fontSize: 13,
-                      shadows: [
-                        Shadow(
-                          color: Color(0xFF4C1D95),
-                          blurRadius: 3,
-                          offset: Offset(1, 1),
-                        ),
-                      ],
+                // Multiplier count: isolated in dedicated RepaintBoundary so scaling does not repaint the banner
+                RepaintBoundary(
+                  child: AnimatedBuilder(
+                    animation: _pulse,
+                    builder: (context, child) =>
+                        Transform.scale(scale: _bump.value, child: child),
+                    child: Text(
+                      'x${widget.combo.count}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontStyle: FontStyle.italic,
+                        fontSize: 13,
+                        shadows: [
+                          Shadow(
+                            color: Color(0xFF4C1D95),
+                            offset: Offset(1, 1),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _defaultAvatar(String name) {
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : 'U';
+    return Container(
+      color: const Color(0xFF6D28D9),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
         ),
       ),
     );
@@ -510,6 +511,9 @@ class _ComboBannerState extends ConsumerState<_ComboBanner>
         imageUrl: resolved,
         width: 20,
         height: 20,
+        memCacheWidth: 40,
+        memCacheHeight: 40,
+        fadeInDuration: Duration.zero,
         fit: BoxFit.contain,
         errorWidget: (_, __, ___) => const Icon(
           Icons.card_giftcard,

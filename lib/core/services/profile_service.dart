@@ -19,11 +19,16 @@ class ProfileService extends BaseFirebaseService {
   /// `publicUsers/{uid}` projection (written by the projectPublicUser trigger in
   /// functions/index.js) and keep the full doc for your own account, where the
   /// private fields (diamond balance, role, branch) are actually readable.
-  Stream<UserModel?> getProfileStream(String uid) {
+  Stream<UserModel?> getProfileStream(String uid, {bool? isSelf}) {
     if (uid.isEmpty) return Stream.value(null);
     // SECURITY: other users read via publicUsers; own account keeps the full doc.
-    final isSelf = FirebaseAuth.instance.currentUser?.uid == uid;
-    return _db.collection(isSelf ? 'users' : 'publicUsers').doc(uid).snapshots().map<UserModel?>((snapshot) {
+    // Callers that KNOW the uid is the signed-in user (e.g. currentUserProfileProvider,
+    // whose uid already comes from authStateProvider) pass isSelf explicitly:
+    // reading FirebaseAuth.instance.currentUser here races the login flow and can
+    // attach the listener to publicUsers mid-auth (transient PERMISSION_DENIED,
+    // cosmetic-only data, missing projection docs).
+    final self = isSelf ?? (FirebaseAuth.instance.currentUser?.uid == uid);
+    return _db.collection(self ? 'users' : 'publicUsers').doc(uid).snapshots().map<UserModel?>((snapshot) {
       if (!snapshot.exists || snapshot.data() == null) return null;
       final data = snapshot.data()!;
       return UserModel.fromMap(Map<String, dynamic>.from(data));

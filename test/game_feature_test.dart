@@ -5,6 +5,7 @@ import 'package:hello_chat/features/games/presentation/widgets/games_panel.dart'
 import 'package:hello_chat/features/games/presentation/screens/spin_wheel_screen.dart';
 import 'package:hello_chat/features/games/presentation/screens/lucky_draw_screen.dart';
 import 'package:hello_chat/core/providers/game_provider.dart';
+import 'package:hello_chat/providers/user_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,8 +13,9 @@ void main() {
   group('Game Feature Unit & Widget Tests', () {
     testWidgets('GamesPanel renders Spin Wheel and Lucky Draw options', (WidgetTester tester) async {
       await tester.pumpWidget(
-        const ProviderScope(
-          child: MaterialApp(
+        ProviderScope(
+          overrides: [currentUserStreamProvider.overrideWith((ref) => Stream.value(null))],
+          child: const MaterialApp(
             home: Scaffold(
               body: GamesPanel(roomId: 'test_room_123'),
             ),
@@ -21,11 +23,11 @@ void main() {
         ),
       );
 
-      expect(find.text('ROOM GAMES'), findsOneWidget);
+      expect(find.text('FEATURED GAMES'), findsOneWidget);
       expect(find.text('Spin Wheel'), findsOneWidget);
       expect(find.text('Lucky Draw'), findsOneWidget);
       expect(find.text('Win up to 10x prizes!'), findsOneWidget);
-      expect(find.text('High stakes, big wins!'), findsOneWidget);
+      expect(find.text('High stakes jackpot!'), findsOneWidget);
     });
 
     test('GameResult model creation and equality', () {
