@@ -1,3 +1,5 @@
+import '../widgets/vap_player.dart';
+
 class RocketVapConfig {
   RocketVapConfig._();
 
@@ -22,4 +24,32 @@ class RocketVapConfig {
     return 'assets/animations/VAP/$letter (1).svga';
   }
 
+  /// Optimize memory and decoder performance by pre-caching only active and next level assets.
+  static final Set<String> _cachedPaths = {};
+
+  static Future<void> preloadActiveAndNext(int currentLevel) async {
+    final activeLevel = currentLevel.clamp(0, 4);
+    final nextLevel = (activeLevel + 1).clamp(0, 4);
+
+    final pathsToKeep = <String>{
+      vapAssetPath(activeLevel, variant: 1),
+      vapAssetPath(activeLevel, variant: 2),
+      vapAssetPath(activeLevel, variant: 3),
+      if (nextLevel != activeLevel) ...[
+        vapAssetPath(nextLevel, variant: 1),
+        vapAssetPath(nextLevel, variant: 2),
+      ],
+    };
+
+    _cachedPaths.removeWhere((p) => !pathsToKeep.contains(p));
+
+    for (final path in pathsToKeep) {
+      if (!_cachedPaths.contains(path)) {
+        try {
+          await VapAnimation.preCache(path);
+          _cachedPaths.add(path);
+        } catch (_) {}
+      }
+    }
+  }
 }

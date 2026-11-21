@@ -55,7 +55,23 @@ class _LuckyDrawScreenState extends ConsumerState<LuckyDrawScreen>
     _precacheSounds();
   }
 
-  void _precacheSounds() {}
+  void _precacheSounds() {
+    _audioPlayer
+        .setAudioContext(const AudioContext(
+          android: AudioContextAndroid(
+            isSpeakerphoneOn: false,
+            stayAwake: false,
+            contentType: AndroidContentType.sonification,
+            usageType: AndroidUsageType.game,
+            audioFocus: AndroidAudioFocus.none,
+          ),
+          iOS: AudioContextIOS(
+            category: AVAudioSessionCategory.ambient,
+            options: [AVAudioSessionOptions.mixWithOthers],
+          ),
+        ))
+        .catchError((e) => debugPrint('LuckyDraw audio context error: $e'));
+  }
 
   @override
   void dispose() {

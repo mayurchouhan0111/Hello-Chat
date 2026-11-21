@@ -12486,6 +12486,182 @@ async function checkIsAgencyOwnerInAgencies(uid) {
     return !snap.empty;
 }
 
+/** Preserve unrelated custom claims while setting admin role claims */
+async function setAdminClaims(uid, branchId) {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = user.customClaims || {};
+        await admin.auth().setCustomUserClaims(uid, {
+            ...existingClaims,
+            role: "admin",
+            admin: true,
+            branchId: branchId
+        });
+    } catch (err) {
+        console.warn(`[setAdminClaims] Warning for ${uid}:`, err.message);
+    }
+}
+
+/** Preserve unrelated custom claims while removing admin role claims, and revoke tokens */
+async function removeAdminClaimsAndRevokeTokens(uid) {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = { ...(user.customClaims || {}) };
+        delete existingClaims.role;
+        delete existingClaims.admin;
+        delete existingClaims.branchId;
+        await admin.auth().setCustomUserClaims(uid, existingClaims);
+        await admin.auth().revokeRefreshTokens(uid);
+    } catch (err) {
+        console.warn(`[removeAdminClaimsAndRevokeTokens] Warning for ${uid}:`, err.message);
+    }
+}
+
+/** Preserve unrelated custom claims while setting agency claims */
+async function setAgencyClaims(uid, agencyId) {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = user.customClaims || {};
+        await admin.auth().setCustomUserClaims(uid, {
+            ...existingClaims,
+            role: "agency",
+            isAgencyOwner: true,
+            agencyId: agencyId
+        });
+    } catch (err) {
+        console.warn(`[setAgencyClaims] Warning for ${uid}:`, err.message);
+    }
+}
+
+/** Preserve unrelated custom claims while removing agency claims, and revoke tokens */
+async function removeAgencyClaimsAndRevokeTokens(uid) {
+    try {
+        const user = await admin.auth().getUser(uid);
+        const existingClaims = { ...(user.customClaims || {}) };
+        delete existingClaims.role;
+        delete existingClaims.agency;
+        delete existingClaims.isAgencyOwner;
+        delete existingClaims.agencyId;
+        await admin.auth().setCustomUserClaims(uid, existingClaims);
+        await admin.auth().revokeRefreshTokens(uid);
+    } catch (err) {
+        console.warn(`[removeAgencyClaimsAndRevokeTokens] Warning for ${uid}:`, err.message);
+    }
+}
+
+/**
+ * 0. validateCandidate - Server-side candidate validation before appointing or replacing Admin / Agency
+ */
+exports.validateCandidate = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const callerUid = context.auth.uid;
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    if (!callerDoc.exists) throw new functions.https.HttpsError("not-found", "Caller not found.");
+    const cData = callerDoc.data();
+    const callerTier = normalizeTier(cData);
+
+    const { targetIdentifier, action = "appoint_admin" } = data || {};
+    if (!targetIdentifier) {
+        throw new functions.https.HttpsError("invalid-argument", "targetIdentifier is required.");
+    }
+
+    let callerBranchId = cData.branchId || null;
+    if (callerTier === "owner" && data.branchId) {
+        callerBranchId = data.branchId;
+    }
+
+    if (action === "appoint_admin" || action === "replace_admin") {
+        if (callerTier !== "superadmin" && callerTier !== "owner") {
+            throw new functions.https.HttpsError("permission-denied", "Only Super Admins or Owners may validate Admin candidates.");
+        }
+    } else if (action === "appoint_agency") {
+        if (!["owner", "superadmin", "admin"].includes(callerTier)) {
+            throw new functions.https.HttpsError("permission-denied", "Staff permissions required.");
+        }
+    }
+
+    const targetDoc = await resolveUserByIdentifier(targetIdentifier);
+    if (!targetDoc) {
+        return {
+            valid: false,
+            code: "not_found",
+            error: `User not found for identifier "${targetIdentifier}".`
+        };
+    }
+
+    const targetUid = targetDoc.id;
+    const tData = targetDoc.data();
+    const targetTier = normalizeTier(tData);
+
+    if (action === "appoint_admin" || action === "replace_admin") {
+        if (targetTier === "owner" || targetTier === "superadmin") {
+            return {
+                valid: false,
+                code: "tier_conflict",
+                error: "Cannot appoint a Platform Owner or Super Admin as an Admin.",
+                candidate: { uid: targetUid, displayName: tData.displayName || tData.username, helloId: tData.helloId, role: targetTier }
+            };
+        }
+        if (callerBranchId && tData.branchId && tData.branchId !== callerBranchId) {
+            return {
+                valid: false,
+                code: "branch_conflict",
+                error: `Target user belongs to another branch (${tData.branchId}).`,
+                candidate: { uid: targetUid, displayName: tData.displayName || tData.username, helloId: tData.helloId, role: targetTier, branchId: tData.branchId }
+            };
+        }
+        if (action === "appoint_admin" && targetTier === "admin" && tData.branchId === callerBranchId) {
+            return {
+                valid: true,
+                alreadyAdmin: true,
+                message: "User is already an Admin in this branch.",
+                candidate: { uid: targetUid, displayName: tData.displayName || tData.username, helloId: tData.helloId, role: targetTier, branchId: tData.branchId, roleCode: tData.roleCode || null }
+            };
+        }
+
+        const ownsAgency = tData.isAgencyOwner === true || tData.role === "agency" ||
+                           (tData.tags || []).includes("Agency") || (await checkIsAgencyOwnerInAgencies(targetUid));
+        if (ownsAgency) {
+            return {
+                valid: true,
+                requiresOverride: true,
+                code: "agency_conflict",
+                warning: "Target user is an active Agency Owner. Appointing them creates a role conflict unless an override is authorized.",
+                candidate: { uid: targetUid, displayName: tData.displayName || tData.username, helloId: tData.helloId, role: targetTier, isAgencyOwner: true }
+            };
+        }
+
+        return {
+            valid: true,
+            requiresOverride: false,
+            candidate: {
+                uid: targetUid,
+                id: targetUid,
+                displayName: tData.displayName || tData.username || "Candidate",
+                username: tData.username || "",
+                helloId: tData.helloId || null,
+                displayId: tData.displayId || null,
+                role: targetTier,
+                tags: tData.tags || [],
+                profilePhotoUrl: tData.profilePhotoUrl || "",
+                branchId: tData.branchId || null
+            }
+        };
+    }
+
+    return {
+        valid: true,
+        candidate: {
+            uid: targetUid,
+            id: targetUid,
+            displayName: tData.displayName || tData.username || "User",
+            helloId: tData.helloId || null,
+            role: targetTier
+        }
+    };
+});
+exports.validateAdminCandidate = exports.validateCandidate;
+
 /**
  * 1. appointAdmin - Appoint an Admin within caller's own branch
  */
@@ -12566,7 +12742,38 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
     let adminCode = reusableRoleCode(tData.roleCode, "admin");
 
     await db.runTransaction(async (transaction) => {
+        // RE-READ inside transaction for strict atomicity and race prevention
+        const freshSnap = await transaction.get(targetUserRef);
+        if (!freshSnap.exists) {
+            throw new functions.https.HttpsError("not-found", "Target user not found.");
+        }
+        const freshData = freshSnap.data();
+        const freshTier = normalizeTier(freshData);
+
+        if (freshTier === "owner" || freshTier === "superadmin") {
+            throw new functions.https.HttpsError("permission-denied", "Cannot appoint a Platform Owner or Super Admin as an Admin.");
+        }
+        if (freshData.branchId && freshData.branchId !== callerBranchId) {
+            throw new functions.https.HttpsError("permission-denied", "Target user belongs to another branch.");
+        }
+        if (freshTier === "admin" && freshData.branchId === callerBranchId) {
+            return;
+        }
+
+        const freshOwnsAgency = freshData.isAgencyOwner === true || freshData.role === "agency" ||
+                                (freshData.tags || []).includes("Agency");
+        if (freshOwnsAgency && allowAgencyOverride !== true) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Target user is an active Agency Owner. Set allowAgencyOverride: true with an explicit overrideReason to proceed."
+            );
+        }
+
+        if (!adminCode) adminCode = reusableRoleCode(freshData.roleCode, "admin");
         if (!adminCode) adminCode = await allocateRoleCodeTx(transaction, "admin");
+
+        const targetPrevRole = freshData.previousRole || freshData.role || previousRole;
+        const targetPrevTags = freshData.previousRole ? freshData.previousTags : (Array.isArray(freshData.tags) ? freshData.tags : previousTags);
 
         transaction.update(targetUserRef, {
             role: "admin",
@@ -12576,8 +12783,8 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
             roleCode: adminCode,
             appointedBy: callerUid,
             appointedAt: now,
-            previousRole: tData.previousRole || previousRole,
-            previousTags: tData.previousRole ? tData.previousTags : previousTags,
+            previousRole: targetPrevRole,
+            previousTags: targetPrevTags,
             roleUpdatedAt: now
         });
 
@@ -12589,20 +12796,16 @@ exports.appointAdmin = functions.https.onCall(async (data, context) => {
             branchId: callerBranchId,
             action: "APPOINT_ADMIN",
             targetId: targetUid,
-            targetHelloId: tData.helloId || null,
-            before: { role: previousRole, tags: previousTags },
-            after: { role: "admin", tags: [...previousTags, "Admin"], branchId: callerBranchId },
-            details: { allowAgencyOverride: !!allowAgencyOverride, overrideReason: overrideReason || null },
+            targetHelloId: freshData.helloId || tData.helloId || null,
+            before: { role: freshData.role || previousRole, tags: freshData.tags || previousTags },
+            after: { role: "admin", tags: [...(freshData.tags || previousTags), "Admin"], branchId: callerBranchId },
+            details: { allowAgencyOverride: !!allowAgencyOverride, overrideReason: overrideReason || null, roleCode: adminCode },
             timestamp: now
         });
     });
 
-    // Set custom auth claims
-    await admin.auth().setCustomUserClaims(targetUid, {
-        role: "admin",
-        admin: true,
-        branchId: callerBranchId
-    }).catch(err => console.warn(`[appointAdmin] Custom claims update warning:`, err.message));
+    // Set custom auth claims preserving unrelated claims
+    await setAdminClaims(targetUid, callerBranchId);
 
     console.log(`[HB_PMS] Admin appointed: ${targetUid} by ${callerUid} in branch ${callerBranchId}`);
     return { success: true, targetUid, branchId: callerBranchId, role: "admin", roleCode: adminCode };
@@ -12736,20 +12939,22 @@ exports.removeAdmin = functions.https.onCall(async (data, context) => {
     if (!targetUid) throw new functions.https.HttpsError("invalid-argument", "targetUid is required.");
 
     const targetRef = db.collection("users").doc(targetUid);
-    const targetDoc = await targetRef.get();
-    if (!targetDoc.exists || (callerTier !== "owner" && targetDoc.data().branchId !== branchId) || normalizeTier(targetDoc.data()) !== "admin") {
-        throw new functions.https.HttpsError("not-found", "Admin not found.");
-    }
-
-    const tData = targetDoc.data();
-    const restoredRole = tData.previousRole || "host";
-    const restoredTags = Array.isArray(tData.previousTags) 
-        ? tData.previousTags 
-        : (tData.tags || []).filter(t => t !== "Admin");
-
     const now = FieldValue.serverTimestamp();
+    let restoredRole = "host";
 
     await db.runTransaction(async (transaction) => {
+        // RE-READ inside transaction for atomicity
+        const targetSnap = await transaction.get(targetRef);
+        if (!targetSnap.exists || (callerTier !== "owner" && targetSnap.data().branchId !== branchId) || normalizeTier(targetSnap.data()) !== "admin") {
+            throw new functions.https.HttpsError("not-found", "Admin not found.");
+        }
+
+        const tData = targetSnap.data();
+        restoredRole = tData.previousRole || "host";
+        const restoredTags = Array.isArray(tData.previousTags) 
+            ? tData.previousTags 
+            : (tData.tags || []).filter(t => t !== "Admin");
+
         transaction.update(targetRef, {
             role: restoredRole,
             tags: restoredTags,
@@ -12779,9 +12984,8 @@ exports.removeAdmin = functions.https.onCall(async (data, context) => {
         });
     });
 
-    // Clear custom claims and revoke tokens immediately so session terminates
-    await admin.auth().setCustomUserClaims(targetUid, {}).catch(() => null);
-    await admin.auth().revokeRefreshTokens(targetUid).catch(err => console.warn(`[removeAdmin] Token revocation warning:`, err.message));
+    // Clear only admin claims and revoke tokens immediately so session terminates
+    await removeAdminClaimsAndRevokeTokens(targetUid);
 
     console.log(`[HB_PMS] Admin ${targetUid} removed by ${callerUid}; restored to ${restoredRole}`);
     return { success: true, targetUid, restoredRole };
@@ -12809,11 +13013,6 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
     }
 
     const oldAdminRef = db.collection("users").doc(oldAdminUid);
-    const oldAdminDoc = await oldAdminRef.get();
-    if (!oldAdminDoc.exists || (callerTier !== "owner" && oldAdminDoc.data().branchId !== branchId) || normalizeTier(oldAdminDoc.data()) !== "admin") {
-        throw new functions.https.HttpsError("not-found", "Current Admin not found.");
-    }
-
     const newTargetDoc = await resolveUserByIdentifier(newTargetIdentifier);
     if (!newTargetDoc) {
         throw new functions.https.HttpsError("not-found", "Replacement candidate user not found.");
@@ -12824,41 +13023,53 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
         throw new functions.https.HttpsError("invalid-argument", "New candidate cannot be the same user as the current admin.");
     }
 
-    const nData = newTargetDoc.data();
-    const newTargetTier = normalizeTier(nData);
-
-    if (newTargetTier === "owner" || newTargetTier === "superadmin") {
-        throw new functions.https.HttpsError("permission-denied", "Cannot appoint an Owner or Super Admin.");
-    }
-    if (nData.branchId && nData.branchId !== branchId) {
-        throw new functions.https.HttpsError("permission-denied", "Replacement candidate belongs to another branch.");
-    }
-
-    // Agency Owner guard for replacement
-    const ownsAgency = nData.isAgencyOwner === true || nData.role === "agency" || 
-                       (nData.tags || []).includes("Agency") || (await checkIsAgencyOwnerInAgencies(newTargetUid));
-    if (ownsAgency && allowAgencyOverride !== true) {
-        throw new functions.https.HttpsError(
-            "failed-precondition",
-            "Replacement candidate is an active Agency Owner. Set allowAgencyOverride: true with an explicit overrideReason to proceed."
-        );
-    }
-
-    const oldData = oldAdminDoc.data();
-    const oldRestoredRole = oldData.previousRole || "user";
-    const oldRestoredTags = Array.isArray(oldData.previousTags) 
-        ? oldData.previousTags 
-        : (oldData.tags || []).filter(t => t !== "Admin");
-
-    const newPreviousRole = nData.role || "user";
-    const newPreviousTags = Array.isArray(nData.tags) ? [...nData.tags] : [];
-
-    const now = FieldValue.serverTimestamp();
     const newTargetRef = db.collection("users").doc(newTargetUid);
-    let newAdminCode = reusableRoleCode(nData.roleCode, "admin");
+    const now = FieldValue.serverTimestamp();
+    let effectiveBranchId = branchId;
+    let newAdminCode = null;
 
     await db.runTransaction(async (transaction) => {
+        // ALL READS FIRST: re-read old admin and new candidate inside transaction
+        const oldAdminSnap = await transaction.get(oldAdminRef);
+        if (!oldAdminSnap.exists || (callerTier !== "owner" && oldAdminSnap.data().branchId !== branchId) || normalizeTier(oldAdminSnap.data()) !== "admin") {
+            throw new functions.https.HttpsError("not-found", "Current Admin not found.");
+        }
+        const oldData = oldAdminSnap.data();
+
+        const newTargetSnap = await transaction.get(newTargetRef);
+        if (!newTargetSnap.exists) {
+            throw new functions.https.HttpsError("not-found", "Replacement candidate user not found.");
+        }
+        const nData = newTargetSnap.data();
+        const newTargetTier = normalizeTier(nData);
+
+        if (newTargetTier === "owner" || newTargetTier === "superadmin") {
+            throw new functions.https.HttpsError("permission-denied", "Cannot appoint an Owner or Super Admin.");
+        }
+        if (nData.branchId && nData.branchId !== branchId && nData.branchId !== oldData.branchId) {
+            throw new functions.https.HttpsError("permission-denied", "Replacement candidate belongs to another branch.");
+        }
+
+        const ownsAgency = nData.isAgencyOwner === true || nData.role === "agency" || 
+                           (nData.tags || []).includes("Agency") || (await checkIsAgencyOwnerInAgencies(newTargetUid));
+        if (ownsAgency && allowAgencyOverride !== true) {
+            throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Replacement candidate is an active Agency Owner. Set allowAgencyOverride: true with an explicit overrideReason to proceed."
+            );
+        }
+
+        effectiveBranchId = oldData.branchId || branchId;
+        newAdminCode = reusableRoleCode(nData.roleCode, "admin");
         if (!newAdminCode) newAdminCode = await allocateRoleCodeTx(transaction, "admin");
+
+        const oldRestoredRole = oldData.previousRole || "user";
+        const oldRestoredTags = Array.isArray(oldData.previousTags) 
+            ? oldData.previousTags 
+            : (oldData.tags || []).filter(t => t !== "Admin");
+
+        const newPreviousRole = nData.role || "user";
+        const newPreviousTags = Array.isArray(nData.tags) ? [...nData.tags] : [];
 
         // 1. Demote old admin (roleCode stays linked to the account - spec §8)
         transaction.update(oldAdminRef, {
@@ -12880,7 +13091,7 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
         transaction.update(newTargetRef, {
             role: "admin",
             tags: FieldValue.arrayUnion("Admin"),
-            branchId: oldData.branchId || branchId,
+            branchId: effectiveBranchId,
             superAdminId: oldData.superAdminId || callerUid,
             roleCode: newAdminCode,
             appointedBy: callerUid,
@@ -12896,7 +13107,7 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
             id: auditRef.id,
             actorUid: callerUid,
             actorRole: callerTier,
-            branchId: branchId || null,
+            branchId: effectiveBranchId || null,
             action: "REPLACE_ADMIN",
             targetId: newTargetUid,
             targetHelloId: nData.helloId || null,
@@ -12904,23 +13115,18 @@ exports.replaceAdmin = functions.https.onCall(async (data, context) => {
                 replacedAdminUid: oldAdminUid,
                 replacedAdminHelloId: oldData.helloId || null,
                 allowAgencyOverride: !!allowAgencyOverride,
-                overrideReason: overrideReason || null
+                overrideReason: overrideReason || null,
+                roleCode: newAdminCode
             },
             timestamp: now
         });
     });
 
-    // Revoke old admin tokens immediately
-    await admin.auth().setCustomUserClaims(oldAdminUid, {}).catch(() => null);
-    await admin.auth().revokeRefreshTokens(oldAdminUid).catch(() => null);
+    // Revoke old admin tokens and remove admin claims
+    await removeAdminClaimsAndRevokeTokens(oldAdminUid);
 
-    // Set new admin claims (same inherited branch slot as the doc write)
-    const effectiveBranchId = oldData.branchId || branchId;
-    await admin.auth().setCustomUserClaims(newTargetUid, {
-        role: "admin",
-        admin: true,
-        branchId: effectiveBranchId
-    }).catch(() => null);
+    // Set new admin claims preserving existing claims
+    await setAdminClaims(newTargetUid, effectiveBranchId);
 
     console.log(`[HB_PMS] Admin replacement complete: ${oldAdminUid} -> ${newTargetUid} by ${callerUid}`);
     return { success: true, oldAdminUid, newAdminUid: newTargetUid, branchId: effectiveBranchId, roleCode: newAdminCode };
@@ -13642,6 +13848,8 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
         });
     });
 
+    await setAgencyClaims(ownerUid, agencyId);
+
     return { success: true, agencyId, name, ownerUid, adminId, roleCode: agencyCode };
 });
 
@@ -13951,12 +14159,7 @@ exports.removeAgency = functions.https.onCall(async (payload, context) => {
     });
 
     if (removedOwnerUid) {
-        await admin.auth().setCustomUserClaims(removedOwnerUid, {})
-            .catch(err => console.warn(
-                "[removeAgency] Custom claims warning:", err.message));
-        await admin.auth().revokeRefreshTokens(removedOwnerUid)
-            .catch(err => console.warn(
-                "[removeAgency] Token revocation warning:", err.message));
+        await removeAgencyClaimsAndRevokeTokens(removedOwnerUid);
     }
     return { success: true, agencyId: agencyRef.id, status: "removed" };
 });
@@ -14084,6 +14287,69 @@ exports.removeHost = functions.https.onCall(async (payload, context) => {
     });
 
     return { success: true, agencyId, hostUid };
+});
+
+/**
+ * 8. updateRoomWelcomeMessage - Real-time welcome message editor (rooms/{roomId}.welcomeMessage, max 500 chars)
+ */
+exports.updateRoomWelcomeMessage = functions.https.onCall(async (data, context) => {
+    if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    const callerUid = context.auth.uid;
+    const { roomId, welcomeMessage } = data || {};
+    if (!roomId) throw new functions.https.HttpsError("invalid-argument", "roomId is required.");
+
+    const rawMessage = String(welcomeMessage || "").trim();
+    if (rawMessage.length > 500) {
+        throw new functions.https.HttpsError("invalid-argument", "Welcome message cannot exceed 500 characters.");
+    }
+
+    const callerDoc = await db.collection("users").doc(callerUid).get();
+    const callerData = callerDoc.exists ? callerDoc.data() : {};
+    const callerTier = normalizeTier(callerData);
+
+    const roomRef = db.collection("rooms").doc(roomId);
+    const roomSnap = await roomRef.get();
+    if (!roomSnap.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+
+    const roomData = roomSnap.data();
+    const isStaff = ["owner", "superadmin", "admin"].includes(callerTier);
+    const isRoomOwner = roomData.ownerUid === callerUid;
+    const isRoomAdmin = Array.isArray(roomData.admins) && roomData.admins.includes(callerUid);
+
+    if (!isStaff && !isRoomOwner && !isRoomAdmin) {
+        throw new functions.https.HttpsError("permission-denied", "Only staff or room managers may update the welcome message.");
+    }
+
+    const now = FieldValue.serverTimestamp();
+    await db.runTransaction(async (transaction) => {
+        const freshSnap = await transaction.get(roomRef);
+        if (!freshSnap.exists) throw new functions.https.HttpsError("not-found", "Room not found.");
+
+        transaction.update(roomRef, {
+            welcomeMessage: rawMessage,
+            welcomeMessageUpdatedAt: now,
+            welcomeMessageUpdatedBy: callerUid,
+            welcomeMessageUpdatedByRole: callerTier,
+            updatedAt: now
+        });
+
+        const auditRef = db.collection("audit_logs").doc();
+        transaction.set(auditRef, {
+            id: auditRef.id,
+            actorUid: callerUid,
+            actorRole: callerTier,
+            action: "UPDATE_ROOM_WELCOME_MESSAGE",
+            targetId: roomId,
+            details: {
+                previousMessage: freshSnap.data().welcomeMessage || "",
+                newMessage: rawMessage,
+                charLength: rawMessage.length
+            },
+            timestamp: now
+        });
+    });
+
+    return { success: true, roomId, welcomeMessage: rawMessage };
 });
 
 /**

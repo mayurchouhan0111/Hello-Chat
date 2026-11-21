@@ -26,6 +26,7 @@ import {
   Coins
 } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const AgencyManagement = () => {
@@ -65,10 +66,26 @@ export const AgencyManagement = () => {
   });
 
   const [recruitIdentifier, setRecruitIdentifier] = useState('');
+  const [branchAdmins, setBranchAdmins] = useState([]);
   const callerRole = String(currentUser?.role || '').toLowerCase();
   const requiresAdminBinding = callerRole === 'owner' ||
     callerRole === 'superadmin' ||
     callerRole === 'super_admin';
+
+  useEffect(() => {
+    if (requiresAdminBinding && isAdmin) {
+      const loadBranchAdmins = async () => {
+        try {
+          const listFn = httpsCallable(functions, 'listBranchAdmins');
+          const res = await listFn({ pageSize: 100 });
+          setBranchAdmins(res.data?.admins || []);
+        } catch (err) {
+          console.warn('Could not load branch admins for selector:', err);
+        }
+      };
+      loadBranchAdmins();
+    }
+  }, [requiresAdminBinding, isAdmin]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -792,16 +809,44 @@ export const AgencyManagement = () => {
                 {requiresAdminBinding && (
                   <div>
                     <label className="block text-[11px] font-black uppercase text-slate-400 tracking-wider mb-2">
-                      Supervising Admin (Hello ID or UID) *
+                      Supervising Admin within Branch *
                     </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Admin who will supervise this agency"
-                      className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
-                      value={appointForm.adminIdentifier}
-                      onChange={(e) => setAppointForm({ ...appointForm, adminIdentifier: e.target.value })}
-                    />
+                    {branchAdmins.length > 0 ? (
+                      <div className="space-y-2">
+                        <select
+                          className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-medium cursor-pointer"
+                          value={appointForm.adminIdentifier}
+                          onChange={(e) => setAppointForm({ ...appointForm, adminIdentifier: e.target.value })}
+                        >
+                          <option value="">-- Select Supervising Admin --</option>
+                          {branchAdmins.map((adm) => (
+                            <option key={adm.uid || adm.id} value={adm.uid || adm.id}>
+                              {adm.displayName || adm.username} (Hello ID: {adm.helloId || 'N/A'}{adm.roleCode ? `, Code: #${adm.roleCode}` : ''})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 uppercase">Or direct ID:</span>
+                          <input
+                            type="text"
+                            placeholder="Enter Admin UID or Hello ID manually"
+                            className="flex-1 bg-black/40 border border-white/10 rounded-lg py-1.5 px-3 text-white text-xs font-mono"
+                            value={appointForm.adminIdentifier}
+                            onChange={(e) => setAppointForm({ ...appointForm, adminIdentifier: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        required
+                        placeholder="Admin who will supervise this agency (Hello ID or UID)"
+                        className="w-full bg-black/40 border border-white/10 rounded-xl py-3 px-4 text-white text-sm outline-none focus:border-indigo-500 font-mono"
+                        value={appointForm.adminIdentifier}
+                        onChange={(e) => setAppointForm({ ...appointForm, adminIdentifier: e.target.value })}
+                      />
+                    )}
+                    <p className="text-[10px] text-slate-500 mt-1">Super Admin / Owner must select an Admin within the allowed branch.</p>
                   </div>
                 )}
 

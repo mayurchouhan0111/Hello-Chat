@@ -15,6 +15,7 @@ import 'package:hello_chat/features/rooms/presentation/widgets/seat_grid.dart';
 void main() {
   for (final size in const [
     Size(320, 568),
+    Size(360, 640),
     Size(393, 852),
     Size(430, 932),
     Size(740, 360)
@@ -106,6 +107,9 @@ void main() {
           ownerFrame.bottom,
           lessThan(
               tester.getRect(find.byIcon(Icons.mic_off_rounded).first).top));
+      // Verify owner ID row is completely removed (never displays "ID:", numeric ID, or "ID unavailable")
+      expect(find.textContaining('ID:'), findsNothing);
+      expect(find.text('ID unavailable'), findsNothing);
       final stage = find.byType(SingleChildScrollView);
       final rocket = tester.getRect(find.byType(RocketProgressWidget));
       final support = tester.getRect(find.byTooltip('Room Support'));

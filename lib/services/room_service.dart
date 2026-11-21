@@ -767,10 +767,17 @@ class RoomService with BaseFirebaseService {
     });
   }
 
-  Future<void> updateRoomWelcomeMessage(
-      String roomId, String welcomeMessage) async {
+  Future<void> updateRoomWelcomeMessage(String roomId, String welcomeMessage,
+      {String? updatedBy}) async {
+    final trimmed = welcomeMessage.trim();
+    if (trimmed.length > 500) {
+      throw ArgumentError('Welcome message must not exceed 500 characters');
+    }
+    final callerUid = updatedBy ?? _auth.currentUser?.uid ?? '';
     await _db.collection('rooms').doc(roomId).update({
-      'welcomeMessage': welcomeMessage,
+      'welcomeMessage': trimmed,
+      'welcomeMessageUpdatedAt': FieldValue.serverTimestamp(),
+      if (callerUid.isNotEmpty) 'welcomeMessageUpdatedBy': callerUid,
     });
   }
 

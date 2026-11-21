@@ -120,10 +120,15 @@ class GiftAnimationController extends ChangeNotifier {
       return list.isEmpty;
     });
 
-    final rawUrl = gift.lottieAssetPath.trim().isNotEmpty ? gift.lottieAssetPath.trim() : gift.imageUrl.trim();
-    final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(rawUrl, giftId: gift.giftId, giftName: gift.name);
-    final localVap = SvgaParserUtil.getLocalVapPath(rawUrl, giftId: gift.giftId, giftName: gift.name);
-    final localLottie = SvgaParserUtil.getLocalLottiePath(rawUrl, giftId: gift.giftId, giftName: gift.name);
+    final rawUrl = gift.lottieAssetPath.trim().isNotEmpty
+        ? gift.lottieAssetPath.trim()
+        : gift.imageUrl.trim();
+    final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(rawUrl,
+        giftId: gift.giftId, giftName: gift.name);
+    final localVap = SvgaParserUtil.getLocalVapPath(rawUrl,
+        giftId: gift.giftId, giftName: gift.name);
+    final localLottie = SvgaParserUtil.getLocalLottiePath(rawUrl,
+        giftId: gift.giftId, giftName: gift.name);
 
     String resolvedFormat = gift.animationFormat;
     String resolvedUrl = rawUrl;
@@ -140,9 +145,15 @@ class GiftAnimationController extends ChangeNotifier {
       final lower = rawUrl.toLowerCase();
       if (lower.contains('.svga')) {
         resolvedFormat = 'svga';
-      } else if (lower.contains('.vap') || lower.contains('.vpa') || lower.contains('.mp4') || lower.contains('.pag')) {
+      } else if (lower.contains('.vap') ||
+          lower.contains('.vpa') ||
+          lower.contains('.mp4') ||
+          lower.contains('.pag')) {
         resolvedFormat = 'vap';
-      } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp')) {
+      } else if (lower.contains('.png') ||
+          lower.contains('.jpg') ||
+          lower.contains('.jpeg') ||
+          lower.contains('.webp')) {
         resolvedFormat = 'image';
       } else if (!lower.endsWith('.json')) {
         resolvedFormat = 'image';
@@ -153,7 +164,11 @@ class GiftAnimationController extends ChangeNotifier {
     String resolvedTier = gift.animationTier;
     if (resolvedFormat == 'vap' || localVap != null) {
       final spec = GiftVapCatalog.byId(gift.giftId) ??
-          (localVap != null ? GiftVapCatalog.all.where((s) => s.assetPath == localVap).firstOrNull : null);
+          (localVap != null
+              ? GiftVapCatalog.all
+                  .where((s) => s.assetPath == localVap)
+                  .firstOrNull
+              : null);
       if (spec != null) {
         if (resolvedDuration <= 0) {
           resolvedDuration = spec.durationMs;
@@ -164,7 +179,8 @@ class GiftAnimationController extends ChangeNotifier {
       }
       if (localVap != null) {
         if (resolvedDuration <= 0) {
-          resolvedDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
+          resolvedDuration =
+              SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
         }
         final vt = SvgaParserUtil.getLocalVapTier(localVap);
         if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
@@ -236,11 +252,13 @@ class GiftAnimationController extends ChangeNotifier {
         while (fallbackTimestamps.isNotEmpty) {
           final dispatchedAt = fallbackTimestamps.removeAt(0);
           if (nowMs - dispatchedAt < 20000) {
-            if (fallbackTimestamps.isEmpty) _recentLocalDispatches.remove(fallbackKey);
+            if (fallbackTimestamps.isEmpty)
+              _recentLocalDispatches.remove(fallbackKey);
             return true;
           }
         }
-        if (fallbackTimestamps.isEmpty) _recentLocalDispatches.remove(fallbackKey);
+        if (fallbackTimestamps.isEmpty)
+          _recentLocalDispatches.remove(fallbackKey);
       }
     }
 
@@ -249,7 +267,8 @@ class GiftAnimationController extends ChangeNotifier {
 }
 
 final giftAnimationControllerProvider =
-    ChangeNotifierProvider.family<GiftAnimationController, String>((ref, roomId) {
+    ChangeNotifierProvider.family<GiftAnimationController, String>(
+        (ref, roomId) {
   final controller = GiftAnimationController();
   ref.onDispose(controller.dispose);
   return controller;
@@ -266,7 +285,8 @@ class GiftAnimationOverlay extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<GiftAnimationOverlay> createState() => _GiftAnimationOverlayState();
+  ConsumerState<GiftAnimationOverlay> createState() =>
+      _GiftAnimationOverlayState();
 }
 
 /// Shared audio player pool for room gift playback.
@@ -296,7 +316,8 @@ Future<bool> mp4HasAudioTrack(String path) async {
   }
 }
 
-Future<bool> _hasAudioTrackInBoxes(RandomAccessFile raf, int start, int end) async {
+Future<bool> _hasAudioTrackInBoxes(
+    RandomAccessFile raf, int start, int end) async {
   int pos = start;
   final headerBuffer = Uint8List(16);
 
@@ -410,7 +431,9 @@ class _GiftAudioPool {
         final p = player;
         await p.stop();
         await p.setVolume(volume);
-        final clean = assetPath.startsWith('assets/') ? assetPath.replaceFirst('assets/', '') : assetPath;
+        final clean = assetPath.startsWith('assets/')
+            ? assetPath.replaceFirst('assets/', '')
+            : assetPath;
         await p.play(AssetSource(clean), volume: volume);
       } catch (e) {
         debugPrint("[GiftAudioPool] Error playing asset ($assetPath): $e");
@@ -425,6 +448,14 @@ class _GiftAudioPool {
       } catch (_) {}
     });
   }
+}
+
+/// Explicit lifecycle states for room / full-screen gift playback.
+enum GiftPlaybackState {
+  idle,
+  preparing,
+  playing,
+  releasing,
 }
 
 class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
@@ -455,11 +486,16 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   final List<_ActiveGiftAnimation> _luxuryQueue = [];
   final List<_ActiveGiftAnimation> _mediumQueue = [];
   _ActiveGiftAnimation? _currentFullScreenAnim;
-  bool _isFullScreenPlaying = false;
+  GiftPlaybackState _playbackState = GiftPlaybackState.idle;
+  int _lastTerminalTicket = 0;
+  bool get _isFullScreenPlaying =>
+      _playbackState == GiftPlaybackState.playing ||
+      _playbackState == GiftPlaybackState.preparing;
+  GiftPlaybackState get playbackState => _playbackState;
+
   final ValueNotifier<double> _vapOpacityNotifier = ValueNotifier<double>(0.0);
   Timer? _fullScreenWatchdogTimer;
   Timer? _transitionTimer;
-  int? _waitingForReleaseTicket;
   Timer? _releaseFallbackTimer;
 
   // Persistent VAP Player in the room overlay:
@@ -467,7 +503,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   // - Per gift, call ONLY playFile()
   // - No per-gift PlatformView recreation, no surface polling
   VapController? _persistentVapController;
-  final Completer<VapController> _vapControllerCompleter = Completer<VapController>();
+  final Completer<VapController> _vapControllerCompleter =
+      Completer<VapController>();
   DateTime? _vapStartTime;
   String _currentDeviceModel = 'Android';
   int _currentFullScreenTicket = 0;
@@ -478,20 +515,34 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (!mounted) return;
     if (_isAppPaused) return;
 
-    // Pre-cache VAP file immediately in background so it's 100% ready on disk when queue reaches it
-    if (animation.format == 'vap' || animation.url.endsWith('.vap') || animation.url.endsWith('.mp4')) {
+    // Pre-cache VAP file immediately in background for current animation
+    if (animation.format == 'vap' ||
+        animation.url.endsWith('.vap') ||
+        animation.url.endsWith('.mp4')) {
       VapAnimation.preCache(animation.url);
     }
     final key = targetUid.isNotEmpty ? targetUid : '_unseated_';
 
     final queue = _seatQueues.putIfAbsent(key, () => []);
+    // Preload next queued item if present
+    if (queue.isNotEmpty) {
+      final next = queue.first;
+      if (next.format == 'vap' ||
+          next.url.endsWith('.vap') ||
+          next.url.endsWith('.mp4')) {
+        VapAnimation.preCache(next.url);
+      }
+    }
     final existingIdx = queue.indexWhere(
-      (item) => item.senderUid == animation.senderUid && item.giftId == animation.giftId,
+      (item) =>
+          item.senderUid == animation.senderUid &&
+          item.giftId == animation.giftId,
     );
-    final int activePlays = (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
-            _currentSeatGifts[key]?.animation.giftId == animation.giftId)
-        ? _currentSeatGifts[key]!.animation.totalPlays
-        : 0;
+    final int activePlays =
+        (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
+                _currentSeatGifts[key]?.animation.giftId == animation.giftId)
+            ? _currentSeatGifts[key]!.animation.totalPlays
+            : 0;
     final int maxAllowedInQueue = math.max(0, kMaxComboPlays - activePlays);
 
     if (existingIdx != -1) {
@@ -499,35 +550,48 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       final int lastComboCount = existing.comboCount;
       final int deltaPlays = (animation.comboCount > 0 && lastComboCount > 0)
           ? math.max(animation.comboCount - lastComboCount, 1)
-          : math.max(animation.totalPlays > 0 ? animation.totalPlays : (animation.comboCount > 0 ? animation.comboCount : 1), 1);
+          : math.max(
+              animation.totalPlays > 0
+                  ? animation.totalPlays
+                  : (animation.comboCount > 0 ? animation.comboCount : 1),
+              1);
       final int newTotal = existing.totalPlays + deltaPlays;
       final int newRemaining = existing.remainingPlays + deltaPlays;
       final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
       final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
       if (newTotal > maxAllowedInQueue) {
-        debugPrint("[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${newTotal - maxAllowedInQueue} excess plays on $key");
+        debugPrint(
+            "[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${newTotal - maxAllowedInQueue} excess plays on $key");
       }
-      final int displayCombo = math.max(existing.comboCount, animation.comboCount);
+      final int displayCombo =
+          math.max(existing.comboCount, animation.comboCount);
       queue[existingIdx] = existing.copyWith(
         comboCount: displayCombo,
         totalPlays: cappedTotal,
         remainingPlays: cappedRemaining,
         text: '${animation.giftName} x$displayCombo',
       );
-      debugPrint("[SeatGift] Merged into queued seat gift: ${animation.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) on $key");
+      debugPrint(
+          "[SeatGift] Merged into queued seat gift: ${animation.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) on $key");
       return;
     }
 
-    final int lastPlayingCombo = (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
-            _currentSeatGifts[key]?.animation.giftId == animation.giftId)
-        ? _currentSeatGifts[key]!.animation.comboCount
-        : 0;
+    final int lastPlayingCombo =
+        (_currentSeatGifts[key]?.animation.senderUid == animation.senderUid &&
+                _currentSeatGifts[key]?.animation.giftId == animation.giftId)
+            ? _currentSeatGifts[key]!.animation.comboCount
+            : 0;
     final int deltaPlays = (animation.comboCount > 0 && lastPlayingCombo > 0)
         ? math.max(animation.comboCount - lastPlayingCombo, 1)
-        : math.max(animation.totalPlays > 0 ? animation.totalPlays : (animation.comboCount > 0 ? animation.comboCount : 1), 1);
+        : math.max(
+            animation.totalPlays > 0
+                ? animation.totalPlays
+                : (animation.comboCount > 0 ? animation.comboCount : 1),
+            1);
     final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
     if (deltaPlays > maxAllowedInQueue) {
-      debugPrint("[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${deltaPlays - maxAllowedInQueue} excess plays on $key");
+      debugPrint(
+          "[SeatGift] Combo cap ($kMaxComboPlays) reached for ${animation.giftName}: dropped ${deltaPlays - maxAllowedInQueue} excess plays on $key");
     }
     final animWithPlays = animation.copyWith(
       totalPlays: cappedPlays,
@@ -535,7 +599,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       currentPlayIndex: 1,
     );
 
-    if (queue.length < 50) {
+    if (queue.length < 15) {
       queue.add(animWithPlays);
     }
     _checkNextSeatAnimation(key);
@@ -549,7 +613,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (queue == null || queue.isEmpty) return;
 
     final nextAnim = queue.removeAt(0);
-    final comboKey = nextAnim.targetUid != null && nextAnim.targetUid!.isNotEmpty && nextAnim.giftId.isNotEmpty
+    final comboKey = nextAnim.targetUid != null &&
+            nextAnim.targetUid!.isNotEmpty &&
+            nextAnim.giftId.isNotEmpty
         ? comboKeyFor(nextAnim.senderUid, nextAnim.targetUid!, nextAnim.giftId)
         : null;
     if (comboKey != null) {
@@ -584,14 +650,17 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         final current = active.animation;
         final nextPlayIndex = current.currentPlayIndex + 1;
         final nextRemaining = current.remainingPlays - 1;
-        debugPrint("[SeatGift] Repeating combo play on $targetKey: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining)");
+        debugPrint(
+            "[SeatGift] Repeating combo play on $targetKey: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining)");
 
         final nextAnim = current.copyWith(
           remainingPlays: nextRemaining,
           currentPlayIndex: nextPlayIndex,
           text: '${current.giftName} x$nextPlayIndex',
         );
-        final comboKey = current.targetUid != null && current.targetUid!.isNotEmpty && current.giftId.isNotEmpty
+        final comboKey = current.targetUid != null &&
+                current.targetUid!.isNotEmpty &&
+                current.giftId.isNotEmpty
             ? comboKeyFor(current.senderUid, current.targetUid!, current.giftId)
             : null;
         if (comboKey != null) {
@@ -608,7 +677,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             targetUid: targetKey == '_unseated_' ? '' : targetKey,
             animation: nextAnim,
             expiryTimer: timer,
-            hasFlown: true, // Already flew to the seat on play 1, keep it anchored
+            hasFlown:
+                true, // Already flew to the seat on play 1, keep it anchored
           );
         });
         return;
@@ -617,8 +687,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       final queue = _seatQueues[targetKey];
       if (queue != null && queue.isNotEmpty) {
         final nextAnim = queue.removeAt(0);
-        final comboKey = nextAnim.targetUid != null && nextAnim.targetUid!.isNotEmpty && nextAnim.giftId.isNotEmpty
-            ? comboKeyFor(nextAnim.senderUid, nextAnim.targetUid!, nextAnim.giftId)
+        final comboKey = nextAnim.targetUid != null &&
+                nextAnim.targetUid!.isNotEmpty &&
+                nextAnim.giftId.isNotEmpty
+            ? comboKeyFor(
+                nextAnim.senderUid, nextAnim.targetUid!, nextAnim.giftId)
             : null;
         if (comboKey != null) {
           ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
@@ -633,7 +706,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             targetUid: targetKey == '_unseated_' ? '' : targetKey,
             animation: nextAnim,
             expiryTimer: timer,
-            hasFlown: false, // Each queued gift animates its flight towards the person
+            hasFlown:
+                false, // Each queued gift animates its flight towards the person
           );
         });
       } else {
@@ -653,21 +727,21 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     _mountTimestamp = DateTime.now().subtract(const Duration(seconds: 2));
     WidgetsBinding.instance.addObserver(this);
     // Configure global audio context once so individual players never incur platform latency
+    // audioFocus: AndroidAudioFocus.none ensures gift effects never duck or drop Agora active room voice
     try {
       AudioPlayer.global.setAudioContext(
         const AudioContext(
           android: AudioContextAndroid(
-            isSpeakerphoneOn: true,
-            stayAwake: true,
+            isSpeakerphoneOn: false,
+            stayAwake: false,
             contentType: AndroidContentType.music,
             usageType: AndroidUsageType.media,
-            audioFocus: AndroidAudioFocus.gainTransientMayDuck,
+            audioFocus: AndroidAudioFocus.none,
           ),
           iOS: AudioContextIOS(
             category: AVAudioSessionCategory.playback,
             options: [
               AVAudioSessionOptions.mixWithOthers,
-              AVAudioSessionOptions.defaultToSpeaker,
             ],
           ),
         ),
@@ -691,18 +765,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _gifts = gifts;
         });
       }
-      // Pre-cache all bundled VAP gifts and pre-decode SVGA gifts in background so first playback has zero I/O latency
+      // Pre-warm durations only without heavy CPU/IO parsing during initial room mount
       Future.delayed(const Duration(milliseconds: 1500), () {
-        for (final spec in GiftVapCatalog.all) {
-          VapAnimation.preCache(spec.assetPath);
-        }
-        for (final g in _gifts) {
-          final raw = g.lottieAssetPath.isNotEmpty ? g.lottieAssetPath : g.imageUrl;
-          final svga = SvgaParserUtil.getLocalGiftSvgaPath(raw, giftId: g.giftId, giftName: g.name);
-          if (svga != null) {
-            SvgaParserUtil.decodeSafeFromAssets(svga);
-          }
-        }
+        SvgaParserUtil.warmupVapDurations();
       });
     } catch (e) {
       debugPrint("[GiftCache] Error fetching gift catalog: $e");
@@ -714,9 +779,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (!mounted) return;
     if (state == AppLifecycleState.paused) {
       _isAppPaused = true;
-      debugPrint('[GiftOverlay] App paused: stopping VAP and clearing gift queues');
+      debugPrint(
+          '[GiftOverlay] App paused: stopping VAP and clearing gift queues');
+      _handleTerminalEvent(
+          ticket: _currentFullScreenTicket, source: 'backgrounded');
       _fullScreenWatchdogTimer?.cancel();
       _transitionTimer?.cancel();
+      _releaseFallbackTimer?.cancel();
       for (final sg in _currentSeatGifts.values) {
         sg.expiryTimer.cancel();
       }
@@ -725,7 +794,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       _luxuryQueue.clear();
       _mediumQueue.clear();
       _currentFullScreenAnim = null;
-      _isFullScreenPlaying = false;
+      _playbackState = GiftPlaybackState.idle;
       _vapStartTime = null;
       try {
         _persistentVapController?.stop();
@@ -747,9 +816,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
       // Ensure local asset path & format are resolved
       final rawUrl = ev.giftUrl;
-      final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(rawUrl, giftId: ev.giftId, giftName: ev.giftName);
-      final localVap = SvgaParserUtil.getLocalVapPath(rawUrl, giftId: ev.giftId, giftName: ev.giftName);
-      final localLottie = SvgaParserUtil.getLocalLottiePath(rawUrl, giftId: ev.giftId, giftName: ev.giftName);
+      final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(rawUrl,
+          giftId: ev.giftId, giftName: ev.giftName);
+      final localVap = SvgaParserUtil.getLocalVapPath(rawUrl,
+          giftId: ev.giftId, giftName: ev.giftName);
+      final localLottie = SvgaParserUtil.getLocalLottiePath(rawUrl,
+          giftId: ev.giftId, giftName: ev.giftName);
 
       String resolvedFormat = ev.format;
       String resolvedUrl = rawUrl;
@@ -766,9 +838,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         final lower = rawUrl.toLowerCase();
         if (lower.contains('.svga')) {
           resolvedFormat = 'svga';
-        } else if (lower.contains('.vap') || lower.contains('.vpa') || lower.contains('.mp4') || lower.contains('.pag')) {
+        } else if (lower.contains('.vap') ||
+            lower.contains('.vpa') ||
+            lower.contains('.mp4') ||
+            lower.contains('.pag')) {
           resolvedFormat = 'vap';
-        } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp')) {
+        } else if (lower.contains('.png') ||
+            lower.contains('.jpg') ||
+            lower.contains('.jpeg') ||
+            lower.contains('.webp')) {
           resolvedFormat = 'image';
         } else if (!lower.endsWith('.json')) {
           resolvedFormat = 'image';
@@ -785,7 +863,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       String resolvedTier = ev.tier;
       if (resolvedFormat == 'vap' || localVap != null) {
         final spec = GiftVapCatalog.byId(ev.giftId) ??
-            (localVap != null ? GiftVapCatalog.all.where((s) => s.assetPath == localVap).firstOrNull : null);
+            (localVap != null
+                ? GiftVapCatalog.all
+                    .where((s) => s.assetPath == localVap)
+                    .firstOrNull
+                : null);
         if (spec != null) {
           if (resolvedDuration <= 0) {
             resolvedDuration = spec.durationMs;
@@ -796,17 +878,20 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         }
         if (localVap != null) {
           if (resolvedDuration <= 0) {
-            resolvedDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
+            resolvedDuration =
+                SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
           }
           final vt = SvgaParserUtil.getLocalVapTier(localVap);
-          if (vt != null && (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
+          if (vt != null &&
+              (resolvedTier.isEmpty || resolvedTier == 'NORMAL')) {
             resolvedTier = vt;
           }
         }
       }
 
       if (resolvedTier == 'NORMAL' && !isNativePlatformAnim) {
-        final count = math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
+        final count =
+            math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: ev.id,
           giftId: ev.giftId,
@@ -829,7 +914,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         );
         _enqueueSeatAnimation(targetUid, anim);
       } else {
-        final count = math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
+        final count =
+            math.max(ev.comboCount > 0 ? ev.comboCount : ev.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: ev.id,
           giftId: ev.giftId,
@@ -874,7 +960,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
 
     final combos = ref.read(giftComboControllerProvider(widget.roomId));
-    final animController = ref.read(giftAnimationControllerProvider(widget.roomId));
+    final animController =
+        ref.read(giftAnimationControllerProvider(widget.roomId));
     final currentUid = FirebaseAuth.instance.currentUser?.uid ??
         ref.read(currentUserProfileProvider).value?.uid ??
         ref.read(authStateProvider).value?.uid;
@@ -927,7 +1014,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       String? imageUrl = msg.imageUrl;
       String? soundUrl = msg.soundUrl;
       String format = msg.format?.isNotEmpty == true ? msg.format! : '';
-      String category = msg.giftCategory?.isNotEmpty == true ? msg.giftCategory! : 'Normal';
+      String category =
+          msg.giftCategory?.isNotEmpty == true ? msg.giftCategory! : 'Normal';
       String giftName = msg.giftName?.isNotEmpty == true ? msg.giftName! : '';
       String tier = msg.tier?.isNotEmpty == true ? msg.tier! : '';
       int durationMs = msg.durationMs;
@@ -944,7 +1032,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       }
       if (matched == null && giftUrl.isNotEmpty) {
         for (final g in _gifts) {
-          if (g.lottieAssetPath.trim() == giftUrl || g.imageUrl.trim() == giftUrl) {
+          if (g.lottieAssetPath.trim() == giftUrl ||
+              g.imageUrl.trim() == giftUrl) {
             matched = g;
             break;
           }
@@ -967,19 +1056,25 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       final String safeCurrentUid = currentUid?.trim() ?? '';
 
       // Check if this sender already played this gift optimistically
-      final isFromMe = safeCurrentUid.isNotEmpty && msgSenderUid == safeCurrentUid;
-      if (isFromMe && (animController.shouldSkipEcho(
-        senderUid: msgSenderUid,
-        targetUid: msg.targetUid.trim(),
-        giftId: effectiveGiftId,
-      ) || (matched != null && animController.shouldSkipEcho(
-        senderUid: msgSenderUid,
-        targetUid: msg.targetUid.trim(),
-        giftId: matched.giftId,
-      )))) {
+      final isFromMe =
+          safeCurrentUid.isNotEmpty && msgSenderUid == safeCurrentUid;
+      if (isFromMe &&
+          (animController.shouldSkipEcho(
+                senderUid: msgSenderUid,
+                targetUid: msg.targetUid.trim(),
+                giftId: effectiveGiftId,
+              ) ||
+              (matched != null &&
+                  animController.shouldSkipEcho(
+                    senderUid: msgSenderUid,
+                    targetUid: msg.targetUid.trim(),
+                    giftId: matched.giftId,
+                  )))) {
         // Still feed combo controller with authoritative icon, but skip redundant local re-animation
-        debugPrint('🎁 [GIFT_SKIP] reason=localEcho, msgId=${msg.msgId}, giftId=$effectiveGiftId, age=${nowServerMs - msg.createdAt.millisecondsSinceEpoch}ms');
-        combos.applyRemote(msg, giftIconUrl: imageUrl ?? matched?.imageUrl ?? giftUrl);
+        debugPrint(
+            '🎁 [GIFT_SKIP] reason=localEcho, msgId=${msg.msgId}, giftId=$effectiveGiftId, age=${nowServerMs - msg.createdAt.millisecondsSinceEpoch}ms');
+        combos.applyRemote(msg,
+            giftIconUrl: imageUrl ?? matched?.imageUrl ?? giftUrl);
         continue;
       }
 
@@ -997,9 +1092,12 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
       // 2. Resolve local asset paths if available
       final lookupKey = giftUrl.isNotEmpty ? giftUrl : effectiveGiftId;
-      final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(lookupKey, giftId: effectiveGiftId, giftName: giftName);
-      final localVap = SvgaParserUtil.getLocalVapPath(lookupKey, giftId: effectiveGiftId, giftName: giftName);
-      final localLottie = SvgaParserUtil.getLocalLottiePath(lookupKey, giftId: effectiveGiftId, giftName: giftName);
+      final localSvga = SvgaParserUtil.getLocalGiftSvgaPath(lookupKey,
+          giftId: effectiveGiftId, giftName: giftName);
+      final localVap = SvgaParserUtil.getLocalVapPath(lookupKey,
+          giftId: effectiveGiftId, giftName: giftName);
+      final localLottie = SvgaParserUtil.getLocalLottiePath(lookupKey,
+          giftId: effectiveGiftId, giftName: giftName);
 
       if (localSvga != null) {
         format = 'svga';
@@ -1016,17 +1114,35 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       final lower = giftUrl.toLowerCase();
       if (localSvga != null || lower.contains('.svga') || format == 'svga') {
         format = 'svga';
-      } else if (localVap != null || lower.contains('.vap') || lower.contains('.vpa') || lower.contains('.mp4') || lower.contains('.pag') || format == 'vap' || format == 'mp4') {
+      } else if (localVap != null ||
+          lower.contains('.vap') ||
+          lower.contains('.vpa') ||
+          lower.contains('.mp4') ||
+          lower.contains('.pag') ||
+          format == 'vap' ||
+          format == 'mp4') {
         format = 'vap';
-      } else if (lower.contains('.png') || lower.contains('.jpg') || lower.contains('.jpeg') || lower.contains('.webp') || lower.contains('.gif') || format == 'image') {
+      } else if (lower.contains('.png') ||
+          lower.contains('.jpg') ||
+          lower.contains('.jpeg') ||
+          lower.contains('.webp') ||
+          lower.contains('.gif') ||
+          format == 'image') {
         format = 'image';
-      } else if (format.isEmpty || (format == 'json' && !lower.endsWith('.json') && localLottie == null)) {
+      } else if (format.isEmpty ||
+          (format == 'json' &&
+              !lower.endsWith('.json') &&
+              localLottie == null)) {
         format = lower.endsWith('.json') ? 'json' : 'image';
       }
 
       if (durationMs <= 0 && (format == 'vap' || localVap != null)) {
         final spec = GiftVapCatalog.byId(effectiveGiftId) ??
-            (localVap != null ? GiftVapCatalog.all.where((s) => s.assetPath == localVap).firstOrNull : null);
+            (localVap != null
+                ? GiftVapCatalog.all
+                    .where((s) => s.assetPath == localVap)
+                    .firstOrNull
+                : null);
         if (spec != null) {
           durationMs = spec.durationMs;
           if (tier.isEmpty && spec.tier.isNotEmpty) {
@@ -1035,7 +1151,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         }
         if (localVap != null) {
           if (durationMs <= 0) {
-            durationMs = SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
+            durationMs =
+                SvgaParserUtil.getRealOrFallbackVapDurationSync(localVap);
           }
           final vt = SvgaParserUtil.getLocalVapTier(localVap);
           if (vt != null && (tier.isEmpty || tier == 'NORMAL')) {
@@ -1062,7 +1179,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       }
 
       // Feed combo controller with authoritative cover image
-      combos.applyRemote(msg, giftIconUrl: imageUrl ?? matched?.imageUrl ?? giftUrl);
+      combos.applyRemote(msg,
+          giftIconUrl: imageUrl ?? matched?.imageUrl ?? giftUrl);
 
       final targetUid = msg.targetUid.trim();
 
@@ -1073,7 +1191,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           targetUid: targetUid,
           giftId: effectiveGiftId,
         )) {
-          debugPrint("[GiftOverlay] Skipped local echo animation for msgId: ${msg.msgId}, gift: $effectiveGiftId");
+          debugPrint(
+              "[GiftOverlay] Skipped local echo animation for msgId: ${msg.msgId}, gift: $effectiveGiftId");
           continue;
         }
       }
@@ -1085,7 +1204,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           format == 'svga');
 
       if (tier == 'NORMAL' && !isNativePlatformAnim) {
-        final count = math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
+        final count =
+            math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: "${msg.msgId}_$targetUid",
           giftId: effectiveGiftId,
@@ -1108,13 +1228,16 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         );
         _enqueueSeatAnimation(targetUid, anim);
       } else {
-        final count = math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
+        final count =
+            math.max(msg.comboCount > 0 ? msg.comboCount : msg.quantity, 1);
         final anim = _ActiveGiftAnimation(
           id: msg.msgId,
           giftId: effectiveGiftId,
           url: giftUrl,
           senderUid: msg.uid,
-          text: msg.text.isNotEmpty ? msg.text : '${giftName.isNotEmpty ? giftName : 'Gift'} x$count',
+          text: msg.text.isNotEmpty
+              ? msg.text
+              : '${giftName.isNotEmpty ? giftName : 'Gift'} x$count',
           imageUrl: imageUrl,
           soundUrl: soundUrl,
           format: format,
@@ -1134,7 +1257,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     }
 
     if (_processedMessageIds.length > 500) {
-      _processedMessageIds.removeAll(_processedMessageIds.take(_processedMessageIds.length - 250).toList());
+      _processedMessageIds.removeAll(_processedMessageIds
+          .take(_processedMessageIds.length - 250)
+          .toList());
     }
   }
 
@@ -1150,14 +1275,18 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _vapOpacityNotifier.value = 1.0;
         }
         final now = DateTime.now();
-        final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
-        debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
+        final ttffMs = _vapStartTime != null
+            ? now.difference(_vapStartTime!).inMilliseconds
+            : -1;
+        debugPrint(
+            "[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
         // Re-arm from actual decode-start with a tighter budget.
         // Devices that never fire onVideoStart still fall back to the initial +800 ms budget.
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
           _armFullScreenSafetyTimer(clipMs + 1500, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 1500ms");
+          debugPrint(
+              "[VAP_TRACE] watchdog re-armed on start: duration=${clipMs}ms + 1500ms");
         }
       },
       onVideoStartWithDevice: (device) {
@@ -1168,56 +1297,47 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           _vapOpacityNotifier.value = 1.0;
         }
         final now = DateTime.now();
-        final ttffMs = _vapStartTime != null ? now.difference(_vapStartTime!).inMilliseconds : -1;
-        debugPrint("[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
+        final ttffMs = _vapStartTime != null
+            ? now.difference(_vapStartTime!).inMilliseconds
+            : -1;
+        debugPrint(
+            "[VAP_TRACE] onStart: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ttff=${ttffMs}ms");
         // Re-arm from actual decode-start (device-variant callback path).
         final int clipMs = _currentFullScreenAnim?.durationMs ?? 0;
         if (clipMs > 0 && _isFullScreenPlaying) {
           _armFullScreenSafetyTimer(clipMs + 1500, _currentFullScreenTicket);
-          debugPrint("[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 1500ms");
+          debugPrint(
+              "[VAP_TRACE] watchdog re-armed on start (device): duration=${clipMs}ms + 1500ms");
         }
       },
       onVideoComplete: () {
-        debugPrint("[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (_vapOpacityNotifier.value != 0.0) {
-          _vapOpacityNotifier.value = 0.0;
-        }
-        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
-          debugPrint("[VAP_TRACE] release signal received after watchdog for ticket ${controller.currentTicket}");
-          _releaseFallbackTimer?.cancel();
-          _waitingForReleaseTicket = null;
-        }
-        _onFullScreenAnimationFinished(controller.currentTicket);
+        debugPrint(
+            "[VAP_TRACE] onComplete: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _handleTerminalEvent(
+            ticket: controller.currentTicket, source: 'complete');
       },
       onFailed: (code, errorType, msg) {
-        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (_vapOpacityNotifier.value != 0.0) {
-          _vapOpacityNotifier.value = 0.0;
-        }
-        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
-          debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
-          _releaseFallbackTimer?.cancel();
-          _waitingForReleaseTicket = null;
-        }
-        _onFullScreenAnimationFinished(controller.currentTicket);
+        debugPrint(
+            "[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _handleTerminalEvent(
+            ticket: controller.currentTicket,
+            source: 'failed',
+            detail: '$code $msg');
       },
       onFailedWithDevice: (code, errorType, msg, device) {
         if (device != null && device.isNotEmpty) {
           _currentDeviceModel = device;
         }
-        debugPrint("[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
-        if (_vapOpacityNotifier.value != 0.0) {
-          _vapOpacityNotifier.value = 0.0;
-        }
-        if (_waitingForReleaseTicket != null && _waitingForReleaseTicket == controller.currentTicket) {
-          debugPrint("[VAP_TRACE] release signal (fail) received after watchdog for ticket ${controller.currentTicket}");
-          _releaseFallbackTimer?.cancel();
-          _waitingForReleaseTicket = null;
-        }
-        _onFullScreenAnimationFinished(controller.currentTicket);
+        debugPrint(
+            "[VAP_TRACE] onFail: id=${_currentFullScreenAnim?.id}, code=$code, type=$errorType, msg=$msg, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        _handleTerminalEvent(
+            ticket: controller.currentTicket,
+            source: 'failed',
+            detail: '$code $msg');
       },
       onVideoDestroy: () {
-        debugPrint("[VAP_TRACE] onVideoDestroy: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
+        debugPrint(
+            "[VAP_TRACE] onVideoDestroy: id=${_currentFullScreenAnim?.id}, device=$_currentDeviceModel, ticket=${controller.currentTicket}");
       },
     );
   }
@@ -1229,7 +1349,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     if (_processedEventIds.contains(anim.id)) return;
     _processedEventIds.add(anim.id);
     if (_processedEventIds.length > 500) {
-      _processedEventIds.removeAll(_processedEventIds.take(_processedEventIds.length - 250).toList());
+      _processedEventIds.removeAll(
+          _processedEventIds.take(_processedEventIds.length - 250).toList());
     }
     if (_isAppPaused) return;
 
@@ -1239,15 +1360,27 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
               id: anim.id,
               senderUid: anim.senderUid,
               targetUid: anim.targetUid ?? '',
-              giftName: anim.giftName.trim().isNotEmpty ? anim.giftName : anim.giftId,
+              giftName:
+                  anim.giftName.trim().isNotEmpty ? anim.giftName : anim.giftId,
               count: math.max(anim.comboCount, 1),
             ),
           );
     }
 
-    // Pre-cache VAP file immediately in background so it's 100% ready on disk when queue reaches it
-    if (anim.format == 'vap' || anim.url.endsWith('.vap') || anim.url.endsWith('.mp4')) {
+    // Pre-cache VAP file immediately in background for current animation and peek next
+    if (anim.format == 'vap' ||
+        anim.url.endsWith('.vap') ||
+        anim.url.endsWith('.mp4')) {
       VapAnimation.preCache(anim.url);
+    }
+    final nextCand = _luxuryQueue.isNotEmpty
+        ? _luxuryQueue.first
+        : (_mediumQueue.isNotEmpty ? _mediumQueue.first : null);
+    if (nextCand != null &&
+        (nextCand.format == 'vap' ||
+            nextCand.url.endsWith('.vap') ||
+            nextCand.url.endsWith('.mp4'))) {
+      VapAnimation.preCache(nextCand.url);
     }
 
     final int activePlays = (_currentFullScreenAnim != null &&
@@ -1259,20 +1392,26 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
     if (anim.tier == 'LUXURY') {
       final existingIdx = _luxuryQueue.indexWhere(
-        (item) => item.senderUid == anim.senderUid && item.giftId == anim.giftId,
+        (item) =>
+            item.senderUid == anim.senderUid && item.giftId == anim.giftId,
       );
       if (existingIdx != -1) {
         final existing = _luxuryQueue[existingIdx];
         final int lastComboCount = existing.comboCount;
         final int deltaPlays = (anim.comboCount > 0 && lastComboCount > 0)
             ? math.max(anim.comboCount - lastComboCount, 1)
-            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+            : math.max(
+                anim.totalPlays > 0
+                    ? anim.totalPlays
+                    : (anim.comboCount > 0 ? anim.comboCount : 1),
+                1);
         final int newTotal = existing.totalPlays + deltaPlays;
         final int newRemaining = existing.remainingPlays + deltaPlays;
         final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
         final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
         if (newTotal > maxAllowedInQueue) {
-          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
+          debugPrint(
+              "[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
         }
         final int displayCombo = math.max(existing.comboCount, anim.comboCount);
         _luxuryQueue[existingIdx] = existing.copyWith(
@@ -1281,7 +1420,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
           remainingPlays: cappedRemaining,
           text: '${anim.giftName} x$displayCombo',
         );
-        debugPrint("[GiftQueue] Merged luxury combo in queue: ${anim.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) for sender ${anim.senderUid}");
+        debugPrint(
+            "[GiftQueue] Merged luxury combo in queue: ${anim.giftName} (totalPlays=$cappedTotal, remaining=$cappedRemaining, combo=$displayCombo) for sender ${anim.senderUid}");
       } else {
         final int lastPlayingCombo = (_currentFullScreenAnim != null &&
                 _currentFullScreenAnim!.senderUid == anim.senderUid &&
@@ -1290,10 +1430,15 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             : 0;
         final int deltaPlays = (anim.comboCount > 0 && lastPlayingCombo > 0)
             ? math.max(anim.comboCount - lastPlayingCombo, 1)
-            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+            : math.max(
+                anim.totalPlays > 0
+                    ? anim.totalPlays
+                    : (anim.comboCount > 0 ? anim.comboCount : 1),
+                1);
         final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
         if (deltaPlays > maxAllowedInQueue) {
-          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
+          debugPrint(
+              "[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
         }
         final animWithPlays = anim.copyWith(
           totalPlays: cappedPlays,
@@ -1303,28 +1448,36 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         // Max 5 queued luxury gift entries (drops oldest if exceeded)
         if (_luxuryQueue.length >= 5) {
           final dropped = _luxuryQueue.removeAt(0);
-          debugPrint("[GiftQueue] Max 5 luxury cap reached, dropped oldest: ${dropped.giftName}");
+          debugPrint(
+              "[GiftQueue] Max 5 luxury cap reached, dropped oldest: ${dropped.giftName}");
         }
         _luxuryQueue.add(animWithPlays);
-        debugPrint("[GiftQueue] Added luxury gift to queue: ${anim.giftName} (plays=$cappedPlays, combo=${anim.comboCount}) for sender ${anim.senderUid}, luxury queue length=${_luxuryQueue.length}");
+        debugPrint(
+            "[GiftQueue] Added luxury gift to queue: ${anim.giftName} (plays=$cappedPlays, combo=${anim.comboCount}) for sender ${anim.senderUid}, luxury queue length=${_luxuryQueue.length}");
       }
     } else {
       // Medium / other room animations
       final existingIdx = _mediumQueue.indexWhere(
-        (item) => item.senderUid == anim.senderUid && item.giftId == anim.giftId,
+        (item) =>
+            item.senderUid == anim.senderUid && item.giftId == anim.giftId,
       );
       if (existingIdx != -1) {
         final existing = _mediumQueue[existingIdx];
         final int lastComboCount = existing.comboCount;
         final int deltaPlays = (anim.comboCount > 0 && lastComboCount > 0)
             ? math.max(anim.comboCount - lastComboCount, 1)
-            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+            : math.max(
+                anim.totalPlays > 0
+                    ? anim.totalPlays
+                    : (anim.comboCount > 0 ? anim.comboCount : 1),
+                1);
         final int newTotal = existing.totalPlays + deltaPlays;
         final int newRemaining = existing.remainingPlays + deltaPlays;
         final int cappedTotal = math.min(newTotal, maxAllowedInQueue);
         final int cappedRemaining = math.min(newRemaining, maxAllowedInQueue);
         if (newTotal > maxAllowedInQueue) {
-          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
+          debugPrint(
+              "[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${newTotal - maxAllowedInQueue} excess plays");
         }
         final int displayCombo = math.max(existing.comboCount, anim.comboCount);
         _mediumQueue[existingIdx] = existing.copyWith(
@@ -1341,17 +1494,22 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
             : 0;
         final int deltaPlays = (anim.comboCount > 0 && lastPlayingCombo > 0)
             ? math.max(anim.comboCount - lastPlayingCombo, 1)
-            : math.max(anim.totalPlays > 0 ? anim.totalPlays : (anim.comboCount > 0 ? anim.comboCount : 1), 1);
+            : math.max(
+                anim.totalPlays > 0
+                    ? anim.totalPlays
+                    : (anim.comboCount > 0 ? anim.comboCount : 1),
+                1);
         final int cappedPlays = math.min(deltaPlays, maxAllowedInQueue);
         if (deltaPlays > maxAllowedInQueue) {
-          debugPrint("[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
+          debugPrint(
+              "[GiftQueue] Combo cap ($kMaxComboPlays) reached for ${anim.giftName} (sender ${anim.senderUid}): dropped ${deltaPlays - maxAllowedInQueue} excess plays");
         }
         final animWithPlays = anim.copyWith(
           totalPlays: cappedPlays,
           remainingPlays: cappedPlays,
           currentPlayIndex: 1,
         );
-        if (_mediumQueue.length < 20) {
+        if (_mediumQueue.length < 10) {
           _mediumQueue.add(animWithPlays);
         }
       }
@@ -1363,9 +1521,11 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   }
 
   void _checkNextFullScreenAnimation() {
-    if (!mounted || _isFullScreenPlaying) return;
+    if (!mounted || _playbackState != GiftPlaybackState.idle || _isAppPaused)
+      return;
     if (ref.read(isRocketActiveProvider(widget.roomId))) {
-      debugPrint("[GiftQueue] Rocket animation is active, holding full-screen gifts");
+      debugPrint(
+          "[GiftQueue] Rocket animation is active, holding full-screen gifts");
       return;
     }
 
@@ -1382,17 +1542,19 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   }
 
   void _playFullScreenGift(_ActiveGiftAnimation anim) {
-    if (!mounted) return;
+    if (!mounted || _isAppPaused) return;
 
     final isVap = anim.format == 'vap';
     final int ticket = ++_currentFullScreenTicket;
 
+    _playbackState = GiftPlaybackState.preparing;
     setState(() {
-      _isFullScreenPlaying = true;
       _currentFullScreenAnim = anim;
     });
 
-    final comboKey = anim.targetUid != null && anim.targetUid!.isNotEmpty && anim.giftId.isNotEmpty
+    final comboKey = anim.targetUid != null &&
+            anim.targetUid!.isNotEmpty &&
+            anim.giftId.isNotEmpty
         ? comboKeyFor(anim.senderUid, anim.targetUid!, anim.giftId)
         : null;
     if (comboKey != null) {
@@ -1405,31 +1567,47 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // Duration safety cap: 2000 ms covers TTFF decode time
       final int duration = anim.durationMs > 0 ? anim.durationMs : 6000;
       _armFullScreenSafetyTimer(duration + 2000, ticket);
-      debugPrint("[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
+      debugPrint(
+          "[VAP_TRACE] play-chain armed id=${anim.id} ticket=$ticket url=${anim.url}");
 
       void dispatchPlay(VapController ctrl, String filePath) {
-        final realDuration = SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
+        if (!mounted ||
+            _currentFullScreenTicket != ticket ||
+            _playbackState != GiftPlaybackState.preparing) {
+          debugPrint(
+              "[VAP_TRACE] dispatchPlay ignored: ticket mismatch or state changed");
+          return;
+        }
+        _playbackState = GiftPlaybackState.playing;
+
+        final realDuration =
+            SvgaParserUtil.getRealOrFallbackVapDurationSync(filePath);
         final effectiveDuration = realDuration > 0 ? realDuration : duration;
         // Safety watchdog timer (+1500ms safety buffer; normal completion is driven by onVideoComplete on exact last frame)
         _armFullScreenSafetyTimer(effectiveDuration + 1500, ticket);
         _vapOpacityNotifier.value = 1.0;
-        debugPrint("[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
+        debugPrint(
+            "[VAP_TRACE] playFile requested: id=${anim.id}, ticket=$ticket, path=$filePath, durationMs=$effectiveDuration (real=$realDuration)");
         ctrl.playFile(filePath, anim.id, ticket).catchError((e) {
-          debugPrint("[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
-          if (_currentFullScreenTicket == ticket) {
-            _onFullScreenAnimationFinished(ticket);
-          }
+          debugPrint(
+              "[VAP_TRACE] onFail: id=${anim.id}, ticket=$ticket, error=$e");
+          _handleTerminalEvent(
+              ticket: ticket, source: 'failed', detail: e.toString());
         });
         // soundUrl fallback: only when this .vap carries no audio track.
         // Runs after playFile so the TTFF path never waits on a file read.
         final String soundUrl = anim.soundUrl?.trim() ?? '';
         if (soundUrl.isNotEmpty) {
           mp4HasAudioTrack(filePath).then((hasAudio) {
-            if (hasAudio || !mounted || !_isFullScreenPlaying ||
-                _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
+            if (hasAudio ||
+                !mounted ||
+                _playbackState != GiftPlaybackState.playing ||
+                _currentFullScreenAnim?.id != anim.id ||
+                _currentFullScreenTicket != ticket) {
               return;
             }
-            debugPrint("[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
+            debugPrint(
+                "[GiftAudio] VAP has no audio track, playing soundUrl: $soundUrl");
             if (soundUrl.startsWith('http')) {
               _GiftAudioPool.playUrl(soundUrl);
             } else if (soundUrl.startsWith('assets/')) {
@@ -1443,7 +1621,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       // Bypasses all Future / microtask turn delays so frame 0 begins instantly.
       final cachedSync = VapAnimation.getCachedPathSync(anim.url);
       final activeCtrl = _persistentVapController;
-      if (activeCtrl != null && cachedSync != null && File(cachedSync).existsSync()) {
+      if (activeCtrl != null &&
+          cachedSync != null &&
+          File(cachedSync).existsSync()) {
         dispatchPlay(activeCtrl, cachedSync);
         return;
       }
@@ -1451,44 +1631,54 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       Future<VapController?> getController() async {
         if (_persistentVapController != null) return _persistentVapController;
         try {
-          return await _vapControllerCompleter.future.timeout(const Duration(seconds: 4));
+          return await _vapControllerCompleter.future
+              .timeout(const Duration(seconds: 4));
         } catch (_) {}
         return null;
       }
 
       getController().then((ctrl) {
-        if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=ctrl guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
+        if (!mounted ||
+            _currentFullScreenTicket != ticket ||
+            _playbackState != GiftPlaybackState.preparing) {
+          debugPrint(
+              "[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=ctrl guard rejected");
           return;
         }
         if (ctrl == null) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Controller not ready within timeout");
-          _onFullScreenAnimationFinished(ticket);
+          debugPrint(
+              "[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Controller not ready within timeout");
+          _handleTerminalEvent(
+              ticket: ticket, source: 'failed', detail: 'Controller timeout');
           return;
         }
 
         // Call playFile with pre-cached path
         VapAnimation.preCache(anim.url).then((filePath) {
-          if (!mounted || !_isFullScreenPlaying || _currentFullScreenAnim?.id != anim.id || _currentFullScreenTicket != ticket) {
-            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache guard rejected (mounted=$mounted, playing=$_isFullScreenPlaying, cur=${_currentFullScreenAnim?.id})");
+          if (!mounted ||
+              _currentFullScreenTicket != ticket ||
+              _playbackState != GiftPlaybackState.preparing) {
+            debugPrint(
+                "[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache guard rejected");
             return;
           }
           if (filePath != null && File(filePath).existsSync()) {
             dispatchPlay(ctrl, filePath);
           } else {
-            debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Cache failed / file missing for ${anim.url}");
-            if (_currentFullScreenTicket == ticket) {
-              _onFullScreenAnimationFinished(ticket);
-            }
+            debugPrint(
+                "[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=Cache failed / file missing for ${anim.url}");
+            _handleTerminalEvent(
+                ticket: ticket, source: 'failed', detail: 'Cache failed');
           }
         }).catchError((e) {
-          debugPrint("[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache error: $e");
-          if (_currentFullScreenTicket == ticket) {
-            _onFullScreenAnimationFinished(ticket);
-          }
+          debugPrint(
+              "[VAP_TRACE] playFile REFUSED: id=${anim.id}, ticket=$ticket, reason=preCache error: $e");
+          _handleTerminalEvent(
+              ticket: ticket, source: 'failed', detail: e.toString());
         });
       });
     } else {
+      _playbackState = GiftPlaybackState.playing;
       final int duration = anim.durationMs > 0 ? anim.durationMs : 5000;
       _armFullScreenSafetyTimer(duration + 1500, ticket);
     }
@@ -1497,68 +1687,71 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
   void _armFullScreenSafetyTimer(int ms, [int? ticket]) {
     _fullScreenWatchdogTimer?.cancel();
     _fullScreenWatchdogTimer = Timer(Duration(milliseconds: ms), () {
-      if (mounted && _isFullScreenPlaying) {
-        if (ticket != null && ticket < _currentFullScreenTicket) {
-          debugPrint("[VAP_TRACE] watchdog dropped: stale ticket $ticket < current $_currentFullScreenTicket");
+      if (mounted &&
+          (_playbackState == GiftPlaybackState.playing ||
+              _playbackState == GiftPlaybackState.preparing)) {
+        final effTicket = ticket ?? _currentFullScreenTicket;
+        if (effTicket < _currentFullScreenTicket) {
+          debugPrint(
+              "[VAP_TRACE] watchdog dropped: stale ticket $effTicket < current $_currentFullScreenTicket");
           return;
         }
-        debugPrint("[VAP_TRACE] WATCHDOG FIRED: id=${_currentFullScreenAnim?.id}, ticket=$ticket, safety timeout ${ms}ms elapsed - stopping persistent VAP controller and awaiting release signal");
-        _handleWatchdogTimeout(ticket);
+        debugPrint(
+            "[VAP_TRACE] WATCHDOG FIRED: id=${_currentFullScreenAnim?.id}, ticket=$effTicket, safety timeout ${ms}ms elapsed");
+        _handleTerminalEvent(
+            ticket: effTicket, source: 'watchdog', detail: 'Timeout ${ms}ms');
       }
     });
   }
 
-  void _handleWatchdogTimeout([int? ticket]) {
+  void _handleTerminalEvent({
+    required int ticket,
+    required String source,
+    String? detail,
+  }) {
     if (!mounted) return;
-    if (ticket != null && ticket < _currentFullScreenTicket) {
+    if (ticket < _currentFullScreenTicket) {
+      debugPrint(
+          "[VAP_TRACE] Terminal event dropped: stale ticket $ticket < current $_currentFullScreenTicket (source=$source)");
+      return;
+    }
+    if (_lastTerminalTicket == ticket ||
+        _playbackState == GiftPlaybackState.idle ||
+        _playbackState == GiftPlaybackState.releasing) {
+      debugPrint(
+          "[VAP_TRACE] Terminal event duplicate dropped: ticket $ticket already terminating in state $_playbackState (source=$source)");
       return;
     }
 
-    _vapOpacityNotifier.value = 0.0;
-    setState(() {
-      _currentFullScreenAnim = null;
-    });
+    _lastTerminalTicket = ticket;
+    _playbackState = GiftPlaybackState.releasing;
+    _fullScreenWatchdogTimer?.cancel();
+    _transitionTimer?.cancel();
+    _releaseFallbackTimer?.cancel();
+
+    debugPrint(
+        "[VAP_TRACE] Terminal event executing: ticket=$ticket, source=$source, detail=$detail");
+
+    if (_vapOpacityNotifier.value != 0.0) {
+      _vapOpacityNotifier.value = 0.0;
+    }
 
     try {
       _persistentVapController?.stop();
     } catch (e) {
-      debugPrint("[VAP_TRACE] Error calling stop on persistent VAP controller: $e");
+      debugPrint(
+          "[VAP_TRACE] Error calling stop on persistent VAP controller: $e");
     }
-
-    // Wait for the release signal before the next gift starts
-    _waitingForReleaseTicket = ticket;
-    _releaseFallbackTimer?.cancel();
-    _releaseFallbackTimer = Timer(const Duration(milliseconds: 300), () {
-      if (mounted && _waitingForReleaseTicket == ticket) {
-        debugPrint("[VAP_TRACE] release signal fallback timeout (300ms) reached after watchdog for ticket $ticket");
-        _waitingForReleaseTicket = null;
-        _onFullScreenAnimationFinished(ticket);
-      }
-    });
-  }
-
-  void _onFullScreenAnimationFinished([int? ticket]) {
-    if (!mounted) return;
-    if (ticket != null && ticket < _currentFullScreenTicket) {
-      debugPrint("[VAP_TRACE] _onFullScreenAnimationFinished dropped: ticket $ticket < current $_currentFullScreenTicket");
-      return;
-    }
-    // Guard: prevent double transition when both onVideoComplete and the watchdog
-    // fire in the same Choreographer sync-barrier window.
-    if (!_isFullScreenPlaying && _currentFullScreenAnim == null) {
-      debugPrint("[VAP_TRACE] _onFullScreenAnimationFinished no-op: already dismissed (ticket=$ticket)");
-      return;
-    }
-    _fullScreenWatchdogTimer?.cancel();
-    _transitionTimer?.cancel();
-    _releaseFallbackTimer?.cancel();
-    _waitingForReleaseTicket = null;
 
     final current = _currentFullScreenAnim;
-    if (current != null && current.remainingPlays > 1) {
+    if (current != null &&
+        current.remainingPlays > 1 &&
+        source != 'backgrounded' &&
+        source != 'disposed') {
       final nextPlayIndex = current.currentPlayIndex + 1;
       final nextRemaining = current.remainingPlays - 1;
-      debugPrint("[GiftQueue] Repeating combo play: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining) for sender ${current.senderUid}");
+      debugPrint(
+          "[GiftQueue] Repeating combo play: ${current.giftName} (play $nextPlayIndex of ${current.totalPlays}, $nextRemaining remaining) for sender ${current.senderUid}");
 
       final nextAnim = current.copyWith(
         remainingPlays: nextRemaining,
@@ -1566,48 +1759,54 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         text: '${current.giftName} x$nextPlayIndex',
       );
 
-      _vapOpacityNotifier.value = 0.0;
-      setState(() {
-        _currentFullScreenAnim = nextAnim;
-      });
-
-      final comboKey = current.targetUid != null && current.targetUid!.isNotEmpty && current.giftId.isNotEmpty
+      final comboKey = current.targetUid != null &&
+              current.targetUid!.isNotEmpty &&
+              current.giftId.isNotEmpty
           ? comboKeyFor(current.senderUid, current.targetUid!, current.giftId)
           : null;
       if (comboKey != null) {
         ref.read(giftComboControllerProvider(widget.roomId)).touch(comboKey);
       }
 
-      // 100ms grace window for GPU surface reset before starting the next play
-      _transitionTimer = Timer(const Duration(milliseconds: 100), () {
+      // Wait for native player surface/decoder release before next VAP
+      _transitionTimer = Timer(const Duration(milliseconds: 80), () {
         if (mounted && !_isAppPaused) {
+          _playbackState = GiftPlaybackState.idle;
           _playFullScreenGift(nextAnim);
+        } else {
+          _playbackState = GiftPlaybackState.idle;
         }
       });
       return;
     }
 
-    _vapOpacityNotifier.value = 0.0;
     setState(() {
       _currentFullScreenAnim = null;
-      _isFullScreenPlaying = false;
     });
 
-    // 40ms grace window for GPU surface reset before picking the next queued gift
-    _transitionTimer = Timer(const Duration(milliseconds: 40), () {
+    // Wait for native player surface/decoder release before picking next VAP
+    _transitionTimer = Timer(const Duration(milliseconds: 60), () {
       if (mounted && !_isAppPaused) {
+        _playbackState = GiftPlaybackState.idle;
         _checkNextFullScreenAnimation();
+      } else {
+        _playbackState = GiftPlaybackState.idle;
       }
     });
   }
 
+  void _onFullScreenAnimationFinished([int? ticket]) {
+    final effectiveTicket = ticket ?? _currentFullScreenTicket;
+    _handleTerminalEvent(ticket: effectiveTicket, source: 'complete');
+  }
+
   @override
   void dispose() {
+    _handleTerminalEvent(ticket: _currentFullScreenTicket, source: 'disposed');
     WidgetsBinding.instance.removeObserver(this);
     _fullScreenWatchdogTimer?.cancel();
     _transitionTimer?.cancel();
     _releaseFallbackTimer?.cancel();
-    _waitingForReleaseTicket = null;
     for (final sg in _currentSeatGifts.values) {
       sg.expiryTimer.cancel();
     }
@@ -1615,6 +1814,7 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     _seatQueues.clear();
     _luxuryQueue.clear();
     _mediumQueue.clear();
+    _playbackState = GiftPlaybackState.idle;
     _GiftAudioPool.stop();
     try {
       _persistentVapController?.stop();
@@ -1628,7 +1828,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
 
   @override
   Widget build(BuildContext context) {
-    ref.listen(giftAnimationControllerProvider(widget.roomId), (previous, next) {
+    ref.listen(giftAnimationControllerProvider(widget.roomId),
+        (previous, next) {
       final events = next.consumePendingEvents();
       if (events.isNotEmpty) {
         _handleLocalAnimationEvents(events);
@@ -1650,24 +1851,31 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     final List<Widget> seatWidgets = [];
 
     for (final seatGift in _currentSeatGifts.values) {
-      final targetKey = seatGift.targetUid.isNotEmpty ? seatGift.targetUid : '_unseated_';
+      final targetKey =
+          seatGift.targetUid.isNotEmpty ? seatGift.targetUid : '_unseated_';
       final seatRect = seatGift.targetUid.isNotEmpty
           ? SeatAnchors.rectFor(widget.roomId, seatGift.targetUid)
           : null;
 
       const giftSize = 220.0;
-      final Size overlaySize = (overlayBox is RenderBox && overlayBox.attached && overlayBox.hasSize)
-          ? overlayBox.size
-          : MediaQuery.sizeOf(context);
+      final Size overlaySize =
+          (overlayBox is RenderBox && overlayBox.attached && overlayBox.hasSize)
+              ? overlayBox.size
+              : MediaQuery.sizeOf(context);
       final centerPoint = overlaySize.center(Offset.zero);
 
       Offset targetCenter = centerPoint;
-      if (seatRect != null && overlayBox is RenderBox && overlayBox.attached && overlayBox.hasSize) {
+      if (seatRect != null &&
+          overlayBox is RenderBox &&
+          overlayBox.attached &&
+          overlayBox.hasSize) {
         final localTopLeft = overlayBox.globalToLocal(seatRect.topLeft);
-        targetCenter = localTopLeft + Offset(seatRect.width / 2, seatRect.height * 0.25);
+        targetCenter =
+            localTopLeft + Offset(seatRect.width / 2, seatRect.height * 0.25);
       } else {
         // Fallback for unseated recipient: position in upper-middle area
-        targetCenter = Offset(overlaySize.width * 0.5, overlaySize.height * 0.32);
+        targetCenter =
+            Offset(overlaySize.width * 0.5, overlaySize.height * 0.32);
       }
 
       // Resolve origin coordinates from the sender
@@ -1675,9 +1883,13 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
       final senderRect = seatGift.animation.senderUid.isNotEmpty
           ? SeatAnchors.rectFor(widget.roomId, seatGift.animation.senderUid)
           : null;
-      if (senderRect != null && overlayBox is RenderBox && overlayBox.attached && overlayBox.hasSize) {
+      if (senderRect != null &&
+          overlayBox is RenderBox &&
+          overlayBox.attached &&
+          overlayBox.hasSize) {
         final localSenderTopLeft = overlayBox.globalToLocal(senderRect.topLeft);
-        startCenter = localSenderTopLeft + Offset(senderRect.width / 2, senderRect.height * 0.25);
+        startCenter = localSenderTopLeft +
+            Offset(senderRect.width / 2, senderRect.height * 0.25);
       } else {
         // Sender is in the audience or tapping from the bottom quick send combo bar / gift button
         startCenter = Offset(overlaySize.width * 0.82, overlaySize.height - 75);
@@ -1705,7 +1917,8 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
                 key: ValueKey('held_player_${seatGift.id}'),
                 animation: seatGift.animation,
                 isFastCadence: hasWaiting,
-                onComplete: () => _onSeatAnimationFinished(targetKey, seatGift.id),
+                onComplete: () =>
+                    _onSeatAnimationFinished(targetKey, seatGift.id),
               ),
             ),
           ),
@@ -1716,7 +1929,10 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
     return Stack(
       key: _overlayKey,
       children: [
-        widget.child,
+        RepaintBoundary(
+          key: const ValueKey('room_child_repaint_boundary'),
+          child: widget.child,
+        ),
         // Layer 1 - NORMAL: Sequential queued seat gift animations (isolated in RepaintBoundary)
         ...seatWidgets,
 
@@ -1747,7 +1963,9 @@ class _GiftAnimationOverlayState extends ConsumerState<GiftAnimationOverlay>
         ),
 
         // Layer 3: Non-VAP Medium & Luxury room animations (SVGA / Lottie / Image)
-        if (_isFullScreenPlaying && _currentFullScreenAnim != null && _currentFullScreenAnim!.format != 'vap')
+        if (_isFullScreenPlaying &&
+            _currentFullScreenAnim != null &&
+            _currentFullScreenAnim!.format != 'vap')
           _buildNonVapAnimationItem(_currentFullScreenAnim!),
 
         // Layer 4: Combo Overlay banner (direct child of Stack, self-isolating)
@@ -1812,7 +2030,8 @@ class _SeatGiftFlight extends StatefulWidget {
   State<_SeatGiftFlight> createState() => _SeatGiftFlightState();
 }
 
-class _SeatGiftFlightState extends State<_SeatGiftFlight> with SingleTickerProviderStateMixin {
+class _SeatGiftFlightState extends State<_SeatGiftFlight>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _flightCurve;
   late final Animation<double> _scaleAnimation;
@@ -1860,7 +2079,8 @@ class _SeatGiftFlightState extends State<_SeatGiftFlight> with SingleTickerProvi
   @override
   void didUpdateWidget(_SeatGiftFlight oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.to != widget.to && (!widget.animateFlight || _controller.isCompleted)) {
+    if (oldWidget.to != widget.to &&
+        (!widget.animateFlight || _controller.isCompleted)) {
       setState(() {});
     }
   }
@@ -1885,7 +2105,8 @@ class _SeatGiftFlightState extends State<_SeatGiftFlight> with SingleTickerProvi
     final double arcLift = math.max(60.0, math.min(140.0, dyDiff * 0.30));
 
     // Lateral curve: slight outward deflection so the path feels natural and dynamic
-    final double lateralBend = dxDiff.abs() > 40 ? (dxDiff > 0 ? -25.0 : 25.0) : 0.0;
+    final double lateralBend =
+        dxDiff.abs() > 40 ? (dxDiff > 0 ? -25.0 : 25.0) : 0.0;
 
     final controlPoint = Offset(
       midX + lateralBend,
@@ -2106,7 +2327,8 @@ class _HeldGiftPlayerState extends State<_HeldGiftPlayer> {
       _holdElapsed = true;
       _tryRelease();
     });
-    _safetyTimer = Timer(Duration(milliseconds: math.max(hold + 8000, kSafetyCapMs)), _release);
+    _safetyTimer = Timer(
+        Duration(milliseconds: math.max(hold + 8000, kSafetyCapMs)), _release);
   }
 
   void _release() {
@@ -2259,8 +2481,10 @@ class _HeldRoomPlayerState extends State<_HeldRoomPlayer> {
 class _GiftAnimationPlayer extends StatefulWidget {
   final _ActiveGiftAnimation animation;
   final VoidCallback onComplete;
+
   /// If > 0, Lottie plays until this hold expires (so short compositions stay visible).
   final int holdMs;
+
   /// Fired once when the format player actually starts rendering/playing,
   /// so hold timers can begin after async load instead of during it.
   final VoidCallback? onStart;
@@ -2296,9 +2520,14 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
       // player keys off the extension.
       final fmt = widget.animation.format.toLowerCase();
       final urlLc = widget.animation.url.toLowerCase();
-      if (fmt == 'vap' || fmt == 'vpa' || fmt == 'mp4' || fmt == 'pag' ||
-          urlLc.contains('.vap') || urlLc.contains('.vpa') ||
-          urlLc.contains('.mp4') || urlLc.contains('.pag')) {
+      if (fmt == 'vap' ||
+          fmt == 'vpa' ||
+          fmt == 'mp4' ||
+          fmt == 'pag' ||
+          urlLc.contains('.vap') ||
+          urlLc.contains('.vpa') ||
+          urlLc.contains('.mp4') ||
+          urlLc.contains('.pag')) {
         if (_isDisposed) return;
         // Resolve exactly what _VapNetworkPlayer will play (local asset
         // override first), then verify its audio track.
@@ -2354,19 +2583,22 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     final url = widget.animation.url.trim();
     final lowerUrl = url.toLowerCase();
     final fmt = widget.animation.format.toLowerCase();
-    final hasCustomSound = widget.animation.soundUrl?.trim().isNotEmpty ?? false;
+    final hasCustomSound =
+        widget.animation.soundUrl?.trim().isNotEmpty ?? false;
 
     // Build the format-specific player directly without blurry aura
     return _buildFormatPlayer(url, lowerUrl, fmt, hasCustomSound);
   }
 
-  Widget _buildFormatPlayer(String url, String lowerUrl, String fmt, bool hasCustomSound) {
+  Widget _buildFormatPlayer(
+      String url, String lowerUrl, String fmt, bool hasCustomSound) {
     final VoidCallback? onStart = widget.onStart;
     final giftName = widget.animation.giftName;
 
     // 1. SVGA Animation Format
     if (lowerUrl.contains('.svga') || fmt == 'svga') {
-      final localPath = SvgaParserUtil.getLocalGiftSvgaPath(url, giftName: giftName);
+      final localPath =
+          SvgaParserUtil.getLocalGiftSvgaPath(url, giftName: giftName);
       if (localPath != null || url.startsWith('assets/')) {
         return _SvgaLocalPlayer(
           key: ValueKey('${widget.animation.id}_svga_local'),
@@ -2390,8 +2622,7 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     }
 
     // 2. VAP / VPA / MP4 / PAG alpha-video format.
-    if (
-        (lowerUrl.contains('.vap') ||
+    if ((lowerUrl.contains('.vap') ||
         lowerUrl.contains('.vpa') ||
         lowerUrl.contains('.mp4') ||
         lowerUrl.contains('.pag') ||
@@ -2399,14 +2630,19 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
         fmt == 'vpa' ||
         fmt == 'mp4' ||
         fmt == 'pag')) {
-      final effectiveGId = widget.animation.giftId.isNotEmpty ? widget.animation.giftId : widget.animation.id;
-      final localVap = SvgaParserUtil.getLocalVapPath(url, giftId: effectiveGId, giftName: giftName);
+      final effectiveGId = widget.animation.giftId.isNotEmpty
+          ? widget.animation.giftId
+          : widget.animation.id;
+      final localVap = SvgaParserUtil.getLocalVapPath(url,
+          giftId: effectiveGId, giftName: giftName);
       return _VapNetworkPlayer(
         key: ValueKey('${widget.animation.id}_vap'),
         animationId: widget.animation.id,
         url: localVap ?? url,
         fallbackImageUrl: widget.animation.imageUrl,
-        durationMs: widget.animation.durationMs > 0 ? widget.animation.durationMs : widget.holdMs,
+        durationMs: widget.animation.durationMs > 0
+            ? widget.animation.durationMs
+            : widget.holdMs,
         holdMs: widget.holdMs,
         onComplete: widget.onComplete,
         onError: _handleError,
@@ -2415,7 +2651,12 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     }
 
     // 3. Static / Animated Image Format (PNG, JPG, WEBP, GIF)
-    if (lowerUrl.contains('.png') || lowerUrl.contains('.jpg') || lowerUrl.contains('.jpeg') || lowerUrl.contains('.gif') || lowerUrl.contains('.webp') || fmt == 'image') {
+    if (lowerUrl.contains('.png') ||
+        lowerUrl.contains('.jpg') ||
+        lowerUrl.contains('.jpeg') ||
+        lowerUrl.contains('.gif') ||
+        lowerUrl.contains('.webp') ||
+        fmt == 'image') {
       return _ImageGiftPlayer(
         key: ValueKey('${widget.animation.id}_image'),
         imageUrl: url.isNotEmpty ? url : (widget.animation.imageUrl ?? ''),
@@ -2426,8 +2667,11 @@ class _GiftAnimationPlayerState extends State<_GiftAnimationPlayer> {
     }
 
     // 4. Lottie JSON Format (Default)
-    final localLottiePath = SvgaParserUtil.getLocalLottiePath(url, giftName: giftName);
-    if (localLottiePath != null || (url.startsWith('assets/') && (url.endsWith('.json') || fmt == 'json'))) {
+    final localLottiePath =
+        SvgaParserUtil.getLocalLottiePath(url, giftName: giftName);
+    if (localLottiePath != null ||
+        (url.startsWith('assets/') &&
+            (url.endsWith('.json') || fmt == 'json'))) {
       return _LottieLocalPlayer(
         key: ValueKey('${widget.animation.id}_lottie_local'),
         assetPath: localLottiePath ?? url,
@@ -2466,6 +2710,7 @@ class _VapNetworkPlayer extends StatefulWidget {
   final String? animationId;
   final String? fallbackImageUrl;
   final int durationMs;
+
   /// If > 0, hold player alive for at least this long (luxury/medium full duration).
   final int holdMs;
   final VoidCallback onComplete;
@@ -2499,7 +2744,8 @@ class _VapNetworkPlayerState extends State<_VapNetworkPlayer> {
     final int baseMs = widget.durationMs > 0
         ? widget.durationMs
         : (widget.holdMs > 0 ? widget.holdMs : 6000);
-    final int startupMs = isLocal ? baseMs + 800 : math.max(baseMs + 2000, 5000);
+    final int startupMs =
+        isLocal ? baseMs + 800 : math.max(baseMs + 2000, 5000);
     _timer = Timer(Duration(milliseconds: startupMs), () {
       if (mounted) setState(() => _opacity = 0.0);
       widget.onComplete();
@@ -2604,16 +2850,19 @@ class _ImageGiftPlayerState extends State<_ImageGiftPlayer> {
         imageUrl: imgUrl,
         fit: BoxFit.contain,
         placeholder: (_, __) => const SizedBox(),
-        errorWidget: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 52),
+        errorWidget: (_, __, ___) =>
+            const Icon(Icons.card_giftcard, color: Colors.amber, size: 52),
       );
     } else if (imgUrl.startsWith('assets/')) {
       imageContent = Image.asset(
         imgUrl,
         fit: BoxFit.contain,
-        errorBuilder: (_, __, ___) => const Icon(Icons.card_giftcard, color: Colors.amber, size: 52),
+        errorBuilder: (_, __, ___) =>
+            const Icon(Icons.card_giftcard, color: Colors.amber, size: 52),
       );
     } else {
-      imageContent = const Icon(Icons.card_giftcard, color: Colors.amber, size: 52);
+      imageContent =
+          const Icon(Icons.card_giftcard, color: Colors.amber, size: 52);
     }
 
     return Center(
@@ -2624,9 +2873,13 @@ class _ImageGiftPlayerState extends State<_ImageGiftPlayer> {
           Positioned(
             top: 6,
             right: 12,
-            child: const Icon(Icons.auto_awesome, color: Color(0xFFFFEB3B), size: 18)
+            child: const Icon(Icons.auto_awesome,
+                    color: Color(0xFFFFEB3B), size: 18)
                 .animate(onPlay: (c) => c.repeat(reverse: true))
-                .scale(begin: const Offset(0.6, 0.6), end: const Offset(1.2, 1.2), duration: 600.ms)
+                .scale(
+                    begin: const Offset(0.6, 0.6),
+                    end: const Offset(1.2, 1.2),
+                    duration: 600.ms)
                 .rotate(begin: 0, end: 0.25, duration: 800.ms),
           ),
           Positioned(
@@ -2634,7 +2887,10 @@ class _ImageGiftPlayerState extends State<_ImageGiftPlayer> {
             left: 10,
             child: const Icon(Icons.star, color: Color(0xFFFFD700), size: 14)
                 .animate(onPlay: (c) => c.repeat(reverse: true))
-                .scale(begin: const Offset(0.5, 0.5), end: const Offset(1.1, 1.1), duration: 700.ms),
+                .scale(
+                    begin: const Offset(0.5, 0.5),
+                    end: const Offset(1.1, 1.1),
+                    duration: 700.ms),
           ),
 
           // 3. Main gift icon with spring entrance, gentle floating bob, and dissolve
@@ -2678,6 +2934,7 @@ class _ImageGiftPlayerState extends State<_ImageGiftPlayer> {
 class _SvgaLocalPlayer extends StatefulWidget {
   final String assetPath;
   final bool hasCustomSound;
+
   /// If > 0, hold player alive for at least this long (luxury/medium full duration).
   final int holdMs;
   final VoidCallback onComplete;
@@ -2697,7 +2954,8 @@ class _SvgaLocalPlayer extends StatefulWidget {
   State<_SvgaLocalPlayer> createState() => _SvgaLocalPlayerState();
 }
 
-class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerProviderStateMixin {
+class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer>
+    with SingleTickerProviderStateMixin {
   SVGAAnimationController? _controller;
   bool _isLoading = true;
   bool _isDisposed = false;
@@ -2715,13 +2973,15 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
       _isLoading = false;
       _controller?.forward(from: 0.0).whenComplete(() {
         if (!_isDisposed && mounted) {
-          debugPrint("[SVGAPlayer] Local SVGA controller finished forward pass.");
+          debugPrint(
+              "[SVGAPlayer] Local SVGA controller finished forward pass.");
           _completeTimer?.cancel();
           widget.onComplete();
         }
       });
       widget.onStart?.call();
-      final cachedAudios = SvgaParserUtil.getCachedPreparedAudios(widget.assetPath);
+      final cachedAudios =
+          SvgaParserUtil.getCachedPreparedAudios(widget.assetPath);
       if (cachedAudios != null && !widget.hasCustomSound) {
         _playPreparedAudios(cachedAudios);
       }
@@ -2746,7 +3006,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
     } catch (_) {}
 
     final int effectiveFps = fps > 0 ? fps : 30;
-    final int durationMs = (_controller?.duration != null && _controller!.duration!.inMilliseconds > 0)
+    final int durationMs = (_controller?.duration != null &&
+            _controller!.duration!.inMilliseconds > 0)
         ? _controller!.duration!.inMilliseconds
         : ((frames > 0 && effectiveFps > 0)
             ? ((frames / effectiveFps) * 1000).toInt()
@@ -2759,7 +3020,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
     _completeTimer?.cancel();
     _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {
       if (!_isDisposed && mounted) {
-        debugPrint("[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.assetPath}");
+        debugPrint(
+            "[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.assetPath}");
         widget.onComplete();
       }
     });
@@ -2767,7 +3029,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
 
   void _loadAnimation() async {
     try {
-      final videoItem = await SvgaParserUtil.decodeSafeFromAssets(widget.assetPath);
+      final videoItem =
+          await SvgaParserUtil.decodeSafeFromAssets(widget.assetPath);
       if (_isDisposed || !mounted) return;
 
       int fps = 0;
@@ -2787,7 +3050,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
       // Pre-extract audios BEFORE starting video so audio and video start in 100% lockstep
       final preparedAudios = widget.hasCustomSound
           ? <PreparedSvgaAudio>[]
-          : await SvgaParserUtil.getPreparedAudios(videoItem, widget.assetPath, effectiveFps);
+          : await SvgaParserUtil.getPreparedAudios(
+              videoItem, widget.assetPath, effectiveFps);
 
       if (_isDisposed || !mounted) return;
 
@@ -2796,7 +3060,8 @@ class _SvgaLocalPlayerState extends State<_SvgaLocalPlayer> with SingleTickerPro
         _isLoading = false;
         _controller?.forward(from: 0.0).whenComplete(() {
           if (!_isDisposed && mounted) {
-            debugPrint("[SVGAPlayer] Local SVGA controller finished forward pass.");
+            debugPrint(
+                "[SVGAPlayer] Local SVGA controller finished forward pass.");
             _completeTimer?.cancel();
             widget.onComplete();
           }
@@ -2868,7 +3133,8 @@ class _FallbackImagePlayer extends StatefulWidget {
   State<_FallbackImagePlayer> createState() => _FallbackImagePlayerState();
 }
 
-class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleTickerProviderStateMixin {
+class _FallbackImagePlayerState extends State<_FallbackImagePlayer>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _scaleAnimation;
   late final Animation<double> _rotationAnimation;
@@ -2885,11 +3151,13 @@ class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleT
 
     _scaleAnimation = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween<double>(begin: 0.8, end: 1.2).chain(CurveTween(curve: Curves.elasticOut)),
+        tween: Tween<double>(begin: 0.8, end: 1.2)
+            .chain(CurveTween(curve: Curves.elasticOut)),
         weight: 50,
       ),
       TweenSequenceItem(
-        tween: Tween<double>(begin: 1.2, end: 0.8).chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween<double>(begin: 1.2, end: 0.8)
+            .chain(CurveTween(curve: Curves.easeIn)),
         weight: 50,
       ),
     ]).animate(_controller);
@@ -2938,8 +3206,10 @@ class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleT
                           width: 100,
                           height: 100,
                           fit: BoxFit.contain,
-                          placeholder: (context, url) => const CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFFD700)),
+                          placeholder: (context, url) =>
+                              const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFFFFD700)),
                           ),
                           errorWidget: (context, url, error) => const Icon(
                             Icons.card_giftcard,
@@ -2953,7 +3223,8 @@ class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleT
                               width: 100,
                               height: 100,
                               fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) => const Icon(
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const Icon(
                                 Icons.card_giftcard,
                                 color: Color(0xFFFFD700),
                                 size: 80,
@@ -2976,6 +3247,7 @@ class _FallbackImagePlayerState extends State<_FallbackImagePlayer> with SingleT
 class _SvgaNetworkPlayer extends StatefulWidget {
   final String url;
   final bool hasCustomSound;
+
   /// If > 0, hold player alive for at least this long (luxury/medium full duration).
   final int holdMs;
   final VoidCallback onComplete;
@@ -2995,7 +3267,8 @@ class _SvgaNetworkPlayer extends StatefulWidget {
   State<_SvgaNetworkPlayer> createState() => _SvgaNetworkPlayerState();
 }
 
-class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTickerProviderStateMixin {
+class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer>
+    with SingleTickerProviderStateMixin {
   SVGAAnimationController? _controller;
   bool _isLoading = true;
   bool _isDisposed = false;
@@ -3015,7 +3288,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
       _isLoading = false;
       _controller?.forward(from: 0.0).whenComplete(() {
         if (!_isDisposed && mounted) {
-          debugPrint("[SVGAPlayer] Network SVGA controller finished forward pass.");
+          debugPrint(
+              "[SVGAPlayer] Network SVGA controller finished forward pass.");
           _completeTimer?.cancel();
           widget.onComplete();
         }
@@ -3047,7 +3321,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
     } catch (_) {}
 
     final int effectiveFps = fps > 0 ? fps : 30;
-    final int durationMs = (_controller?.duration != null && _controller!.duration!.inMilliseconds > 0)
+    final int durationMs = (_controller?.duration != null &&
+            _controller!.duration!.inMilliseconds > 0)
         ? _controller!.duration!.inMilliseconds
         : ((frames > 0 && effectiveFps > 0)
             ? ((frames / effectiveFps) * 1000).toInt()
@@ -3060,7 +3335,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
     _completeTimer?.cancel();
     _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {
       if (!_isDisposed && mounted) {
-        debugPrint("[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.url}");
+        debugPrint(
+            "[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.url}");
         widget.onComplete();
       }
     });
@@ -3083,7 +3359,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
           fps = v.fps ?? 0;
         }
       } catch (e) {
-        debugPrint("[SVGAPlayer] Failed to get SVGA frames/fps from params: $e");
+        debugPrint(
+            "[SVGAPlayer] Failed to get SVGA frames/fps from params: $e");
       }
 
       final int effectiveFps = fps > 0 ? fps : 30;
@@ -3091,7 +3368,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
       // Pre-extract audios BEFORE starting video so audio and video start in 100% lockstep
       final preparedAudios = widget.hasCustomSound
           ? <PreparedSvgaAudio>[]
-          : await SvgaParserUtil.getPreparedAudios(videoItem, widget.url, effectiveFps);
+          : await SvgaParserUtil.getPreparedAudios(
+              videoItem, widget.url, effectiveFps);
 
       if (_isDisposed || !mounted) return;
 
@@ -3100,7 +3378,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
         _isLoading = false;
         _controller?.forward(from: 0.0).whenComplete(() {
           if (!_isDisposed && mounted) {
-            debugPrint("[SVGAPlayer] Network SVGA controller finished forward pass.");
+            debugPrint(
+                "[SVGAPlayer] Network SVGA controller finished forward pass.");
             _completeTimer?.cancel();
             widget.onComplete();
           }
@@ -3110,13 +3389,15 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
 
       _playPreparedAudios(preparedAudios);
 
-      final int durationMs = (_controller?.duration != null && _controller!.duration!.inMilliseconds > 0)
+      final int durationMs = (_controller?.duration != null &&
+              _controller!.duration!.inMilliseconds > 0)
           ? _controller!.duration!.inMilliseconds
           : ((frames > 0 && effectiveFps > 0)
               ? ((frames / effectiveFps) * 1000).toInt()
               : 8500);
 
-      debugPrint("[SVGAPlayer] Playing SVGA: ${widget.url} for duration: ${durationMs}ms (frames: $frames, fps: $effectiveFps, audios: ${preparedAudios.length})");
+      debugPrint(
+          "[SVGAPlayer] Playing SVGA: ${widget.url} for duration: ${durationMs}ms (frames: $frames, fps: $effectiveFps, audios: ${preparedAudios.length})");
 
       final int watchdogMs = math.max(
         durationMs + 1200,
@@ -3125,7 +3406,8 @@ class _SvgaNetworkPlayerState extends State<_SvgaNetworkPlayer> with SingleTicke
       _completeTimer?.cancel();
       _completeTimer = Timer(Duration(milliseconds: watchdogMs), () {
         if (!_isDisposed && mounted) {
-          debugPrint("[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.url}");
+          debugPrint(
+              "[SVGAPlayer] Safety watchdog timer fired after ${watchdogMs}ms for ${widget.url}");
           widget.onComplete();
         }
       });
@@ -3197,7 +3479,19 @@ class SvgaCache {
 
 class LottieCache {
   static final Map<String, LottieComposition> _cache = {};
+  static final List<String> _cacheKeys = [];
+  static const int _maxCacheSize = 20;
   static final Set<String> _loading = {};
+
+  static void _recordCache(String key, LottieComposition composition) {
+    _cache[key] = composition;
+    _cacheKeys.remove(key);
+    _cacheKeys.add(key);
+    while (_cacheKeys.length > _maxCacheSize) {
+      final oldest = _cacheKeys.removeAt(0);
+      _cache.remove(oldest);
+    }
+  }
 
   static LottieComposition? getCached(String keyOrPath) {
     return _cache[keyOrPath.trim()];
@@ -3214,12 +3508,12 @@ class LottieCache {
         return _cache[cleanUrl]!;
       }
     }
-    
+
     _loading.add(cleanUrl);
     try {
       final file = await AppPersistentCache.getFile(cleanUrl);
       final composition = await FileLottie(file).load();
-      _cache[cleanUrl] = composition;
+      _recordCache(cleanUrl, composition);
       return composition;
     } finally {
       _loading.remove(cleanUrl);
@@ -3245,11 +3539,11 @@ class LottieCache {
         return _cache[cleanPath]!;
       }
     }
-    
+
     _loading.add(cleanPath);
     try {
       final composition = await AssetLottie(cleanPath).load();
-      _cache[cleanPath] = composition;
+      _recordCache(cleanPath, composition);
       return composition;
     } finally {
       _loading.remove(cleanPath);
@@ -3260,7 +3554,8 @@ class LottieCache {
     try {
       await loadLocal(assetPath);
     } catch (e) {
-      debugPrint("Background local Lottie preloading failed for $assetPath: $e");
+      debugPrint(
+          "Background local Lottie preloading failed for $assetPath: $e");
     }
   }
 }
@@ -3268,6 +3563,7 @@ class LottieCache {
 class _LottieNetworkPlayer extends StatefulWidget {
   final String url;
   final bool hasCustomSound;
+
   /// If > 0, keep visible until this hold expires (so short compositions stay on screen).
   final int holdMs;
   final VoidCallback onComplete;
@@ -3287,7 +3583,8 @@ class _LottieNetworkPlayer extends StatefulWidget {
   State<_LottieNetworkPlayer> createState() => _LottieNetworkPlayerState();
 }
 
-class _LottieNetworkPlayerState extends State<_LottieNetworkPlayer> with SingleTickerProviderStateMixin {
+class _LottieNetworkPlayerState extends State<_LottieNetworkPlayer>
+    with SingleTickerProviderStateMixin {
   LottieComposition? _composition;
   bool _isLoading = true;
   bool _isDisposed = false;
@@ -3377,6 +3674,7 @@ class _LottieLocalPlayer extends StatefulWidget {
   final String assetPath;
   final String originalUrl;
   final bool hasCustomSound;
+
   /// If > 0, keep visible until this hold expires (so short compositions stay on screen).
   final int holdMs;
   final VoidCallback onComplete;
@@ -3397,7 +3695,8 @@ class _LottieLocalPlayer extends StatefulWidget {
   State<_LottieLocalPlayer> createState() => _LottieLocalPlayerState();
 }
 
-class _LottieLocalPlayerState extends State<_LottieLocalPlayer> with SingleTickerProviderStateMixin {
+class _LottieLocalPlayerState extends State<_LottieLocalPlayer>
+    with SingleTickerProviderStateMixin {
   LottieComposition? _composition;
   bool _isLoading = true;
   bool _isDisposed = false;
@@ -3466,7 +3765,8 @@ class _LottieLocalPlayerState extends State<_LottieLocalPlayer> with SingleTicke
     if (matchedSoundUrl != null) {
       try {
         final cached = _cachedSoundFiles[matchedSoundUrl];
-        final file = cached ?? await AppPersistentCache.getFile(matchedSoundUrl);
+        final file =
+            cached ?? await AppPersistentCache.getFile(matchedSoundUrl);
         _cachedSoundFiles[matchedSoundUrl] = file;
         if (!_isDisposed && mounted) {
           await _GiftAudioPool.playFile(file.path);

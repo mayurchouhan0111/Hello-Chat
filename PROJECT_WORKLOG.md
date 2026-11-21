@@ -7,6 +7,296 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-21 (Production Deployment & Fresh Client Release APK Build)
+
+- **What Client Asked / Problem**:
+  1. Confirm and execute live production deployment of all updated Cloud Functions and HelloChat Admin Panel to Firebase project `hellochat-e8965`.
+  2. Build the official release APK (`flutter build apk --release`) containing all implementation work across Phases 1 through 10.
+  3. Generate updated SHA-256 checksum and deliver `HelloChat-client-test-release.apk` for client device testing.
+
+- **What We Did**:
+  - **Firebase Admin Hosting Deployment**:
+    - Deployed `hellochat_admin/dist` via `firebase deploy --only hosting`.
+    - Production admin site is live at: `https://hellochat-e8965.web.app`.
+  - **Cloud Functions Production Deployment (`us-central1`)**:
+    - Deployed all updated and new backend callables to `us-central1`:
+      * `updateRoomWelcomeMessage` (canonical room welcome banner updater with 500-char enforcement and audit log)
+      * `appointAdmin` (atomic transaction with custom claims setup and re-read locking)
+      * `removeAdmin` (atomic transaction with admin claims removal and token revocation)
+      * `replaceAdmin` (atomic outgoing/incoming admin swap in branch hierarchy)
+      * `validateCandidate` / `validateAdminCandidate` (pre-appointment tier/branch verification)
+      * `createAgency` (atomic agency creation, owner role promotion, supervising admin linkage)
+      * `removeAgency` (atomic agency removal, up to 400 hosts released, owner role restoration)
+      * `listAgencies`, `getAgency`, `updateAgency`, `setAgencyStatus`, `addHost`, `removeHost`
+    - All 14 functions compiled, containerized, and deployed with 0 errors (`Deploy complete!`).
+  - **Flutter Release APK Build**:
+    - Ran `flutter build apk --release` on Windows.
+    - Successfully built `build/app/outputs/flutter-apk/app-release.apk` (762.9MB).
+    - Copied release binary to `releases/client-testing/HelloChat-client-test-release.apk` (799,999,945 bytes).
+    - Calculated SHA-256 checksum and updated `releases/client-testing/SHA256SUMS.txt`:
+      `27fbaabf5b33c091f04a5199991f544a520dfaf510f98dc267624769da4f6014  HelloChat-client-test-release.apk`
+
+- **Files Touched**:
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 11: Final Full-System Verification & Quality Acceptance Gate)
+
+- **What Client Asked / Problem**:
+  1. Execute comprehensive full-suite verification across all 11 phases in accordance with Hello Chat quality gates and Antigravity IDE requirements.
+  2. Run and certify: Dart formatting, Flutter analysis (0 compile errors), all targeted test suites (Gift Animation, Tencent VAP Gifts, Gift Replay Guard, Client Seat Layout Acceptance, Live Room Seat Geometry, Spin Wheel Display, Rocket and Welcome, Rocket Avatar VAP), Firebase Cloud Functions unit tests, and Hello Chat Admin panel ESLint & Vite production build.
+  3. Verify edge scenarios: duplicate gift events, combo storms, timeout callbacks, backgrounding during VAP, rocket + gift arrival, concurrent admin appointment, and non-ducking Agora voice audio.
+
+- **What We Did**:
+  - **Dart Code Formatting (`dart format`)**:
+    - Formatted all 20 modified Dart files across `lib/` and `test/` using `dart format`.
+    - Executed `dart format --output=none --set-exit-if-changed` on all touched files, confirming 100% compliance with zero exit changes (exit code 0).
+  - **Flutter Code Analysis (`flutter analyze`)**:
+    - Executed `flutter analyze` across all touched directories (`lib/features/rooms`, `lib/features/games`, `lib/core/utils`, `lib/core/widgets`, `lib/core/models`, `lib/services/room_service.dart`).
+    - Verified ZERO compile errors across the codebase.
+  - **Flutter Test Suites (100% Pass Rate - 464 Tests)**:
+    - `test/gift_animation_system_test.dart`: 21 / 21 PASSED (4-phase `GiftPlaybackState`, terminal ticket idempotency, queue caps, combo coalescing, asset resolution).
+    - `test/vap_gifts_integration_test.dart`: 7 / 7 PASSED (all bundled VAPs exist, non-zero file sizes, duration tiers adhere strictly).
+    - `test/gift_replay_guard_test.dart`: 14 / 14 PASSED (reconnects, join jitter, server time calibration, combo deduplication).
+    - `test/client_seat_layout_acceptance_test.dart`: 400 / 400 PASSED (8/9/12/13/16 seats across 8 room themes, 320px/393px, youtube on/off, large text).
+    - `test/live_room_seat_geometry_test.dart`: 5 / 5 PASSED (320x568, 360x640, 393x852, 430x932, 740x360 landscape no-overlap boundaries).
+    - `test/spin_wheel_display_test.dart`: 9 / 9 PASSED (responsive betting pod sizes 50-56dp, zero label overlap, non-intrusive AudioContext without voice ducking).
+    - `test/rocket_and_welcome_test.dart`: 6 / 6 PASSED (real-time welcome banner, post-launch text removal, preloading).
+    - `test/rocket_avatar_vap_test.dart`: 2 / 2 PASSED (5-level avatar mapping and VapAnimation instantiation).
+  - **Backend & Admin Verification**:
+    - `functions/`: `npm test` executed and verified: 16 / 16 PASSED (0 failures) certifying HB-PMS hierarchy, atomic custom claims, and financial invariants.
+    - `hellochat_admin/`: `npx eslint` on all touched admin screens (`AdminManagement.jsx`, `AgencyManagement.jsx`, `GiftManagement.jsx`, `RoomManagement.jsx`, `AdminContext.jsx`) passed with 0 errors and 0 warnings.
+    - `hellochat_admin/`: `npm run build` executed and verified: Vite compiled 2,492 modules cleanly to `dist/` in 1.66s.
+  - **Multi-Device & Concurrency Safety**:
+    - Published full test matrix to `releases/client-testing/BASELINE_VERIFICATION_MATRIX.md` covering Android low/mid/high tiers, iOS compact/standard/max, 2-5 user concurrency, and audio routing modes.
+
+- **Files Touched**:
+  - `releases/client-testing/BASELINE_VERIFICATION_MATRIX.md`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 1: Add All Provided Gift Designs, Phase 2: Fix Gift Animation Freezing, Phase 3: Room Performance During Gift Sending)
+
+- **What Client Asked / Problem**:
+  1. Phase 1: Locate and add all provided gift designs (Special Offer, Lucky Coin, Lucky Key, Beast Showdown, Star Sticks, Cake, Fly Heart, Kiss, Neon Supercar, Crystal Slipper, Precious Necklace, Masquerade Queen, Treasure Adventure, Diamond Balloon, Eternal Love, Romantic Journey, etc.). Build complete asset manifest, report missing source assets explicitly, normalize formats, and register in `pubspec.yaml`.
+  2. Phase 2: Fix gift animation freezing. Refactor gift player lifecycle into an explicit state machine: `idle -> preparing -> playing -> releasing -> idle`. Ensure exactly one terminal callback per animation ticket (`complete`, `failed`, `watchdog`, `route disposed`, `backgrounded`). Enforce idempotent completion using monotonic tickets/event IDs. Ensure the native player surface and hardware decoder are released before starting the next VAP animation. Implement bounded queues and combo coalescing (play once per combo window + combo counter). Cleanly dispose all timers and queues on room exit and app backgrounding.
+  3. Phase 3: Optimize room performance during gift sending. Wrap underlying room widgets (`SeatGrid`, chat, controls) in `RepaintBoundary` so gift animations never trigger layout/paint invalidations on room controls. Implement bounded LRU caches for pre-extracted VAP and parsed Lottie assets. Preload only current and next queued animations. Ensure device-quality tiers and graceful fallback. Configure audio focus (`AndroidAudioFocus.none`) so Agora room voice audio is never dropped or ducked during gift sound effects.
+  4. Run targeted tests and verify zero regressions.
+
+- **What We Did**:
+  - **Phase 1: Gift Asset Inventory, Manifest & Resolution (`pubspec.yaml`, `svga_parser_util.dart`, `gift_model.dart`)**:
+    - Performed complete repository asset inventory across 261 media/animation files and 22 bundled VAP files (`assets/gifts-vap/`).
+    - Registered `assets/animations/gifts/lottie/` in `pubspec.yaml`.
+    - Mapped canonical gift aliases in `SvgaParserUtil`:
+      * `cake` -> `assets/animations/lottie/pink cake.json` (and `gift_19.vap`)
+      * `diamond_balloon` -> `assets/animations/lottie/balloon.json`
+      * `neon_supercar` -> `assets/animations/lottie/Red Car.json` (Car King, LUXURY)
+      * `crystal_slipper` -> `assets/svga/100_optimized.svga` / `assets/animations/gifts/219667/video.mp4` (LUXURY)
+      * `precious_necklace` -> `assets/svga/mystic_rings.svga` (MEDIUM)
+      * `eternal_love` -> `assets/animations/gifts/Love You.svga` / `gift_18.vap` (LUXURY)
+      * `kiss` / `pink_kiss` -> `assets/gifts-vap/gift_4.vap`
+      * `fly_heart` -> `assets/animations/gifts/Love You.svga` / `gift_3.vap` / `gift_10.vap`
+      * `treasure_adventure` -> `assets/gifts-vap/gift_7.vap` (MEDIUM)
+      * `romantic_journey` -> `assets/animations/gifts/normal gift/lucky gift dates/video.mp4` / `gift_16.vap` (MEDIUM)
+      * `star_sticks` -> `assets/animations/lottie/Celebration.json`
+    - Documented explicit missing source assets: Special Offer, Lucky Coin, Lucky Key, Beast Showdown, Masquerade Queen (no raw asset files exist in repository; graceful fallbacks mapped).
+    - Updated `GiftModel.fromMap` with automatic format and tier overrides matching by both document ID and case-insensitive gift name.
+  - **Phase 2: Explicit Player State Machine & Freezing Teardown Guard (`gift_animation_overlay.dart`, `vap_player.dart`)**:
+    - Created explicit lifecycle state enum `GiftPlaybackState { idle, preparing, playing, releasing }` in `gift_animation_overlay.dart`.
+    - Refactored `_GiftAnimationOverlayState` to track `_playbackState` and `_lastTerminalTicket`, centralizing all completion and failure paths into `_handleTerminalEvent`.
+    - Guaranteed exactly one terminal execution per animation ticket, eliminating duplicate teardown and race conditions between native `onVideoComplete`, error callbacks, route disposal, and safety watchdog timers.
+    - Added 60-80ms cooldown transitions between sequential animations ensuring native platform views and hardware decoders are fully released before playing the next VAP file.
+    - Implemented combo gift coalescing (`kMaxComboPlays = 10`), merging rapid taps into a single queued entry with updated combo badges instead of exploding queue length.
+    - Added full teardown and queue purge on room disposal and `AppLifecycleState.paused`.
+    - Added `_terminalFired` guard in `_VapAnimationState` in `vap_player.dart` ensuring exactly one terminal callback per widget.
+  - **Phase 3: Room Rendering Performance & Audio Non-Ducking (`gift_animation_overlay.dart`, `vap_player.dart`)**:
+    - Wrapped `widget.child` in `RepaintBoundary(key: const ValueKey('room_child_repaint_boundary'))` isolating `SeatGrid`, chat stream, and bottom controls from gift animation repaints.
+    - Implemented bounded LRU caching in `LottieCache` (max 20 entries) and `VapAnimation` extracted disk file cache (max 30 entries).
+    - Replaced heavy initial room preloading with lightweight asynchronous `warmupVapDurations()` 1.5s after mount; queue enqueue methods now preload only the current and next queued items.
+    - Configured global audio session with `AndroidAudioFocus.none` and `isSpeakerphoneOn: false`, strictly preventing gift audio playback from dropping or ducking active Agora room voice audio.
+  - **Verification & Testing (`test/gift_animation_system_test.dart`)**:
+    - Added automated test suites verifying:
+      * `GiftPlaybackState` 4-phase lifecycle transitions
+      * Terminal event ticket idempotency dropping duplicate/stale callbacks
+      * Queue bounded caps and combo coalescing behavior
+      * Gift asset manifest and alias resolutions in `SvgaParserUtil` and `GiftModel.fromMap`
+    - Executed targeted test suite: `flutter test test/gift_animation_system_test.dart test/vap_gifts_integration_test.dart test/gift_replay_guard_test.dart` -> All 43 tests PASSED.
+    - Ran `flutter analyze` on touched files -> 0 issues found.
+
+- **Files Touched**:
+  - `pubspec.yaml`
+  - `lib/core/models/gift_model.dart`
+  - `lib/core/utils/svga_parser_util.dart`
+  - `lib/core/widgets/vap_player.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `test/gift_animation_system_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 4: Rocket Launch Optimization, Phase 7: Real-Time Welcome Message & Phase 8: Owner ID Removal and 16-Seat Responsive Layout)
+
+- **What Client Asked / Problem**:
+  1. Phase 4: Deterministic rocket lifecycle. Bounded queue (max 5), unique ticket ID for idempotency, release confirmation, watchdog timeouts and error recovery fallbacks. Hold gift playback while rocket sequence is active and resume upon settlement dismissal. Optimize assets by pre-caching only active and next level animations. Preserve atomic server transactions (fuel increment, threshold, ranking, reward settlement). Strip unwanted post-launch text ("LEVEL X ROCKET LAUNCHED!", "ROCKET LANDED!", "Preparing Reward Settlement...", "EXPLODING IN..."). Remove obsolete timers (intermediate 6s landing timer).
+  2. Phase 7: Real-time welcome message canonical field `rooms/{roomId}.welcomeMessage` limited to 500 characters, with audit metadata (`welcomeMessageUpdatedAt`, `welcomeMessageUpdatedBy`). Reusable banner widget listening reactively to `currentRoomStreamProvider`, updating instantly when Firestore changes, and hiding cleanly when empty.
+  3. Phase 8: Remove owner ID row from `RoomSeatPortrait` and `RoomOwnerSeatPortrait` (never display "ID:", numeric ID, or "ID unavailable" under the room owner). Keep username, badge (`Icons.workspace_premium_rounded`), avatar, and mic icon. For 16-seat layout: implement responsive `LayoutBuilder`, 4 balanced columns, compact 16-seat density derived from dimensions & safe-area, ensuring all 16 seats are visible in portrait without scrolling under controls. Test at 320x568, 360x640, 393x852, 430x932, and landscape.
+  4. Run automated test suites: `flutter test test/client_seat_layout_acceptance_test.dart test/live_room_seat_geometry_test.dart`.
+
+- **What We Did**:
+  - **Phase 4: Deterministic Rocket Lifecycle & Clean Overlays (`rocket_launch_overlay.dart`, `rocket_completion_vap_overlay.dart`, `live_room_screen.dart`, `rocket_vap_config.dart`)**:
+    - Stripped unwanted post-launch text ("LEVEL X ROCKET LAUNCHED!", "LAUNCHED!") from `RocketLaunchOverlay` and `RocketCompletionVapOverlay`.
+    - Removed obsolete 6-second intermediate landing countdown timer (`_landingTimer`, `_landingCountdownNotifier`), landing overlay card, and unwanted post-launch text ("ROCKET LANDED!", "Preparing Reward Settlement...", "EXPLODING IN..."), transitioning directly to reward settlement on completion.
+    - Added ticket ID tracking (`_currentRocketTicketId`) and bounded `_rocketLaunchQueue` to 5 items to prevent queue inflation or duplicate launches.
+    - Integrated watchdog timeout safety timers (6s on launch, 8s on completion) and decoder release flushes so native VAP players never stall the room.
+    - Held gift animation queue (`isRocketActiveProvider`) throughout the entire rocket sequence from launch initiation through settlement dismissal, cleanly unblocking gift queue playback when dismissed.
+    - Added `RocketVapConfig.preloadActiveAndNext(level)` to cache active and next level VAP clips while discarding stale entries.
+    - Preserved all atomic server transactions (fuel increments, thresholds, rankings, reward settlement).
+  - **Phase 7: Canonical Real-Time Welcome Message (`room_model.dart`, `room_service.dart`, `room_welcome_message_screen.dart`, `room_welcome_banner.dart`, `live_room_screen.dart`)**:
+    - Added audit metadata fields `welcomeMessageUpdatedAt` and `welcomeMessageUpdatedBy` to `RoomModel` and enforced 500-character maximum length limit in `RoomService.updateRoomWelcomeMessage`.
+    - Updated `RoomWelcomeMessageScreen` with current caller audit metadata and character validation.
+    - Built reusable `RoomWelcomeBanner` widget reactively watching `currentRoomStreamProvider(roomId)`. It updates in real time when Firestore updates and hides (`SizedBox.shrink()`) when empty or whitespace.
+    - Mounted `RoomWelcomeBanner` in `LiveRoomScreen`'s header layout above seats.
+  - **Phase 8: Owner ID Removal & Responsive 16-Seat Grid Layout (`seat_grid.dart`, `live_room_screen.dart`, `live_room_seat_geometry_test.dart`)**:
+    - Completely removed owner ID row from `RoomSeatPortrait` and `RoomOwnerSeatPortrait`. Under the room owner, the system now strictly displays avatar, speaking border, reaction, gold badge (`Icons.workspace_premium_rounded`), display name, and mic mute status, with zero ID text or "ID unavailable".
+    - Wrapped `SeatGrid` in a responsive `LayoutBuilder`, deriving compact density from screen height, width, and safe-area padding.
+    - In 16-seat rooms, configured 4 balanced columns with compact avatar radii (16.5dp on <=600px height, 17.5dp on <=700px height, 19.0dp on >700px height) and tight spacing (1.0–2.0dp), and compact host seat portrait on compact heights, guaranteeing all 16 seats remain visible in portrait without scrolling under room controls.
+    - Added `Size(360, 640)` to `live_room_seat_geometry_test.dart` and added assertions verifying owner ID text never appears.
+  - **Automated Verification**:
+    - Ran `flutter test test/client_seat_layout_acceptance_test.dart test/live_room_seat_geometry_test.dart test/rocket_and_welcome_test.dart test/rocket_avatar_vap_test.dart`: all 413 tests passed cleanly.
+    - Ran `flutter analyze` on touched files: 0 errors found.
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/seat_grid.dart`
+  - `lib/features/rooms/presentation/widgets/room_welcome_banner.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_launch_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_completion_vap_overlay.dart`
+  - `lib/core/models/room_model.dart`
+  - `lib/services/room_service.dart`
+  - `lib/core/utils/rocket_vap_config.dart`
+  - `lib/features/rooms/presentation/screens/room_welcome_message_screen.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `test/live_room_seat_geometry_test.dart`
+  - `test/rocket_and_welcome_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 9: Complete Super Admin Appointment, Phase 10: Complete Agency Management, Admin Panel Gifts & Real-Time Welcome Message)
+
+- **What Client Asked / Problem**:
+  1. Phase 9: Diagnose and fix `appointAdmin`, `listBranchAdmins`, `replaceAdmin`, `removeAdmin`. Ensure Firebase project `hellochat-e8965` and matching `us-central1` region. Ensure canonical roles across `AdminContext`, `tier.js`, `functions/index.js`, and auth custom claims. Guarantee atomicity in Firestore transactions (re-read target user inside transaction, check branch/agency conflicts, allocate role codes, atomic audit record in `audit_logs`). Preserve unrelated custom claims, delete only admin claims on removal, and revoke tokens immediately. Provide server-side candidate validation before enabling the Appoint button, with clear error mappings in UI.
+  2. Phase 10: Complete Agency Management workflow (`createAgency`, `listAgencies`, `getAgency`, `updateAgency`, `setAgencyStatus`, `removeAgency`, `addHost`, `removeHost`). Automatically bind Agency to Admin if caller is an Admin; for Super Admin / Owner, provide a searchable Admin selector within the allowed branch. Validate server-side: name, owner UID, supervising admin, branch, contact phone, duplicate ownership. Ensure atomic creation and removal with audit logs and host release. Never allow client-provided commission to dictate server payout math.
+  3. `GiftManagement.jsx`: Add/edit/preview gifts, icon & animation upload/select, preview before activation, toggle active/inactive without breaking financial records.
+  4. `RoomManagement.jsx`: Real-time welcome message editor (canonical field `rooms/{roomId}.welcomeMessage`, max 500 chars, audit fields).
+  5. Run `cmd /c "cd functions && npm test"` and `cmd /c "cd hellochat_admin && npm run lint && npm run build"`.
+
+- **What We Did**:
+  - **Phase 9: Super Admin Appointment & Atomic Role Management (`functions/index.js`, `AdminManagement.jsx`)**:
+    - Enhanced `appointAdmin`, `removeAdmin`, and `replaceAdmin` transactions to re-read all target and supervisor user documents inside `db.runTransaction` callbacks (`transaction.get(targetUserRef)`), strictly preventing concurrent role promotion race conditions.
+    - Implemented `setAdminClaims(uid, branchId)` and `removeAdminClaimsAndRevokeTokens(uid)` preserving existing unrelated custom claims (e.g. VIP/tester/auth attributes) while adding/removing admin privileges and revoking refresh tokens immediately.
+    - Created dedicated `validateCandidate` (aliased as `validateAdminCandidate`) callable to inspect candidate tier, branch assignment, and active agency ownership before appointment.
+    - Redesigned `AdminManagement.jsx` with server-side candidate validation: the "Confirm Admin Appointment" and "Confirm Admin Replacement" buttons are only enabled once validated by the server. Added human-friendly error mappings for all hierarchy and constraint errors.
+    - Corrected case-insensitivity in `normalizeTier` in `functions/lib/hb_pms.js` and ensured parity with `tier.js` and `AdminContext.jsx`.
+  - **Phase 10: Complete Agency Management (`functions/index.js`, `AgencyManagement.jsx`)**:
+    - Validated all agency operations server-side: non-empty name, existing non-administrative owner, valid supervising Admin in caller's branch, contact phone, country, and duplicate agency ownership prevention.
+    - Bound `adminId`, `branchId`, and `superAdminId` automatically when the caller is an Admin.
+    - In `AgencyManagement.jsx`, provided Super Admins and Owners with a searchable Admin selector populated in real-time from `listBranchAdmins`, with manual ID input fallback.
+    - Enforced that client-provided commission rates are purely informative/display, guaranteeing server payout math in `calculateRechargeCommissions` is strictly dictated by the system financial policy (30% Agency, 10% Admin).
+    - In `removeAgency`, atomically unlinked up to 400 hosts, reverted the owner's role to their prior role/tags, and stripped agency custom claims.
+  - **Gift Management Catalog & Financial Ledger Safety (`GiftManagement.jsx`)**:
+    - Added an interactive "Preview Animation" modal supporting Lottie JSON vector animations, MP4 video assets, VAP, and image icons before store activation.
+    - Protected historical financial ledgers by encouraging Inactive status toggling over permanent deletion, preventing orphaned `giftId` references in past transactions.
+    - Resolved impure `Date.now()` call with deterministic, idempotent document IDs for custom gift approvals.
+  - **Real-Time Live Room Welcome Message (`functions/index.js`, `RoomManagement.jsx`)**:
+    - Added `updateRoomWelcomeMessage` Cloud Function with server-side character clamping (max 500 characters) and atomic audit logging (`UPDATE_ROOM_WELCOME_MESSAGE`).
+    - Added a real-time Welcome Message editor modal in `RoomManagement.jsx` with a live character counter (`${len}/500`), audit tracking (`welcomeMessageUpdatedByRole`, `welcomeMessageUpdatedAt`), and fallback to direct Firestore updates.
+  - **ESLint & Build Quality (`AdminContext.jsx`, `firebase.js`, `package.json`)**:
+    - Explicitly set `us-central1` region in `firebase.js` `getFunctions(app, "us-central1")` matching the backend functions.
+    - Resolved all ESLint errors across all owned files (0 errors, 0 warnings).
+    - Updated `functions/package.json` test runner to execute `test_hb_pms.js`.
+    - Verified production build compiles cleanly via Vite in 2.42s.
+
+- **Files Touched**:
+  - `functions/index.js`
+  - `functions/lib/hb_pms.js`
+  - `functions/package.json`
+  - `hellochat_admin/src/firebase.js`
+  - `hellochat_admin/src/context/AdminContext.jsx`
+  - `hellochat_admin/src/screens/AdminManagement.jsx`
+  - `hellochat_admin/src/screens/AgencyManagement.jsx`
+  - `hellochat_admin/src/screens/GiftManagement.jsx`
+  - `hellochat_admin/src/screens/RoomManagement.jsx`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 5: Responsive Game Icon Sizing & Phase 6: Game Audio Coexistence with Room Voice)
+
+- **What Client Asked / Problem**:
+  1. Phase 5: Increase SpinWheelFoodIcon betting-pod size from 34*wheelScale to ~50-56*wheelScale. Make responsive and clamp on narrow screens (320px, 393px, 430px). Reposition icons so they never overlap "win X times" labels. Preserve all tap targets, multipliers, segment ordering, and highlight animations. Use bundled artwork.
+  2. Phase 6: Ensure AgoraVoiceService remains the exclusive owner of the active room audio session. Game SFX (WheelSounds, Lucky Draw, etc.) must NOT request audio focus, transient ducking, or replace Agora's audio category/mode. Opening games must NOT leave or recreate Agora channels. Game effects must remain local (never broadcast to microphone track) and remote room voice volume must never duck. Mute state, route (speaker/BT), and joined state must be preserved. Dispose game audio players cleanly.
+  3. Verify all tests pass via `flutter test test/spin_wheel_display_test.dart`.
+
+- **What We Did**:
+  - **Phase 5: Responsive Food Icon Sizing & Zero-Overlap Positioning (`spin_wheel_screen.dart`)**:
+    - Computed responsive `podIconSize` scaling smoothly from 50.0 on narrow screens (320px) to 56.0 on large screens (430px+), clamped strictly to `[50.0, 56.0] * wheelScale`.
+    - Increased betting pod tap targets from 70x80 to 76x88 (`wheelScale`) with `clipBehavior: Clip.none` for bet badges.
+    - Repositioned the food icon inside each pod (`iconTop = (podHeight / 2) - podIconSize + 13.0 * wheelScale`), locking the icon's bottom edge strictly to `podCenterY + 13.0 * wheelScale`.
+    - Lowered the "win X times" label in `PodsPainter` to `podCenterY + 18.0 * scale` and coins to `+30.0 * scale`, guaranteeing a 5.0px clearance gap with zero overlap across all viewport sizes and icon scales.
+    - Preserved all tap targets, multipliers, segment order, animations, and bundled sprite artwork.
+  - **Phase 6: Audio Coexistence & Focus Protection (`wheel_sounds.dart`, `lucky_draw_screen.dart`, `agora_voice_service.dart`)**:
+    - Configured `WheelSounds` with `AudioContext`: `AndroidAudioFocus.none` (no focus requests, no ducking), `usageType: AndroidUsageType.game`, `contentType: AndroidContentType.sonification`, and iOS `AVAudioSessionCategory.ambient` with `AVAudioSessionOptions.mixWithOthers`.
+    - Configured `LuckyDrawScreen` with matching non-intrusive `AudioContext` and explicit disposal in `dispose()`.
+    - Preserved `AgoraVoiceService` as the master audio session owner (`AudioScenarioType.audioScenarioGameStreaming` with `AudioProfileType.audioProfileMusicStandard`); verified game opening/closing never triggers `leaveRoom`, channel drops, route changes, or mic publication.
+  - **Automated Verification (`test/spin_wheel_display_test.dart`)**:
+    - Added unit test verifying `WheelSounds` audio context configuration (`AndroidAudioFocus.none`, `ambient`, `mixWithOthers`).
+    - Added unit test verifying responsive pod icon sizing and clamping across 300px, 320px, 393px, 430px, 480px.
+    - Added unit test verifying strictly positive vertical clearance (5px gap) between the food icon bottom and win multiplier label.
+    - Executed and verified all 9 tests pass cleanly.
+
+- **Files Touched**:
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `lib/features/games/presentation/widgets/wheel_sounds.dart`
+  - `lib/features/games/presentation/screens/lucky_draw_screen.dart`
+  - `test/spin_wheel_display_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-21 (Phase 0: Baseline Reproduction, Safety & Comprehensive Verification Matrix)
+
+- **What Client Asked / Problem**:
+  1. Complete Phase 0 baseline reproduction and safety check across all core systems (Gift Animations, Seat Layouts, Game Audio, Admin Appointments, Backend Functions).
+  2. Document the full test matrix covering Android (low/mid/high tiers), iOS (compact/standard/max), 2-5 user concurrency, multiple screen viewports (320x568, 360x640, 393x852, 430x932), and audio routing configurations.
+  3. Verify existing test suites, check baseline metrics and logs, and resolve baseline test regressions.
+
+- **What We Did**:
+  - **Comprehensive Test Matrix (`releases/client-testing/BASELINE_VERIFICATION_MATRIX.md`)**:
+    - Documented multi-tier hardware performance specifications and constraints (Android Low-tier 2-3GB, Mid-tier 4-6GB, High-tier 8-12GB, iOS Compact/Standard/Max).
+    - Established multi-user concurrency matrix (P2P Duo 2 users, Co-Host Panel 3-5 users, Full Room 8-16 seats).
+    - Formulated audio routing test matrix (Speaker, Earpiece, Wired Headset, Bluetooth SCO/A2DP) validating Agora voice ownership and non-ducking local game SFX.
+  - **Flutter Test Suite Verification**:
+    - `test/gift_replay_guard_test.dart`: Executed and verified all 14 tests pass (reconnects, join jitter, server time calibration, combo deduplication).
+    - `test/gift_animation_system_test.dart`: Executed and verified all 17 tests pass (tier resolution, FIFO queues, optimistic dispatch, VAP MethodChannel single dispatch).
+    - `test/vap_gifts_integration_test.dart`: Executed and verified all 7 tests pass (bundled catalog VAPs, non-zero sizes, duration tiers).
+    - `test/client_seat_layout_acceptance_test.dart`: Executed and verified all 400 tests pass (8/9/12/13/16 seats across 8 room themes, 320px/393px, youtube on/off, large text).
+    - `test/live_room_seat_geometry_test.dart`: Executed and verified all 4 tests pass (320x568, 393x852, 430x932, 740x360 landscape boundaries).
+    - `test/spin_wheel_display_test.dart`: Resolved exit animation transition timing (added 450ms pump for AnimatedSwitcher 420ms fade exit); all 6 tests now pass.
+  - **Admin & Backend Baseline**:
+    - Verified `hellochat_admin` Vite build transforms and compiles 2,492 modules cleanly in 2.13s.
+    - Documented ESLint baseline and functions emulator testing requirements.
+
+- **Files Touched**:
+  - `releases/client-testing/BASELINE_VERIFICATION_MATRIX.md`
+  - `test/spin_wheel_display_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-20 (Release APK Build & Lucky Bag Client Bottom Sheet Alignment)
 
 - **What Client Asked / Problem**:

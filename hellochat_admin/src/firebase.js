@@ -18,7 +18,7 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
-export const functions = getFunctions(app);
+export const functions = getFunctions(app, "us-central1");
 
 // Test-only: VITE_USE_EMULATOR=1 npx vite --port 5174
 // Inlined away entirely when the var is unset, so production is unaffected.

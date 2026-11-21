@@ -37,10 +37,13 @@ class SvgaParserUtil {
   /// Extracts and verifies embedded audio tracks in [videoItem] into temp storage.
   /// Pre-extracting audio before starting animation playback guarantees that audio
   /// and visual frames start in 100% lockstep synchronization with zero startup delay.
-  static Future<List<PreparedSvgaAudio>> getPreparedAudios(dynamic videoItem, String sourceKey, int fps) async {
+  static Future<List<PreparedSvgaAudio>> getPreparedAudios(
+      dynamic videoItem, String sourceKey, int fps) async {
     // Check in-memory prepared audio cache first
     final cached = _preparedAudioCache[sourceKey];
-    if (cached != null && cached.isNotEmpty && cached.every((a) => a.file.existsSync())) {
+    if (cached != null &&
+        cached.isNotEmpty &&
+        cached.every((a) => a.file.existsSync())) {
       return cached;
     }
 
@@ -64,7 +67,9 @@ class SvgaParserUtil {
 
       final audios = movieItem.audios;
       final images = movieItem.images;
-      final int effectiveFps = fps > 0 ? fps : (movieItem.params.fps > 0 ? movieItem.params.fps : 30);
+      final int effectiveFps = fps > 0
+          ? fps
+          : (movieItem.params.fps > 0 ? movieItem.params.fps : 30);
 
       if (audios.isNotEmpty && images.isNotEmpty && effectiveFps > 0) {
         if (_tempAudioDir == null) {
@@ -81,15 +86,22 @@ class SvgaParserUtil {
           final String audioKey = audio.audioKey;
           final dynamic rawBytes = images[audioKey];
           if (rawBytes != null) {
-            final List<int> bytes = rawBytes is List<int> ? rawBytes : List<int>.from(rawBytes);
+            final List<int> bytes =
+                rawBytes is List<int> ? rawBytes : List<int>.from(rawBytes);
             if (bytes.isNotEmpty) {
               String ext = 'mp3';
               if (bytes.length >= 4) {
                 if (bytes[0] == 0x49 && bytes[1] == 0x44 && bytes[2] == 0x33) {
                   ext = 'mp3';
-                } else if (bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46) {
+                } else if (bytes[0] == 0x52 &&
+                    bytes[1] == 0x49 &&
+                    bytes[2] == 0x46 &&
+                    bytes[3] == 0x46) {
                   ext = 'wav';
-                } else if (bytes[0] == 0x4F && bytes[1] == 0x67 && bytes[2] == 0x67 && bytes[3] == 0x53) {
+                } else if (bytes[0] == 0x4F &&
+                    bytes[1] == 0x67 &&
+                    bytes[2] == 0x67 &&
+                    bytes[3] == 0x53) {
                   ext = 'ogg';
                 } else if (bytes[0] == 0xFF && (bytes[1] & 0xF6) == 0xF0) {
                   ext = 'aac';
@@ -98,8 +110,10 @@ class SvgaParserUtil {
                 }
               }
 
-              final tempFile = File('${tempDir.path}/svga_audio_${assetHash}_$audioKey.$ext');
-              if (!await tempFile.exists() || (await tempFile.length()) != bytes.length) {
+              final tempFile = File(
+                  '${tempDir.path}/svga_audio_${assetHash}_$audioKey.$ext');
+              if (!await tempFile.exists() ||
+                  (await tempFile.length()) != bytes.length) {
                 final filePath = tempFile.path;
                 final bytesCopy = Uint8List.fromList(bytes);
                 await Isolate.run(() {
@@ -107,7 +121,8 @@ class SvgaParserUtil {
                 });
               }
 
-              final int delayMs = (audio.startFrame / effectiveFps * 1000).toInt();
+              final int delayMs =
+                  (audio.startFrame / effectiveFps * 1000).toInt();
               list.add(PreparedSvgaAudio(file: tempFile, delayMs: delayMs));
             }
           }
@@ -137,6 +152,7 @@ class SvgaParserUtil {
     }
     return list;
   }
+
   // Cache of raw bytes to avoid redundant file I/O
   static final Map<String, Uint8List> _byteCache = {};
   static final List<String> _cacheKeys = [];
@@ -168,7 +184,8 @@ class SvgaParserUtil {
       _currentMovieCacheBytes = math.max(0, _currentMovieCacheBytes - size);
     }
     _movieCacheKeys.clear();
-    debugPrint("[SVGA_CACHE] Memory pressure: cleared transient movies, remaining: ${_movieCache.length}");
+    debugPrint(
+        "[SVGA_CACHE] Memory pressure: cleared transient movies, remaining: ${_movieCache.length}");
   }
 
   static void _addToMovieCache(String key, MovieEntity movie) {
@@ -196,12 +213,14 @@ class SvgaParserUtil {
 
   static void _trimMovieCache() {
     while (_movieCacheKeys.isNotEmpty &&
-        (_movieCacheKeys.length > _maxMovieCacheSize || _currentMovieCacheBytes > _maxMovieCacheBytes)) {
+        (_movieCacheKeys.length > _maxMovieCacheSize ||
+            _currentMovieCacheBytes > _maxMovieCacheBytes)) {
       final oldest = _movieCacheKeys.removeAt(0);
       _movieCache.remove(oldest);
       final size = _movieBytesMap.remove(oldest) ?? 0;
       _currentMovieCacheBytes = math.max(0, _currentMovieCacheBytes - size);
-      debugPrint("[SVGA_CACHE] Evicted $oldest (freed ${(size / (1024 * 1024)).toStringAsFixed(1)}MB). Count: ${_movieCacheKeys.length}, Total: ${(_currentMovieCacheBytes / (1024 * 1024)).toStringAsFixed(1)}MB");
+      debugPrint(
+          "[SVGA_CACHE] Evicted $oldest (freed ${(size / (1024 * 1024)).toStringAsFixed(1)}MB). Count: ${_movieCacheKeys.length}, Total: ${(_currentMovieCacheBytes / (1024 * 1024)).toStringAsFixed(1)}MB");
     }
   }
 
@@ -224,7 +243,8 @@ class SvgaParserUtil {
     return slash >= 0 ? lower.substring(slash + 1) : lower;
   }
 
-  static String? getLocalGiftSvgaPath(String urlOrFile, {String? giftId, String? giftName}) {
+  static String? getLocalGiftSvgaPath(String urlOrFile,
+      {String? giftId, String? giftName}) {
     final lower = urlOrFile.toLowerCase();
     final lowerId = (giftId ?? '').toLowerCase();
     final lowerName = (giftName ?? '').toLowerCase();
@@ -237,6 +257,8 @@ class SvgaParserUtil {
         lower.contains('mystic_rings') ||
         lower.contains('mystic_ring') ||
         lowerId.contains('mystic_rings') ||
+        lowerId.contains('precious_necklace') ||
+        lowerName.contains('precious necklace') ||
         lowerName.contains('mystic ring')) {
       return 'assets/svga/mystic_rings.svga';
     }
@@ -245,6 +267,8 @@ class SvgaParserUtil {
         lower.contains('100.svga') ||
         lower.contains('crystal_palace') ||
         lowerId.contains('crystal_palace') ||
+        lowerId.contains('crystal_slipper') ||
+        lowerName.contains('crystal slipper') ||
         lowerName.contains('crystal palace')) {
       return 'assets/svga/100_optimized.svga';
     }
@@ -275,6 +299,10 @@ class SvgaParserUtil {
         lower.contains('love%20you') ||
         lower.contains('love_you') ||
         lowerId == 'tgwg0fbzv9lbcochupko' ||
+        lowerId.contains('eternal_love') ||
+        lowerId.contains('fly_heart') ||
+        lowerName.contains('eternal love') ||
+        lowerName.contains('fly heart') ||
         lowerName.contains('love you')) {
       return 'assets/animations/gifts/Love You.svga';
     }
@@ -283,9 +311,11 @@ class SvgaParserUtil {
     if (lower.startsWith('http://') || lower.startsWith('https://')) {
       final String name = _remoteFileName(lower);
       if (name.endsWith('cat_gift.svga')) return 'assets/svga/cat_gift.svga';
-      if (name.endsWith('mystic_rings.svga')) return 'assets/svga/mystic_rings.svga';
+      if (name.endsWith('mystic_rings.svga'))
+        return 'assets/svga/mystic_rings.svga';
       if (name.endsWith('235.svga')) return 'assets/svga/235.svga';
-      if (name.endsWith('100_optimized.svga')) return 'assets/svga/100_optimized.svga';
+      if (name.endsWith('100_optimized.svga'))
+        return 'assets/svga/100_optimized.svga';
       if (name.endsWith('138.svga')) return 'assets/animations/gifts/138.svga';
       if (name.endsWith('love you.svga') || name.endsWith('love_you.svga')) {
         return 'assets/animations/gifts/Love You.svga';
@@ -296,7 +326,8 @@ class SvgaParserUtil {
   }
 
   /// Maps remote Lottie gift URLs or IDs to local Lottie asset paths if available
-  static String? getLocalLottiePath(String urlOrFile, {String? giftId, String? giftName}) {
+  static String? getLocalLottiePath(String urlOrFile,
+      {String? giftId, String? giftName}) {
     final lower = urlOrFile.toLowerCase();
     final lowerId = (giftId ?? '').toLowerCase();
     final lowerName = (giftName ?? '').toLowerCase();
@@ -313,25 +344,33 @@ class SvgaParserUtil {
     if (lower.contains('pucdrkh5wlymjygjpmj2') ||
         lower.contains('balloon.json') ||
         lowerId == 'balloon' ||
+        lowerId.contains('diamond_balloon') ||
+        lowerName.contains('diamond balloon') ||
         lowerName.contains('balloon')) {
       return 'assets/animations/lottie/balloon.json';
     }
     if (lower.contains('dqvyi6mzfdihmswi5urq') ||
         lower.contains('celebration.json') ||
-        lowerId == 'cake' ||
         lowerId == 'celebration' ||
+        lowerId.contains('star_sticks') ||
+        lowerName.contains('star sticks') ||
         lowerName.contains('celebration')) {
       return 'assets/animations/lottie/Celebration.json';
     }
     if (lower.contains('pink cake.json') ||
         lower.contains('pink_cake') ||
-        lowerName.contains('pink cake')) {
+        lowerId == 'cake' ||
+        lowerId.contains('pink_cake') ||
+        lowerName.contains('cake')) {
       return 'assets/animations/lottie/pink cake.json';
     }
     if (lower.contains('oky1znbm0zkuj6fwfzgb') ||
         lower.contains('red car.json') ||
         lower.contains('red_car') ||
         lowerId == 'car_king' ||
+        lowerId.contains('supercar') ||
+        lowerName.contains('neon supercar') ||
+        lowerName.contains('supercar') ||
         lowerName.contains('car king')) {
       return 'assets/animations/lottie/Red Car.json';
     }
@@ -375,9 +414,7 @@ class SvgaParserUtil {
         lowerName.contains('airplane')) {
       return 'assets/animations/lottie/airplane.json';
     }
-    if (lower.contains('cat.json') ||
-        lowerId == 'cat' ||
-        lowerName == 'cat') {
+    if (lower.contains('cat.json') || lowerId == 'cat' || lowerName == 'cat') {
       return 'assets/animations/lottie/cat.json';
     }
     if (lower.contains('red diamond.json') ||
@@ -394,26 +431,33 @@ class SvgaParserUtil {
 
     if (lower.startsWith('http://') || lower.startsWith('https://')) {
       final String name = _remoteFileName(lower);
-      if (name.endsWith('rose.json')) return 'assets/animations/lottie/Rose.json';
-      if (name.endsWith('balloon.json')) return 'assets/animations/lottie/balloon.json';
+      if (name.endsWith('rose.json'))
+        return 'assets/animations/lottie/Rose.json';
+      if (name.endsWith('balloon.json'))
+        return 'assets/animations/lottie/balloon.json';
       if (name.endsWith('pink cake.json') || name.endsWith('pink_cake.json')) {
         return 'assets/animations/lottie/pink cake.json';
       }
-      if (name.endsWith('red diamond.json') || name.endsWith('red_diamond.json')) {
+      if (name.endsWith('red diamond.json') ||
+          name.endsWith('red_diamond.json')) {
         return 'assets/animations/lottie/Red Diamond.json';
       }
       if (name.endsWith('cat.json')) return 'assets/animations/lottie/cat.json';
-      if (name.endsWith('premium gold.json') || name.endsWith('premium_gold.json')) {
+      if (name.endsWith('premium gold.json') ||
+          name.endsWith('premium_gold.json')) {
         return 'assets/animations/lottie/Premium Gold.json';
       }
-      if (name.endsWith('celebration.json')) return 'assets/animations/lottie/Celebration.json';
-      if (name.endsWith('rocket loader.json') || name.endsWith('rocket_loader.json')) {
+      if (name.endsWith('celebration.json'))
+        return 'assets/animations/lottie/Celebration.json';
+      if (name.endsWith('rocket loader.json') ||
+          name.endsWith('rocket_loader.json')) {
         return 'assets/animations/lottie/Rocket loader.json';
       }
       if (name.endsWith('red car.json') || name.endsWith('red_car.json')) {
         return 'assets/animations/lottie/Red Car.json';
       }
-      if (name.endsWith('airplane.json')) return 'assets/animations/lottie/airplane.json';
+      if (name.endsWith('airplane.json'))
+        return 'assets/animations/lottie/airplane.json';
       return null;
     }
     return null;
@@ -429,7 +473,8 @@ class SvgaParserUtil {
   }
 
   /// Maps remote VAP / MP4 gift URLs or IDs to local VAP asset paths if available
-  static String? getLocalVapPath(String urlOrFile, {String? giftId, String? giftName}) {
+  static String? getLocalVapPath(String urlOrFile,
+      {String? giftId, String? giftName}) {
     final lower = urlOrFile.toLowerCase();
     final lowerId = (giftId ?? '').toLowerCase();
     final lowerName = (giftName ?? '').toLowerCase();
@@ -446,7 +491,8 @@ class SvgaParserUtil {
         return spec.assetPath;
       }
     }
-    if (urlOrFile.startsWith('assets/') && (lower.endsWith('.mp4') || lower.endsWith('.vap'))) {
+    if (urlOrFile.startsWith('assets/') &&
+        (lower.endsWith('.mp4') || lower.endsWith('.vap'))) {
       return urlOrFile;
     }
 
@@ -462,8 +508,22 @@ class SvgaParserUtil {
         lower.contains('golden_dates') ||
         lower.contains('golden dates') ||
         lowerId == '1kh8e0sllu6tmyt7xysw' ||
+        lowerId.contains('romantic_journey') ||
+        lowerName.contains('romantic journey') ||
         lowerName.contains('golden dates')) {
       return 'assets/animations/gifts/normal gift/lucky gift dates/video.mp4';
+    }
+    if (lower.contains('pink kiss') ||
+        lower.contains('pink_kiss') ||
+        lowerId.contains('kiss') ||
+        lowerName.contains('kiss')) {
+      return 'assets/gifts-vap/gift_4.vap';
+    }
+    if (lower.contains('treasure adventure') ||
+        lower.contains('treasure_adventure') ||
+        lowerId.contains('treasure_adventure') ||
+        lowerName.contains('treasure adventure')) {
+      return 'assets/gifts-vap/gift_7.vap';
     }
     if (lower.contains('1790956201919') ||
         lower.contains('golden_bell') ||
@@ -526,8 +586,10 @@ class SvgaParserUtil {
   }
 
   static final Map<String, int> _vapDurationCache = {};
-  static final Uint8List _kVapcBytes = Uint8List.fromList([0x76, 0x61, 0x70, 0x63]); // 'vapc'
-  static final Uint8List _kMvhdBytes = Uint8List.fromList([0x6D, 0x76, 0x68, 0x64]); // 'mvhd'
+  static final Uint8List _kVapcBytes =
+      Uint8List.fromList([0x76, 0x61, 0x70, 0x63]); // 'vapc'
+  static final Uint8List _kMvhdBytes =
+      Uint8List.fromList([0x6D, 0x76, 0x68, 0x64]); // 'mvhd'
 
   static int _findBytesPattern(Uint8List bytes, Uint8List pattern) {
     if (bytes.length < pattern.length) return -1;
@@ -569,7 +631,8 @@ class SvgaParserUtil {
             }
           }
           if (jsonEnd != -1) {
-            final jsonStr = utf8.decode(bytes.sublist(jsonStart, jsonEnd + 1), allowMalformed: true);
+            final jsonStr = utf8.decode(bytes.sublist(jsonStart, jsonEnd + 1),
+                allowMalformed: true);
             final data = json.decode(jsonStr) as Map<String, dynamic>;
             final info = data['info'] as Map<String, dynamic>?;
             if (info != null) {
@@ -622,7 +685,8 @@ class SvgaParserUtil {
 
   /// Returns real measured duration in ms, using the hardcoded table as a fallback.
   /// Logs a warning if the measured duration differs from the table.
-  static Future<int> getRealOrFallbackVapDurationMs(String path, [Uint8List? directBytes]) async {
+  static Future<int> getRealOrFallbackVapDurationMs(String path,
+      [Uint8List? directBytes]) async {
     final cleanPath = path.trim();
     if (_vapDurationCache.containsKey(cleanPath)) {
       return _vapDurationCache[cleanPath]!;
@@ -649,7 +713,8 @@ class SvgaParserUtil {
 
     final table = getLocalVapDurationMs(cleanPath);
     if (measured > 0 && table > 0 && (measured - table).abs() > 100) {
-      debugPrint("[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
+      debugPrint(
+          "[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
     }
 
     final resolved = measured > 0 ? measured : table;
@@ -678,7 +743,8 @@ class SvgaParserUtil {
         final bytes = file.readAsBytesSync();
         final measured = parseVapOrMp4DurationMs(bytes);
         if (measured > 0 && table > 0 && (measured - table).abs() > 100) {
-          debugPrint("[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
+          debugPrint(
+              "[VAP_TRACE] WARNING: duration mismatch for $cleanPath: measured=${measured}ms differs from table fallback=${table}ms");
         }
         final resolved = measured > 0 ? measured : table;
         if (resolved > 0) {
@@ -794,7 +860,9 @@ class SvgaParserUtil {
   /// Returns in-memory prepared audio tracks if available.
   static List<PreparedSvgaAudio>? getCachedPreparedAudios(String sourceKey) {
     final cached = _preparedAudioCache[sourceKey];
-    if (cached != null && cached.isNotEmpty && cached.every((a) => a.file.existsSync())) {
+    if (cached != null &&
+        cached.isNotEmpty &&
+        cached.every((a) => a.file.existsSync())) {
       return cached;
     }
     return null;
@@ -823,11 +891,12 @@ class SvgaParserUtil {
 
   static Future<MovieEntity> decodeSafeFromUrl(String url) async {
     final cleanUrl = url.trim();
-    
+
     // Auto-intercept remote gift URLs mapping to local assets
     final localPath = getLocalGiftSvgaPath(cleanUrl);
     if (localPath != null) {
-      debugPrint("🚀 SvgaParserUtil: Intercepted remote SVGA URL ($cleanUrl), loading local asset instead: $localPath");
+      debugPrint(
+          "🚀 SvgaParserUtil: Intercepted remote SVGA URL ($cleanUrl), loading local asset instead: $localPath");
       return decodeSafeFromAssets(localPath);
     }
 
@@ -913,8 +982,9 @@ class SvgaParserUtil {
   static void preloadVipAssets() {
     Future(() async {
       try {
-        debugPrint("🚀 SvgaParserUtil: Preloading and parsing local VIP assets into memory cache...");
-        
+        debugPrint(
+            "🚀 SvgaParserUtil: Preloading and parsing local VIP assets into memory cache...");
+
         final assetsToPreload = [
           // Primary Role & System Frames
           'assets/Helo chat/Superadmin.svga',
@@ -1015,7 +1085,8 @@ class SvgaParserUtil {
           await Future.delayed(const Duration(milliseconds: 200));
         }
 
-        debugPrint("✅ SvgaParserUtil: All local VIP assets preloaded and decoded successfully!");
+        debugPrint(
+            "✅ SvgaParserUtil: All local VIP assets preloaded and decoded successfully!");
       } catch (e) {
         debugPrint("⚠️ SvgaParserUtil: Failed to preload local VIP assets: $e");
       }

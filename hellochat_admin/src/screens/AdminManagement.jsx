@@ -1,8 +1,6 @@
-import { useState, useEffect } from 'react';
-import { db, functions } from '../firebase';
-import { collection, query, getDocs, doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { useState, useEffect, useCallback } from 'react';
+import { functions } from '../firebase';
 import { httpsCallable } from 'firebase/functions';
-import { listScopedUsers, asDocList } from '../lib/scopedUsers';
 import { 
   ShieldCheck, 
   Users, 
@@ -11,19 +9,42 @@ import {
   Trash2, 
   RefreshCw, 
   Building2, 
-  CheckCircle, 
   AlertCircle, 
   X, 
   ArrowRightLeft, 
   ShieldAlert, 
-  Check, 
-  Clock 
+  Check
 } from 'lucide-react';
 import { useAdmin } from '../context/AdminContext';
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from 'framer-motion';
 
+// Map Firebase callable error codes and messages to human-friendly text
+const formatAdminError = (err) => {
+  const msg = err?.message || String(err || '');
+  if (msg.includes('active Agency Owner')) {
+    return 'Target user is an active Agency Owner. Appointing them creates a role conflict unless an agency override is authorized.';
+  }
+  if (msg.includes('not-found') || msg.includes('not found')) {
+    return 'User record could not be found. Please double-check the Hello ID or UID.';
+  }
+  if (msg.includes('permission-denied') || msg.includes('Permission')) {
+    return 'Permission denied: Only Super Admins or Owners may manage branch Admins.';
+  }
+  if (msg.includes('belongs to another branch')) {
+    return 'Hierarchy violation: Candidate belongs to another branch.';
+  }
+  if (msg.includes('resource-exhausted') || msg.includes('code space exhausted')) {
+    return 'Admin capacity limit reached: No 5-digit admin role codes are currently available.';
+  }
+  if (msg.includes('already an Admin')) {
+    return 'User is already an appointed Admin in this branch.';
+  }
+  return msg || 'An unexpected error occurred. Please try again.';
+};
+
 export const AdminManagement = () => {
-  const { userData: currentUser, isOwner, isSuperAdmin, branchId, user: authUser } = useAdmin();
+  const { isOwner, isSuperAdmin, branchId } = useAdmin();
   const [admins, setAdmins] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +58,10 @@ export const AdminManagement = () => {
   const [searchError, setSearchError] = useState('');
   const [isAppointing, setIsAppointing] = useState(false);
 
+  // Agency Override States
+  const [allowAgencyOverride, setAllowAgencyOverride] = useState(false);
+  const [overrideReason, setOverrideReason] = useState('');
+
   // Replace Admin Modal
   const [replacingAdmin, setReplacingAdmin] = useState(null);
   const [replaceQuery, setReplaceQuery] = useState('');
@@ -44,41 +69,33 @@ export const AdminManagement = () => {
   const [foundReplaceUser, setFoundReplaceUser] = useState(null);
   const [replaceError, setReplaceError] = useState('');
   const [isReplacing, setIsReplacing] = useState(false);
-
-  useEffect(() => {
-    fetchAdmins();
-  }, [isOwner, isSuperAdmin, branchId]);
+  const [allowReplaceOverride, setAllowReplaceOverride] = useState(false);
+  const [replaceOverrideReason, setReplaceOverrideReason] = useState('');
 
   const showToast = (text, type = 'success') => {
     setActionMessage({ text, type });
     setTimeout(() => setActionMessage({ text: '', type: '' }), 4500);
   };
 
-  // Agency Override States
-  const [allowAgencyOverride, setAllowAgencyOverride] = useState(false);
-  const [overrideReason, setOverrideReason] = useState('');
-  const [showAgencyConflictModal, setShowAgencyConflictModal] = useState(false);
-
-  const [allowReplaceOverride, setAllowReplaceOverride] = useState(false);
-  const [replaceOverrideReason, setReplaceOverrideReason] = useState('');
-  const [showReplaceAgencyConflictModal, setShowReplaceAgencyConflictModal] = useState(false);
-
-  const fetchAdmins = async () => {
+  const fetchAdmins = useCallback(async () => {
     setLoading(true);
     try {
       const listFn = httpsCallable(functions, 'listBranchAdmins');
       const res = await listFn({ pageSize: 100 });
-      setAdmins(res.data.admins || []);
+      setAdmins(res.data?.admins || []);
     } catch (err) {
-      console.error("Error fetching branch admins:", err);
-      // Fallback for offline/unauthenticated dev state
-      showToast("Failed to load branch admins: " + (err.message || err), 'error');
+      console.error('Error fetching branch admins:', err);
+      showToast('Failed to load branch admins: ' + formatAdminError(err), 'error');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Search candidate user for appointment
+  useEffect(() => {
+    fetchAdmins();
+  }, [fetchAdmins, isOwner, isSuperAdmin, branchId]);
+
+  // Server-side candidate validation before appointing
   const handleSearchUser = async (e) => {
     if (e) e.preventDefault();
     const q = searchQuery.trim();
@@ -87,33 +104,31 @@ export const AdminManagement = () => {
     setIsSearchingUser(true);
     setFoundUser(null);
     setSearchError('');
+    setAllowAgencyOverride(false);
+    setOverrideReason('');
 
     try {
-      const allUsers = asDocList(await listScopedUsers(1000));
-      const numQ = Number(q);
-      const match = allUsers.find(u => 
-        u.id === q || 
-        u.uid === q || 
-        (numQ && (u.helloId === numQ || Number(u.displayId) === numQ)) ||
-        (u.username && u.username.toLowerCase() === q.toLowerCase()) ||
-        (u.displayName && u.displayName.toLowerCase().includes(q.toLowerCase()))
-      );
+      const valFn = httpsCallable(functions, 'validateCandidate');
+      const res = await valFn({ targetIdentifier: q, action: 'appoint_admin' });
+      if (!res.data?.valid) {
+        setSearchError(res.data?.error || 'Candidate is not eligible for appointment.');
+        return;
+      }
 
-      if (match) {
-        setFoundUser(match);
-      } else {
-        // Direct search fallback
-        setFoundUser({ id: q, uid: q, displayName: `Candidate (ID: ${q})`, helloId: numQ || q });
+      setFoundUser(res.data.candidate);
+      if (res.data.requiresOverride) {
+        setAllowAgencyOverride(true);
+        setOverrideReason('Authorized agency owner transition to admin role');
       }
     } catch (err) {
-      setSearchError('Error searching user: ' + err.message);
+      setSearchError('Error validating candidate: ' + formatAdminError(err));
     } finally {
       setIsSearchingUser(false);
     }
   };
 
   // Execute Appoint Admin via dedicated callable
-  const handleAppointAdmin = async (forceOverride = false) => {
+  const handleAppointAdmin = async () => {
     if (!foundUser) return;
     setIsAppointing(true);
     try {
@@ -122,31 +137,26 @@ export const AdminManagement = () => {
       
       await appointFn({
         targetIdentifier,
-        allowAgencyOverride: forceOverride || allowAgencyOverride,
+        allowAgencyOverride,
         overrideReason: overrideReason || 'Authorized by Super Admin via Admin Panel',
       });
 
       showToast(`✅ Successfully appointed ${foundUser.displayName || foundUser.username} as Admin!`);
       setShowAppointModal(false);
-      setShowAgencyConflictModal(false);
       setFoundUser(null);
       setSearchQuery('');
       setAllowAgencyOverride(false);
       setOverrideReason('');
       fetchAdmins();
     } catch (err) {
-      console.error("Appoint admin error:", err);
-      if (err.message && err.message.includes("active Agency Owner")) {
-        setShowAgencyConflictModal(true);
-      } else {
-        showToast("Failed to appoint admin: " + (err.message || err), 'error');
-      }
+      console.error('Appoint admin error:', err);
+      showToast('Failed to appoint admin: ' + formatAdminError(err), 'error');
     } finally {
       setIsAppointing(false);
     }
   };
 
-  // Search candidate for replacement
+  // Search candidate for replacement with server-side validation
   const handleSearchReplaceUser = async (e) => {
     if (e) e.preventDefault();
     const q = replaceQuery.trim();
@@ -155,31 +165,37 @@ export const AdminManagement = () => {
     setIsSearchingReplace(true);
     setFoundReplaceUser(null);
     setReplaceError('');
+    setAllowReplaceOverride(false);
+    setReplaceOverrideReason('');
 
     try {
-      const allUsers = asDocList(await listScopedUsers(1000));
-      const numQ = Number(q);
-      const match = allUsers.find(u => 
-        (u.id === q || u.uid === q || 
-        (numQ && (u.helloId === numQ || Number(u.displayId) === numQ)) ||
-        (u.username && u.username.toLowerCase() === q.toLowerCase())) &&
-        u.id !== (replacingAdmin.id || replacingAdmin.uid)
-      );
+      const valFn = httpsCallable(functions, 'validateCandidate');
+      const res = await valFn({ targetIdentifier: q, action: 'replace_admin' });
+      if (!res.data?.valid) {
+        setReplaceError(res.data?.error || 'Replacement candidate is not eligible.');
+        return;
+      }
 
-      if (match) {
-        setFoundReplaceUser(match);
-      } else {
-        setFoundReplaceUser({ id: q, uid: q, displayName: `Candidate (ID: ${q})`, helloId: numQ || q });
+      const cand = res.data.candidate;
+      if (cand.uid === (replacingAdmin?.id || replacingAdmin?.uid)) {
+        setReplaceError('Candidate cannot be the same user as the admin being replaced.');
+        return;
+      }
+
+      setFoundReplaceUser(cand);
+      if (res.data.requiresOverride) {
+        setAllowReplaceOverride(true);
+        setReplaceOverrideReason('Agency Owner override authorized for Admin replacement');
       }
     } catch (err) {
-      setReplaceError('Error searching replacement candidate: ' + err.message);
+      setReplaceError('Error validating replacement candidate: ' + formatAdminError(err));
     } finally {
       setIsSearchingReplace(false);
     }
   };
 
   // Execute Atomic Replace Admin via dedicated callable
-  const handleExecuteReplace = async (forceOverride = false) => {
+  const handleExecuteReplace = async () => {
     if (!replacingAdmin || !foundReplaceUser) return;
     setIsReplacing(true);
     try {
@@ -190,7 +206,7 @@ export const AdminManagement = () => {
       await replaceFn({
         oldAdminUid: oldUid,
         newTargetIdentifier,
-        allowAgencyOverride: forceOverride || allowReplaceOverride,
+        allowAgencyOverride: allowReplaceOverride,
         overrideReason: replaceOverrideReason || 'Admin replacement authorized by Super Admin',
       });
 
@@ -198,17 +214,12 @@ export const AdminManagement = () => {
       setReplacingAdmin(null);
       setFoundReplaceUser(null);
       setReplaceQuery('');
-      setShowReplaceAgencyConflictModal(false);
       setAllowReplaceOverride(false);
       setReplaceOverrideReason('');
       fetchAdmins();
     } catch (err) {
-      console.error("Replace admin error:", err);
-      if (err.message && err.message.includes("active Agency Owner")) {
-        setShowReplaceAgencyConflictModal(true);
-      } else {
-        showToast("Failed to replace admin: " + (err.message || err), 'error');
-      }
+      console.error('Replace admin error:', err);
+      showToast('Failed to replace admin: ' + formatAdminError(err), 'error');
     } finally {
       setIsReplacing(false);
     }
@@ -232,75 +243,76 @@ export const AdminManagement = () => {
       showToast(`✅ Revoked Admin role and access tokens from ${adminName}`);
       fetchAdmins();
     } catch (err) {
-      console.error("Revoke error:", err);
-      showToast("Failed to revoke admin: " + (err.message || err), 'error');
+      console.error('Revoke error:', err);
+      showToast('Failed to revoke admin: ' + formatAdminError(err), 'error');
     }
   };
 
   const filteredAdmins = admins.filter(a => {
-    if (!searchTerm) return true;
     const q = searchTerm.toLowerCase();
-    const name = (a.displayName || a.username || '').toLowerCase();
-    const helloId = String(a.helloId || '');
-    const uid = (a.uid || a.id || '').toLowerCase();
-    return name.includes(q) || helloId.includes(q) || uid.includes(q);
+    return (
+      (a.displayName && a.displayName.toLowerCase().includes(q)) ||
+      (a.username && a.username.toLowerCase().includes(q)) ||
+      (a.uid && a.uid.toLowerCase().includes(q)) ||
+      (a.helloId && String(a.helloId).includes(q)) ||
+      (a.roleCode && String(a.roleCode).includes(q))
+    );
   });
 
   return (
-    <div className="space-y-8 animate-fade-in pb-16">
-      {/* Toast Alert */}
+    <div className="space-y-8 animate-fade-in text-white pb-20">
+      {/* Toast Notification */}
       <AnimatePresence>
         {actionMessage.text && (
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className={`p-4 rounded-2xl flex items-center gap-3 border shadow-xl ${
+            className={`fixed top-8 right-8 z-50 px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 border text-sm font-bold ${
               actionMessage.type === 'error'
-                ? 'bg-red-500/10 border-red-500/20 text-red-400'
-                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                ? 'bg-red-500/20 border-red-500/40 text-red-200 backdrop-blur-xl'
+                : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200 backdrop-blur-xl'
             }`}
           >
-            {actionMessage.type === 'error' ? <AlertCircle size={20} /> : <CheckCircle size={20} />}
-            <span className="font-bold text-sm tracking-tight">{actionMessage.text}</span>
+            {actionMessage.type === 'error' ? <ShieldAlert size={20} /> : <ShieldCheck size={20} />}
+            <span>{actionMessage.text}</span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Header Bar */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-[#121214] border border-white/[0.04] p-8 rounded-[32px] shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#6366F1]/5 rounded-full blur-3xl pointer-events-none" />
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div>
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-[#6366F1]/10 text-[#818CF8] rounded-2xl border border-[#6366F1]/20">
-              <ShieldCheck size={28} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black text-white tracking-tight">Admin Management</h1>
-              <p className="text-gray-400 text-sm mt-1">
-                Appoint, manage, and supervise branch administrators within authorized hierarchy
-              </p>
-            </div>
+          <div className="inline-flex items-center gap-2 px-3 py-1 bg-[#6366F1]/10 border border-[#6366F1]/20 rounded-full text-[#818CF8] text-xs font-black uppercase tracking-widest mb-3">
+            <Building2 size={14} />
+            Branch Supervision • {branchId || 'Global / Owner'}
           </div>
+          <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight flex items-center gap-3">
+            Admin Management
+          </h1>
+          <p className="text-gray-400 text-sm mt-1 max-w-2xl">
+            Supervise and appoint branch administrators. Admins possess Tier 2 authority over agencies and hosts within your branch.
+          </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
-            onClick={fetchAdmins}
+            onClick={() => fetchAdmins()}
             disabled={loading}
-            className="p-3.5 bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.05] rounded-2xl text-gray-300 hover:text-white transition-all disabled:opacity-50"
-            title="Refresh Admins"
+            className="p-3 bg-white/[0.03] hover:bg-white/[0.08] border border-white/[0.06] rounded-2xl text-gray-300 hover:text-white transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh list"
           >
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
+
           <button
             onClick={() => {
+              setShowAppointModal(true);
               setFoundUser(null);
               setSearchQuery('');
               setSearchError('');
-              setShowAppointModal(true);
             }}
-            className="flex items-center gap-2.5 px-6 py-3.5 bg-gradient-to-r from-[#6366F1] to-[#4F46E5] hover:opacity-90 text-white rounded-2xl font-bold text-sm tracking-tight shadow-lg shadow-[#6366F1]/20 transition-all cursor-pointer"
+            className="px-6 py-3.5 bg-gradient-to-r from-[#6366F1] to-[#4F46E5] hover:opacity-90 text-white rounded-2xl font-bold text-sm tracking-tight shadow-lg shadow-[#6366F1]/25 flex items-center gap-2 transition-all cursor-pointer"
           >
             <UserPlus size={18} />
             <span>Appoint Admin</span>
@@ -308,73 +320,14 @@ export const AdminManagement = () => {
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-[#121214] border border-white/[0.04] p-6 rounded-[24px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Total Admins</span>
-            <div className="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl">
-              <Users size={18} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-3xl font-black text-white">{admins.length}</div>
-            <p className="text-xs text-gray-500 mt-1">Supervising assigned branch operations</p>
-          </div>
-        </div>
-
-        <div className="bg-[#121214] border border-white/[0.04] p-6 rounded-[24px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Authority Scope</span>
-            <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl">
-              <Building2 size={18} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-white truncate">
-              {isOwner ? 'All Branches (Owner)' : (branchId || currentUser?.branchId || 'Branch Prod 1')}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Enforced cross-branch sandboxing</p>
-          </div>
-        </div>
-
-        <div className="bg-[#121214] border border-white/[0.04] p-6 rounded-[24px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Tier Level</span>
-            <div className="p-2.5 bg-purple-500/10 text-purple-400 rounded-xl">
-              <ShieldCheck size={18} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-white">
-              {isOwner ? 'Tier 4 (Owner)' : 'Tier 3 (Super Admin)'}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">Direct supervisory privileges</p>
-          </div>
-        </div>
-
-        <div className="bg-[#121214] border border-white/[0.04] p-6 rounded-[24px]">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">Security Status</span>
-            <div className="p-2.5 bg-amber-500/10 text-amber-400 rounded-xl">
-              <ShieldAlert size={18} />
-            </div>
-          </div>
-          <div className="mt-4">
-            <div className="text-2xl font-black text-emerald-400">Isolated & Sandboxed</div>
-            <p className="text-xs text-gray-500 mt-1">Horizontal data protection active</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Search & List Section */}
-      <div className="bg-[#121214] border border-white/[0.04] rounded-[32px] overflow-hidden shadow-2xl">
-        <div className="p-6 border-b border-white/[0.04] flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="relative w-full md:w-96">
+      {/* Admins Table Card */}
+      <div className="bg-[#121214] border border-white/[0.06] rounded-[32px] overflow-hidden shadow-2xl">
+        <div className="p-6 border-b border-white/[0.04] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="relative flex-1 max-w-md">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
             <input
               type="text"
-              placeholder="Search by Admin name, Hello ID, or UID..."
+              placeholder="Filter by name, hello ID, role code, or UID..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-[#18181B] border border-white/[0.06] rounded-2xl pl-12 pr-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#6366F1] transition-all"
@@ -520,7 +473,7 @@ export const AdminManagement = () => {
             >
               <button
                 onClick={() => setShowAppointModal(false)}
-                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-white rounded-xl hover:bg-white/[0.05] transition-all"
+                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-white rounded-xl hover:bg-white/[0.05] transition-all cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -532,7 +485,7 @@ export const AdminManagement = () => {
                 <div>
                   <h2 className="text-xl font-bold text-white">Appoint Branch Admin</h2>
                   <p className="text-gray-400 text-xs mt-0.5">
-                    Assign a user to supervise agencies & staff for Branch {branchId || 'branch-prod-1'}
+                    Assign a validated candidate to supervise agencies & staff for Branch {branchId || 'Current Branch'}
                   </p>
                 </div>
               </div>
@@ -540,12 +493,12 @@ export const AdminManagement = () => {
               {/* User search */}
               <form onSubmit={handleSearchUser} className="space-y-4">
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest block">
-                  Find Candidate User
+                  Find Candidate User (Hello ID or UID)
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Enter Hello ID, UID, or Username..."
+                    placeholder="Enter Hello ID or User UID..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="flex-1 bg-[#18181B] border border-white/[0.08] rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#6366F1]"
@@ -555,7 +508,7 @@ export const AdminManagement = () => {
                     disabled={isSearchingUser}
                     className="px-5 py-3 bg-[#6366F1] hover:bg-[#4F46E5] text-white rounded-2xl font-bold text-sm tracking-tight transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {isSearchingUser ? <RefreshCw size={16} className="animate-spin" /> : 'Search'}
+                    {isSearchingUser ? <RefreshCw size={16} className="animate-spin" /> : 'Validate'}
                   </button>
                 </div>
               </form>
@@ -567,7 +520,7 @@ export const AdminManagement = () => {
                 </div>
               )}
 
-              {/* Found user preview card */}
+              {/* Found user preview card - Only enabled when validated by server */}
               {foundUser && (
                 <div className="mt-6 p-5 bg-[#18181B] border border-white/[0.06] rounded-2xl space-y-4">
                   <div className="flex items-center gap-4">
@@ -580,7 +533,7 @@ export const AdminManagement = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-white text-base truncate">
-                        {foundUser.displayName || foundUser.username || 'User'}
+                        {foundUser.displayName || foundUser.username || 'Candidate'}
                       </div>
                       <div className="text-xs text-gray-400 font-mono mt-0.5">
                         Hello ID: <span className="text-white font-bold">{foundUser.helloId || 'N/A'}</span>
@@ -591,9 +544,28 @@ export const AdminManagement = () => {
                     </div>
                   </div>
 
+                  {allowAgencyOverride && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                        <AlertCircle size={14} />
+                        <span>Agency Owner Conflict Detected</span>
+                      </div>
+                      <p className="text-[11px] text-gray-300">
+                        This candidate currently owns an active Agency. Authorizing this appointment will transition them to Admin and require an override reason.
+                      </p>
+                      <input
+                        type="text"
+                        placeholder="Reason for overriding agency ownership..."
+                        value={overrideReason}
+                        onChange={(e) => setOverrideReason(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                  )}
+
                   <div className="pt-3 border-t border-white/[0.04] flex items-center justify-between text-xs text-gray-400">
-                    <span>Target Branch: <b className="text-white">{branchId || 'branch-prod-1'}</b></span>
-                    <span>Rank: <b className="text-[#818CF8]">Tier 2 (Admin)</b></span>
+                    <span>Target Branch: <b className="text-white">{branchId || 'Assigned Branch'}</b></span>
+                    <span>Role to Grant: <b className="text-[#818CF8]">Tier 2 (Admin)</b></span>
                   </div>
 
                   <button
@@ -629,7 +601,7 @@ export const AdminManagement = () => {
             >
               <button
                 onClick={() => setReplacingAdmin(null)}
-                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-white rounded-xl hover:bg-white/[0.05] transition-all"
+                className="absolute top-6 right-6 p-2 text-gray-400 hover:text-white rounded-xl hover:bg-white/[0.05] transition-all cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -656,12 +628,12 @@ export const AdminManagement = () => {
               {/* Search new replacement user */}
               <form onSubmit={handleSearchReplaceUser} className="space-y-4">
                 <label className="text-xs font-black text-gray-400 uppercase tracking-widest block">
-                  Find Replacement Candidate
+                  Find Replacement Candidate (Hello ID or UID)
                 </label>
                 <div className="flex gap-2">
                   <input
                     type="text"
-                    placeholder="Enter candidate's Hello ID, UID, or Username..."
+                    placeholder="Enter candidate's Hello ID or UID..."
                     value={replaceQuery}
                     onChange={(e) => setReplaceQuery(e.target.value)}
                     className="flex-1 bg-[#18181B] border border-white/[0.08] rounded-2xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
@@ -671,7 +643,7 @@ export const AdminManagement = () => {
                     disabled={isSearchingReplace}
                     className="px-5 py-3 bg-amber-500 hover:bg-amber-600 text-black rounded-2xl font-bold text-sm tracking-tight transition-all disabled:opacity-50 cursor-pointer"
                   >
-                    {isSearchingReplace ? <RefreshCw size={16} className="animate-spin" /> : 'Search'}
+                    {isSearchingReplace ? <RefreshCw size={16} className="animate-spin" /> : 'Validate'}
                   </button>
                 </div>
               </form>
@@ -696,7 +668,7 @@ export const AdminManagement = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-bold text-white text-base truncate">
-                        {foundReplaceUser.displayName || foundReplaceUser.username || 'User'}
+                        {foundReplaceUser.displayName || foundReplaceUser.username || 'Candidate'}
                       </div>
                       <div className="text-xs text-gray-400 font-mono mt-0.5">
                         Hello ID: <span className="text-white font-bold">{foundReplaceUser.helloId || 'N/A'}</span>
@@ -706,6 +678,25 @@ export const AdminManagement = () => {
                       </div>
                     </div>
                   </div>
+
+                  {allowReplaceOverride && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2">
+                      <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                        <AlertCircle size={14} />
+                        <span>Agency Owner Conflict Detected</span>
+                      </div>
+                      <p className="text-[11px] text-gray-300">
+                        Candidate owns an active Agency. Enter an authorization reason to proceed.
+                      </p>
+                      <input
+                        type="text"
+                        placeholder="Reason for replacement override..."
+                        value={replaceOverrideReason}
+                        onChange={(e) => setReplaceOverrideReason(e.target.value)}
+                        className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                  )}
 
                   <button
                     onClick={handleExecuteReplace}

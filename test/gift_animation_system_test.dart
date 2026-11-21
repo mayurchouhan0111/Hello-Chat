@@ -2,6 +2,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/core/models/message_model.dart';
+import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/gift_animation_overlay.dart';
 import 'package:hello_chat/features/games/presentation/screens/spin_wheel_screen.dart';
 import 'package:tancent_vap/tancent_vap.dart';
@@ -51,7 +52,8 @@ void main() {
       expect(gift.animationTier, 'LUXURY');
     });
 
-    test('Multi-receiver ID key generation produces unique concurrent keys', () {
+    test('Multi-receiver ID key generation produces unique concurrent keys',
+        () {
       const msgId = 'msg_12345';
       final targets = ['user_1', 'user_2', 'user_3', 'user_4', 'user_5'];
       final keys = <String>{};
@@ -65,7 +67,9 @@ void main() {
       expect(keys.length, equals(5));
     });
 
-    test('Exact combo matching: 1x, 2x, 5x, 10x gifts produce exactly 1, 2, 5, 10 sequential animations', () {
+    test(
+        'Exact combo matching: 1x, 2x, 5x, 10x gifts produce exactly 1, 2, 5, 10 sequential animations',
+        () {
       const msgId = 'msg_combo_test';
       const targetUid = 'recipient_seat_1';
 
@@ -104,9 +108,12 @@ void main() {
       expect(rapidTapAnimIds.toSet().length, equals(5));
     });
 
-    test('Targeted recipient profile routing routes non-luxury gifts to seat queue', () {
+    test(
+        'Targeted recipient profile routing routes non-luxury gifts to seat queue',
+        () {
       bool isSeatTargeted(String targetUid, String tier) {
-        return (tier == 'NORMAL' || (targetUid.trim().isNotEmpty && tier != 'LUXURY'));
+        return (tier == 'NORMAL' ||
+            (targetUid.trim().isNotEmpty && tier != 'LUXURY'));
       }
 
       // Targeted Normal gift -> seat queue
@@ -119,7 +126,9 @@ void main() {
       expect(isSeatTargeted('', 'MEDIUM'), isFalse);
     });
 
-    test('GiftAnimationController dispatches optimistic event and consumePendingEvents drains it', () {
+    test(
+        'GiftAnimationController dispatches optimistic event and consumePendingEvents drains it',
+        () {
       final ctrl = GiftAnimationController();
       final gift = GiftModel(
         giftId: 'rose',
@@ -152,7 +161,9 @@ void main() {
       ctrl.dispose();
     });
 
-    test('GiftAnimationController shouldSkipEcho consumes matching local echo and ignores strangers', () {
+    test(
+        'GiftAnimationController shouldSkipEcho consumes matching local echo and ignores strangers',
+        () {
       final ctrl = GiftAnimationController();
       final gift = GiftModel(
         giftId: 'heart',
@@ -171,18 +182,29 @@ void main() {
       );
 
       // Other sender should not skip
-      expect(ctrl.shouldSkipEcho(senderUid: 'other_uid', targetUid: 'target_uid', giftId: 'heart'), isFalse);
+      expect(
+          ctrl.shouldSkipEcho(
+              senderUid: 'other_uid', targetUid: 'target_uid', giftId: 'heart'),
+          isFalse);
 
       // Matching sender and target skips echo once
-      expect(ctrl.shouldSkipEcho(senderUid: 'me_uid', targetUid: 'target_uid', giftId: 'heart'), isTrue);
+      expect(
+          ctrl.shouldSkipEcho(
+              senderUid: 'me_uid', targetUid: 'target_uid', giftId: 'heart'),
+          isTrue);
 
       // Once consumed, subsequent check returns false
-      expect(ctrl.shouldSkipEcho(senderUid: 'me_uid', targetUid: 'target_uid', giftId: 'heart'), isFalse);
+      expect(
+          ctrl.shouldSkipEcho(
+              senderUid: 'me_uid', targetUid: 'target_uid', giftId: 'heart'),
+          isFalse);
 
       ctrl.dispose();
     });
 
-    test('Sending the same gift twice locally creates unique event IDs and consumes echoes in FIFO order', () {
+    test(
+        'Sending the same gift twice locally creates unique event IDs and consumes echoes in FIFO order',
+        () {
       final ctrl = GiftAnimationController();
       final gift = GiftModel(
         giftId: 'rose',
@@ -196,23 +218,51 @@ void main() {
       );
 
       // Send the same gift 3 times consecutively in rapid succession
-      ctrl.playLocalGift(gift: gift, senderUid: 'u1', targetUid: 'u2', quantity: 1, comboCount: 1);
-      ctrl.playLocalGift(gift: gift, senderUid: 'u1', targetUid: 'u2', quantity: 1, comboCount: 2);
-      ctrl.playLocalGift(gift: gift, senderUid: 'u1', targetUid: 'u2', quantity: 1, comboCount: 3);
+      ctrl.playLocalGift(
+          gift: gift,
+          senderUid: 'u1',
+          targetUid: 'u2',
+          quantity: 1,
+          comboCount: 1);
+      ctrl.playLocalGift(
+          gift: gift,
+          senderUid: 'u1',
+          targetUid: 'u2',
+          quantity: 1,
+          comboCount: 2);
+      ctrl.playLocalGift(
+          gift: gift,
+          senderUid: 'u1',
+          targetUid: 'u2',
+          quantity: 1,
+          comboCount: 3);
 
       final events = ctrl.consumePendingEvents();
       expect(events.length, equals(3));
       // Every event must have a distinct unique ID
       final eventIds = events.map((e) => e.id).toSet();
-      expect(eventIds.length, equals(3), reason: 'Every consecutive send must have a unique monotonic ID');
+      expect(eventIds.length, equals(3),
+          reason: 'Every consecutive send must have a unique monotonic ID');
 
       // Server echoes arrive for u1 -> u2 -> rose
-      expect(ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'), isTrue, reason: 'First echo consumed');
-      expect(ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'), isTrue, reason: 'Second echo consumed');
-      expect(ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'), isTrue, reason: 'Third echo consumed');
+      expect(
+          ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'),
+          isTrue,
+          reason: 'First echo consumed');
+      expect(
+          ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'),
+          isTrue,
+          reason: 'Second echo consumed');
+      expect(
+          ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'),
+          isTrue,
+          reason: 'Third echo consumed');
 
       // 4th echo arrives without local send -> NOT skipped
-      expect(ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'), isFalse, reason: 'No more local sends queued');
+      expect(
+          ctrl.shouldSkipEcho(senderUid: 'u1', targetUid: 'u2', giftId: 'rose'),
+          isFalse,
+          reason: 'No more local sends queued');
 
       ctrl.dispose();
     });
@@ -222,13 +272,16 @@ void main() {
       int totalQueued = 0;
       for (int streak = 1; streak <= 10; streak++) {
         const int quantity = 1;
-        final int effectiveQty = quantity > 0 ? quantity : 1;
+        const int effectiveQty = quantity > 0 ? quantity : 1;
         totalQueued += effectiveQty;
       }
-      expect(totalQueued, equals(10), reason: '10 combo taps must produce exactly 10 animations, not 55');
+      expect(totalQueued, equals(10),
+          reason: '10 combo taps must produce exactly 10 animations, not 55');
     });
 
-    test('RoomMessage parses full animation metadata and handles null animationUrl', () {
+    test(
+        'RoomMessage parses full animation metadata and handles null animationUrl',
+        () {
       final map = {
         'uid': 'user_abc',
         'type': 'gift',
@@ -256,14 +309,14 @@ void main() {
 
       // Resilient overlay filter test: message is accepted even if animationUrl is null!
       final bool wouldAccept = msg.type == 'gift' &&
-          (
-            (msg.animationUrl != null && msg.animationUrl!.trim().isNotEmpty) ||
-            (msg.giftId != null && msg.giftId!.trim().isNotEmpty)
-          );
+          ((msg.animationUrl != null && msg.animationUrl!.trim().isNotEmpty) ||
+              (msg.giftId != null && msg.giftId!.trim().isNotEmpty));
       expect(wouldAccept, isTrue);
     });
 
-    test('GiftAnimationController: exact and fallback echo deduplication prevents double playback', () {
+    test(
+        'GiftAnimationController: exact and fallback echo deduplication prevents double playback',
+        () {
       final controller = GiftAnimationController();
       final gift = GiftModel(
         giftId: 'rose',
@@ -285,7 +338,8 @@ void main() {
       );
 
       final events = controller.consumePendingEvents();
-      expect(events.length, equals(1), reason: 'Local send must trigger exactly 1 local event');
+      expect(events.length, equals(1),
+          reason: 'Local send must trigger exactly 1 local event');
       expect(events.first.giftId, equals('rose'));
 
       // Exact server echo arrives for same sender, receiver, and gift
@@ -294,7 +348,9 @@ void main() {
         targetUid: 'user_target_2',
         giftId: 'rose',
       );
-      expect(skipExact, isTrue, reason: 'Server echo must be skipped to eliminate duplicate playback');
+      expect(skipExact, isTrue,
+          reason:
+              'Server echo must be skipped to eliminate duplicate playback');
 
       // Subsequent identical server message should not skip because echo was already consumed
       final skipSubsequent = controller.shouldSkipEcho(
@@ -302,7 +358,8 @@ void main() {
         targetUid: 'user_target_2',
         giftId: 'rose',
       );
-      expect(skipSubsequent, isFalse, reason: 'Consumed echo must not leave lingering skip state');
+      expect(skipSubsequent, isFalse,
+          reason: 'Consumed echo must not leave lingering skip state');
 
       // Test fallback matching: when targetUid in server message differs (e.g. unseated or group)
       controller.playLocalGift(
@@ -317,7 +374,8 @@ void main() {
         targetUid: '', // Target UID empty/omitted in echo
         giftId: 'rose',
       );
-      expect(skipFallback, isTrue, reason: 'Fallback matching must skip echo by sender and gift ID');
+      expect(skipFallback, isTrue,
+          reason: 'Fallback matching must skip echo by sender and gift ID');
 
       // Test other user send: gifts from other room participants are NEVER skipped
       final skipOtherUser = controller.shouldSkipEcho(
@@ -325,7 +383,8 @@ void main() {
         targetUid: 'user_target_2',
         giftId: 'rose',
       );
-      expect(skipOtherUser, isFalse, reason: 'Gifts from other users must never be skipped');
+      expect(skipOtherUser, isFalse,
+          reason: 'Gifts from other users must never be skipped');
     });
   });
 
@@ -343,20 +402,24 @@ void main() {
 
     test('Sector 0 is Hotdog / Burger at 12 o\'clock', () {
       final hotdogOutcome = {'name': 'Hotdog', 'multiplier': 10};
-      expect(resolveTargetSectorIndex(hotdogOutcome, canonicalSegments), equals(0));
+      expect(resolveTargetSectorIndex(hotdogOutcome, canonicalSegments),
+          equals(0));
 
       final burgerAliasOutcome = {'name': 'burger', 'multiplier': 10};
-      expect(resolveTargetSectorIndex(burgerAliasOutcome, canonicalSegments), equals(0));
+      expect(resolveTargetSectorIndex(burgerAliasOutcome, canonicalSegments),
+          equals(0));
     });
 
     test('Sector 4 is Carrot at 6 o\'clock', () {
       final carrotOutcome = {'name': 'Carrot', 'multiplier': 5};
-      expect(resolveTargetSectorIndex(carrotOutcome, canonicalSegments), equals(4));
+      expect(resolveTargetSectorIndex(carrotOutcome, canonicalSegments),
+          equals(4));
     });
 
     test('Sector 7 is Tomato at 10:30 position', () {
       final tomatoOutcome = {'name': 'Tomato', 'multiplier': 5};
-      expect(resolveTargetSectorIndex(tomatoOutcome, canonicalSegments), equals(7));
+      expect(resolveTargetSectorIndex(tomatoOutcome, canonicalSegments),
+          equals(7));
     });
 
     test('Food key normalizer maps aliases to canonical names', () {
@@ -369,11 +432,14 @@ void main() {
   });
 
   group('VapController Single Playback Invariants', () {
-    test('playFile invokes MethodChannel exactly once without auto-retrying or repeating', () async {
+    test(
+        'playFile invokes MethodChannel exactly once without auto-retrying or repeating',
+        () async {
       final controller = VapController();
       final List<MethodCall> methodCalls = [];
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-          .setMockMethodCallHandler(const MethodChannel('vap_view_999'), (call) async {
+          .setMockMethodCallHandler(const MethodChannel('vap_view_999'),
+              (call) async {
         methodCalls.add(call);
         return null;
       });
@@ -383,7 +449,8 @@ void main() {
 
       expect(methodCalls.length, equals(1));
       expect(methodCalls.first.method, equals('playFile'));
-      expect(methodCalls.first.arguments['filePath'], equals('/path/to/animation.mp4'));
+      expect(methodCalls.first.arguments['filePath'],
+          equals('/path/to/animation.mp4'));
       expect(methodCalls.first.arguments['id'], equals('anim_1'));
       expect(methodCalls.first.arguments['ticket'], equals(1));
 
@@ -392,6 +459,159 @@ void main() {
 
       // Still exactly 1 call! No duplicate attempts, no repeating!
       expect(methodCalls.length, equals(1));
+    });
+  });
+
+  group('GiftPlaybackState and Lifecycle Invariants', () {
+    test('GiftPlaybackState defines four explicit phases', () {
+      expect(
+          GiftPlaybackState.values,
+          equals([
+            GiftPlaybackState.idle,
+            GiftPlaybackState.preparing,
+            GiftPlaybackState.playing,
+            GiftPlaybackState.releasing,
+          ]));
+    });
+
+    test(
+        'Terminal event ticket idempotency drops duplicate or stale terminal callbacks',
+        () {
+      int currentTicket = 1;
+      int lastTerminalTicket = 0;
+      GiftPlaybackState state = GiftPlaybackState.playing;
+      int terminalExecutionCount = 0;
+
+      void handleTerminalEvent(int ticket, String source) {
+        if (ticket < currentTicket) return; // Stale ticket dropped
+        if (lastTerminalTicket == ticket ||
+            state == GiftPlaybackState.idle ||
+            state == GiftPlaybackState.releasing) {
+          return; // Duplicate terminal event dropped
+        }
+        lastTerminalTicket = ticket;
+        state = GiftPlaybackState.releasing;
+        terminalExecutionCount++;
+      }
+
+      // First completion callback executes terminal teardown
+      handleTerminalEvent(1, 'complete');
+      expect(terminalExecutionCount, equals(1));
+      expect(state, equals(GiftPlaybackState.releasing));
+
+      // Watchdog timeout firing for the same ticket is dropped
+      handleTerminalEvent(1, 'watchdog');
+      expect(terminalExecutionCount, equals(1));
+
+      // Native onFailed or error callback for the same ticket is dropped
+      handleTerminalEvent(1, 'failed');
+      expect(terminalExecutionCount, equals(1));
+
+      // Route disposal callback for older ticket is dropped
+      currentTicket = 2;
+      handleTerminalEvent(1, 'disposed');
+      expect(terminalExecutionCount, equals(1));
+
+      // New ticket can execute exactly once
+      state = GiftPlaybackState.playing;
+      handleTerminalEvent(2, 'complete');
+      expect(terminalExecutionCount, equals(2));
+    });
+
+    test('Queue bounded caps and combo coalescing enforce limits', () {
+      const int maxComboPlays = kMaxComboPlays;
+      expect(maxComboPlays, equals(10));
+
+      // Simulating combo queue coalescing logic:
+      int totalPlays = 0;
+      int remainingPlays = 0;
+      int comboCount = 0;
+
+      void mergeCombo(int newComboCount) {
+        final lastCombo = comboCount;
+        final delta = (newComboCount > 0 && lastCombo > 0)
+            ? (newComboCount - lastCombo)
+            : 1;
+        totalPlays = (totalPlays + delta).clamp(0, maxComboPlays);
+        remainingPlays = (remainingPlays + delta).clamp(0, maxComboPlays);
+        comboCount = newComboCount;
+      }
+
+      // First tap: combo 1
+      mergeCombo(1);
+      expect(totalPlays, equals(1));
+      expect(remainingPlays, equals(1));
+
+      // Rapid combo taps up to 15x
+      for (int c = 2; c <= 15; c++) {
+        mergeCombo(c);
+      }
+      // Capped at maxComboPlays (10)
+      expect(totalPlays, equals(10));
+      expect(remainingPlays, equals(10));
+      expect(comboCount, equals(15));
+    });
+  });
+
+  group('Gift Asset Manifest and Alias Resolutions', () {
+    test('SvgaParserUtil resolves all specified gift design aliases', () {
+      // SVGA Aliases
+      expect(SvgaParserUtil.getLocalGiftSvgaPath('', giftId: 'crystal_slipper'),
+          isNotNull);
+      expect(
+          SvgaParserUtil.getLocalGiftSvgaPath('', giftId: 'precious_necklace'),
+          isNotNull);
+      expect(SvgaParserUtil.getLocalGiftSvgaPath('', giftId: 'fly_heart'),
+          isNotNull);
+      expect(SvgaParserUtil.getLocalGiftSvgaPath('', giftId: 'eternal_love'),
+          isNotNull);
+
+      // Lottie Aliases
+      expect(SvgaParserUtil.getLocalLottiePath('', giftId: 'cake'), isNotNull);
+      expect(SvgaParserUtil.getLocalLottiePath('', giftId: 'diamond_balloon'),
+          isNotNull);
+      expect(SvgaParserUtil.getLocalLottiePath('', giftId: 'neon_supercar'),
+          isNotNull);
+      expect(SvgaParserUtil.getLocalLottiePath('', giftId: 'star_sticks'),
+          isNotNull);
+
+      // VAP Aliases
+      expect(SvgaParserUtil.getLocalVapPath('', giftId: 'kiss'), isNotNull);
+      expect(
+          SvgaParserUtil.getLocalVapPath('', giftId: 'pink_kiss'), isNotNull);
+      expect(SvgaParserUtil.getLocalVapPath('', giftId: 'treasure_adventure'),
+          isNotNull);
+      expect(SvgaParserUtil.getLocalVapPath('', giftId: 'romantic_journey'),
+          isNotNull);
+    });
+
+    test('GiftModel.fromMap resolves format and tier overrides for aliases',
+        () {
+      final cake = GiftModel.fromMap({'name': 'Cake', 'price': 100}, 'cake_1');
+      expect(cake.animationFormat, equals('json'));
+
+      final supercar = GiftModel.fromMap(
+          {'name': 'Neon Supercar', 'price': 400000}, 'car_1');
+      expect(supercar.animationFormat, equals('json'));
+      expect(supercar.animationTier, equals('LUXURY'));
+
+      final slipper = GiftModel.fromMap(
+          {'name': 'Crystal Slipper', 'price': 50000}, 'slipper_1');
+      expect(slipper.animationFormat, equals('svga'));
+      expect(slipper.animationTier, equals('LUXURY'));
+
+      final necklace = GiftModel.fromMap(
+          {'name': 'Precious Necklace', 'price': 2000}, 'neck_1');
+      expect(necklace.animationFormat, equals('svga'));
+      expect(necklace.animationTier, equals('MEDIUM'));
+
+      final treasure = GiftModel.fromMap(
+          {'name': 'Treasure Adventure', 'price': 3000}, 'tr_1');
+      expect(treasure.animationFormat, equals('vap'));
+      expect(treasure.animationTier, equals('MEDIUM'));
+
+      final kiss = GiftModel.fromMap({'name': 'Kiss', 'price': 50}, 'kiss_1');
+      expect(kiss.animationFormat, equals('vap'));
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gap/gap.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../core/models/room_model.dart';
+import '../../../../core/providers/auth_provider.dart';
 import '../../../../core/providers/room_provider.dart';
 
 class RoomWelcomeMessageScreen extends ConsumerStatefulWidget {
@@ -12,10 +13,12 @@ class RoomWelcomeMessageScreen extends ConsumerStatefulWidget {
   const RoomWelcomeMessageScreen({super.key, required this.room});
 
   @override
-  ConsumerState<RoomWelcomeMessageScreen> createState() => _RoomWelcomeMessageScreenState();
+  ConsumerState<RoomWelcomeMessageScreen> createState() =>
+      _RoomWelcomeMessageScreenState();
 }
 
-class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScreen> {
+class _RoomWelcomeMessageScreenState
+    extends ConsumerState<RoomWelcomeMessageScreen> {
   late TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
   bool _isSaving = false;
@@ -52,28 +55,50 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
 
   Future<void> _save() async {
     final text = _controller.text.trim();
+    if (text.length > _maxLength) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        TopSnackBar(
+          context: context,
+          content: const Text("Welcome message cannot exceed 500 characters"),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     setState(() => _isSaving = true);
     try {
-      await ref.read(roomServiceProvider).updateRoomWelcomeMessage(widget.room.roomId, text);
+      final currentUid = ref.read(authStateProvider).value?.uid;
+      await ref.read(roomServiceProvider).updateRoomWelcomeMessage(
+            widget.room.roomId,
+            text,
+            updatedBy: currentUid,
+          );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: const Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 20),
+                Icon(Icons.check_circle_rounded,
+                    color: Color(0xFF00E5FF), size: 20),
                 Gap(10),
                 Text("Room Welcome Message saved successfully!"),
               ],
             ),
             backgroundColor: const Color(0xFF16213E),
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
+        ScaffoldMessenger.of(context).showSnackBar(
+          TopSnackBar(
+            context: context,
             content: Text("Failed to save: $e"),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
@@ -96,7 +121,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: Colors.white, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -114,9 +140,11 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
         children: [
           // Background ambient glow circles
           Positioned(
-            top: -60, right: -60,
+            top: -60,
+            right: -60,
             child: Container(
-              width: 240, height: 240,
+              width: 240,
+              height: 240,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFF00E5FF).withValues(alpha: 0.06),
@@ -124,9 +152,11 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
             ),
           ),
           Positioned(
-            bottom: 100, left: -80,
+            bottom: 100,
+            left: -80,
             child: Container(
-              width: 260, height: 260,
+              width: 260,
+              height: 260,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: const Color(0xFFD4E157).withValues(alpha: 0.05),
@@ -154,7 +184,9 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                         ],
                       ),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.25)),
+                      border: Border.all(
+                          color:
+                              const Color(0xFF00E5FF).withValues(alpha: 0.25)),
                     ),
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -162,10 +194,12 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.2),
+                            color:
+                                const Color(0xFF00E5FF).withValues(alpha: 0.2),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.auto_awesome_rounded, color: Color(0xFF00E5FF), size: 22),
+                          child: const Icon(Icons.auto_awesome_rounded,
+                              color: Color(0xFF00E5FF), size: 22),
                         ),
                         const Gap(14),
                         const Expanded(
@@ -181,7 +215,10 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                         ),
                       ],
                     ),
-                  ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1, end: 0),
+                  )
+                      .animate()
+                      .fadeIn(duration: 300.ms)
+                      .slideY(begin: 0.1, end: 0),
 
                   const Gap(22),
 
@@ -220,18 +257,21 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                       color: const Color(0xFF111728),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: _isFocused 
-                            ? const Color(0xFF00E5FF) 
+                        color: _isFocused
+                            ? const Color(0xFF00E5FF)
                             : Colors.white.withValues(alpha: 0.12),
                         width: _isFocused ? 1.8 : 1.0,
                       ),
-                      boxShadow: _isFocused ? [
-                        BoxShadow(
-                          color: const Color(0xFF00E5FF).withValues(alpha: 0.15),
-                          blurRadius: 16,
-                          spreadRadius: 0,
-                        ),
-                      ] : [],
+                      boxShadow: _isFocused
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF00E5FF)
+                                    .withValues(alpha: 0.15),
+                                blurRadius: 16,
+                                spreadRadius: 0,
+                              ),
+                            ]
+                          : [],
                     ),
                     padding: const EdgeInsets.all(16),
                     child: Column(
@@ -251,7 +291,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                             filled: false,
                             fillColor: Colors.transparent,
                             hintText: "Add your custom room welcome message...",
-                            hintStyle: TextStyle(color: Colors.white38, fontSize: 14),
+                            hintStyle:
+                                TextStyle(color: Colors.white38, fontSize: 14),
                             border: InputBorder.none,
                             enabledBorder: InputBorder.none,
                             focusedBorder: InputBorder.none,
@@ -270,8 +311,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                                   minHeight: 4,
                                   backgroundColor: Colors.white10,
                                   valueColor: AlwaysStoppedAnimation<Color>(
-                                    progress > 0.9 
-                                        ? Colors.orangeAccent 
+                                    progress > 0.9
+                                        ? Colors.orangeAccent
                                         : const Color(0xFF00E5FF),
                                   ),
                                 ),
@@ -281,7 +322,9 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                             Text(
                               "$textLength/$_maxLength",
                               style: TextStyle(
-                                color: progress > 0.9 ? Colors.orangeAccent : Colors.white38,
+                                color: progress > 0.9
+                                    ? Colors.orangeAccent
+                                    : Colors.white38,
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -290,7 +333,10 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                         ),
                       ],
                     ),
-                  ).animate().fadeIn(duration: 350.ms).slideY(begin: 0.1, end: 0),
+                  )
+                      .animate()
+                      .fadeIn(duration: 350.ms)
+                      .slideY(begin: 0.1, end: 0),
 
                   const Gap(22),
 
@@ -316,7 +362,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                           );
                         },
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
                           decoration: BoxDecoration(
                             color: const Color(0xFF161F35),
                             borderRadius: BorderRadius.circular(20),
@@ -349,7 +396,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                   const Gap(8),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.45),
                       borderRadius: BorderRadius.circular(16),
@@ -360,12 +408,16 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                       children: [
                         const Text(
                           "👋 Guest enter the room",
-                          style: TextStyle(color: Color(0xFF00E5FF), fontSize: 12, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              color: Color(0xFF00E5FF),
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold),
                         ),
                         const Gap(6),
                         Text(
                           "@Guest 👉 ${_controller.text.trim().isNotEmpty ? _controller.text.trim() : 'Welcome to our room!'}",
-                          style: const TextStyle(color: Colors.white, fontSize: 13, height: 1.4),
+                          style: const TextStyle(
+                              color: Colors.white, fontSize: 13, height: 1.4),
                         ),
                       ],
                     ),
@@ -387,7 +439,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                         borderRadius: BorderRadius.circular(26),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFF00E5FF).withValues(alpha: 0.35),
+                            color:
+                                const Color(0xFF00E5FF).withValues(alpha: 0.35),
                             blurRadius: 16,
                             offset: const Offset(0, 4),
                           ),
@@ -406,12 +459,14 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                             ? const SizedBox(
                                 width: 24,
                                 height: 24,
-                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2.5),
+                                child: CircularProgressIndicator(
+                                    color: Colors.black, strokeWidth: 2.5),
                               )
                             : const Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Icon(Icons.save_rounded, color: Colors.black87, size: 20),
+                                  Icon(Icons.save_rounded,
+                                      color: Colors.black87, size: 20),
                                   Gap(8),
                                   Text(
                                     "Save Welcome Message",
@@ -426,7 +481,8 @@ class _RoomWelcomeMessageScreenState extends ConsumerState<RoomWelcomeMessageScr
                               ),
                       ),
                     ),
-                  ).animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.98, 0.98), end: const Offset(1, 1)),
+                  ).animate().fadeIn(duration: 500.ms).scale(
+                      begin: const Offset(0.98, 0.98), end: const Offset(1, 1)),
 
                   const Gap(16),
 

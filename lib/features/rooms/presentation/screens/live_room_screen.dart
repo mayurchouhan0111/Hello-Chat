@@ -36,6 +36,8 @@ import 'pk_battle_arena_screen.dart';
 import '../widgets/pk_challenge_banner.dart';
 import '../widgets/live_activity_feed.dart';
 import '../widgets/entry_effect_overlay.dart';
+import '../widgets/room_welcome_banner.dart';
+import '../../../../core/utils/rocket_vap_config.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_toast.dart';
 import '../../../../core/services/broadcast_service.dart';
@@ -192,30 +194,33 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
   bool _hasLeftRoom = false;
   bool _isRocketNotificationShowing = false;
   final ValueNotifier<int> _notificationCountdownNotifier =
-      ValueNotifier<int>(10);
+      ValueNotifier<int>(5);
   Timer? _notificationTimer;
   bool _isRocketFlying = false;
   bool _isRocketLaunching = false;
   int _launchingLevel = 1;
-  bool _isRocketLanding = false;
-  final ValueNotifier<int> _landingCountdownNotifier = ValueNotifier<int>(6);
   bool _showExplosionOverlay = false;
   Map<String, int> _launchContributions = {};
-  Timer? _landingTimer;
   final List<int> _rocketLaunchQueue = [];
+  static const int _maxRocketQueueSize = 5;
+  String? _currentRocketTicketId;
 
   void _processNextRocketQueueItem() {
     if (!mounted) return;
     if (_isRocketNotificationShowing ||
         _isRocketFlying ||
         _isRocketLaunching ||
-        _isRocketLanding ||
         _showExplosionOverlay) {
       return;
     }
     if (_rocketLaunchQueue.isNotEmpty) {
       final nextLevel = _rocketLaunchQueue.removeAt(0);
+      _currentRocketTicketId =
+          '${widget.roomId}_${nextLevel}_${DateTime.now().millisecondsSinceEpoch}';
       _showRocketLaunchAnimation(nextLevel);
+    } else {
+      _currentRocketTicketId = null;
+      ref.read(isRocketActiveProvider(widget.roomId).notifier).state = false;
     }
   }
 
@@ -395,9 +400,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     final voiceService = _voiceService;
 
     _notificationTimer?.cancel();
-    _landingTimer?.cancel();
     _notificationCountdownNotifier.dispose();
-    _landingCountdownNotifier.dispose();
     _quickSendNotifier.dispose();
     _bannerTimer?.cancel();
     _bannerPageController.dispose();
@@ -690,7 +693,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
               }
               for (int lv = prevRoom.rocketLevel; lv < room.rocketLevel; lv++) {
                 if (!_rocketLaunchQueue.contains(lv)) {
-                  _rocketLaunchQueue.add(lv);
+                  if (_rocketLaunchQueue.length < _maxRocketQueueSize) {
+                    _rocketLaunchQueue.add(lv);
+                  }
                 }
               }
               _processNextRocketQueueItem();
@@ -944,8 +949,13 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
 
                         LiveRoomLayout(
                           room: room,
-                          header:
+                          header: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
                               RepaintBoundary(child: _buildRoomAppBar(room)),
+                              RoomWelcomeBanner(roomId: widget.roomId),
+                            ],
+                          ),
                           seats: Column(
                             children: [
                               YouTubeRoomPlayer(room: room, myUid: myUid),
@@ -1032,7 +1042,6 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
                   _buildRocketNotificationOverlay(),
                   _buildRocketFlyingOverlay(),
                   _buildRocketOverlay(),
-                  _buildRocketLandingOverlay(room),
                   _buildExplosionOverlay(room),
                 ],
               ),
@@ -2417,6 +2426,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
       );
       final profile =
           ref.watch(cachedUserProfileProvider(room.ownerUid)).valueOrNull;
+      final is16Seat = room.capacity >= 16;
+      final screenHeight = MediaQuery.sizeOf(context).height;
+      final isCompact = is16Seat && screenHeight <= 680;
       return Padding(
         padding: const EdgeInsets.only(top: 2, bottom: 2),
         child: GestureDetector(
@@ -2426,11 +2438,20 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
           onTap: () => host.uid.isNotEmpty
               ? _showUserOptions(host)
               : _onSeatTap(0, participants, room),
-          child: RoomOwnerSeatPortrait(
-            participant: host,
-            profile: profile,
-            online: online,
-          ),
+          child: isCompact
+              ? RoomSeatPortrait(
+                  participant: host,
+                  profile: profile,
+                  extent: 64,
+                  fontSize: 9.5,
+                  isOwner: true,
+                  online: online,
+                )
+              : RoomOwnerSeatPortrait(
+                  participant: host,
+                  profile: profile,
+                  online: online,
+                ),
         ),
       );
     });
@@ -3086,13 +3107,21 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
   }
 
   void _showRocketLaunchAnimation(int level) {
-    if (_isRocketNotificationShowing || _isRocketFlying || _isRocketLaunching)
+    if (_isRocketNotificationShowing ||
+        _isRocketFlying ||
+        _isRocketLaunching ||
+        _showExplosionOverlay) {
       return;
-    _notificationCountdownNotifier.value = 10;
+    }
+    ref.read(isRocketActiveProvider(widget.roomId).notifier).state = true;
+    _currentRocketTicketId ??=
+        '${widget.roomId}_${level}_${DateTime.now().millisecondsSinceEpoch}';
+    _notificationCountdownNotifier.value = 5;
     setState(() {
       _isRocketNotificationShowing = true;
       _launchingLevel = level;
     });
+    RocketVapConfig.preloadActiveAndNext(level);
     _startNotificationTimer();
   }
 
@@ -3263,6 +3292,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
               child: RocketLaunchOverlay(
                 level: _launchingLevel,
                 roomId: widget.roomId,
+                ticketId: _currentRocketTicketId,
                 onComplete: () {
                   _triggerRocketHeartbeat();
                   setState(() {
@@ -3283,187 +3313,16 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
               child: RocketCompletionVapOverlay(
                 level: _launchingLevel,
                 roomId: widget.roomId,
+                ticketId: _currentRocketTicketId,
                 onComplete: () {
                   _triggerRocketHeartbeat();
-                  ref
-                      .read(isRocketActiveProvider(widget.roomId).notifier)
-                      .state = false;
-                  _landingCountdownNotifier.value = 6;
                   setState(() {
                     _isRocketLaunching = false;
-                    _isRocketLanding = true;
+                    _showExplosionOverlay = true;
                   });
-                  _startLandingTimer();
                 },
               ),
             ),
-    );
-  }
-
-  void _startLandingTimer() {
-    _landingTimer?.cancel();
-    _landingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (_landingCountdownNotifier.value > 1) {
-        _landingCountdownNotifier.value--;
-      } else {
-        timer.cancel();
-        setState(() {
-          _isRocketLanding = false;
-          _showExplosionOverlay = true;
-        });
-      }
-    });
-  }
-
-  Widget _buildRocketLandingOverlay(RoomModel room) {
-    if (!_isRocketLanding)
-      return const Positioned.fill(child: SizedBox.shrink());
-
-    // Prefer lastRocketResults (server-written) over _launchContributions
-    String? targetUid;
-    if (room.lastRocketResults != null) {
-      final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
-      if (top3.isNotEmpty && top3[0] is Map) {
-        targetUid = (top3[0] as Map)['uid'] as String?;
-      }
-    }
-    targetUid ??= _launchContributions.isNotEmpty
-        ? (_launchContributions.entries.toList()
-              ..sort((a, b) => b.value.compareTo(a.value)))
-            .first
-            .key
-        : room.ownerUid;
-
-    final userAsync = ref.watch(cachedUserProfileProvider(targetUid));
-    final user = userAsync.value;
-
-    return Positioned.fill(
-      child: RepaintBoundary(
-        child: Center(
-          child: Container(
-            width: 260,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.85),
-              borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                  color: const Color(0xFFFFD700).withOpacity(0.6), width: 2),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFFD700).withOpacity(0.3),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                )
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white10,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 1),
-                  ),
-                  child: const Icon(
-                    Icons.rocket_launch_rounded,
-                    color: Color(0xFFFFD700),
-                    size: 40,
-                  ),
-                ).animate(onPlay: (c) => c.repeat(reverse: true)).scale(
-                    begin: const Offset(0.9, 0.9),
-                    end: const Offset(1.1, 1.1),
-                    duration: 600.ms),
-                const Gap(12),
-                const Text(
-                  "ROCKET LANDED!",
-                  style: TextStyle(
-                    color: Color(0xFFFFD700),
-                    fontWeight: FontWeight.w900,
-                    fontSize: 16,
-                    letterSpacing: 1,
-                  ),
-                ),
-                const Text(
-                  "Preparing Reward Settlement...",
-                  style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500),
-                ),
-                const Gap(16),
-                if (user != null) ...[
-                  const Align(
-                    alignment: Alignment.center,
-                    child: Text(
-                      "TOP CONTRIBUTOR",
-                      style: TextStyle(
-                          color: Colors.white30,
-                          fontSize: 8,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5),
-                    ),
-                  ),
-                  const Gap(8),
-                  AppAvatar(
-                    imageUrl: user.profilePhotoUrl,
-                    frameUrl: user.profileFrame,
-                    vipTier: user.vipTier,
-                    userLevel: user.level,
-                    tags: user.tags,
-                    radius: 28,
-                    showFrame: true,
-                  ),
-                  const Gap(8),
-                  Text(
-                    user.displayName.isNotEmpty
-                        ? user.displayName
-                        : user.username,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    "ID: ${user.displayId}",
-                    style: const TextStyle(
-                        color: Color(0xFFFFD700),
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold),
-                  ),
-                ],
-                const Gap(16),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(16),
-                    border:
-                        Border.all(color: Colors.redAccent.withOpacity(0.3)),
-                  ),
-                  child: Text(
-                    "EXPLODING IN ${_landingCountdownNotifier.value}s",
-                    style: const TextStyle(
-                      color: Colors.redAccent,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 11,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ).animate().scale(duration: 300.ms, curve: Curves.easeOutBack),
-      ),
     );
   }
 
@@ -3585,6 +3444,22 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     }
   }
 
+  void _dismissExplosionOverlay() {
+    _explosionAutoDismissTimer?.cancel();
+    _explosionAutoDismissTimer = null;
+    if (_showExplosionOverlay) {
+      setState(() {
+        _showExplosionOverlay = false;
+      });
+      ref.invalidate(walletBalanceProvider);
+      ref.invalidate(currentUserProfileProvider);
+      ref.read(isRocketActiveProvider(widget.roomId).notifier).state = false;
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) _processNextRocketQueueItem();
+      });
+    }
+  }
+
   Widget _buildExplosionOverlay(RoomModel room) {
     if (!_showExplosionOverlay)
       return const Positioned.fill(child: SizedBox.shrink());
@@ -3592,17 +3467,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     // Auto-dismiss safety timer so explosion overlay never blocks queue if user doesn't tap Close
     _explosionAutoDismissTimer ??= Timer(const Duration(seconds: 8), () {
       if (!mounted) return;
-      _explosionAutoDismissTimer = null;
-      if (_showExplosionOverlay) {
-        setState(() {
-          _showExplosionOverlay = false;
-        });
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(currentUserProfileProvider);
-        Future.delayed(const Duration(milliseconds: 400), () {
-          _processNextRocketQueueItem();
-        });
-      }
+      _dismissExplosionOverlay();
     });
 
     final myUid = FirebaseAuth.instance.currentUser?.uid;
@@ -3674,18 +3539,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     final explosion = RocketRewardExplosionOverlay(
       level: (_launchingLevel - 1).clamp(0, 4),
       contributions: _launchContributions,
-      onClose: () {
-        _explosionAutoDismissTimer?.cancel();
-        _explosionAutoDismissTimer = null;
-        setState(() {
-          _showExplosionOverlay = false;
-        });
-        ref.invalidate(walletBalanceProvider);
-        ref.invalidate(currentUserProfileProvider);
-        Future.delayed(const Duration(milliseconds: 500), () {
-          _processNextRocketQueueItem();
-        });
-      },
+      onClose: _dismissExplosionOverlay,
     );
 
     final Widget body = myRank != null
@@ -3698,18 +3552,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
                 coins: myCoins,
                 xp: myXp,
                 frameDuration: myFrameDuration,
-                onClose: () {
-                  _explosionAutoDismissTimer?.cancel();
-                  _explosionAutoDismissTimer = null;
-                  setState(() {
-                    _showExplosionOverlay = false;
-                  });
-                  ref.invalidate(walletBalanceProvider);
-                  ref.invalidate(currentUserProfileProvider);
-                  Future.delayed(const Duration(milliseconds: 500), () {
-                    _processNextRocketQueueItem();
-                  });
-                },
+                onClose: _dismissExplosionOverlay,
               ),
             ],
           )

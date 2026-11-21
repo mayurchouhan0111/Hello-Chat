@@ -53,6 +53,8 @@ class RoomModel {
   final String? newsStatus;
   final String notice;
   final String welcomeMessage;
+  final DateTime? welcomeMessageUpdatedAt;
+  final String? welcomeMessageUpdatedBy;
   final bool publicScreenSetting;
   final String roomType;
   final String micMode;
@@ -117,6 +119,8 @@ class RoomModel {
     this.newsStatus,
     this.notice = "Welcome to our room!",
     this.welcomeMessage = "Thanks for joining us!",
+    this.welcomeMessageUpdatedAt,
+    this.welcomeMessageUpdatedBy,
     this.publicScreenSetting = true,
     this.roomType = "Chat",
     this.micMode = "open mode",
@@ -148,20 +152,23 @@ class RoomModel {
 
   List<String> get adminIds => admins;
   // Single source of truth for "is this uid a designated Room Admin".
-  bool isUserAdmin(String uid) => uid.isNotEmpty && uid != ownerUid && admins.contains(uid);
+  bool isUserAdmin(String uid) =>
+      uid.isNotEmpty && uid != ownerUid && admins.contains(uid);
   bool isUserOwner(String uid) => uid == ownerUid;
 
   /// Room star rating (1-5 stars) automatically resets to 0 Stars after 24 hours.
   int get currentStarLevel {
     final now = DateTime.now().toUtc();
-    final todayStr = "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+    final todayStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
     // Must reset to 0 if last daily activity was not today (UTC date rollover)
     if (lastDailySentDate != todayStr) {
       return 0;
     }
     // Must reset to 0 if 24 hours have elapsed since the last star rating update
     if (starRatingUpdatedAt != null) {
-      final hoursElapsed = DateTime.now().difference(starRatingUpdatedAt!).inHours;
+      final hoursElapsed =
+          DateTime.now().difference(starRatingUpdatedAt!).inHours;
       if (hoursElapsed >= 24) {
         return 0;
       }
@@ -208,7 +215,8 @@ class RoomModel {
       'bannedUids': bannedUids,
       'banExpiries': banExpiries,
       'pkActive': pkActive,
-      'pkStartTime': pkStartTime != null ? Timestamp.fromDate(pkStartTime!) : null,
+      'pkStartTime':
+          pkStartTime != null ? Timestamp.fromDate(pkStartTime!) : null,
       'pkEndTime': pkEndTime != null ? Timestamp.fromDate(pkEndTime!) : null,
       'pkScores': pkScores,
       'pkTeams': pkTeams,
@@ -223,6 +231,10 @@ class RoomModel {
       'newsStatus': newsStatus,
       'notice': notice,
       'welcomeMessage': welcomeMessage,
+      if (welcomeMessageUpdatedAt != null)
+        'welcomeMessageUpdatedAt': Timestamp.fromDate(welcomeMessageUpdatedAt!),
+      if (welcomeMessageUpdatedBy != null)
+        'welcomeMessageUpdatedBy': welcomeMessageUpdatedBy,
       'publicScreenSetting': publicScreenSetting,
       'roomType': roomType,
       'micMode': micMode,
@@ -241,15 +253,21 @@ class RoomModel {
       'rocketLevel': rocketLevel,
       'rocketContributions': rocketContributions,
       'rocketStatus': rocketStatus,
-      'rocketCooldownUntil': rocketCooldownUntil != null ? Timestamp.fromDate(rocketCooldownUntil!) : null,
+      'rocketCooldownUntil': rocketCooldownUntil != null
+          ? Timestamp.fromDate(rocketCooldownUntil!)
+          : null,
       'lastRocketResults': lastRocketResults,
       'dailyDiamondsSent': dailyDiamondsSent,
       'monthlyDiamondsSent': monthlyDiamondsSent,
       'lastDailySentDate': lastDailySentDate,
       'lastMonthlySentDate': lastMonthlySentDate,
       'starRating': starRating,
-      'starRatingUpdatedAt': starRatingUpdatedAt != null ? Timestamp.fromDate(starRatingUpdatedAt!) : null,
-      'messagesClearedAt': messagesClearedAt != null ? Timestamp.fromDate(messagesClearedAt!) : null,
+      'starRatingUpdatedAt': starRatingUpdatedAt != null
+          ? Timestamp.fromDate(starRatingUpdatedAt!)
+          : null,
+      'messagesClearedAt': messagesClearedAt != null
+          ? Timestamp.fromDate(messagesClearedAt!)
+          : null,
     };
   }
 
@@ -261,46 +279,74 @@ class RoomModel {
       name: map['name']?.toString() ?? '',
       theme: map['theme']?.toString() ?? 'classic',
       coverUrl: ((map['coverUrl'] as String?)?.trim().isNotEmpty == true
-          ? map['coverUrl']
-          : (map['roomCover'] as String?)?.trim().isNotEmpty == true
-              ? map['roomCover']
-              : (map['roomIcon'] as String?)?.trim().isNotEmpty == true
-                  ? map['roomIcon']
-                  : (map['ownerAvatar'] as String?)?.trim().isNotEmpty == true
-                      ? map['ownerAvatar']
-                      : (map['ownerProfilePic'] as String?)?.trim().isNotEmpty == true
-                          ? map['ownerProfilePic']
-                          : (map['userProfilePic'] as String?)?.trim().isNotEmpty == true
-                              ? map['userProfilePic']
-                              : (map['profilePhotoUrl'] as String?)?.trim().isNotEmpty == true
-                                  ? map['profilePhotoUrl']
-                                  : (map['photoUrl'] as String?)?.trim().isNotEmpty == true
-                                      ? map['photoUrl']
-                                      : '')?.toString() ?? '',
-      backgroundUrl: map['backgroundUrl']?.toString() ?? map['themeUrl']?.toString() ?? '',
+                  ? map['coverUrl']
+                  : (map['roomCover'] as String?)?.trim().isNotEmpty == true
+                      ? map['roomCover']
+                      : (map['roomIcon'] as String?)?.trim().isNotEmpty == true
+                          ? map['roomIcon']
+                          : (map['ownerAvatar'] as String?)
+                                      ?.trim()
+                                      .isNotEmpty ==
+                                  true
+                              ? map['ownerAvatar']
+                              : (map['ownerProfilePic'] as String?)
+                                          ?.trim()
+                                          .isNotEmpty ==
+                                      true
+                                  ? map['ownerProfilePic']
+                                  : (map['userProfilePic'] as String?)
+                                              ?.trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? map['userProfilePic']
+                                      : (map['profilePhotoUrl'] as String?)
+                                                  ?.trim()
+                                                  .isNotEmpty ==
+                                              true
+                                          ? map['profilePhotoUrl']
+                                          : (map['photoUrl'] as String?)
+                                                      ?.trim()
+                                                      .isNotEmpty ==
+                                                  true
+                                              ? map['photoUrl']
+                                              : '')
+              ?.toString() ??
+          '',
+      backgroundUrl:
+          map['backgroundUrl']?.toString() ?? map['themeUrl']?.toString() ?? '',
       isPrivate: map['isPrivate'] == true,
       passwordHash: map['passwordHash']?.toString(),
       capacity: (map['capacity'] as num?)?.toInt() ?? 10,
       // Clamp: leave/join are FieldValue.increment(-1) and can race past zero when a
       // room is left twice (app restart, overlay minimize, cron reaping), which rendered
       // "-2 users" on room cards. Never show a negative count.
-      currentUsersCount: ((map['currentUsersCount'] as num?)?.toInt() ?? 0).clamp(0, 1 << 30).toInt(),
+      currentUsersCount: ((map['currentUsersCount'] as num?)?.toInt() ?? 0)
+          .clamp(0, 1 << 30)
+          .toInt(),
       backgroundMusic: map['backgroundMusic'] == true,
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       endedAt: (map['endedAt'] as Timestamp?)?.toDate(),
       status: map['status']?.toString() ?? 'active',
       admins: _parseAdminIds(map),
-      moderators: (map['moderators'] as Iterable?)?.map((e) => e.toString()).toList() ?? [],
-      bannedUids: (map['bannedUids'] as Iterable?)?.map((e) => e.toString()).toList() ?? [],
-      banExpiries: map['banExpiries'] != null ? Map<String, dynamic>.from(map['banExpiries']) : null,
+      moderators:
+          (map['moderators'] as Iterable?)?.map((e) => e.toString()).toList() ??
+              [],
+      bannedUids:
+          (map['bannedUids'] as Iterable?)?.map((e) => e.toString()).toList() ??
+              [],
+      banExpiries: map['banExpiries'] != null
+          ? Map<String, dynamic>.from(map['banExpiries'])
+          : null,
       pkActive: map['pkActive'] == true,
       pkStartTime: (map['pkStartTime'] as Timestamp?)?.toDate(),
       pkEndTime: (map['pkEndTime'] as Timestamp?)?.toDate(),
       pkScores: map['pkScores'] is Map
-          ? (map['pkScores'] as Map).map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0))
+          ? (map['pkScores'] as Map)
+              .map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0))
           : null,
       pkTeams: map['pkTeams'] is Map
-          ? (map['pkTeams'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()))
+          ? (map['pkTeams'] as Map)
+              .map((k, v) => MapEntry(k.toString(), v.toString()))
           : null,
       pkWinnerUid: map['pkWinnerUid']?.toString(),
       pkPhase: map['pkPhase']?.toString() ?? 'none',
@@ -312,29 +358,47 @@ class RoomModel {
       isTrending: map['isTrending'] == true,
       newsStatus: map['newsStatus']?.toString(),
       notice: map['notice']?.toString() ?? "Welcome to our room!",
-      welcomeMessage: map['welcomeMessage']?.toString() ?? "Thanks for joining us!",
+      welcomeMessage:
+          map['welcomeMessage']?.toString() ?? "Thanks for joining us!",
+      welcomeMessageUpdatedAt:
+          (map['welcomeMessageUpdatedAt'] as Timestamp?)?.toDate(),
+      welcomeMessageUpdatedBy: map['welcomeMessageUpdatedBy']?.toString(),
       publicScreenSetting: map['publicScreenSetting'] != false,
       roomType: map['roomType']?.toString() ?? "Chat",
       micMode: map['micMode']?.toString() ?? "open mode",
       superMic: map['superMic'] == true,
       effectSwitch: map['effectSwitch'] != false,
       youtubeVideoId: map['youtubeVideoId']?.toString(),
-      isYoutubeActive: (map['isYoutubeActive'] == true) && (map['youtubeVideoId']?.toString().isNotEmpty == true),
+      isYoutubeActive: (map['isYoutubeActive'] == true) &&
+          (map['youtubeVideoId']?.toString().isNotEmpty == true),
       youtubeStatus: map['youtubeStatus']?.toString() ?? 'stopped',
       youtubeSeekTime: (map['youtubeSeekTime'] as num?)?.toInt() ?? 0,
       youtubeVolume: (map['youtubeVolume'] as num?)?.toInt() ?? 100,
-      pkChallenge: map['pkChallenge'] != null ? Map<String, dynamic>.from(map['pkChallenge']) : null,
-      pkContributions: map['pkContributions'] != null ? Map<String, dynamic>.from(map['pkContributions']) : null,
-      pkWinnerData: map['pkWinnerData'] != null ? Map<String, dynamic>.from(map['pkWinnerData']) : null,
-      lockedSeats: (map['lockedSeats'] as Iterable?)?.map((e) => (e as num?)?.toInt()).whereType<int>().toList() ?? [],
+      pkChallenge: map['pkChallenge'] != null
+          ? Map<String, dynamic>.from(map['pkChallenge'])
+          : null,
+      pkContributions: map['pkContributions'] != null
+          ? Map<String, dynamic>.from(map['pkContributions'])
+          : null,
+      pkWinnerData: map['pkWinnerData'] != null
+          ? Map<String, dynamic>.from(map['pkWinnerData'])
+          : null,
+      lockedSeats: (map['lockedSeats'] as Iterable?)
+              ?.map((e) => (e as num?)?.toInt())
+              .whereType<int>()
+              .toList() ??
+          [],
       rocketFuel: (map['rocketFuel'] as num?)?.toInt() ?? 0,
       rocketLevel: (map['rocketLevel'] as num?)?.toInt() ?? 0,
       rocketContributions: map['rocketContributions'] is Map
-          ? (map['rocketContributions'] as Map).map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0))
+          ? (map['rocketContributions'] as Map)
+              .map((k, v) => MapEntry(k.toString(), (v as num?)?.toInt() ?? 0))
           : null,
       rocketStatus: map['rocketStatus']?.toString() ?? 'active',
       rocketCooldownUntil: (map['rocketCooldownUntil'] as Timestamp?)?.toDate(),
-      lastRocketResults: map['lastRocketResults'] != null ? Map<String, dynamic>.from(map['lastRocketResults']) : null,
+      lastRocketResults: map['lastRocketResults'] != null
+          ? Map<String, dynamic>.from(map['lastRocketResults'])
+          : null,
       dailyDiamondsSent: (map['dailyDiamondsSent'] as num?)?.toInt() ?? 0,
       monthlyDiamondsSent: (map['monthlyDiamondsSent'] as num?)?.toInt() ?? 0,
       lastDailySentDate: map['lastDailySentDate']?.toString(),

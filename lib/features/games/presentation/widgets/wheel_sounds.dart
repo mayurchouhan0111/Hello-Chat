@@ -25,10 +25,17 @@ class WheelSounds {
 
   Future<void> _load(AudioPlayer player, String path) async {
     await player.setAudioContext(const AudioContext(
-      android: AudioContextAndroid(audioFocus: AndroidAudioFocus.none),
+      android: AudioContextAndroid(
+        isSpeakerphoneOn: false,
+        stayAwake: false,
+        contentType: AndroidContentType.sonification,
+        usageType: AndroidUsageType.game,
+        audioFocus: AndroidAudioFocus.none,
+      ),
       iOS: AudioContextIOS(
-          category: AVAudioSessionCategory.playAndRecord,
-          options: [AVAudioSessionOptions.mixWithOthers]),
+        category: AVAudioSessionCategory.ambient,
+        options: [AVAudioSessionOptions.mixWithOthers],
+      ),
     ));
     await player.setReleaseMode(ReleaseMode.stop);
     await player.setSourceAsset(path);

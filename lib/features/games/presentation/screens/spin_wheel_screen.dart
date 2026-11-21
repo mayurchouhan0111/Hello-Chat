@@ -3948,6 +3948,14 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                       math.min(widthScale, heightScale).clamp(0.75, 1.05);
 
                   const wheelScale = 1.0;
+                  // Responsive betting pod food icon size clamped between 50 and 56 based on screen width:
+                  // 320px -> 50.0, 393px -> ~54.0, 430px -> 56.0
+                  final screenWidth = constraints.maxWidth;
+                  final podIconBase = (50.0 +
+                          (screenWidth - 320.0) *
+                              ((56.0 - 50.0) / (430.0 - 320.0)))
+                      .clamp(50.0, 56.0);
+                  final podIconSize = podIconBase * wheelScale;
                   return Stack(
                     children: [
                       SpinWheelLayout(
@@ -4024,33 +4032,39 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                                         final name = items[index].name;
                                         final bet = _currentBets[name] ?? 0;
 
+                                        final podWidth = 76.0 * wheelScale;
+                                        final podHeight = 88.0 * wheelScale;
+                                        // Reposition icon inside pod so icon bottom stays strictly above the 'win X times' label (at podCenterY + 18 * wheelScale)
+                                        final iconTop = (podHeight / 2) -
+                                            podIconSize +
+                                            (13.0 * wheelScale);
                                         return Positioned(
-                                          left: 242 + podX - (35 * wheelScale),
-                                          top: 252 + podY - (40 * wheelScale),
+                                          left: 242 + podX - (podWidth / 2),
+                                          top: 252 + podY - (podHeight / 2),
                                           child: GestureDetector(
                                             behavior: HitTestBehavior.opaque,
                                             onTap: (_isBetLocked || _isOffline)
                                                 ? null
                                                 : () => _placeBet(name, items),
                                             child: Container(
-                                              width: 70 * wheelScale,
-                                              height: 80 * wheelScale,
-                                              color: Colors
-                                                  .transparent, // Hit area
+                                              width: podWidth,
+                                              height: podHeight,
+                                              color: Colors.transparent,
                                               child: Stack(
                                                 alignment: Alignment.center,
+                                                clipBehavior: Clip.none,
                                                 children: [
                                                   Positioned(
-                                                    top: 8 * wheelScale,
+                                                    top: iconTop,
                                                     child: SpinWheelFoodIcon(
                                                       food: name,
-                                                      size: 34 * wheelScale,
+                                                      size: podIconSize,
                                                       semanticLabel: name,
                                                     ),
                                                   ),
                                                   if (bet > 0)
                                                     Positioned(
-                                                      top: 0,
+                                                      top: -8 * wheelScale,
                                                       child: Row(
                                                         mainAxisSize:
                                                             MainAxisSize.min,
@@ -7498,7 +7512,7 @@ class PodsPainter extends CustomPainter {
         ),
       );
       labelPainter.paint(
-          canvas, podCenter - Offset(labelPainter.width / 2, -15 * scale));
+          canvas, podCenter - Offset(labelPainter.width / 2, -18 * scale));
 
       // 6. Draw Coin Icons (Dynamic based on Clicks) - Cached TextPainter
       final clickCount = betClickCounts[items[i].name] ?? 0;
@@ -7512,7 +7526,7 @@ class PodsPainter extends CustomPainter {
           ),
         );
         coinsPainter.paint(
-            canvas, podCenter - Offset(coinsPainter.width / 2, -25 * scale));
+            canvas, podCenter - Offset(coinsPainter.width / 2, -30 * scale));
       }
 
       // Sold Out Overlay

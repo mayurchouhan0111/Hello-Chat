@@ -137,6 +137,7 @@ flutter:
     - assets/icons/
     - assets/animations/lottie/
     - assets/animations/gifts/
+    - assets/animations/gifts/lottie/
     - assets/animations/gifts/tencent-VAP-music/
     - assets/animations/gifts/169522/
     - assets/animations/gifts/219667/

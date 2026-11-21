@@ -5,12 +5,15 @@ class GiftModel {
   final String giftId;
   final String name;
   final int priceInDiamonds;
-  final String category; // shelf tab: "Normal", "Lucky", "Medium", "Luxury", "CP", "Custom", "Family Battle", "VIP", "SVIP"
+  final String
+      category; // shelf tab: "Normal", "Lucky", "Medium", "Luxury", "CP", "Custom", "Family Battle", "VIP", "SVIP"
   final String imageUrl; // Icon URL from Firebase/Storage
   final String lottieAssetPath; // Animation URL or path
   final String soundUrl; // Audio URL for gift sound effect
-  final String animationFormat; // "json", "svga", "mp4", "vpa", "pag", "image", "sound"
-  final String tier; // animation layer override: "" (derive from category) | "NORMAL" | "MEDIUM" | "LUXURY"
+  final String
+      animationFormat; // "json", "svga", "mp4", "vpa", "pag", "image", "sound"
+  final String
+      tier; // animation layer override: "" (derive from category) | "NORMAL" | "MEDIUM" | "LUXURY"
   final int durationMs; // 0 = derive from asset / format default
   final int minSvipLevel;
   final int sortOrder;
@@ -66,17 +69,25 @@ class GiftModel {
       'minSvipLevel': minSvipLevel,
       'sortOrder': sortOrder,
       'isActive': isActive,
-      'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
-      'updatedAt': updatedAt != null ? Timestamp.fromDate(updatedAt!) : FieldValue.serverTimestamp(),
+      'createdAt': createdAt != null
+          ? Timestamp.fromDate(createdAt!)
+          : FieldValue.serverTimestamp(),
+      'updatedAt': updatedAt != null
+          ? Timestamp.fromDate(updatedAt!)
+          : FieldValue.serverTimestamp(),
     };
   }
 
   factory GiftModel.fromMap(Map<String, dynamic> map, String docId) {
     final vapSpec = GiftVapCatalog.byId(docId);
-    final rawAsset = (map['lottieAssetPath'] ?? map['animation_url'])?.toString() ?? '';
-    final assetPath = rawAsset.isNotEmpty ? rawAsset : (vapSpec?.assetPath ?? '');
+    final rawAsset =
+        (map['lottieAssetPath'] ?? map['animation_url'])?.toString() ?? '';
+    final assetPath =
+        rawAsset.isNotEmpty ? rawAsset : (vapSpec?.assetPath ?? '');
     final lowerAsset = assetPath.toLowerCase();
-    String format = (map['animationFormat'] ?? map['animation_type'])?.toString() ?? '';
+    final nameLower = (map['name']?.toString() ?? '').toLowerCase().trim();
+    String format =
+        (map['animationFormat'] ?? map['animation_type'])?.toString() ?? '';
 
     // Auto-detect format from asset path or known gift IDs if missing or incorrectly defaulted to 'json'
     if (vapSpec != null) {
@@ -84,14 +95,30 @@ class GiftModel {
     } else if (format.isEmpty || format == 'json') {
       if (lowerAsset.contains('.svga') ||
           docId == 'mystic_rings' ||
+          docId == 'precious_necklace' ||
           docId == 'crystal_palace' ||
+          docId == 'crystal_slipper' ||
           docId == 'royal_carriage' ||
-          docId == 'cat_gift') {
+          docId == 'cat_gift' ||
+          docId == 'eternal_love' ||
+          docId == 'fly_heart' ||
+          nameLower == 'crystal slipper' ||
+          nameLower == 'precious necklace' ||
+          nameLower == 'eternal love' ||
+          nameLower == 'fly heart') {
         format = 'svga';
       } else if (lowerAsset.contains('.mp4') ||
           lowerAsset.contains('.vap') ||
           lowerAsset.contains('.vpa') ||
-          lowerAsset.contains('.pag')) {
+          lowerAsset.contains('.pag') ||
+          docId == 'kiss' ||
+          docId == 'pink_kiss' ||
+          docId == 'treasure_adventure' ||
+          docId == 'romantic_journey' ||
+          nameLower == 'kiss' ||
+          nameLower == 'pink kiss' ||
+          nameLower == 'treasure adventure' ||
+          nameLower == 'romantic journey') {
         format = 'vap';
       } else if (lowerAsset.contains('.png') ||
           lowerAsset.contains('.jpg') ||
@@ -112,21 +139,40 @@ class GiftModel {
           docId == 'crystal_palace' ||
           docId == 'royal_carriage' ||
           docId == 'rocket' ||
+          docId == 'neon_supercar' ||
+          docId == 'crystal_slipper' ||
+          docId == 'eternal_love' ||
+          nameLower == 'neon supercar' ||
+          nameLower == 'crystal slipper' ||
+          nameLower == 'eternal love' ||
           docId == 'bDMkvLHqDMRVvoXonxLn' ||
           docId == 'PZjkxr8gMffDYFJ4qsAE' ||
           docId == 'klpyoRCQMkbibDPlRe5G' ||
           docId == 'vEgsWq5deTbzuyvSloCG') {
         tierVal = 'LUXURY';
+      } else if (docId == 'precious_necklace' ||
+          docId == 'treasure_adventure' ||
+          docId == 'romantic_journey' ||
+          nameLower == 'precious necklace' ||
+          nameLower == 'treasure adventure' ||
+          nameLower == 'romantic journey') {
+        tierVal = 'MEDIUM';
       }
     }
 
-    final rawDuration = ((map['durationMs'] ?? map['duration_ms']) as num?)?.toInt() ?? 0;
-    final resolvedDuration = rawDuration > 0 ? rawDuration : (vapSpec?.durationMs ?? 0);
+    final rawDuration =
+        ((map['durationMs'] ?? map['duration_ms']) as num?)?.toInt() ?? 0;
+    final resolvedDuration =
+        rawDuration > 0 ? rawDuration : (vapSpec?.durationMs ?? 0);
 
     return GiftModel(
       giftId: docId,
       name: map['name']?.toString() ?? '',
-      priceInDiamonds: (map['priceInDiamonds'] ?? map['price_diamonds'] as num?)?.toInt() ?? 0,
+      priceInDiamonds: ((map['priceInDiamonds'] ??
+                  map['price_diamonds'] ??
+                  map['price']) as num?)
+              ?.toInt() ??
+          0,
       category: map['category']?.toString() ?? 'Normal',
       imageUrl: map['imageUrl']?.toString() ?? '',
       // `animation_url` / `animation_type` / `duration_ms` are spec aliases
@@ -139,8 +185,12 @@ class GiftModel {
       minSvipLevel: (map['minSvipLevel'] as num?)?.toInt() ?? 0,
       sortOrder: (map['sortOrder'] as num?)?.toInt() ?? 0,
       isActive: map['isActive'] == true,
-      createdAt: map['createdAt'] is Timestamp ? (map['createdAt'] as Timestamp).toDate() : null,
-      updatedAt: map['updatedAt'] is Timestamp ? (map['updatedAt'] as Timestamp).toDate() : null,
+      createdAt: map['createdAt'] is Timestamp
+          ? (map['createdAt'] as Timestamp).toDate()
+          : null,
+      updatedAt: map['updatedAt'] is Timestamp
+          ? (map['updatedAt'] as Timestamp).toDate()
+          : null,
     );
   }
 }

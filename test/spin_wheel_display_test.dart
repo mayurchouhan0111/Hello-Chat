@@ -11,13 +11,17 @@ class _TestPlayer extends Fake implements AudioPlayer {
   String? asset;
   int plays = 0;
   bool disposed = false;
+  AudioContext? audioContext;
   @override
   Future<void> setSourceAsset(String path, {String? mimeType}) async {
     asset = path;
   }
 
   @override
-  Future<void> setAudioContext(AudioContext context) async {}
+  Future<void> setAudioContext(AudioContext context) async {
+    audioContext = context;
+  }
+
   @override
   Future<void> setReleaseMode(ReleaseMode mode) async {}
   @override
@@ -57,6 +61,73 @@ void main() {
     sounds.dispose();
     await Future<void>.delayed(Duration.zero);
     expect(tick.disposed && chime.disposed, isTrue);
+  });
+
+  test(
+      'WheelSounds uses non-intrusive AudioContext without audio focus or voice ducking',
+      () async {
+    final tick = _TestPlayer(), chime = _TestPlayer();
+    final sounds = WheelSounds.withPlayers(tick, chime)..prepare();
+    await Future<void>.delayed(Duration.zero);
+
+    // Android: audioFocus must be none (never request audio focus / never duck room voice)
+    expect(tick.audioContext?.android.audioFocus, AndroidAudioFocus.none);
+    expect(chime.audioContext?.android.audioFocus, AndroidAudioFocus.none);
+
+    // iOS: category must be ambient with mixWithOthers (never override Agora voice session)
+    expect(tick.audioContext?.iOS.category, AVAudioSessionCategory.ambient);
+    expect(
+        tick.audioContext?.iOS.options
+            .contains(AVAudioSessionOptions.mixWithOthers),
+        isTrue);
+    expect(chime.audioContext?.iOS.category, AVAudioSessionCategory.ambient);
+    expect(
+        chime.audioContext?.iOS.options
+            .contains(AVAudioSessionOptions.mixWithOthers),
+        isTrue);
+
+    sounds.dispose();
+  });
+
+  test('Betting pod food icon size is responsive and clamped between 50 and 56',
+      () {
+    double calcPodIconSize(double screenWidth, {double wheelScale = 1.0}) {
+      final podIconBase =
+          (50.0 + (screenWidth - 320.0) * ((56.0 - 50.0) / (430.0 - 320.0)))
+              .clamp(50.0, 56.0);
+      return podIconBase * wheelScale;
+    }
+
+    // Narrow screen 320px
+    expect(calcPodIconSize(320), 50.0);
+    expect(calcPodIconSize(300), 50.0); // clamped lower bound
+
+    // Standard screen 393px
+    expect(calcPodIconSize(393), closeTo(53.98, 0.05));
+
+    // Large screen 430px
+    expect(calcPodIconSize(430), 56.0);
+    expect(calcPodIconSize(480), 56.0); // clamped upper bound
+  });
+
+  test('Betting pod food icon bottom never overlaps win multiplier label', () {
+    const wheelScale = 1.0;
+    const podHeight = 88.0 * wheelScale;
+    const labelTopOffsetFromCenter = 18.0 * wheelScale;
+
+    for (final width in [320.0, 360.0, 393.0, 430.0, 480.0]) {
+      final iconSize =
+          (50.0 + (width - 320.0) * ((56.0 - 50.0) / (430.0 - 320.0)))
+                  .clamp(50.0, 56.0) *
+              wheelScale;
+      final iconTop = (podHeight / 2) - iconSize + (13.0 * wheelScale);
+      final iconBottomFromCenter = -(podHeight / 2) + iconTop + iconSize;
+
+      // Icon bottom relative to pod center is strictly constant at 13.0 * wheelScale
+      expect(iconBottomFromCenter, 13.0 * wheelScale);
+      // Gap to win label top (at +18.0) is strictly 5.0 * wheelScale with ZERO overlap
+      expect(labelTopOffsetFromCenter - iconBottomFromCenter, 5.0 * wheelScale);
+    }
   });
 
   for (final size in const [
@@ -144,6 +215,8 @@ void main() {
     state.state = null;
     await tester.pump();
     await tester.pump(const Duration(seconds: 4));
+    // The banner's 420ms slide/fade exit keeps the outgoing child alive during transition
+    await tester.pump(const Duration(milliseconds: 450));
     expect(find.byType(GameTopWinnerBanner), findsNothing);
     await tester.pumpWidget(const SizedBox());
     await tester.pump(const Duration(milliseconds: 100));

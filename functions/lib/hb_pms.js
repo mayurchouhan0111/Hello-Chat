@@ -104,13 +104,14 @@ function validateSalarySlabs(slabs) {
 function normalizeTier(data) {
     if (!data) return "user";
     const tags = data.tags || [];
-    if (data.role === "owner" || tags.includes("Owner")) return "owner";
-    if (data.role === "superadmin" || tags.includes("SuperAdmin")) return "superadmin";
-    if (data.role === "admin" || tags.includes("Admin")) return "admin";
-    if (data.role === "agency" || data.isAgencyOwner === true || tags.includes("Agency")) return "agency";
+    const role = (data.role || "").toLowerCase();
+    if (role === "owner" || tags.includes("Owner")) return "owner";
+    if (role === "superadmin" || tags.includes("SuperAdmin")) return "superadmin";
+    if (role === "admin" || tags.includes("Admin")) return "admin";
+    if (role === "agency" || data.isAgencyOwner === true || tags.includes("Agency")) return "agency";
     // A registered user is NOT automatically a host. Only an explicit role/tag
     // grants host tier; everything else stays the lower `user` tier.
-    if (data.role === "host" || data.isHost === true || tags.includes("Host")) return "host";
+    if (role === "host" || data.isHost === true || tags.includes("Host")) return "host";
     return "user";
 }
 
@@ -312,8 +313,11 @@ function calculateRechargeCommissions(usdAmount, policy = {}) {
  */
 function isEligibleHostForCommission(userData) {
     if (!userData) return false;
-    if (normalizeTier(userData) !== "host") return false;
-    return typeof userData.agencyId === "string" && userData.agencyId.trim().length > 0;
+    const hasAgency = typeof userData.agencyId === "string" && userData.agencyId.trim().length > 0;
+    if (!hasAgency) return false;
+    const tier = normalizeTier(userData);
+    if (tier === "agency" || tier === "admin" || tier === "superadmin" || tier === "owner") return false;
+    return tier === "host" || tier === "user";
 }
 
 module.exports = {

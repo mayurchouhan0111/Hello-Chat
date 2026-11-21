@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:hello_chat/core/widgets/vap_player.dart';
@@ -8,6 +9,7 @@ import 'package:hello_chat/core/providers/room_provider.dart';
 class RocketCompletionVapOverlay extends ConsumerStatefulWidget {
   final int level;
   final String roomId;
+  final String? ticketId;
   final VoidCallback onComplete;
   final VoidCallback? onError;
 
@@ -15,57 +17,97 @@ class RocketCompletionVapOverlay extends ConsumerStatefulWidget {
     super.key,
     required this.level,
     required this.roomId,
+    this.ticketId,
     required this.onComplete,
     this.onError,
   });
 
   @override
-  ConsumerState<RocketCompletionVapOverlay> createState() => _RocketCompletionVapOverlayState();
+  ConsumerState<RocketCompletionVapOverlay> createState() =>
+      _RocketCompletionVapOverlayState();
 }
 
 String? _resolveTopUid(dynamic room) {
-  if (room?.lastRocketResults != null) {
+  if (room == null) return null;
+  if (room.lastRocketResults != null) {
     final top3 = (room.lastRocketResults!['top3'] as List<dynamic>?) ?? [];
     if (top3.isNotEmpty && top3[0] is Map) {
       final uid = (top3[0] as Map)['uid'] as String?;
       if (uid != null && uid.isNotEmpty) return uid;
     }
   }
-  final contributions = room?.rocketContributions ?? {};
-  final sorted = contributions.entries.toList()
-    ..sort((a, b) => b.value.compareTo(a.value));
-  if (sorted.isNotEmpty) return sorted.first.key;
-  return room?.ownerUid;
+  final contributions =
+      (room.rocketContributions as Map<dynamic, dynamic>?) ?? {};
+  if (contributions.isNotEmpty) {
+    final sorted = contributions.entries.toList()
+      ..sort((a, b) => ((b.value as num?)?.toInt() ?? 0)
+          .compareTo((a.value as num?)?.toInt() ?? 0));
+    return sorted.first.key?.toString();
+  }
+  return room.ownerUid as String?;
 }
 
-class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVapOverlay> {
+class _RocketCompletionVapOverlayState
+    extends ConsumerState<RocketCompletionVapOverlay> {
   bool _showVariant2 = false;
   // Guard against duplicate completion signals (MethodChannel + watchdog race).
   bool _dismissed = false;
+  Timer? _watchdogTimer;
 
   @override
   void initState() {
     super.initState();
     _showVariant2 = false;
+    _armWatchdog();
+  }
+
+  void _armWatchdog() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer(const Duration(seconds: 8), () {
+      if (!_dismissed && mounted) {
+        debugPrint(
+            '[RocketCompletionVapOverlay] Watchdog timeout triggered for ticket=${widget.ticketId}');
+        _handleComplete();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _watchdogTimer?.cancel();
+    super.dispose();
+  }
+
+  void _handleComplete() {
+    if (_dismissed) return;
+    _dismissed = true;
+    _watchdogTimer?.cancel();
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (mounted) widget.onComplete();
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final needsSequence = widget.level >= 3;
     final variant = needsSequence ? (_showVariant2 ? 2 : 1) : 1;
-    final vapPath = RocketVapConfig.vapAssetPath(widget.level, variant: variant);
+    final vapPath =
+        RocketVapConfig.vapAssetPath(widget.level, variant: variant);
 
     final room = ref.watch(currentRoomStreamProvider(widget.roomId)).value;
     final topUid = _resolveTopUid(room);
-    final topProfile = topUid != null ? ref.watch(userProfileProvider(topUid)).value : null;
+    final topProfile =
+        topUid != null ? ref.watch(userProfileProvider(topUid)).value : null;
     final ownerProfile = (room?.ownerUid != null && room!.ownerUid != topUid)
         ? ref.watch(userProfileProvider(room.ownerUid)).value
         : topProfile;
     final currentProfile = ref.watch(currentUserProfileProvider).value;
 
-    final avatarUrl = (topProfile?.profilePhotoUrl != null && topProfile!.profilePhotoUrl.isNotEmpty)
+    final avatarUrl = (topProfile?.profilePhotoUrl != null &&
+            topProfile!.profilePhotoUrl.isNotEmpty)
         ? topProfile.profilePhotoUrl
-        : (ownerProfile?.profilePhotoUrl != null && ownerProfile!.profilePhotoUrl.isNotEmpty)
+        : (ownerProfile?.profilePhotoUrl != null &&
+                ownerProfile!.profilePhotoUrl.isNotEmpty)
             ? ownerProfile.profilePhotoUrl
             : (room?.coverUrl != null && room!.coverUrl.isNotEmpty)
                 ? room.coverUrl
@@ -73,62 +115,34 @@ class _RocketCompletionVapOverlayState extends ConsumerState<RocketCompletionVap
 
     return SizedBox.expand(
       child: RepaintBoundary(
-      child: Material(
-        color: Colors.transparent,
-        child: Stack(
-          children: [
-            VapAnimation(
-              key: ValueKey('completion_${widget.level}_$_showVariant2'),
-              assetPath: vapPath,
-              profileImageUrl: avatarUrl,
-              fit: BoxFit.contain,
-              loop: false,
-              onError: widget.onError,
-              onComplete: () {
-                // Guard: prevent double invocation when both MethodChannel
-                // onVideoComplete and the safety watchdog fire in the same
-                // Choreographer sync-barrier window.
-                if (_dismissed) return;
-                if (needsSequence && !_showVariant2) {
-                  // Advance to variant 2; _dismissed intentionally NOT set here
-                  // so the second clip can also complete normally.
-                  setState(() => _showVariant2 = true);
-                } else {
-                  _dismissed = true;
-                  Future.delayed(const Duration(milliseconds: 500), widget.onComplete);
-                }
-              },
-            ),
-
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 60,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(color: const Color(0xFF00FFFF).withValues(alpha: 0.4)),
-                  ),
-                  child: Text(
-                    "LEVEL ${widget.level + 1} ROCKET LAUNCHED!",
-                    style: const TextStyle(
-                      color: Color(0xFF00FFFF),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2,
-                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
-                    ),
-                  ),
-                ),
+        child: Material(
+          color: Colors.transparent,
+          child: Stack(
+            children: [
+              VapAnimation(
+                key: ValueKey('completion_${widget.level}_$_showVariant2'),
+                assetPath: vapPath,
+                profileImageUrl: avatarUrl,
+                fit: BoxFit.contain,
+                loop: false,
+                onError: () {
+                  widget.onError?.call();
+                  _handleComplete();
+                },
+                onComplete: () {
+                  if (_dismissed) return;
+                  if (needsSequence && !_showVariant2) {
+                    setState(() => _showVariant2 = true);
+                    _armWatchdog();
+                  } else {
+                    _handleComplete();
+                  }
+                },
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 }

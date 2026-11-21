@@ -74,184 +74,228 @@ class SeatGrid extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final currentUid = ref.watch(authStateProvider).value?.uid;
-    final participants =
-        ref.watch(roomParticipantsProvider(roomId)).value ?? [];
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final currentUid = ref.watch(authStateProvider).value?.uid;
+        final participants =
+            ref.watch(roomParticipantsProvider(roomId)).value ?? [];
 
-    int crossAxisCount = 4;
-    double avatarRadius = 26;
-    double iconSize = 22;
-    double fontSize = 10;
+        final mediaQuery = MediaQuery.of(context);
+        final screenHeight = mediaQuery.size.height;
+        final screenWidth = constraints.maxWidth > 0
+            ? constraints.maxWidth
+            : mediaQuery.size.width;
+        final isLandscape = screenWidth > screenHeight;
 
-    if (isYoutubeActive) {
-      avatarRadius = 20;
-      iconSize = 16;
-      fontSize = 9;
-      if (capacity >= 16) {
-        crossAxisCount = 8;
-        avatarRadius = 16;
-        iconSize = 13;
-        fontSize = 7.5;
-      } else if (capacity >= 12) {
-        crossAxisCount = 6;
-      } else if (capacity == 10) {
-        crossAxisCount = 5;
-      }
-    } else {
-      if (capacity == 8) {
-        crossAxisCount = 4; // 2 rows of 4
-        avatarRadius = 26;
-        iconSize = 22;
-        fontSize = 10;
-      } else if (capacity == 9) {
-        crossAxisCount = 4; // 2 rows of 4 (+ host)
-        avatarRadius = 25;
-        iconSize = 21;
-        fontSize = 10;
-      } else if (capacity == 12) {
-        crossAxisCount = 4; // 3 rows of 4
-        avatarRadius = 22;
-        iconSize = 18;
-        fontSize = 9;
-      } else if (capacity == 13) {
-        crossAxisCount = 4; // 3 rows of 4 (+ host)
-        avatarRadius = 22;
-        iconSize = 18;
-        fontSize = 9;
-      } else if (capacity >= 16) {
-        crossAxisCount = 4; // 4 rows of 4
-        avatarRadius = 19;
-        iconSize = 15;
-        fontSize = 8.5;
-      } else if (capacity == 10) {
-        crossAxisCount = 5;
-        avatarRadius = 22;
-        iconSize = 18;
-        fontSize = 9;
-      }
-    }
+        int crossAxisCount = 4;
+        double avatarRadius = 26;
+        double iconSize = 22;
+        double fontSize = 10;
 
-    final bool showHostInGrid = isYoutubeActive;
-    final itemCount = (showHostInGrid ? capacity : capacity - 1).clamp(0, 16);
-
-    final scaler = MediaQuery.textScalerOf(context);
-    final portraitExtent = avatarRadius * 2 + 12;
-    final rowExtent = portraitExtent +
-        12 +
-        scaler.scale(fontSize) * 1.25 +
-        scaler.scale(fontSize - 1) * 1.25;
-    final double spacing = capacity >= 16 ? 2.0 : (capacity >= 12 ? 3.0 : 4.0);
-    return Padding(
-      padding: isYoutubeActive
-          ? const EdgeInsets.only(top: 2, bottom: 2, left: 0, right: 0)
-          : const EdgeInsets.only(top: 4, bottom: 4, left: 0, right: 0),
-      child: GridView.builder(
-        primary: false,
-        padding: EdgeInsets.zero,
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: crossAxisCount,
-          mainAxisSpacing: spacing,
-          crossAxisSpacing: 4,
-          mainAxisExtent: rowExtent.ceilToDouble(),
-        ),
-        itemCount: itemCount,
-        itemBuilder: (context, gridIndex) {
-          final index = showHostInGrid ? gridIndex : gridIndex + 1;
-
-          final participant = participants.firstWhere(
-              (p) => p.seatIndex == index,
-              orElse: () => Participant(
-                  uid: index == 0 && ownerUid.isNotEmpty ? ownerUid : '',
-                  displayName: index == 0 && ownerUid.isNotEmpty ? 'Owner' : '',
-                  joinedAt: DateTime.now(),
-                  lastActive: DateTime.now(),
-                  isMuted: true,
-                  role:
-                      index == 0 && ownerUid.isNotEmpty ? 'owner' : 'audience',
-                  seatIndex: index));
-
-          // ⚡ Optimistic local override for instant 0ms visual seat switching
-          Participant effectiveParticipant = participant;
-          if (optimisticMySeatIndex != null && currentUid != null) {
-            if (index == optimisticMySeatIndex) {
-              // Show current user immediately on the tapped seat
-              final myExisting = participants.firstWhere(
-                  (p) => p.uid == currentUid,
-                  orElse: () => participant);
-              effectiveParticipant = Participant(
-                uid: currentUid,
-                seatIndex: index,
-                joinedAt: myExisting.uid == currentUid
-                    ? myExisting.joinedAt
-                    : DateTime.now(),
-                lastActive: DateTime.now(),
-                isMuted:
-                    myExisting.uid == currentUid ? myExisting.isMuted : false,
-                role: 'speaker',
-                diamondsReceived: myExisting.uid == currentUid
-                    ? myExisting.diamondsReceived
-                    : 0,
-              );
-            } else if (participant.uid == currentUid) {
-              // Current user has moved away from this seat
-              effectiveParticipant = Participant(
-                uid: '',
-                joinedAt: DateTime.now(),
-                lastActive: DateTime.now(),
-                isMuted: true,
-                role: 'audience',
-              );
-            }
+        if (isYoutubeActive) {
+          avatarRadius = 20;
+          iconSize = 16;
+          fontSize = 9;
+          if (capacity >= 16) {
+            crossAxisCount = 8;
+            avatarRadius = 16;
+            iconSize = 13;
+            fontSize = 7.5;
+          } else if (capacity >= 12) {
+            crossAxisCount = 6;
+          } else if (capacity == 10) {
+            crossAxisCount = 5;
           }
+        } else if (isLandscape) {
+          if (capacity >= 16) {
+            crossAxisCount = 8;
+            avatarRadius = 16;
+            iconSize = 13;
+            fontSize = 7.5;
+          } else if (capacity >= 12) {
+            crossAxisCount = 6;
+            avatarRadius = 18;
+            iconSize = 14;
+            fontSize = 8;
+          } else {
+            crossAxisCount = 4;
+          }
+        } else {
+          // Portrait
+          if (capacity == 8) {
+            crossAxisCount = 4; // 2 rows of 4
+            avatarRadius = 26;
+            iconSize = 22;
+            fontSize = 10;
+          } else if (capacity == 9) {
+            crossAxisCount = 4; // 2 rows of 4 (+ host)
+            avatarRadius = 25;
+            iconSize = 21;
+            fontSize = 10;
+          } else if (capacity == 12) {
+            crossAxisCount = 4; // 3 rows of 4
+            avatarRadius = 22;
+            iconSize = 18;
+            fontSize = 9;
+          } else if (capacity == 13) {
+            crossAxisCount = 4; // 3 rows of 4 (+ host)
+            avatarRadius = 22;
+            iconSize = 18;
+            fontSize = 9;
+          } else if (capacity >= 16) {
+            // 4 balanced columns, compact 16-seat density derived from dimensions & safe-area
+            crossAxisCount = 4;
+            if (screenHeight <= 600) {
+              avatarRadius = 16.5;
+              iconSize = 13;
+              fontSize = 7.5;
+            } else if (screenHeight <= 700) {
+              avatarRadius = 17.5;
+              iconSize = 14;
+              fontSize = 8.0;
+            } else {
+              avatarRadius = 19;
+              iconSize = 15;
+              fontSize = 8.5;
+            }
+          } else if (capacity == 10) {
+            crossAxisCount = 5;
+            avatarRadius = 22;
+            iconSize = 18;
+            fontSize = 9;
+          }
+        }
 
-          final isLocked = lockedSeats.contains(index);
-          final isOccupied = effectiveParticipant.uid.isNotEmpty;
+        final bool showHostInGrid = isYoutubeActive;
+        final itemCount =
+            (showHostInGrid ? capacity : capacity - 1).clamp(0, 16);
 
-          if (isOccupied) {
-            // In non-YouTube mode the owner also renders in the separate global
-            // host widget (which registers its own anchor). One uid may only
-            // hold one GlobalKey per tree, so the grid cell steps aside.
-            final anchorUid =
-                (!isYoutubeActive && effectiveParticipant.uid == ownerUid)
-                    ? null
-                    : effectiveParticipant.uid;
-            return KeyedSubtree(
-              key: anchorUid != null
-                  ? SeatAnchors.keyFor(roomId, anchorUid)
-                  : null,
-              child: OccupiedSeatWidget(
-                key: ValueKey('occupied_${index}_${effectiveParticipant.uid}'),
-                participant: effectiveParticipant,
-                roomId: roomId,
+        final scaler = MediaQuery.textScalerOf(context);
+        final portraitExtent = avatarRadius * 2 + 12;
+        final rowExtent = portraitExtent +
+            12 +
+            scaler.scale(fontSize) * 1.25 +
+            scaler.scale(fontSize - 1) * 1.25;
+        final double spacing = capacity >= 16
+            ? (screenHeight <= 600 ? 1.0 : 2.0)
+            : (capacity >= 12 ? 3.0 : 4.0);
+        return Padding(
+          padding: isYoutubeActive
+              ? const EdgeInsets.only(top: 2, bottom: 2, left: 0, right: 0)
+              : const EdgeInsets.only(top: 4, bottom: 4, left: 0, right: 0),
+          child: GridView.builder(
+            primary: false,
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              mainAxisSpacing: spacing,
+              crossAxisSpacing: 4,
+              mainAxisExtent: rowExtent.ceilToDouble(),
+            ),
+            itemCount: itemCount,
+            itemBuilder: (context, gridIndex) {
+              final index = showHostInGrid ? gridIndex : gridIndex + 1;
+
+              final participant = participants.firstWhere(
+                  (p) => p.seatIndex == index,
+                  orElse: () => Participant(
+                      uid: index == 0 && ownerUid.isNotEmpty ? ownerUid : '',
+                      displayName:
+                          index == 0 && ownerUid.isNotEmpty ? 'Owner' : '',
+                      joinedAt: DateTime.now(),
+                      lastActive: DateTime.now(),
+                      isMuted: true,
+                      role: index == 0 && ownerUid.isNotEmpty
+                          ? 'owner'
+                          : 'audience',
+                      seatIndex: index));
+
+              // ⚡ Optimistic local override for instant 0ms visual seat switching
+              Participant effectiveParticipant = participant;
+              if (optimisticMySeatIndex != null && currentUid != null) {
+                if (index == optimisticMySeatIndex) {
+                  // Show current user immediately on the tapped seat
+                  final myExisting = participants.firstWhere(
+                      (p) => p.uid == currentUid,
+                      orElse: () => participant);
+                  effectiveParticipant = Participant(
+                    uid: currentUid,
+                    seatIndex: index,
+                    joinedAt: myExisting.uid == currentUid
+                        ? myExisting.joinedAt
+                        : DateTime.now(),
+                    lastActive: DateTime.now(),
+                    isMuted: myExisting.uid == currentUid
+                        ? myExisting.isMuted
+                        : false,
+                    role: 'speaker',
+                    diamondsReceived: myExisting.uid == currentUid
+                        ? myExisting.diamondsReceived
+                        : 0,
+                  );
+                } else if (participant.uid == currentUid) {
+                  // Current user has moved away from this seat
+                  effectiveParticipant = Participant(
+                    uid: '',
+                    joinedAt: DateTime.now(),
+                    lastActive: DateTime.now(),
+                    isMuted: true,
+                    role: 'audience',
+                  );
+                }
+              }
+
+              final isLocked = lockedSeats.contains(index);
+              final isOccupied = effectiveParticipant.uid.isNotEmpty;
+
+              if (isOccupied) {
+                // In non-YouTube mode the owner also renders in the separate global
+                // host widget (which registers its own anchor). One uid may only
+                // hold one GlobalKey per tree, so the grid cell steps aside.
+                final anchorUid =
+                    (!isYoutubeActive && effectiveParticipant.uid == ownerUid)
+                        ? null
+                        : effectiveParticipant.uid;
+                return KeyedSubtree(
+                  key: anchorUid != null
+                      ? SeatAnchors.keyFor(roomId, anchorUid)
+                      : null,
+                  child: OccupiedSeatWidget(
+                    key: ValueKey(
+                        'occupied_${index}_${effectiveParticipant.uid}'),
+                    participant: effectiveParticipant,
+                    roomId: roomId,
+                    index: index,
+                    radius: avatarRadius,
+                    iconSize: iconSize,
+                    fontSize: fontSize,
+                    currentUid: currentUid,
+                    isOwner: effectiveParticipant.uid == ownerUid,
+                    online: participants
+                        .any((p) => p.uid == effectiveParticipant.uid),
+                    onSeatTap: onSeatTap,
+                    onSeatLongPress: onSeatLongPress,
+                    theme: theme,
+                  ),
+                );
+              }
+
+              return EmptySeatWidget(
                 index: index,
                 radius: avatarRadius,
                 iconSize: iconSize,
                 fontSize: fontSize,
-                currentUid: currentUid,
-                isOwner: effectiveParticipant.uid == ownerUid,
-                online:
-                    participants.any((p) => p.uid == effectiveParticipant.uid),
+                isLocked: isLocked,
                 onSeatTap: onSeatTap,
                 onSeatLongPress: onSeatLongPress,
                 theme: theme,
-              ),
-            );
-          }
-
-          return EmptySeatWidget(
-            index: index,
-            radius: avatarRadius,
-            iconSize: iconSize,
-            fontSize: fontSize,
-            isLocked: isLocked,
-            onSeatTap: onSeatTap,
-            onSeatLongPress: onSeatLongPress,
-            theme: theme,
-          );
-        },
-      ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -344,9 +388,6 @@ class RoomSeatPortrait extends StatelessWidget {
     final frame = user != null && user.profileFrame.isNotEmpty
         ? user.profileFrame
         : participant.profileFrame;
-    final displayId = user != null && user.displayId.isNotEmpty
-        ? user.displayId
-        : (user?.helloId?.toString() ?? participant.helloId?.toString() ?? '');
     final total = participant.diamondsReceived;
     final amount = total >= 1000000
         ? '${(total / 1000000).toStringAsFixed(1)}M'
@@ -440,22 +481,8 @@ class RoomSeatPortrait extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 2),
-          if (isOwner)
-            Text(
-              displayId.isEmpty ? 'ID unavailable' : 'ID: $displayId',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: const Color(0xFFFFE082),
-                fontSize: fontSize - 1,
-                height: 1.25,
-                fontWeight: FontWeight.w600,
-                shadows: shadow,
-              ),
-            )
-          else
+          if (!isOwner) ...[
+            const SizedBox(height: 2),
             Semantics(
               label: '$total Diamonds received',
               excludeSemantics: true,
@@ -481,6 +508,7 @@ class RoomSeatPortrait extends StatelessWidget {
                 ],
               ),
             ),
+          ],
         ],
       );
     });
@@ -513,8 +541,6 @@ class RoomOwnerSeatPortrait extends StatelessWidget {
     final frame = user != null && user.profileFrame.isNotEmpty
         ? user.profileFrame
         : participant.profileFrame;
-    final displayId =
-        user != null ? user.displayId : (participant.helloId?.toString() ?? '');
     final total = participant.diamondsReceived;
     final amount = total >= 1000000
         ? '${(total / 1000000).toStringAsFixed(1)}M'
@@ -632,20 +658,6 @@ class RoomOwnerSeatPortrait extends StatelessWidget {
                     ),
                   ],
                 ),
-                if (displayId.isNotEmpty && displayId != 'User') ...[
-                  const SizedBox(height: 1),
-                  Text(
-                    'ID: $displayId',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Color(0xFFFFE082),
-                      fontSize: 8.5,
-                      height: 1.05,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
