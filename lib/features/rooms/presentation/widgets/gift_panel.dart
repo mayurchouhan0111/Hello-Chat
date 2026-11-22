@@ -61,6 +61,8 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
   List<String> _selectedTargetUids = [];
   bool _sendToAll = false;
   String _selectedCategory = 'All Gifts';
+  late final PageController _pageController = PageController();
+  int _currentPage = 0;
 
   // ── In-Panel Combo Mode State ──────────────────────────────────
   bool _inComboMode = false;
@@ -111,6 +113,7 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _pageController.dispose();
     _comboRingController.removeStatusListener(_onComboRingStatus);
     _comboRingController.dispose();
     _comboBounceController.dispose();
@@ -241,7 +244,10 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
               const SizedBox(height: 8),
               Expanded(
                 child: giftsAsync.when(
-                  data: (gifts) {
+                  data: (rawGifts) {
+                    final gifts = rawGifts.isNotEmpty
+                        ? rawGifts
+                        : GiftService.defaultGiftCatalog;
                     if (gifts.isEmpty) {
                       return const Center(
                           child: Text("No gifts available",
@@ -277,39 +283,92 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                     // No fallback to the full catalog: an empty tab shows its
                     // empty state, not every gift in the store.
                     final displayGifts = filteredGifts;
+                    if (displayGifts.isEmpty) {
+                      return const Center(
+                          child: Text("No gifts available",
+                              style: TextStyle(color: Colors.white54)));
+                    }
 
-                    return GridView.builder(
-                      physics: const BouncingScrollPhysics(),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        mainAxisSpacing: 8,
-                        crossAxisSpacing: 8,
-                        childAspectRatio: 0.78,
-                      ),
-                      itemCount: displayGifts.length,
-                      itemBuilder: (context, index) {
-                        final gift = displayGifts[index];
-                        return _GiftTile(
-                          gift: gift,
-                          isSelected: _selectedGift?.giftId == gift.giftId,
-                          activeEvent: activeEvent,
-                          onSelect: () {
-                            HapticFeedback.selectionClick();
-                            if (_inComboMode) {
-                              _comboRingController.stop();
-                              setState(() {
-                                _inComboMode = false;
-                                _comboCount = 0;
-                                _reservedDiamonds = 0;
-                                _comboTargetUid = null;
-                                _comboGift = null;
-                              });
-                            }
-                            setState(() => _selectedGift = gift);
-                          },
-                        );
-                      },
+                    final pageCount = (displayGifts.length / 8).ceil();
+
+                    return Column(
+                      children: [
+                        Expanded(
+                          child: PageView.builder(
+                            controller: _pageController,
+                            itemCount: pageCount,
+                            onPageChanged: (idx) {
+                              setState(() => _currentPage = idx);
+                            },
+                            itemBuilder: (context, pageIndex) {
+                              final startIndex = pageIndex * 8;
+                              final endIndex =
+                                  (startIndex + 8 < displayGifts.length)
+                                      ? startIndex + 8
+                                      : displayGifts.length;
+                              final pageGifts =
+                                  displayGifts.sublist(startIndex, endIndex);
+
+                              return GridView.builder(
+                                physics: const NeverScrollableScrollPhysics(),
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 4,
+                                  mainAxisSpacing: 8,
+                                  crossAxisSpacing: 8,
+                                  childAspectRatio: 0.78,
+                                ),
+                                itemCount: pageGifts.length,
+                                itemBuilder: (context, index) {
+                                  final gift = pageGifts[index];
+                                  return _GiftTile(
+                                    gift: gift,
+                                    isSelected:
+                                        _selectedGift?.giftId == gift.giftId,
+                                    activeEvent: activeEvent,
+                                    onSelect: () {
+                                      HapticFeedback.selectionClick();
+                                      if (_inComboMode) {
+                                        _comboRingController.stop();
+                                        setState(() {
+                                          _inComboMode = false;
+                                          _comboCount = 0;
+                                          _reservedDiamonds = 0;
+                                          _comboTargetUid = null;
+                                          _comboGift = null;
+                                        });
+                                      }
+                                      setState(() => _selectedGift = gift);
+                                    },
+                                  );
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                        if (pageCount > 1) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: List.generate(pageCount, (idx) {
+                              final isActive = idx == _currentPage;
+                              return AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                margin:
+                                    const EdgeInsets.symmetric(horizontal: 3),
+                                width: isActive ? 14 : 5,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: isActive
+                                      ? const Color(0xFFFFD700)
+                                      : Colors.white24,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              );
+                            }),
+                          ),
+                        ],
+                      ],
                     );
                   },
                   loading: () => const SizedBox.shrink(),
@@ -367,7 +426,13 @@ class _GiftPanelState extends State<GiftPanel> with TickerProviderStateMixin {
                   _comboGift = null;
                 });
               }
-              setState(() => _selectedCategory = cat);
+              setState(() {
+                _selectedCategory = cat;
+                _currentPage = 0;
+              });
+              if (_pageController.hasClients) {
+                _pageController.jumpToPage(0);
+              }
             },
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
@@ -1307,11 +1372,26 @@ class _GiftTile extends StatelessWidget {
     }
 
     const map = {
+      'special_offer': 'assets/images/gifts/vap_gift_17.png',
+      'lucky_coin': 'assets/images/gifts/vap_gift_11.png',
+      'lucky_key': 'assets/images/gifts/vap_gift_15.png',
+      'beast_showdown': 'assets/images/gifts/vap_gift_14.png',
+      'star_sticks': 'assets/images/gifts/golden_bell.png',
+      'cake': 'assets/images/gifts/gourmet_feast.png',
+      'fly_heart': 'assets/images/gifts/love_you.png',
+      'kiss': 'assets/images/gifts/vap_gift_4.png',
+      'neon_supercar': 'assets/images/gifts/vap_gift_1.png',
+      'crystal_slipper': 'assets/images/gifts/crystal_princess.png',
+      'precious_necklace': 'assets/images/gifts/crystal_windchime.png',
+      'masquerade_queen': 'assets/images/gifts/vap_gift_8.png',
+      'treasure_adventure': 'assets/images/gifts/vap_gift_7.png',
+      'diamond_balloon': 'assets/images/gifts/sweet_romance.png',
+      'eternal_love': 'assets/images/gifts/love_you.png',
+      'romantic_journey': 'assets/images/gifts/vap_gift_16.png',
       'rose': 'assets/images/gifts/sweet_romance.png',
       'rocket': 'assets/images/gifts/flame_excalibur.png',
       'car_king': 'assets/images/gifts/vap_gift_1.png',
       'cat_gift': 'assets/images/gifts/moonlight_panda.png',
-      'cake': 'assets/images/gifts/gourmet_feast.png',
       'crown': 'assets/images/gifts/crystal_princess.png',
       'crystal_palace': 'assets/images/gifts/crystal_windchime.png',
       'royal_carriage': 'assets/images/gifts/grand_piano.png',
@@ -1326,6 +1406,35 @@ class _GiftTile extends StatelessWidget {
     if (map.containsKey(id)) {
       return map[id];
     }
+    if (name.contains('special offer'))
+      return 'assets/images/gifts/vap_gift_17.png';
+    if (name.contains('lucky coin'))
+      return 'assets/images/gifts/vap_gift_11.png';
+    if (name.contains('lucky key'))
+      return 'assets/images/gifts/vap_gift_15.png';
+    if (name.contains('beast showdown') || name.contains('beast'))
+      return 'assets/images/gifts/vap_gift_14.png';
+    if (name.contains('star stick') || name.contains('star sticks'))
+      return 'assets/images/gifts/golden_bell.png';
+    if (name.contains('cake')) return 'assets/images/gifts/gourmet_feast.png';
+    if (name.contains('fly heart')) return 'assets/images/gifts/love_you.png';
+    if (name.contains('kiss')) return 'assets/images/gifts/vap_gift_4.png';
+    if (name.contains('neon supercar') || name.contains('supercar'))
+      return 'assets/images/gifts/vap_gift_1.png';
+    if (name.contains('crystal slipper') || name.contains('slipper'))
+      return 'assets/images/gifts/crystal_princess.png';
+    if (name.contains('precious necklace') || name.contains('necklace'))
+      return 'assets/images/gifts/crystal_windchime.png';
+    if (name.contains('masquerade queen') || name.contains('masquerade'))
+      return 'assets/images/gifts/vap_gift_8.png';
+    if (name.contains('treasure adventure'))
+      return 'assets/images/gifts/vap_gift_7.png';
+    if (name.contains('diamond balloon'))
+      return 'assets/images/gifts/sweet_romance.png';
+    if (name.contains('eternal love'))
+      return 'assets/images/gifts/love_you.png';
+    if (name.contains('romantic journey'))
+      return 'assets/images/gifts/vap_gift_16.png';
     if (name.contains('bell')) return 'assets/images/gifts/golden_bell.png';
     if (name.contains('date')) return 'assets/images/gifts/golden_dates.png';
     if (name.contains('piano')) return 'assets/images/gifts/grand_piano.png';
@@ -1489,6 +1598,33 @@ class _GiftTile extends StatelessWidget {
                       ),
                     ),
                   )
+                else if (gift.giftId == 'special_offer' ||
+                    gift.name.toLowerCase().contains('special offer'))
+                  Positioned(
+                    top: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                            colors: [Color(0xFFFF9100), Color(0xFFFF5000)]),
+                        borderRadius: BorderRadius.circular(6),
+                        boxShadow: [
+                          BoxShadow(
+                              color: Colors.orangeAccent.withOpacity(0.5),
+                              blurRadius: 4)
+                        ],
+                      ),
+                      child: const Text(
+                        "7 Day Recharge",
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 6.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.3),
+                      ),
+                    ),
+                  )
                 else if (isLucky)
                   Positioned(
                     top: -8,
@@ -1533,15 +1669,26 @@ class _GiftTile extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  "${gift.priceInDiamonds}",
-                  style: const TextStyle(
-                      color: Color(0xFFFFD700),
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(width: 2),
-                const PremiumDiamond(size: 9),
+                if (gift.giftId == 'special_offer' ||
+                    gift.name.toLowerCase().contains('special offer'))
+                  const Text(
+                    "Recharge",
+                    style: TextStyle(
+                        color: Color(0xFFFFD700),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900),
+                  )
+                else ...[
+                  Text(
+                    "${gift.priceInDiamonds}",
+                    style: const TextStyle(
+                        color: Color(0xFFFFD700),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(width: 2),
+                  const PremiumDiamond(size: 9),
+                ],
               ],
             ),
           ],

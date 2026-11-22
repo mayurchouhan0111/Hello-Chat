@@ -1322,6 +1322,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
     }
 
     final lowerName = itemName.toLowerCase().trim();
+    if (lowerName == 'salad' || lowerName == 'pizza') {
+      debugPrint('[SPIN_WHEEL_EVENT] ⛔ Betting on "$itemName" is disabled.');
+      return;
+    }
 
     final matchedItem = items.firstWhere(
       (item) => item.name.toLowerCase().trim() == lowerName,
@@ -4228,28 +4232,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                                       ),
                                     ],
                                   )),
-                              // Salad & Pizza Buttons
+                              // Salad & Pizza Display Podiums (Tapping disabled per requirements)
                               Positioned(
                                 bottom: 0,
                                 left: 52,
-                                child: GestureDetector(
-                                  onTap: (_isBetLocked || _isOffline)
-                                      ? null
-                                      : () => _placeBet("Salad", items),
-                                  child: _buildJackpotTab("Salad", wheelScale,
-                                      _currentBets[saladItem.name] ?? 0),
-                                ),
+                                child: _buildJackpotTab("Salad", wheelScale, 0),
                               ),
                               Positioned(
                                 bottom: 0,
                                 right: 52,
-                                child: GestureDetector(
-                                  onTap: (_isBetLocked || _isOffline)
-                                      ? null
-                                      : () => _placeBet("Pizza", items),
-                                  child: _buildJackpotTab("Pizza", wheelScale,
-                                      _currentBets[pizzaItem.name] ?? 0),
-                                ),
+                                child: _buildJackpotTab("Pizza", wheelScale, 0),
                               ),
                             ],
                           ),
@@ -4385,19 +4377,21 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
   Widget _buildHeader(Map<String, dynamic> settings, int currentRound,
       double scale, Map<String, dynamic>? stats) {
     String? lastWinnerLabel;
-    String? lastWinnerEmoji;
+    String? lastWinnerFood;
     if (_spinCompleted && _storedWinItem != null) {
       lastWinnerLabel = '${_storedWinItem!.multiplier}x';
-      lastWinnerEmoji = _storedWinItem!.emoji;
+      lastWinnerFood = _storedWinItem!.name;
     } else if (_lastRoundResultForHistory != null) {
       lastWinnerLabel = _lastRoundResultForHistory!['label'] ??
           '${_lastRoundResultForHistory!['multiplier']}x';
-      lastWinnerEmoji = _lastRoundResultForHistory!['emoji'];
+      lastWinnerFood = _lastRoundResultForHistory!['name']?.toString() ??
+          _lastRoundResultForHistory!['winningFood']?.toString();
     } else if (_lastGlobalOutcome != null &&
         _lastGlobalOutcome!['roundId']?.toString() != _currentRoundId) {
       lastWinnerLabel = _lastGlobalOutcome!['label'] ??
           '${_lastGlobalOutcome!['multiplier']}x';
-      lastWinnerEmoji = _lastGlobalOutcome!['emoji'];
+      lastWinnerFood = _lastGlobalOutcome!['name']?.toString() ??
+          _lastGlobalOutcome!['winningFood']?.toString();
     }
 
     return Column(
@@ -4444,8 +4438,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                   Text("Last Winner: ",
                       style: TextStyle(
                           color: Colors.white70, fontSize: 12 * scale)),
-                  Text(lastWinnerEmoji ?? "🎰",
-                      style: TextStyle(fontSize: 14 * scale)),
+                  SpinWheelFoodIcon(
+                    food: lastWinnerFood ?? 'Carrot',
+                    size: 16 * scale,
+                    semanticLabel: lastWinnerFood ?? 'Winner',
+                  ),
                   SizedBox(width: 4 * scale),
                   Text(lastWinnerLabel,
                       style: TextStyle(
@@ -4796,10 +4793,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // Winning circle with "New" badge
+                          // Winning circle with "New" badge (Enlarged for clear visibility)
                           Container(
-                            width: 34 * scale,
-                            height: 34 * scale,
+                            width: 38 * scale,
+                            height: 38 * scale,
                             decoration: BoxDecoration(
                               color: Colors.white,
                               shape: BoxShape.circle,
@@ -4816,7 +4813,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                               children: [
                                 SpinWheelFoodIcon(
                                   food: winningName,
-                                  size: 20 * scale,
+                                  size: 28 * scale,
                                   semanticLabel: winningName,
                                 ),
                                 Positioned(
@@ -4922,7 +4919,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                       ),
                   ],
 
-                  // ── PAST SETTLED ROUNDS HISTORY (WITHOUT ANY "NEW" BADGE) ──
+                  // ── PAST SETTLED ROUNDS HISTORY (WITHOUT ANY "NEW" BADGE, ENLARGED FOR HIGH VISIBILITY) ──
                   ...visiblePastHistory.map((rec) {
                     final l = rec['label']?.toString() ??
                         rec['name']?.toString() ??
@@ -4931,17 +4928,20 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
 
                     return Container(
                       margin: EdgeInsets.symmetric(horizontal: 3 * scale),
-                      width: 32 * scale,
-                      height: 32 * scale,
+                      width: 36 * scale,
+                      height: 36 * scale,
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.9),
+                        color: Colors.white.withOpacity(0.95),
                         shape: BoxShape.circle,
-                        border: Border.all(color: Colors.black26, width: 1),
+                        border: Border.all(color: Colors.black26, width: 1.2),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 2)
+                        ],
                       ),
                       child: Center(
                         child: SpinWheelFoodIcon(
                           food: food,
-                          size: 18 * scale,
+                          size: 26 * scale,
                           semanticLabel: food,
                         ),
                       ),

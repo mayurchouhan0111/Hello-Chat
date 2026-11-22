@@ -115,13 +115,15 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
           alignment: Alignment.center,
           children: [
             SizedBox(
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
+              width: MediaQuery.sizeOf(context).width,
+              height: MediaQuery.sizeOf(context).height,
               child: VapAnimation(
+                key: ValueKey('launch_${widget.ticketId ?? widget.level}'),
                 assetPath: vapPath,
                 profileImageUrl: avatarUrl,
                 fit: BoxFit.contain,
                 loop: false,
+                mute: true,
                 onError: () {
                   widget.onError?.call();
                   _handleComplete();

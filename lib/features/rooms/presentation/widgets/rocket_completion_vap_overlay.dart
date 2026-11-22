@@ -120,11 +120,13 @@ class _RocketCompletionVapOverlayState
           child: Stack(
             children: [
               VapAnimation(
-                key: ValueKey('completion_${widget.level}_$_showVariant2'),
+                key: ValueKey(
+                    'completion_${widget.ticketId ?? widget.level}_$_showVariant2'),
                 assetPath: vapPath,
                 profileImageUrl: avatarUrl,
                 fit: BoxFit.contain,
                 loop: false,
+                mute: true,
                 onError: () {
                   widget.onError?.call();
                   _handleComplete();

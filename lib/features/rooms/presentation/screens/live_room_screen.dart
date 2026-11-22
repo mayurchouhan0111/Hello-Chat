@@ -36,7 +36,6 @@ import 'pk_battle_arena_screen.dart';
 import '../widgets/pk_challenge_banner.dart';
 import '../widgets/live_activity_feed.dart';
 import '../widgets/entry_effect_overlay.dart';
-import '../widgets/room_welcome_banner.dart';
 import '../../../../core/utils/rocket_vap_config.dart';
 import '../../../../core/widgets/app_avatar.dart';
 import '../../../../core/widgets/app_toast.dart';
@@ -146,6 +145,26 @@ class _QuickSendState {
   });
 }
 
+enum RocketPlaybackState {
+  idle,
+  notification,
+  flying,
+  completion,
+  explosion,
+}
+
+class RocketOverlayState {
+  final RocketPlaybackState state;
+  final int level;
+  final String? ticketId;
+
+  const RocketOverlayState({
+    this.state = RocketPlaybackState.idle,
+    this.level = 0,
+    this.ticketId,
+  });
+}
+
 class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     with WidgetsBindingObserver {
   @override
@@ -192,14 +211,23 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
   bool _isLeavingRoom = false;
   bool _isLeavingVoluntarily = false;
   bool _hasLeftRoom = false;
-  bool _isRocketNotificationShowing = false;
+  // ── Rocket Overlay Lifecycle State (Isolated notifier to prevent room rebuilds) ──
+  final ValueNotifier<RocketOverlayState> _rocketOverlayNotifier =
+      ValueNotifier<RocketOverlayState>(const RocketOverlayState());
+
+  bool get _isRocketNotificationShowing =>
+      _rocketOverlayNotifier.value.state == RocketPlaybackState.notification;
+  bool get _isRocketFlying =>
+      _rocketOverlayNotifier.value.state == RocketPlaybackState.flying;
+  bool get _isRocketLaunching =>
+      _rocketOverlayNotifier.value.state == RocketPlaybackState.completion;
+  bool get _showExplosionOverlay =>
+      _rocketOverlayNotifier.value.state == RocketPlaybackState.explosion;
+
   final ValueNotifier<int> _notificationCountdownNotifier =
       ValueNotifier<int>(5);
   Timer? _notificationTimer;
-  bool _isRocketFlying = false;
-  bool _isRocketLaunching = false;
   int _launchingLevel = 1;
-  bool _showExplosionOverlay = false;
   Map<String, int> _launchContributions = {};
   final List<int> _rocketLaunchQueue = [];
   static const int _maxRocketQueueSize = 5;
@@ -426,6 +454,7 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     }
 
     _explosionAutoDismissTimer?.cancel();
+    _rocketOverlayNotifier.dispose();
     _bannerCurrentPageNotifier.dispose();
     _chatController.dispose();
 
@@ -949,13 +978,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
 
                         LiveRoomLayout(
                           room: room,
-                          header: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
+                          header:
                               RepaintBoundary(child: _buildRoomAppBar(room)),
-                              RoomWelcomeBanner(roomId: widget.roomId),
-                            ],
-                          ),
                           seats: Column(
                             children: [
                               YouTubeRoomPlayer(room: room, myUid: myUid),
@@ -1039,10 +1063,21 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
                     ),
                   ),
                   // 🚀 ROCKET OVERLAY LAYER (Renders ABOVE GiftAnimationOverlay so rockets are never hidden)
-                  _buildRocketNotificationOverlay(),
-                  _buildRocketFlyingOverlay(),
-                  _buildRocketOverlay(),
-                  _buildExplosionOverlay(room),
+                  RepaintBoundary(
+                    child: ValueListenableBuilder<RocketOverlayState>(
+                      valueListenable: _rocketOverlayNotifier,
+                      builder: (context, rocketState, _) {
+                        return Stack(
+                          children: [
+                            _buildRocketNotificationOverlay(rocketState),
+                            _buildRocketFlyingOverlay(rocketState),
+                            _buildRocketOverlay(rocketState),
+                            _buildExplosionOverlay(rocketState, room),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -3117,10 +3152,12 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     _currentRocketTicketId ??=
         '${widget.roomId}_${level}_${DateTime.now().millisecondsSinceEpoch}';
     _notificationCountdownNotifier.value = 5;
-    setState(() {
-      _isRocketNotificationShowing = true;
-      _launchingLevel = level;
-    });
+    _launchingLevel = level;
+    _rocketOverlayNotifier.value = RocketOverlayState(
+      state: RocketPlaybackState.notification,
+      level: level,
+      ticketId: _currentRocketTicketId,
+    );
     RocketVapConfig.preloadActiveAndNext(level);
     _startNotificationTimer();
   }
@@ -3144,18 +3181,19 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
   void _dismissRocketNotification() {
     ref.read(isRocketActiveProvider(widget.roomId).notifier).state = true;
     _notificationTimer?.cancel();
-    setState(() {
-      _isRocketNotificationShowing = false;
-      _isRocketFlying = true;
-    });
+    _rocketOverlayNotifier.value = RocketOverlayState(
+      state: RocketPlaybackState.flying,
+      level: _launchingLevel,
+      ticketId: _currentRocketTicketId,
+    );
   }
 
-  Widget _buildRocketNotificationOverlay() {
+  Widget _buildRocketNotificationOverlay(RocketOverlayState state) {
     return Positioned(
       top: 100,
       left: 20,
       right: 20,
-      child: !_isRocketNotificationShowing
+      child: state.state != RocketPlaybackState.notification
           ? const SizedBox.shrink()
           : RepaintBoundary(
               child: Material(
@@ -3284,42 +3322,44 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     );
   }
 
-  Widget _buildRocketFlyingOverlay() {
+  Widget _buildRocketFlyingOverlay(RocketOverlayState state) {
     return Positioned.fill(
-      child: !_isRocketFlying
+      child: state.state != RocketPlaybackState.flying
           ? const SizedBox.shrink()
           : RepaintBoundary(
               child: RocketLaunchOverlay(
-                level: _launchingLevel,
+                level: state.level,
                 roomId: widget.roomId,
-                ticketId: _currentRocketTicketId,
+                ticketId: state.ticketId,
                 onComplete: () {
                   _triggerRocketHeartbeat();
-                  setState(() {
-                    _isRocketFlying = false;
-                    _isRocketLaunching = true;
-                  });
+                  _rocketOverlayNotifier.value = RocketOverlayState(
+                    state: RocketPlaybackState.completion,
+                    level: state.level,
+                    ticketId: state.ticketId,
+                  );
                 },
               ),
             ),
     );
   }
 
-  Widget _buildRocketOverlay() {
+  Widget _buildRocketOverlay(RocketOverlayState state) {
     return Positioned.fill(
-      child: !_isRocketLaunching
+      child: state.state != RocketPlaybackState.completion
           ? const SizedBox.shrink()
           : RepaintBoundary(
               child: RocketCompletionVapOverlay(
-                level: _launchingLevel,
+                level: state.level,
                 roomId: widget.roomId,
-                ticketId: _currentRocketTicketId,
+                ticketId: state.ticketId,
                 onComplete: () {
                   _triggerRocketHeartbeat();
-                  setState(() {
-                    _isRocketLaunching = false;
-                    _showExplosionOverlay = true;
-                  });
+                  _rocketOverlayNotifier.value = RocketOverlayState(
+                    state: RocketPlaybackState.explosion,
+                    level: state.level,
+                    ticketId: state.ticketId,
+                  );
                 },
               ),
             ),
@@ -3448,9 +3488,9 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     _explosionAutoDismissTimer?.cancel();
     _explosionAutoDismissTimer = null;
     if (_showExplosionOverlay) {
-      setState(() {
-        _showExplosionOverlay = false;
-      });
+      _rocketOverlayNotifier.value = const RocketOverlayState(
+        state: RocketPlaybackState.idle,
+      );
       ref.invalidate(walletBalanceProvider);
       ref.invalidate(currentUserProfileProvider);
       ref.read(isRocketActiveProvider(widget.roomId).notifier).state = false;
@@ -3460,9 +3500,10 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
     }
   }
 
-  Widget _buildExplosionOverlay(RoomModel room) {
-    if (!_showExplosionOverlay)
+  Widget _buildExplosionOverlay(RocketOverlayState state, RoomModel room) {
+    if (state.state != RocketPlaybackState.explosion) {
       return const Positioned.fill(child: SizedBox.shrink());
+    }
 
     // Auto-dismiss safety timer so explosion overlay never blocks queue if user doesn't tap Close
     _explosionAutoDismissTimer ??= Timer(const Duration(seconds: 8), () {

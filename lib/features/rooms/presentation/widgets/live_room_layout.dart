@@ -8,6 +8,7 @@ import '../../../../core/utils/week_helper.dart';
 import '../../../../services/room_support_service.dart';
 import 'floating_lucky_bag_widget.dart';
 import 'rocket_progress_widget.dart';
+import 'room_welcome_banner.dart';
 
 class LiveRoomLayout extends StatelessWidget {
   const LiveRoomLayout({
@@ -17,6 +18,7 @@ class LiveRoomLayout extends StatelessWidget {
     required this.seats,
     required this.chat,
     required this.actionBar,
+    this.welcomeBanner,
   });
 
   final RoomModel room;
@@ -24,6 +26,7 @@ class LiveRoomLayout extends StatelessWidget {
   final Widget seats;
   final Widget chat;
   final Widget actionBar;
+  final Widget? welcomeBanner;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +35,15 @@ class LiveRoomLayout extends StatelessWidget {
         children: [
           header,
           Expanded(child: SingleChildScrollView(primary: false, child: seats)),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.78,
+              ),
+              child: welcomeBanner ?? RoomWelcomeBanner(roomId: room.roomId),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 4, 8, 6),
             child: SizedBox(

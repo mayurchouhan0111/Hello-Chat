@@ -67,7 +67,10 @@ class GiftVapSpec {
         'priceInDiamonds': priceInDiamonds,
         'category': tier.toLowerCase(),
         'tier': tier,
-        'imageUrl': customImageUrl ?? (imageUrl.isNotEmpty ? imageUrl : 'assets/images/gifts/$giftId.png'),
+        'imageUrl': customImageUrl ??
+            (imageUrl.isNotEmpty
+                ? imageUrl
+                : 'assets/images/gifts/$giftId.png'),
         'lottieAssetPath': assetPath,
         'soundUrl': '',
         'animationFormat': 'vap',
@@ -145,7 +148,8 @@ class GiftVapCatalog {
     if (target <= 0) return assetDurationMs;
     final int max = maxMsForTier(tier);
     if (max <= 0) return assetDurationMs > target ? assetDurationMs : target;
-    final int min = tier.trim().toUpperCase() == 'NORMAL' ? normalMinMs : mediumMinMs;
+    final int min =
+        tier.trim().toUpperCase() == 'NORMAL' ? normalMinMs : mediumMinMs;
     if (assetDurationMs < min) return target;
     if (assetDurationMs > max) return max;
     return assetDurationMs;
@@ -369,7 +373,62 @@ class GiftVapCatalog {
     for (final s in all) {
       if (s.giftId == giftId) return s;
     }
-    return null;
+    // Alias and canonical design ID resolution
+    switch (giftId.toLowerCase().trim()) {
+      case 'special_offer':
+      case 'special offer':
+        return byId('vap_gift_17');
+      case 'lucky_coin':
+      case 'lucky coin':
+        return byId('vap_gift_11');
+      case 'lucky_key':
+      case 'lucky key':
+        return byId('vap_gift_15');
+      case 'beast_showdown':
+      case 'beast showdown':
+        return byId('vap_gift_14');
+      case 'cake':
+        return byId('vap_gift_19');
+      case 'fly_heart':
+      case 'fly heart':
+        return byId('vap_gift_10');
+      case 'kiss':
+      case 'pink_kiss':
+        return const GiftVapSpec(
+          giftId: 'kiss',
+          name: 'Kiss',
+          assetPath: '$assetDir/gift_4.vap',
+          tier: 'NORMAL',
+          durationMs: 5000,
+          priceInDiamonds: 5000,
+          width: 720,
+          height: 1280,
+          sortOrder: 8,
+          imageUrl: 'assets/images/gifts/vap_gift_4.png',
+        );
+      case 'treasure_adventure':
+      case 'treasure adventure':
+        return const GiftVapSpec(
+          giftId: 'treasure_adventure',
+          name: 'Treasure Adventure',
+          assetPath: '$assetDir/gift_7.vap',
+          tier: 'LUXURY',
+          durationMs: 10000,
+          priceInDiamonds: 750000,
+          width: 720,
+          height: 1280,
+          sortOrder: 13,
+          imageUrl: 'assets/images/gifts/vap_gift_7.png',
+        );
+      case 'eternal_love':
+      case 'eternal love':
+        return byId('vap_gift_18');
+      case 'romantic_journey':
+      case 'romantic journey':
+        return byId('vap_gift_16');
+      default:
+        return null;
+    }
   }
 
   static List<GiftVapSpec> forTier(String tier) =>

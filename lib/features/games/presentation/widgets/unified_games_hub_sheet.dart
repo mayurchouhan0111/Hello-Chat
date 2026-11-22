@@ -160,10 +160,10 @@ class _UnifiedGamesHubSheetState extends ConsumerState<UnifiedGamesHubSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 child: Row(
                   children: [
-                    // 1. Spin Wheel (Active Native Game)
+                    // 1. Greedy (Active Native Game)
                     _buildGameCard(
                       context,
-                      title: "Spin Wheel",
+                      title: "Greedy",
                       subtitle: "Win up to 10x prizes!",
                       badge: "POPULAR 🎡",
                       imageAsset: "assets/images/game_spin_wheel_art.jpg",

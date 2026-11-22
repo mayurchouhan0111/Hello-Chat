@@ -51,16 +51,19 @@ class GamesPanel extends ConsumerWidget {
               ),
               // Diamond Balance Chip
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.12)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.diamond_rounded, size: 14, color: Color(0xFFFFD700)),
+                    const Icon(Icons.diamond_rounded,
+                        size: 14, color: Color(0xFFFFD700)),
                     const Gap(5),
                     Text(
                       "$diamondBalance",
@@ -80,10 +83,10 @@ class GamesPanel extends ConsumerWidget {
           // 2-Column Grid of our 2 active games matching Snapchat Minis reference style
           Row(
             children: [
-              // 1. Spin Wheel (Active Native Game)
+              // 1. Greedy (Active Native Game)
               _buildGameArtCard(
                 context,
-                title: "Spin Wheel",
+                title: "Greedy",
                 subtitle: "Win up to 10x prizes!",
                 badge: "POPULAR 🎡",
                 imageAsset: "assets/images/game_spin_wheel_art.jpg",
@@ -93,7 +96,8 @@ class GamesPanel extends ConsumerWidget {
                   if (Navigator.canPop(context)) Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (c) => SpinWheelScreen(roomId: roomId)),
+                    MaterialPageRoute(
+                        builder: (c) => SpinWheelScreen(roomId: roomId)),
                   );
                 },
               ),
@@ -112,7 +116,8 @@ class GamesPanel extends ConsumerWidget {
                   if (Navigator.canPop(context)) Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (c) => LuckyDrawScreen(roomId: roomId)),
+                    MaterialPageRoute(
+                        builder: (c) => LuckyDrawScreen(roomId: roomId)),
                   );
                 },
               ),
@@ -202,13 +207,17 @@ class GamesPanel extends ConsumerWidget {
                       return Container(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [glowColor, glowColor.withValues(alpha: 0.7)],
+                            colors: [
+                              glowColor,
+                              glowColor.withValues(alpha: 0.7)
+                            ],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
                         ),
                         child: const Center(
-                          child: Icon(Icons.sports_esports_rounded, size: 48, color: Colors.white38),
+                          child: Icon(Icons.sports_esports_rounded,
+                              size: 48, color: Colors.white38),
                         ),
                       );
                     },
@@ -242,7 +251,8 @@ class GamesPanel extends ConsumerWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3.5),
                               decoration: BoxDecoration(
                                 color: Colors.black.withValues(alpha: 0.55),
                                 borderRadius: BorderRadius.circular(10),
@@ -325,7 +335,8 @@ class GamesPanel extends ConsumerWidget {
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
+                              Icon(Icons.play_arrow_rounded,
+                                  color: Colors.white, size: 16),
                               Gap(4),
                               Text(
                                 "PLAY NOW",

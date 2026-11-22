@@ -15,6 +15,7 @@ class VapAnimation extends StatefulWidget {
   final String? fallbackImageUrl;
   final BoxFit fit;
   final bool loop;
+  final bool mute;
   final VoidCallback? onComplete;
   final VoidCallback? onError;
   final VoidCallback? onStart;
@@ -27,6 +28,7 @@ class VapAnimation extends StatefulWidget {
     this.fallbackImageUrl,
     this.fit = BoxFit.contain,
     this.loop = false,
+    this.mute = false,
     this.onComplete,
     this.onError,
     this.onStart,
@@ -60,8 +62,9 @@ class VapAnimation extends StatefulWidget {
 
   static Future<String?> preCache(String assetPath) {
     final cached = _extractedCache[assetPath];
-    if (cached != null && File(cached).existsSync())
+    if (cached != null && File(cached).existsSync()) {
       return Future.value(cached);
+    }
 
     if (_inFlight.containsKey(assetPath)) {
       return _inFlight[assetPath]!;
@@ -242,7 +245,7 @@ class _VapAnimationState extends State<VapAnimation> {
 
     final tagContents = _buildTagContents();
 
-    // Audio is enabled (mute: false). RepaintBoundary isolates the
+    // Audio playback obeys widget.mute. RepaintBoundary isolates the
     // PlatformView layer from the parent's repaints.
     return RepaintBoundary(
       child: VapView(
@@ -251,7 +254,7 @@ class _VapAnimationState extends State<VapAnimation> {
                 'vap_${widget.assetPath}_${widget.profileImageUrl ?? widget.profileImageBytes?.length}'),
         scaleType: _mapFit(widget.fit),
         repeat: widget.loop ? 99999 : 0,
-        mute: false,
+        mute: widget.mute,
         vapTagContents: tagContents,
         onViewCreated: _onViewCreated,
       ),

@@ -4142,21 +4142,16 @@ function computeSpinPayout(bets, roundResult) {
     let prize = 0;
     const normalized = {};
     for (const [k, v] of Object.entries(bets || {})) {
-        if (k && Number(v) > 0) normalized[k.toLowerCase().trim()] = Number(v);
+        if (k && Number(v) > 0) {
+            const key = k.toLowerCase().trim();
+            // Disallow category podium bets (salad / pizza): only exact food items count
+            if (key !== "salad" && key !== "pizza") {
+                normalized[key] = Number(v);
+            }
+        }
     }
     const winnerName = (roundResult.name || "").toLowerCase().trim();
-    const winnerCategory = (roundResult.category || roundResult.type || "").toLowerCase().trim();
     const paid = new Set();
-    const salad = ["tomato", "cabbage", "corn", "carrot", "salad"];
-    const pizza = ["pizza", "steak"];
-    if (salad.includes(winnerName) || winnerCategory === "salad") {
-        const b = normalized["salad"] || 0;
-        if (b > 0 && !paid.has("salad")) { prize += Math.floor(b * 5); paid.add("salad"); }
-    }
-    if (pizza.includes(winnerName) || winnerCategory === "pizza") {
-        const b = normalized["pizza"] || 0;
-        if (b > 0 && !paid.has("pizza")) { prize += Math.floor(b * 45); paid.add("pizza"); }
-    }
     let onWinner = normalized[winnerName] || 0;
     if (!onWinner) {
         if (winnerName === "kebab") onWinner = normalized["skewer"] || 0;
@@ -4187,16 +4182,25 @@ async function readWheelWins(transaction, playerRef, userRef) {
 }
 
 function recordWheelStanding(transaction, playerRef, user, wager, prize, totalWins) {
-    transaction.set(playerRef, {
+    const safePrize = Math.max(0, Math.floor(Number(prize) || 0));
+    const safeWager = Math.max(0, Math.floor(Number(wager) || 0));
+    const updates = {
         uid: playerRef.id,
         name: user.displayName || user.username || user.name || String(user.helloId || playerRef.id),
         avatar: user.profilePhotoUrl || user.photoURL || user.photoUrl || user.avatar || "",
-        totalBets: FieldValue.increment(wager),
-        totalWinnings: FieldValue.increment(prize),
-        amount: FieldValue.increment(prize),
-        ...(totalWins === null ? {} : { totalWins }),
         updatedAt: Date.now()
-    }, { merge: true });
+    };
+    if (safeWager > 0) {
+        updates.totalBets = FieldValue.increment(safeWager);
+    }
+    if (safePrize > 0) {
+        updates.totalWinnings = FieldValue.increment(safePrize);
+        updates.amount = FieldValue.increment(safePrize);
+    }
+    if (totalWins !== null && totalWins !== undefined) {
+        updates.totalWins = totalWins;
+    }
+    transaction.set(playerRef, updates, { merge: true });
 }
 
 // A leader already on the board when the client upgrades might have no
@@ -4228,7 +4232,15 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
     const uid = context.auth.uid;
     const clientRoundId = data.roundId ? String(data.roundId).trim() : null;
-    const bets = data.bets || (data.betAmount ? { [data.label || "any"]: Number(data.betAmount) || 0 } : {});
+    const rawBets = data.bets || (data.betAmount ? { [data.label || "any"]: Number(data.betAmount) || 0 } : {});
+    // Disallow category podium bets (salad / pizza): users cannot send bets on these icons
+    const bets = {};
+    for (const [k, v] of Object.entries(rawBets)) {
+        const lowerK = String(k || "").toLowerCase().trim();
+        if (lowerK !== "salad" && lowerK !== "pizza" && Number(v) > 0) {
+            bets[k] = Number(v);
+        }
+    }
     const totalBet = Object.values(bets).reduce((acc, b) => acc + Math.max(0, Number(b) || 0), 0);
 
     if (totalBet !== 0 && totalBet < 10) {
@@ -4271,6 +4283,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const prevLogRef = userRef.collection("game_history").doc(`spin_${prevRoundId}`);
     const prevWinTxRef = userRef.collection("transactions").doc(`spin_win_${prevRoundId}`);
     const prevPrivateRef = db.collection("games_meta_private").doc(`spin_${prevRoundId}`);
+    const prevStandingRoundRef = statsRef.collection("daily_settled_rounds").doc(`${prevRoundId}_${uid}`);
 
     const spinResult = await db.runTransaction(async (transaction) => {
         const [
@@ -4282,7 +4295,8 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             existingLogDoc,
             prevLogDoc,
             prevWinTxDoc,
-            prevPrivateDoc
+            prevPrivateDoc,
+            prevStandingRoundDoc
         ] = await Promise.all([
             transaction.get(userRef),
             transaction.get(settingsRef),
@@ -4292,7 +4306,8 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
             transaction.get(logRef),
             transaction.get(prevLogRef),
             transaction.get(prevWinTxRef),
-            transaction.get(prevPrivateRef)
+            transaction.get(prevPrivateRef),
+            transaction.get(prevStandingRoundRef)
         ]);
 
         if (!userDoc.exists) {
@@ -4484,7 +4499,17 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         transaction.update(userRef, userUpdates);
 
         if (unclaimedPrize > 0) {
-            recordWheelStanding(transaction, dailyPlayerRef, userData, Number(prevData.totalBet) || 0, unclaimedPrize, recoveredWins);
+            const alreadyPrevRanked = prevStandingRoundDoc && prevStandingRoundDoc.exists;
+            if (!alreadyPrevRanked) {
+                recordWheelStanding(transaction, dailyPlayerRef, userData, Number(prevData.totalBet) || 0, unclaimedPrize, recoveredWins);
+                transaction.set(prevStandingRoundRef, {
+                    uid: uid,
+                    roundId: String(prevRoundId),
+                    prize: unclaimedPrize,
+                    wager: Number(prevData.totalBet) || 0,
+                    settledAt: Date.now()
+                });
+            }
             transaction.set(prevLogRef, { settled: true, balanceAfter: finalBalance }, { merge: true });
             transaction.set(prevWinTxRef, {
                 type: "game_win",
@@ -4758,16 +4783,18 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
     const roundBetRef = statsRef.collection("round_player_bets").doc(`${roundId}_${uid}`);
     const roundPlayersQuery = statsRef.collection("round_player_bets")
         .where("roundId", "==", roundId);
+    const standingRoundRef = statsRef.collection("daily_settled_rounds").doc(`${roundId}_${uid}`);
 
     return db.runTransaction(async (transaction) => {
-        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc, roundPlayersDoc] = await Promise.all([
+        const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc, roundPlayersDoc, standingRoundDoc] = await Promise.all([
             transaction.get(userRef),
             transaction.get(logRef),
             transaction.get(winTxRef),
             transaction.get(privateStatsRef),
             transaction.get(statsRef),
             transaction.get(roundBetRef),
-            transaction.get(roundPlayersQuery)
+            transaction.get(roundPlayersQuery),
+            transaction.get(standingRoundRef)
         ]);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
@@ -4971,10 +4998,18 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             }, { merge: true });
         }
 
-        // Update Daily Players Collection for the Daily Top Players Leaderboard (only upon final settlement)
+        // Update Daily Players Collection for the Daily Top Players Leaderboard (strictly idempotent per round)
         const settledWager = Number(logData.totalBet || roundBetData.totalBet) || 0;
-        if (settledWager > 0 || prize > 0) {
+        const alreadyRanked = standingRoundDoc && standingRoundDoc.exists;
+        if (!alreadyRanked && (settledWager > 0 || prize > 0)) {
             recordWheelStanding(transaction, dailyPlayerRef, userDoc.data(), settledWager, prize, totalWins);
+            transaction.set(standingRoundRef, {
+                uid: uid,
+                roundId: String(roundId),
+                prize: prize,
+                wager: settledWager,
+                settledAt: Date.now()
+            });
         }
 
         if (Object.keys(statsUpdates).length > 0) {
@@ -5031,6 +5066,19 @@ exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async
         }
     } catch (err) {
         console.error("[CRON] Failed to clear current round bets:", err);
+    }
+
+    // Clear daily settled rounds idempotency collection
+    try {
+        const roundsSnap = await statsRef.collection("daily_settled_rounds").get();
+        if (!roundsSnap.empty) {
+            const batch = db.batch();
+            roundsSnap.docs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            console.log(`[CRON] Deleted ${roundsSnap.size} daily settled round documents.`);
+        }
+    } catch (err) {
+        console.error("[CRON] Failed to clear daily settled rounds:", err);
     }
 
     console.log("[CRON] Lucky Spin stats and daily leaderboard reset successfully.");
@@ -7131,6 +7179,21 @@ async function resetLuckySpinDaily() {
             }
         }
         if (count > 0) await batch.commit();
+
+        const dailySettledSnap = await statsRef.collection("daily_settled_rounds").get();
+        batch = db.batch();
+        count = 0;
+        for (const doc of dailySettledSnap.docs) {
+            batch.delete(doc.ref);
+            count++;
+            if (count === 500) {
+                await batch.commit();
+                batch = db.batch();
+                count = 0;
+            }
+        }
+        if (count > 0) await batch.commit();
+
         console.log(`[RESET] Reset lucky spin daily players and winners.`);
     } catch (e) {
         console.error(`[RESET] Error resetting lucky spin daily:`, e);

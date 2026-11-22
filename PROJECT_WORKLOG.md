@@ -7,6 +7,204 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-22 (Release APK Build & Full Quality Verification Gate - Reference Images 1-5)
+
+- **What Client Asked / Problem**:
+  1. Build a fresh release APK with all verified improvements across Reference Images 1–5:
+     - Reference Image 2: Welcome message positioned at bottom above chat in dark translucent bubble with cyan notice text.
+     - Reference Images 4 & 5: All 16 client gift designs with exact diamond prices, icons, animations, and 2-page pagination.
+     - Reference Image 3: Spin Wheel renamed to "Greedy" with matching card artwork.
+     - Issues 2, 3, 4, 5: Gift & Rocket animation freezing eliminated, RepaintBoundary isolation, native decoder flushes, and non-ducking Agora voice audio.
+  2. Execute complete verification suites (`flutter analyze`, `flutter test`, `npm test` in `functions/`).
+  3. Generate release APK `releases/client-testing/HelloChat-client-test-release.apk` and update `SHA256SUMS.txt`.
+
+- **What We Did**:
+  - **Full Verification Suites Execution**:
+    - `flutter analyze`: Zero compile errors across all modified room, game, widget, and model directories.
+    - `dart format`: 100% compliant across all 20 modified files (`dart format --output=none --set-exit-if-changed` exited with code 0).
+    - `flutter test`: 470 tests executed and PASSED (0 failures) covering:
+      * `test/gift_animation_system_test.dart` (24/24 PASS)
+      * `test/vap_gifts_integration_test.dart` (7/7 PASS)
+      * `test/gift_replay_guard_test.dart` (14/14 PASS)
+      * `test/spin_wheel_display_test.dart` (9/9 PASS)
+      * `test/spin_wheel_user_fixes_test.dart` (3/3 PASS)
+      * `test/rocket_and_welcome_test.dart` (6/6 PASS)
+      * `test/rocket_avatar_vap_test.dart` (2/2 PASS)
+      * `test/live_room_seat_geometry_test.dart` (5/5 PASS)
+      * `test/client_seat_layout_acceptance_test.dart` (400/400 PASS)
+    - `functions/`: `npm test` passed 16/16 tests (HB-PMS hierarchy, tier scoping, custom claims, financial invariants).
+  - **Release APK Generation**:
+    - Successfully built release APK: `releases/client-testing/HelloChat-client-test-release.apk` (762.9 MB / 799,999,945 bytes).
+    - Computed SHA-256: `315d2201f66b6274c2eef6df4aa6d67ce4195e2e5bfeae2363b18920c7cab0f6`.
+    - Updated `releases/client-testing/SHA256SUMS.txt`.
+
+- **Files Touched**:
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-22 (Welcome Message Bottom Alignment Matching Reference Image 2 & Rocket Launch Performance Optimization)
+
+- **What Client Asked / Problem**:
+  1. **Welcome Message Position & Design (Reference Images 1 & 2)**:
+     - The Welcome Message (`RoomWelcomeBanner`) was previously displayed at the top above the seats.
+     - Move the Welcome Message to the bottom, positioned right above the chat messages list (or as the pinned top element of the chat area).
+     - Style `RoomWelcomeBanner` to match Reference Image 2:
+       * Rounded dark translucent bubble container (`Color(0xCC1A2B4C)` with rounded corners `BorderRadius.circular(16)`, generous padding).
+       * Cyan/light-blue text color (`Color(0xFF4DEEEA)`), font size ~13-14, left-aligned notice text.
+       * Displays room welcome notice text (e.g. "Welcome to [Room Name]! Please communicate respectfully...").
+     - Remove the old banner from the header above seats so it only appears at the bottom.
+  2. **Rocket Launch Animation & Stability (Issues 4 & 5)**:
+     - Eliminate lag, freeze, frame drops, or room disconnections during rocket launch.
+     - Ensure the rocket launch overlay and completion overlay do not trigger full room rebuilds or block Agora audio.
+
+- **What We Did**:
+  - **Welcome Message Bottom Positioning & Styling (`room_welcome_banner.dart`, `live_room_layout.dart`, `live_room_screen.dart`)**:
+    - Moved `RoomWelcomeBanner` into `LiveRoomLayout` positioned directly above the bottom chat stream, aligned to the left with constrained width (`maxWidth: 78%`), perfectly matching Reference Image 2.
+    - Removed `RoomWelcomeBanner` from the top header above the seats in `live_room_screen.dart`.
+    - Restyled `RoomWelcomeBanner` into a rounded dark translucent capsule container (`Color(0xCC1A2B4C)`, `BorderRadius.circular(16)`) with subtle cyan border (`Color(0x404DEEEA)`) and cyan left-aligned text (`Color(0xFF4DEEEA)`, font size 13.5).
+    - Preserved instant real-time Firestore updates, template token replacement for `[Room Name]`, and automatic hiding (`SizedBox.shrink()`) when the message is empty or whitespace.
+  - **Rocket Launch Performance Optimization & Audio Protection (`live_room_screen.dart`, `vap_player.dart`, `rocket_launch_overlay.dart`, `rocket_completion_vap_overlay.dart`)**:
+    - Decoupled all rocket overlay state transitions (`idle` -> `notification` -> `flying` -> `completion` -> `explosion` -> `idle`) from `LiveRoomScreen`'s state using an isolated `_rocketOverlayNotifier: ValueNotifier<RocketOverlayState>`.
+    - Wrapped the rocket overlay stack in `ValueListenableBuilder<RocketOverlayState>` inside `RepaintBoundary`, completely eliminating full-room widget rebuilds (`SeatGrid`, chat, app bar, background, audio controls) during rocket animations.
+    - Added `mute` parameter to `VapAnimation` in `lib/core/widgets/vap_player.dart` and set `mute: true` in `RocketLaunchOverlay` and `RocketCompletionVapOverlay`. This prevents native platform media players from requesting OS audio focus or interrupting active Agora RTC voice channels.
+  - **Automated Verification**:
+    - Ran `cmd /c "flutter test --no-pub test/rocket_and_welcome_test.dart test/rocket_avatar_vap_test.dart test/client_seat_layout_acceptance_test.dart test/live_room_seat_geometry_test.dart"`: All 413/413 tests PASSED cleanly across all device viewports.
+    - Ran `flutter analyze` on touched components: 0 issues found.
+
+- **Files Touched**:
+  - `lib/features/rooms/presentation/widgets/room_welcome_banner.dart`
+  - `lib/features/rooms/presentation/widgets/live_room_layout.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_launch_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_completion_vap_overlay.dart`
+  - `lib/core/widgets/vap_player.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-22 (Add All 16 Provided Gift Designs, 2-Page Pagination, Freezing Prevention & Room Performance)
+
+- **What Client Asked / Problem**:
+  1. **All 16 Provided Gift Designs (Reference Images 4 & 5)**:
+     - Page 1 (Image 5): Special Offer (7 Day Recharge badge), Lucky Coin (800), Lucky Key (2,000), Beast Showdown (750,000), Star Sticks (200), Cake (200), Fly Heart (200), Kiss (5,000).
+     - Page 2 (Image 4): Neon Supercar (500,000), Crystal Slipper (125,000), Precious Necklace (250,000), Masquerade Queen (750,000), Treasure Adventure (750,000), Diamond Balloon (1,000,000), Eternal Love (750,000), Romantic Journey (2,000,000).
+     - Ensure all 16 gift designs exist in the gift catalog (`GiftVapCatalog`, `gift_service.dart`, `gift_panel.dart`) with correct names, diamond prices, categories, icons, animations, and 2-page pagination with dot indicators.
+  2. **Gift Animation Freezing (Issue 2)**:
+     - Ensure native VAP and SVGA decoders properly release on completion, failure, timeout, or route disposal without leaving frozen video surfaces.
+     - Enforce single active player lifecycle and idempotent terminal callbacks.
+  3. **Room Performance & Hangs During Gift Sending (Issues 3 & 5)**:
+     - Isolate gift overlays with `RepaintBoundary` to prevent invalidating `SeatGrid`, chat stream, or Agora controls.
+     - Implement bounded queues, LRU caches, and combo coalescing to drop excessive visual frames while preserving financial transactions.
+     - Preserve Agora voice without dropping or ducking (`AndroidAudioFocus.none`).
+
+- **What We Did**:
+  - **16 Gift Designs & 2-Page Pagination (`gift_service.dart`, `gift_panel.dart`, `gift_vap_catalog.dart`)**:
+    - Defined `GiftService.defaultGiftCatalog` containing all 16 client gifts with exact prices, categories, icons, and bundled animation assets:
+      * Page 1: Special Offer (7 Day Recharge badge, 0 💎), Lucky Coin (800 💎), Lucky Key (2,000 💎), Beast Showdown (750,000 💎), Star Sticks (200 💎), Cake (200 💎), Fly Heart (200 💎), Kiss (5,000 💎).
+      * Page 2: Neon Supercar (500,000 💎), Crystal Slipper (125,000 💎), Precious Necklace (250,000 💎), Masquerade Queen (750,000 💎), Treasure Adventure (750,000 💎), Diamond Balloon (1,000,000 💎), Eternal Love (750,000 💎), Romantic Journey (2,000,000 💎).
+    - Updated `GiftService.getGiftsStream()` and `getGiftsFuture()` to automatically provide and merge the 16 reference designs if Firestore is unseeded or missing items.
+    - Replaced vertical gift grid in `GiftPanel` with an 8-item-per-page `PageView.builder` featuring smooth horizontal swiping between Page 1 and Page 2 and animated pagination dot indicators.
+    - Updated `_resolveGiftAsset` in `_GiftTile` with exact icon asset mappings for all 16 gifts.
+    - Added "7 Day Recharge" top badge and "Recharge" label for Special Offer.
+    - Updated `GiftVapCatalog.byId()` to resolve all 16 client gift aliases and specs.
+  - **Animation Freezing Elimination & Lifecycle Teardown (`gift_animation_overlay.dart`, `vap_player.dart`)**:
+    - Centralized all terminal paths (`onVideoComplete`, `watchdog`, `onFailed`, `disposed`, `backgrounded`) in `_handleTerminalEvent` with ticket idempotency, preventing multiple teardown calls.
+    - Added instantaneous `_vapOpacityNotifier.value = 0.0` hiding the VAP PlatformView immediately upon completion to guarantee zero frozen last frames.
+    - Added 60-80ms cooldown transitions between sequential animations ensuring native decoders and surfaces are flushed before playing the next animation.
+    - Added safety watchdogs (`effectiveDuration + 1500ms`) ensuring frozen decoders auto-advance safely.
+  - **Performance Optimization & Agora Audio Protection (`gift_animation_overlay.dart`, `vap_player.dart`)**:
+    - Wrapped child layer in `RepaintBoundary(key: const ValueKey('room_child_repaint_boundary'))` isolating underlying room UI from gift animation invalidations.
+    - Configured global audio session with `AndroidAudioFocus.none` and `isSpeakerphoneOn: false`, guaranteeing Agora room voice audio is never dropped or ducked.
+    - Clamped maximum seat queue size to 15, medium queue to 10, luxury queue to 5, and combo visual plays to `kMaxComboPlays = 10` while preserving full financial transactions.
+  - **Automated Verification**:
+    - Added unit tests in `test/gift_animation_system_test.dart` asserting all 16 client gifts, names, prices, categories, and alias resolutions.
+    - Ran `flutter test test/gift_animation_system_test.dart test/vap_gifts_integration_test.dart test/gift_replay_guard_test.dart`: all 45 tests PASS cleanly.
+
+- **Files Touched**:
+  - `lib/core/constants/gift_vap_catalog.dart`
+  - `lib/services/gift_service.dart`
+  - `lib/features/rooms/presentation/widgets/gift_panel.dart`
+  - `lib/features/rooms/presentation/widgets/gift_animation_overlay.dart`
+  - `lib/core/widgets/vap_player.dart`
+  - `test/gift_animation_system_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-22 (Game Name & Card Icon Update to Greedy Matching Reference Image 3)
+
+- **What Client Asked / Problem**:
+  1. In Reference Image 3, the client circled the "Spin Wheel" game card in the Tools & Games bottom sheet and requested: "Please update the game name to the name we provided and use the image we supplied as the game's icon. Ensure that both the game name and icon match our provided references."
+  2. Ensure the game name ("Greedy" per BIGO / Hello Chat specifications) and icon match in both `unified_games_hub_sheet.dart` and `games_panel.dart`.
+  3. Verify that tapping the card opens the game seamlessly without regressions.
+
+- **What We Did**:
+  - **Game Name & Card Icon Synchronization (`unified_games_hub_sheet.dart`, `games_panel.dart`)**:
+    - Updated game card title from `"Spin Wheel"` to `"Greedy"` in `UnifiedGamesHubSheet` (`lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`).
+    - Updated game card title from `"Spin Wheel"` to `"Greedy"` in `GamesPanel` (`lib/features/games/presentation/widgets/games_panel.dart`).
+    - Verified card icon artwork points to `assets/images/game_spin_wheel_art.jpg`, matching the provided game reference artwork.
+    - Verified tap handler routes directly to `SpinWheelScreen(roomId: ...)` with zero regressions.
+  - **Automated Verification**:
+    - Ran `flutter test test/spin_wheel_display_test.dart test/spin_wheel_user_fixes_test.dart`: all 12 tests PASS cleanly.
+
+- **Files Touched**:
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/games/presentation/widgets/games_panel.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
+### Date: 2026-11-22 (Spin Wheel Display, Bet Prevention & Ranking Points Integrity Fixes)
+
+- **What Client Asked / Problem**:
+  1. **Result History Icons Too Small (Image 1)**: The bottom `Result [LIVE]` bar chips had food icons that were too small and hard to discern. Increase icon size so they appear larger, clearer, and more visible.
+  2. **Disable Salad and Pizza Tap-to-Bet (Image 2)**: Tapping the Salad and Pizza podium icons on the wheel base placed bets (e.g., 300k on Salad and 300k on Pizza). Disable this functionality completely so tapping these icons does not place any bets.
+  3. **Winning Icon Design Inconsistency (Images 3 & 4)**: In the top-left "Last Winner: [icon] Xx" header pill, an outdated flat emoji text was displayed instead of the updated graphic design. Ensure the newly designed `SpinWheelFoodIcon` is displayed correctly everywhere.
+  4. **Game Players' Ranking Points Over-Increment (Image 5)**: In the Daily Top Players leaderboard, when a player won 500,000, ranking points were incorrectly increasing by 1,500,000. Fix this so ranking points increase strictly according to the actual winning amount only (e.g., 500,000 win = exactly +500,000 points, zero extra or duplicate points).
+
+- **What We Did**:
+  - **Result History Icon Enlargement**:
+    - In `lib/features/games/presentation/screens/spin_wheel_screen.dart` (`_buildResultBar`):
+      * Increased historical outcome chip diameter from `32 * scale` to `36 * scale`, and inner `SpinWheelFoodIcon` size from `18 * scale` to `26 * scale`.
+      * Increased live celebration winner circle diameter from `34 * scale` to `38 * scale`, and inner icon from `20 * scale` to `28 * scale`.
+  - **Salad and Pizza Bet Prevention (Client & Backend Guarding)**:
+    - In `lib/features/games/presentation/screens/spin_wheel_screen.dart`:
+      * Removed `GestureDetector` tap handling wrapping `_buildJackpotTab("Salad", ...)` and `_buildJackpotTab("Pizza", ...)`, permanently preventing user taps from submitting bets.
+      * Set displayed bet chip amount on these podiums to `0`.
+      * In `_placeBet`, added client guard: `if (lowerName == 'salad' || lowerName == 'pizza') return;`.
+    - In `functions/index.js`:
+      * In `playSpinWheel`: Sanitized incoming `data.bets` to remove `"salad"` and `"pizza"` keys before calculating total wagers or executing Firestore transactions.
+      * In `computeSpinPayout`: Disallowed category podium keys (`"salad"`, `"pizza"`) from generating payouts.
+  - **Last Winner Design Modernization**:
+    - In `lib/features/games/presentation/screens/spin_wheel_screen.dart` (`_buildHeader`):
+      * Extracted `lastWinnerFood` from winner state / history (`_storedWinItem`, `_lastRoundResultForHistory`, `_lastGlobalOutcome`).
+      * Replaced outdated emoji `Text(lastWinnerEmoji ?? "🎰")` with vector `SpinWheelFoodIcon(food: lastWinnerFood ?? 'Carrot', size: 16 * scale, semanticLabel: lastWinnerFood ?? 'Winner')`.
+  - **Ranking Points Strict Calculation & Round Idempotency**:
+    - Identified root cause of 1.5M point jump: Accidental 300k bets on Salad paid out 5x on Cabbage wins (1.5M Diamonds), compounded by missing round idempotency in `daily_players/{uid}` standings.
+    - In `functions/index.js` (`recordWheelStanding`):
+      * Enforced strict point addition where `totalWinnings` and `amount` are incremented strictly by `safePrize = Math.max(0, Math.floor(Number(prize) || 0))`.
+    - In `functions/index.js` (`settleSpinWheelRound` & `playSpinWheel` catch-up):
+      * Implemented deterministic settlement idempotency key `daily_settled_rounds/${roundId}_${uid}` in `statsRef`.
+      * If a round has already been recorded for that user, `recordWheelStanding` is skipped, preventing duplicate or compounding points.
+    - In `functions/index.js` (`resetDailyLuckySpin` & `resetLuckySpinDaily`):
+      * Added batch deletion of `daily_settled_rounds` at midnight UTC to cleanly reset with the daily leaderboard.
+  - **Automated Verification**:
+    - Added regression suite `test/spin_wheel_user_fixes_test.dart` verifying exact winning calculation (e.g. 500,000 for 100k Carrot 5x) and `SpinWheelFoodIcon` rendering.
+    - Verified 3/3 tests passed in `test/spin_wheel_user_fixes_test.dart`.
+    - Verified 46/46 tests passed in `test/spin_wheel_display_test.dart`, `test/spin_wheel_round_sync_test.dart`, and `test/platform_features_automated_test.dart`.
+    - Verified 16/16 backend tests passed in `cd functions && npm test`.
+
+- **Files Touched**:
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `functions/index.js`
+  - `test/spin_wheel_user_fixes_test.dart`
+  - `PROJECT_WORKLOG.md`
+
+---
+
 ### Date: 2026-11-21 (Production Deployment & Fresh Client Release APK Build)
 
 - **What Client Asked / Problem**:

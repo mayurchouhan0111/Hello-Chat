@@ -1,10 +1,12 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hello_chat/core/constants/gift_vap_catalog.dart';
 import 'package:hello_chat/core/models/gift_model.dart';
 import 'package:hello_chat/core/models/message_model.dart';
 import 'package:hello_chat/core/utils/svga_parser_util.dart';
 import 'package:hello_chat/features/rooms/presentation/widgets/gift_animation_overlay.dart';
 import 'package:hello_chat/features/games/presentation/screens/spin_wheel_screen.dart';
+import 'package:hello_chat/services/gift_service.dart';
 import 'package:tancent_vap/tancent_vap.dart';
 
 void main() {
@@ -612,6 +614,88 @@ void main() {
 
       final kiss = GiftModel.fromMap({'name': 'Kiss', 'price': 50}, 'kiss_1');
       expect(kiss.animationFormat, equals('vap'));
+    });
+
+    test(
+        'All 16 client gifts from Reference Images 4 & 5 exist with exact names, diamond prices and pagination',
+        () {
+      final catalog = GiftService.defaultGiftCatalog;
+      expect(catalog.length, equals(16));
+
+      // Page 1 (Image 5): Exactly 8 gifts
+      expect(catalog[0].name, equals('Special Offer'));
+      expect(catalog[0].priceInDiamonds, equals(0));
+      expect(catalog[0].category, equals('Normal'));
+
+      expect(catalog[1].name, equals('Lucky Coin'));
+      expect(catalog[1].priceInDiamonds, equals(800));
+      expect(catalog[1].category, equals('Lucky'));
+
+      expect(catalog[2].name, equals('Lucky Key'));
+      expect(catalog[2].priceInDiamonds, equals(2000));
+      expect(catalog[2].category, equals('Lucky'));
+
+      expect(catalog[3].name, equals('Beast Showdown'));
+      expect(catalog[3].priceInDiamonds, equals(750000));
+      expect(catalog[3].tier, equals('LUXURY'));
+
+      expect(catalog[4].name, equals('Star Sticks'));
+      expect(catalog[4].priceInDiamonds, equals(200));
+
+      expect(catalog[5].name, equals('Cake'));
+      expect(catalog[5].priceInDiamonds, equals(200));
+
+      expect(catalog[6].name, equals('Fly Heart'));
+      expect(catalog[6].priceInDiamonds, equals(200));
+
+      expect(catalog[7].name, equals('Kiss'));
+      expect(catalog[7].priceInDiamonds, equals(5000));
+
+      // Page 2 (Image 4): Exactly 8 gifts
+      expect(catalog[8].name, equals('Neon Supercar'));
+      expect(catalog[8].priceInDiamonds, equals(500000));
+      expect(catalog[8].tier, equals('LUXURY'));
+
+      expect(catalog[9].name, equals('Crystal Slipper'));
+      expect(catalog[9].priceInDiamonds, equals(125000));
+      expect(catalog[9].tier, equals('LUXURY'));
+
+      expect(catalog[10].name, equals('Precious Necklace'));
+      expect(catalog[10].priceInDiamonds, equals(250000));
+      expect(catalog[10].tier, equals('MEDIUM'));
+
+      expect(catalog[11].name, equals('Masquerade Queen'));
+      expect(catalog[11].priceInDiamonds, equals(750000));
+      expect(catalog[11].tier, equals('LUXURY'));
+
+      expect(catalog[12].name, equals('Treasure Adventure'));
+      expect(catalog[12].priceInDiamonds, equals(750000));
+      expect(catalog[12].tier, equals('LUXURY'));
+
+      expect(catalog[13].name, equals('Diamond Balloon'));
+      expect(catalog[13].priceInDiamonds, equals(1000000));
+      expect(catalog[13].tier, equals('LUXURY'));
+
+      expect(catalog[14].name, equals('Eternal Love'));
+      expect(catalog[14].priceInDiamonds, equals(750000));
+      expect(catalog[14].tier, equals('LUXURY'));
+
+      expect(catalog[15].name, equals('Romantic Journey'));
+      expect(catalog[15].priceInDiamonds, equals(2000000));
+      expect(catalog[15].tier, equals('LUXURY'));
+    });
+
+    test('GiftVapCatalog.byId resolves aliases for all 16 client gifts', () {
+      expect(GiftVapCatalog.byId('special_offer'), isNotNull);
+      expect(GiftVapCatalog.byId('lucky_coin'), isNotNull);
+      expect(GiftVapCatalog.byId('lucky_key'), isNotNull);
+      expect(GiftVapCatalog.byId('beast_showdown'), isNotNull);
+      expect(GiftVapCatalog.byId('cake'), isNotNull);
+      expect(GiftVapCatalog.byId('fly_heart'), isNotNull);
+      expect(GiftVapCatalog.byId('kiss'), isNotNull);
+      expect(GiftVapCatalog.byId('treasure_adventure'), isNotNull);
+      expect(GiftVapCatalog.byId('eternal_love'), isNotNull);
+      expect(GiftVapCatalog.byId('romantic_journey'), isNotNull);
     });
   });
 }
