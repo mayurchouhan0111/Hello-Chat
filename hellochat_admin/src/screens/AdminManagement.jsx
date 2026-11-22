@@ -137,6 +137,7 @@ export const AdminManagement = () => {
       
       await appointFn({
         targetIdentifier,
+        branchId: branchId || 'branch-prod-1',
         allowAgencyOverride,
         overrideReason: overrideReason || 'Authorized by Super Admin via Admin Panel',
       });

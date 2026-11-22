@@ -1408,17 +1408,6 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
       setState(() => _error = 'Commission must be between 0 and 100%.');
       return;
     }
-    if (widget.initial == null && !widget.isPlainAdmin && admin.isEmpty) {
-      setState(() => _error = 'Bind this agency to an Admin UID or Hello ID.');
-      return;
-    }
-    if (widget.initial == null &&
-        _logoFile == null &&
-        (_logoUrl == null || _logoUrl!.isEmpty)) {
-      setState(() => _error = 'Agency logo or profile photo is required.');
-      return;
-    }
-
     setState(() => _uploading = true);
     String? finalLogoUrl = _logoUrl;
     if (_logoFile != null) {
@@ -1439,14 +1428,16 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     final data = <String, dynamic>{
       'name': name,
       'commissionRate': commissionPercent / 100,
-      if (finalLogoUrl != null) 'logoUrl': finalLogoUrl,
+      if (finalLogoUrl != null && finalLogoUrl.isNotEmpty) 'logoUrl': finalLogoUrl,
       'country': _country.text.trim(),
       'contactPhone': _phone.text.trim(),
       'description': _description.text.trim(),
     };
     if (widget.initial == null) {
       data['ownerIdentifier'] = owner;
-      if (!widget.isPlainAdmin) data['adminId'] = admin;
+      if (!widget.isPlainAdmin && admin.isNotEmpty) {
+        data['adminId'] = admin;
+      }
     }
     if (mounted) Navigator.pop(context, data);
   }
@@ -1504,7 +1495,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
                         ? 'Change Logo'
                         : (_logoUrl != null && _logoUrl!.isNotEmpty
                             ? 'Change Logo'
-                            : 'Upload Agency Logo *'),
+                            : 'Upload Logo (Optional)'),
                     style: const TextStyle(
                       color: Color(0xFF6366F1),
                       fontSize: 11,
@@ -1516,11 +1507,11 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
             ),
             const Gap(14),
             if (appointing) ...[
-              _field(_owner, 'Owner Hello ID or UID', 'e.g. 5621916410'),
+              _field(_owner, 'Owner Hello ID or UID *', 'e.g. 5621916410'),
               if (!widget.isPlainAdmin) ...[
                 const Gap(10),
-                _field(_admin, 'Admin Hello ID or UID',
-                    'Admin who supervises this agency'),
+                _field(_admin, 'Supervising Admin (Optional)',
+                    'Leave blank to auto-bind branch admin'),
               ],
               const Gap(10),
             ],

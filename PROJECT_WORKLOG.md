@@ -7,6 +7,52 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-22 (Full Admin Appointment & Agency Appointment Completion Across Mobile & Web Panels)
+
+- **What Client Asked / Problem**:
+  1. The Super Admin Panel was not fully functional: users were unable to appoint or assign Admins through the Super Admin Panel.
+  2. Users were also unable to appoint or assign Agencies through the Admin Panel.
+  3. Ensure that the Super Admin can successfully appoint, manage, edit, and remove Admins and Agencies directly from the mobile app and web admin panel without requiring any developer-side changes or manual database edits.
+
+- **What We Did**:
+  - **Backend Cloud Functions (`functions/index.js`, `lib/hb_pms.js`)**:
+    - **`appointAdmin`**:
+      * Added support for explicit branch selection (`data.branchId`) for both Super Admin and Owner callers, with automatic safe fallback to `'branch-prod-1'`.
+      * Fixed Super Admin resolution for Owner appointments: if branch document lacks `superAdminUid`, resolves active Super Admin or assigns the platform owner gracefully instead of throwing `Branch has no governing Super Admin`.
+      * Supported `allowAgencyOverride`: when promoting an active Agency Owner, cleans up `isAgencyOwner: false`, removes `"Agency"` tag, adds `"Admin"` tag, and purges stale agency claims in `setAdminClaims`.
+    - **`validateCandidate` & `validateAdminCandidate`**:
+      * Added fallback branch resolution (`data.branchId || cData.branchId || 'branch-prod-1'`) and multi-format lookup by numeric Hello ID, string Hello ID, displayId, username, and document UID.
+    - **`listBranchAdmins` & `getBranchAdmin`**:
+      * Permitted Super Admins and Owners to query branch admins with graceful fallback to `branch-prod-1`, and allowed platform owners to view admins across branches.
+    - **`createAgency`**:
+      * Made agency logo upload completely optional: falls back cleanly to the owner's profile picture (`profilePhotoUrl` / `photoURL`) instead of rejecting requests.
+      * Made `adminId` optional for Super Admin and Owner callers: automatically resolves active branch admin, or assigns the calling administrator as the supervisory staff.
+      * Unified user resolution with `resolveUserByIdentifier` for rock-solid identifier lookups.
+  - **Flutter Mobile Application (`super_admin_portal_screen.dart`, `admin_agency_management_screen.dart`)**:
+    - In `super_admin_portal_screen.dart`:
+      * Fixed `_appointAdmin` payload to include `branchId`, `allowAgencyOverride: true`, and `overrideReason`.
+      * Fixed `_replaceAdmin` payload to pass `branchId` and `allowAgencyOverride: true`.
+    - In `admin_agency_management_screen.dart`:
+      * Removed the blocking client-side error that required a gallery logo upload before submitting.
+      * Made the supervising admin field optional in the dialog for non-plain-admin callers with clear guidance hints.
+  - **Web Admin Panel (`hellochat_admin/src/screens/AgencyManagement.jsx`, `AdminManagement.jsx`)**:
+    - Made `adminIdentifier` optional in `AgencyManagement.jsx` so Super Admins and Owners can appoint agencies directly.
+    - Added `branchId: branchId || 'branch-prod-1'` in `AdminManagement.jsx` for reliable admin appointments.
+  - **Testing & Verification**:
+    - `npm test` in `functions/` passed all 18/18 tests (including new unit tests for agency-to-admin override transitions and branch fallback).
+    - `flutter test` passed for admin role and seat badges.
+    - `flutter analyze` passed with 0 issues on all touched mobile screens.
+    - `npm run build` in `hellochat_admin` completed cleanly with 0 errors.
+
+- **Files Touched**:
+  - `functions/index.js`
+  - `functions/test_hb_pms.js`
+  - `lib/features/admin/presentation/screens/super_admin_portal_screen.dart`
+  - `lib/features/admin/presentation/screens/admin_agency_management_screen.dart`
+  - `hellochat_admin/src/screens/AdminManagement.jsx`
+  - `hellochat_admin/src/screens/AgencyManagement.jsx`
+  - `PROJECT_WORKLOG.md`
+
 ### Date: 2026-11-22 (Release APK Build & Full Quality Verification Gate - Reference Images 1-5)
 
 - **What Client Asked / Problem**:

@@ -145,11 +145,8 @@ export const AgencyManagement = () => {
 
   const handleAppointAgency = async (e) => {
     e.preventDefault();
-    if (!appointForm.ownerIdentifier.trim() || !appointForm.name.trim() ||
-        (requiresAdminBinding && !appointForm.adminIdentifier.trim())) {
-      alert(requiresAdminBinding
-        ? 'Please provide Owner ID, supervising Admin ID, and Agency Name.'
-        : 'Please provide Owner Hello ID / UID and Agency Name.');
+    if (!appointForm.ownerIdentifier.trim() || !appointForm.name.trim()) {
+      alert('Please provide Owner Hello ID / UID and Agency Name.');
       return;
     }
 

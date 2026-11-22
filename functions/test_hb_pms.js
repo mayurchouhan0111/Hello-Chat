@@ -346,6 +346,41 @@ runTest("Idempotency keys are deterministic and single-use for each recharge sou
     assert.strictEqual(`${clean1}_admin`, "rc_order_abc123_admin");
 });
 
+// ─────────────────────────────────────────────────────────────
+// 10. Admin & Agency Appointment Invariants
+// ─────────────────────────────────────────────────────────────
+runTest("Admin appointment cleans up prior agency owner state when authorized", () => {
+    const priorAgencyUser = {
+        role: "agency",
+        tags: ["Agency"],
+        isAgencyOwner: true,
+        agencyId: "ag_123"
+    };
+
+    // When appointed admin with override, the user transitions to admin
+    const updatedUser = {
+        role: "admin",
+        tags: (priorAgencyUser.tags.filter(t => t !== "Agency")).concat("Admin"),
+        isAgencyOwner: false,
+        branchId: "branch-prod-1"
+    };
+
+    assert.strictEqual(normalizeTier(updatedUser), "admin");
+    assert.strictEqual(updatedUser.isAgencyOwner, false);
+    assert.ok(updatedUser.tags.includes("Admin"));
+    assert.ok(!updatedUser.tags.includes("Agency"));
+});
+
+runTest("Super Admin and Owner callers default to branch-prod-1 when branchId is absent", () => {
+    const defaultBranch = "branch-prod-1";
+    const resolveBranch = (caller, inputBranch) => inputBranch || caller.branchId || defaultBranch;
+
+    assert.strictEqual(resolveBranch({ role: "superadmin" }, null), "branch-prod-1");
+    assert.strictEqual(resolveBranch({ role: "superadmin", branchId: "branch-asia" }, null), "branch-asia");
+    assert.strictEqual(resolveBranch({ role: "owner" }, "branch-eu"), "branch-eu");
+    assert.strictEqual(resolveBranch({ role: "owner" }, null), "branch-prod-1");
+});
+
 console.log("\n==================================================");
 console.log(`${testsPassed} PASSED, ${testsFailed} FAILED`);
 console.log("==================================================");

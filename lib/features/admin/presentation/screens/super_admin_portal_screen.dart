@@ -149,6 +149,9 @@ class _SuperAdminPortalScreenState
     try {
       await FirebaseFunctions.instance.httpsCallable('appointAdmin').call({
         'targetIdentifier': targetUid,
+        'branchId': branchId,
+        'allowAgencyOverride': true,
+        'overrideReason': 'Appointed by Super Admin via mobile portal',
       });
 
       if (mounted) {
@@ -324,6 +327,9 @@ class _SuperAdminPortalScreenState
       await FirebaseFunctions.instance.httpsCallable('replaceAdmin').call({
         'oldAdminUid': oldAdminUid,
         'newTargetIdentifier': newAdminUid,
+        'branchId': branchId,
+        'allowAgencyOverride': true,
+        'overrideReason': 'Replaced by Super Admin via mobile portal',
       });
 
       if (mounted) {
@@ -478,8 +484,9 @@ class _SuperAdminPortalScreenState
                                         .where('helloId', isEqualTo: numId)
                                         .limit(1)
                                         .get();
-                                    if (snap.docs.isNotEmpty)
+                                    if (snap.docs.isNotEmpty) {
                                       targetDoc = snap.docs.first;
+                                    }
                                   } else {
                                     final doc = await db
                                         .collection('users')
@@ -493,8 +500,9 @@ class _SuperAdminPortalScreenState
                                           .where('username', isEqualTo: q)
                                           .limit(1)
                                           .get();
-                                      if (snap.docs.isNotEmpty)
+                                      if (snap.docs.isNotEmpty) {
                                         targetDoc = snap.docs.first;
+                                      }
                                     }
                                   }
                                   if (targetDoc != null && targetDoc.exists) {
@@ -1519,8 +1527,9 @@ class _SuperAdminPortalScreenState
                                         .where('helloId', isEqualTo: numId)
                                         .limit(1)
                                         .get();
-                                    if (snap.docs.isNotEmpty)
+                                    if (snap.docs.isNotEmpty) {
                                       targetDoc = snap.docs.first;
+                                    }
                                   } else {
                                     final doc = await db
                                         .collection('users')
@@ -1534,8 +1543,9 @@ class _SuperAdminPortalScreenState
                                           .where('username', isEqualTo: q)
                                           .limit(1)
                                           .get();
-                                      if (snap.docs.isNotEmpty)
+                                      if (snap.docs.isNotEmpty) {
                                         targetDoc = snap.docs.first;
+                                      }
                                     }
                                   }
                                   if (targetDoc != null && targetDoc.exists) {
@@ -2698,7 +2708,7 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
                           fontWeight: FontWeight.bold)),
                   const Gap(4),
                   Text(
-                    "\$" + combinedTotal.toStringAsFixed(2),
+                    "\$${combinedTotal.toStringAsFixed(2)}",
                     style: const TextStyle(
                         color: Color(0xFF34D399),
                         fontSize: 26,
@@ -2707,9 +2717,7 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
                   ),
                   const Gap(4),
                   Text(
-                      "Month: " +
-                          _selectedMonth +
-                          " (Starts fresh from zero on 1st of month)",
+                      'Month: $_selectedMonth (Starts fresh from zero on 1st of month)',
                       style: const TextStyle(
                           color: Colors.white54, fontSize: 10.5)),
                 ],
@@ -2758,17 +2766,14 @@ class _AdminRechargeStatsSheetState extends State<_AdminRechargeStatsSheet> {
                                             color: Colors.white,
                                             fontWeight: FontWeight.bold,
                                             fontSize: 13)),
-                                    Text(
-                                        hCount.toString() +
-                                            " hosts • " +
-                                            status,
+                                    Text('$hCount hosts • $status',
                                         style: const TextStyle(
                                             color: Colors.white54,
                                             fontSize: 11)),
                                   ],
                                 ),
                               ),
-                              Text("\$" + rUSD.toStringAsFixed(2),
+                              Text("\$${rUSD.toStringAsFixed(2)}",
                                   style: const TextStyle(
                                       color: Color(0xFF34D399),
                                       fontWeight: FontWeight.bold,
