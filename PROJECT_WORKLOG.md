@@ -7,6 +7,44 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-23 (Greedy Game Card Image Update to assets/games/greedy.jpeg & Room Welcome Message Polish)
+
+- **What Client Asked / Problem**:
+  1. **Gaming Card Image in Bottom Sheet**: Use the image provided at `assets/games/greedy.jpeg` in the gaming card of the Greedy game in the bottom sheet.
+  2. **Game Name Consistency**: Ensure the game name is displayed as "Greedy" and matches client references.
+  3. **Room Welcome Banner Text Alignment**: The client compared the app against the Oyaar reference image. In default rooms, the placeholder text "Thanks for joining us!" was showing up instead of the full community policy notice. Ensure "Thanks for joining us!" is never displayed as a default, and rooms without custom welcome text cleanly display the full platform community guideline text matching the reference image.
+  4. **Install on Connected Device**: Build the release APK and install it directly on the connected Android testing device (`1374223603000CJ`).
+
+- **What We Did**:
+  1. **Greedy Game Card Artwork Updated (`unified_games_hub_sheet.dart`, `games_panel.dart`, `game_top_winner_banner.dart`)**:
+     - Updated `imageAsset` in `unified_games_hub_sheet.dart` to `assets/games/greedy.jpeg`.
+     - Updated `imageAsset` in `games_panel.dart` to `assets/games/greedy.jpeg`.
+     - Updated `gameIconAsset` in `game_top_winner_banner.dart` to `assets/games/greedy.jpeg`.
+     - Verified title is displayed as "Greedy" across all gaming hub sheets and cards.
+  2. **Room Welcome Banner Default Cleaned (`room_model.dart`, `room_welcome_banner.dart`)**:
+     - In `room_model.dart`, changed default `welcomeMessage` from `"Thanks for joining us!"` to `""`.
+     - In `room_welcome_banner.dart`, guarded against `"Thanks for joining us!"` so default rooms always display the full platform community guideline text:
+       `"Welcome to Hello Chat! Please communicate respectfully. The platform prohibits inappropriate content such as pornography, violence, child exploitation, political content, advertisements, and other prohibited content."`
+  3. **Verification & Testing**:
+     - All tests in `test/rocket_and_welcome_test.dart` passed 100% (6/6).
+     - Static analysis with `dart analyze` reports 0 issues.
+  4. **Release APK & Deployment**:
+     - Built release APK with `flutter build apk --release`.
+     - Copied APK to `releases/client-testing/HelloChat-client-test-release.apk` and updated `releases/client-testing/SHA256SUMS.txt`.
+     - Installed directly to connected device (`Vivo V2132`, serial `1374223603000CJ`) via ADB and verified launch.
+
+- **Files Touched**:
+  - `assets/games/greedy.jpeg`
+  - `lib/features/games/presentation/widgets/unified_games_hub_sheet.dart`
+  - `lib/features/games/presentation/widgets/games_panel.dart`
+  - `lib/features/games/presentation/widgets/game_top_winner_banner.dart`
+  - `lib/core/models/room_model.dart`
+  - `lib/features/rooms/presentation/widgets/room_welcome_banner.dart`
+  - `PROJECT_WORKLOG.md`
+  - `releases/client-testing/SHA256SUMS.txt`
+
+---
+
 ### Date: 2026-11-23 (Full Alignment of Client Punch-List: Result Icons, Salad/Pizza Bet Disable, Winning Icon, Room Welcome Banner, Client Gift Artworks, and Ranking Fix)
 
 - **What Client Asked / Problem**:

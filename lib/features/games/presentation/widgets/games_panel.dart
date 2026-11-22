@@ -89,7 +89,7 @@ class GamesPanel extends ConsumerWidget {
                 title: "Greedy",
                 subtitle: "Win up to 10x prizes!",
                 badge: "POPULAR 🎡",
-                imageAsset: "assets/images/game_spin_wheel_art.jpg",
+                imageAsset: "assets/games/greedy.jpeg",
                 glowColor: const Color(0xFF0284C7),
                 accentColor: const Color(0xFF38BDF8),
                 onTap: () {

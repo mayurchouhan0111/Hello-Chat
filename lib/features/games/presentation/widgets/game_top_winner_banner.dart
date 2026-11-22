@@ -101,7 +101,7 @@ class _GlobalWheelWinnerBannerState
                     showName: true,
                     avatarUrl: (winner['avatar'] ?? '').toString(),
                     amount: (winner['amount'] as num?)?.toInt() ?? 0,
-                    gameIconAsset: 'assets/images/game_spin_wheel_art.jpg',
+                    gameIconAsset: 'assets/games/greedy.jpeg',
                   ),
                 ),
               ),
@@ -131,7 +131,7 @@ class GameTopWinnerBanner extends StatelessWidget {
     required this.amount,
     this.label = 'TOP 1 WINNER',
     this.totalWins,
-    this.gameIconAsset = 'assets/images/game_spin_wheel_art.jpg',
+    this.gameIconAsset = 'assets/games/greedy.jpeg',
     this.showName = true,
   });
 

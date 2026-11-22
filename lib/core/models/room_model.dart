@@ -118,7 +118,7 @@ class RoomModel {
     this.isTrending = false,
     this.newsStatus,
     this.notice = "Welcome to our room!",
-    this.welcomeMessage = "Thanks for joining us!",
+    this.welcomeMessage = "",
     this.welcomeMessageUpdatedAt,
     this.welcomeMessageUpdatedBy,
     this.publicScreenSetting = true,
@@ -358,8 +358,7 @@ class RoomModel {
       isTrending: map['isTrending'] == true,
       newsStatus: map['newsStatus']?.toString(),
       notice: map['notice']?.toString() ?? "Welcome to our room!",
-      welcomeMessage:
-          map['welcomeMessage']?.toString() ?? "Thanks for joining us!",
+      welcomeMessage: map['welcomeMessage']?.toString() ?? "",
       welcomeMessageUpdatedAt:
           (map['welcomeMessageUpdatedAt'] as Timestamp?)?.toDate(),
       welcomeMessageUpdatedBy: map['welcomeMessageUpdatedBy']?.toString(),

@@ -32,8 +32,9 @@ class RoomWelcomeBanner extends ConsumerWidget {
     final roomAsync = ref.watch(currentRoomStreamProvider(roomId));
     final room = roomAsync.valueOrNull;
     final rawMessage = room?.welcomeMessage.trim() ?? '';
+    final hasCustom = rawMessage.isNotEmpty && rawMessage != 'Thanks for joining us!';
 
-    final displayMessage = rawMessage.isNotEmpty
+    final displayMessage = hasCustom
         ? rawMessage.replaceAll(
             '[Room Name]',
             room?.name.isNotEmpty == true ? room!.name : 'the room',
