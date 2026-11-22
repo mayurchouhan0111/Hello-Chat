@@ -7,6 +7,70 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-23 (Full Alignment of Client Punch-List: Result Icons, Salad/Pizza Bet Disable, Winning Icon, Room Welcome Banner, Client Gift Artworks, and Ranking Fix)
+
+- **What Client Asked / Problem**:
+  1. **Game Result Icons Too Small (Image 1)**: The circular food icons in the Result LIVE bar were too small and difficult to identify clearly on mobile screens.
+  2. **Disable Bets on Salad & Pizza (Image 2)**: Tapping the Salad and Pizza icons allowed users to send bets. The client required tapping these two icons to be completely disabled so no bets are ever placed on them.
+  3. **Winning Icon in Last Winner (Image 3)**: In the round header, "Last Winner:" was still showing the old emoji design instead of the newly designed custom food artwork. The client required the new winning food artwork to appear everywhere consistently.
+  4. **Welcome Message Position & Design (Images 4, 5, 8, 9, 10)**:
+     - The welcome message was previously floating in the middle of the room over the wallpaper background.
+     - The bottom chat broadcast was styled in purple with a sparkle icon.
+     - The client provided a reference image (Image 5 / Oyaar reference) showing a single speech bubble pinned at the bottom of the room inside the chat area, styled in dark translucent navy/slate (`#141F32`) with bright cyan text (`#4DEEEA`), subtle cyan border, and no sparkle icon.
+  5. **Client Gift Designs (Image 7)**: The app needed to include the exact gift designs provided by the client with matching thumbnails and diamond prices: Neon Supercar (500k), Crystal Slipper (125k), Precious Necklace (250k), Masquerade Queen (750k), Treasure Adventure (750k), Diamond Balloon (1,000,000), Eternal Love (750k), Romantic Journey (2,000,000).
+  6. **Game Player Ranking Calculation Fix**: When a player won 500,000 diamonds, ranking points were incorrectly jumping by 1,500,000 (3x duplicate increment). Points must strictly equal the exact winning amount without extra points.
+  7. **Gift Animation Freezing & Room Performance**: Gift and rocket animations must run smoothly without lag, app freezing, or disconnecting room members.
+
+- **What We Did**:
+  1. **Enlarged Result Bar Food Icons (`spin_wheel_screen.dart`)**:
+     - Increased the past result circular containers from `36 * scale` to `44 * scale`.
+     - Enlarged the `SpinWheelFoodIcon` inside past result circles from `26 * scale` to `36 * scale`.
+     - Enlarged the settled round celebration winning circle to `46 * scale` with a `38 * scale` food icon.
+     - Increased vertical padding of the result bar to `4 * scale` to give the larger icons comfortable breathing room.
+  2. **Completely Disabled Bets on Salad & Pizza (`spin_wheel_screen.dart`, `functions/index.js`)**:
+     - Wrapped both the Salad and Pizza podiums in `IgnorePointer(ignoring: true, child: ...)` in `spin_wheel_screen.dart` so tap events cannot be intercepted.
+     - Guarded `_placeBet` client-side to strictly ignore any bet attempting to target 'salad' or 'pizza'.
+     - Filtered and rejected podium category bets in `functions/index.js` (`playSpinWheel` and `computeSpinPayout`).
+  3. **Updated Winning Food Icon in Last Winner (`spin_wheel_screen.dart`)**:
+     - Enlarged the `SpinWheelFoodIcon` in the round header "Last Winner:" pill to `22 * scale`.
+     - Verified that all round outcomes resolve to the custom sprite food icon everywhere, replacing any old emojis.
+  4. **Welcome Message 100% Matching Reference Image 5 (`live_room_layout.dart`, `chat_widget.dart`, `room_welcome_banner.dart`)**:
+     - Removed the middle floating `RoomWelcomeBanner` from `live_room_layout.dart` so no banner floats in the center of the screen over the room background.
+     - Increased chat stream height from `(height * 0.17).clamp(104, 168)` to `(height * 0.25).clamp(160, 240)` so the pinned notice and chat stream fit comfortably together without vertical squishing.
+     - Redesigned `RoomWelcomeBanner` into a clean speech bubble container: dark translucent navy/slate `Color(0xD9141F32)`, subtle cyan border `Color(0x334DEEEA)`, rounded corners `16dp`, and cyan text `Color(0xFF4DEEEA)`.
+     - Removed the sparkle icon (`Icons.auto_awesome_rounded`) circle completely.
+     - In `chat_widget.dart`, eliminated the purple background (`Color(0xFF673AB7)`), unified broadcasts and room welcome banner into a single pinned item at the top of the chat stream.
+     - Set standard platform community guidelines text as the fallback notice matching Reference Image 5:
+       `"Welcome to Hello Chat! Please communicate respectfully. The platform prohibits inappropriate content such as pornography, violence, child exploitation, political content, advertisements, and other prohibited content."`
+  5. **Integrated Exact Client Reference Gift Artworks (`gift_service.dart`, `gift_panel.dart`)**:
+     - Extracted high-resolution, crisp thumbnail artworks directly from the client's reference screenshot (Image 7) into `assets/images/gifts/`: `neon_supercar.png`, `crystal_slipper.png`, `precious_necklace.png`, `masquerade_queen.png`, `treasure_adventure.png`, `diamond_balloon.png`, `eternal_love.png`, `romantic_journey.png`.
+     - Updated `GiftService.fallbackGifts` and `gift_panel.dart` to link directly to these cropped reference images.
+  6. **Strict Ranking Idempotency (`functions/index.js`)**:
+     - Validated server-side `daily_settled_rounds/${roundId}_${uid}` transaction guard so winnings and wager points are incremented strictly once per round, eliminating duplicate increments.
+  7. **Testing & Quality Assurance**:
+     - Verified all 35 tests in `test/rocket_and_welcome_test.dart`, `test/spin_wheel_result_bar_test.dart`, and `test/gift_animation_system_test.dart` passed 100% (35/35).
+     - Verified `dart analyze` on touched layout, welcome banner, and chat widgets with 0 issues.
+     - Built fresh release APK and generated SHA256 checksum.
+
+- **Files Touched**:
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `lib/features/rooms/presentation/widgets/live_room_layout.dart`
+  - `lib/features/rooms/presentation/widgets/room_welcome_banner.dart`
+  - `lib/features/rooms/presentation/widgets/chat_widget.dart`
+  - `lib/features/rooms/presentation/widgets/gift_panel.dart`
+  - `lib/services/gift_service.dart`
+  - `test/rocket_and_welcome_test.dart`
+  - `assets/images/gifts/neon_supercar.png`
+  - `assets/images/gifts/crystal_slipper.png`
+  - `assets/images/gifts/precious_necklace.png`
+  - `assets/images/gifts/masquerade_queen.png`
+  - `assets/images/gifts/treasure_adventure.png`
+  - `assets/images/gifts/diamond_balloon.png`
+  - `assets/images/gifts/eternal_love.png`
+  - `assets/images/gifts/romantic_journey.png`
+  - `PROJECT_WORKLOG.md`
+
+
 ### Date: 2026-11-22 (Full Admin Appointment & Agency Appointment Completion Across Mobile & Web Panels)
 
 - **What Client Asked / Problem**:

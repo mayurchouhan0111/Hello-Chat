@@ -14,6 +14,7 @@ import '../../../../core/widgets/app_avatar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../services/gift_service.dart';
 import 'gift_combo_overlay.dart';
+import 'room_welcome_banner.dart';
 
 class ChatWidget extends ConsumerStatefulWidget {
   final List<RoomMessage> messages;
@@ -287,42 +288,59 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
       _reconcileMessages(widget.messages, blocked);
     }
 
-    final broadcastWidgets = widget.broadcasts?.map((b) => Container(
-      key: ValueKey('broadcast_${b.id}'),
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(4, 4, 12, 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF673AB7).withOpacity(0.3),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12, width: 0.5),
-      ),
-      child: Text(
-        b.message,
-        style: const TextStyle(
-          color: Color(0xFF00E5FF),
-          fontSize: 13,
-          fontWeight: FontWeight.bold,
-          height: 1.4,
+    // Build pinned welcome banner / broadcast notice matching Reference Image 5 / 9 (dark navy translucent #141F32, cyan #4DEEEA)
+    Widget? pinnedNotice;
+    if (widget.broadcasts != null && widget.broadcasts!.isNotEmpty) {
+      final b = widget.broadcasts!.first;
+      pinnedNotice = Container(
+        key: ValueKey('broadcast_${b.id}'),
+        width: double.infinity,
+        margin: const EdgeInsets.fromLTRB(4, 4, 8, 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xD9141F32),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0x334DEEEA), width: 0.8),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
-      ),
-    )).toList() ?? [];
+        child: Text(
+          b.message,
+          textAlign: TextAlign.left,
+          style: const TextStyle(
+            color: Color(0xFF4DEEEA),
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            height: 1.38,
+            letterSpacing: 0.1,
+          ),
+        ),
+      );
+    } else if (widget.roomId != null && widget.roomId!.isNotEmpty) {
+      pinnedNotice = RoomWelcomeBanner(roomId: widget.roomId!);
+    }
+
+    final extraCount = pinnedNotice != null ? 1 : 0;
 
     return AnimatedList(
       key: _listKey,
       reverse: true,
       shrinkWrap: true,
       physics: const BouncingScrollPhysics(),
-      initialItemCount: _visibleMessages.length + broadcastWidgets.length,
+      initialItemCount: _visibleMessages.length + extraCount,
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 8),
       itemBuilder: (context, index, animation) {
         final msgCount = _visibleMessages.length;
         if (index < msgCount) {
           return _buildListItem(index, animation);
         }
-        final bIndex = index - msgCount;
-        if (bIndex >= 0 && bIndex < broadcastWidgets.length) {
-          return broadcastWidgets[bIndex];
+        if (pinnedNotice != null && index == msgCount) {
+          return pinnedNotice;
         }
         return const SizedBox.shrink();
       },

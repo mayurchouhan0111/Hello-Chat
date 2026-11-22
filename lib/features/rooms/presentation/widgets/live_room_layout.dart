@@ -8,7 +8,6 @@ import '../../../../core/utils/week_helper.dart';
 import '../../../../services/room_support_service.dart';
 import 'floating_lucky_bag_widget.dart';
 import 'rocket_progress_widget.dart';
-import 'room_welcome_banner.dart';
 
 class LiveRoomLayout extends StatelessWidget {
   const LiveRoomLayout({
@@ -35,20 +34,11 @@ class LiveRoomLayout extends StatelessWidget {
         children: [
           header,
           Expanded(child: SingleChildScrollView(primary: false, child: seats)),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: MediaQuery.sizeOf(context).width * 0.78,
-              ),
-              child: welcomeBanner ?? RoomWelcomeBanner(roomId: room.roomId),
-            ),
-          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 4, 8, 6),
             child: SizedBox(
-              height: (MediaQuery.sizeOf(context).height * 0.17)
-                  .clamp(104.0, 168.0),
+              height: (MediaQuery.sizeOf(context).height * 0.25)
+                  .clamp(160.0, 240.0),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [

@@ -11,7 +11,7 @@ import 'package:hello_chat/features/rooms/presentation/widgets/room_welcome_bann
 
 void main() {
   group('Phase 7: Real-Time Room Welcome Message Banner Tests', () {
-    testWidgets('RoomWelcomeBanner hides when welcomeMessage is empty',
+    testWidgets('RoomWelcomeBanner falls back to default platform notice when empty',
         (tester) async {
       final room = RoomModel.fromMap({
         'roomId': 'test-room-empty',
@@ -36,7 +36,7 @@ void main() {
 
       await tester.pump();
       expect(find.byType(RoomWelcomeBanner), findsOneWidget);
-      expect(find.text(''), findsNothing);
+      expect(find.text(RoomWelcomeBanner.defaultPlatformWelcomeText), findsOneWidget);
       expect(find.byIcon(Icons.auto_awesome_rounded), findsNothing);
     });
 
@@ -66,7 +66,7 @@ void main() {
 
       await tester.pumpAndSettle();
       expect(find.text(welcomeText), findsOneWidget);
-      expect(find.byIcon(Icons.auto_awesome_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.auto_awesome_rounded), findsNothing);
     });
 
     test('RoomModel parses and serializes welcome message audit metadata', () {

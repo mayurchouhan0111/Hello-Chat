@@ -3,15 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/providers/room_provider.dart';
 
-/// Reusable Real-Time Welcome Message Banner (Reference Image 2 Styling).
+/// Reusable Real-Time Welcome Message Banner (Matching Reference Image 5 / 9).
 ///
 /// Reactively watches [currentRoomStreamProvider(roomId)] and displays the
-/// room's canonical [welcomeMessage] in a rounded dark translucent bubble container.
-/// - Positioned at the bottom, right above the chat messages list.
+/// room's canonical [welcomeMessage] or the platform policy notice in a
+/// clean rounded dark translucent bubble container at the bottom of the room.
+/// - Pinned at the bottom inside the chat area.
 /// - Instantly updates when Firestore document changes in real time.
-/// - Hides completely ([SizedBox.shrink]) if empty or only whitespace.
-/// - Styled with cyan/light-blue text (`#4DEEEA`), rounded corners (16dp),
-///   and left-aligned notice text.
+/// - Styled with cyan text (`#4DEEEA`), rounded corners (16dp),
+///   subtle border (`0x334DEEEA`), and dark navy background (`#141F32`).
 class RoomWelcomeBanner extends ConsumerWidget {
   final String roomId;
   final EdgeInsetsGeometry? margin;
@@ -24,31 +24,32 @@ class RoomWelcomeBanner extends ConsumerWidget {
     this.dismissible = false,
   });
 
+  static const defaultPlatformWelcomeText =
+      'Welcome to Hello Chat! Please communicate respectfully. The platform prohibits inappropriate content such as pornography, violence, child exploitation, political content, advertisements, and other prohibited content.';
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final roomAsync = ref.watch(currentRoomStreamProvider(roomId));
     final room = roomAsync.valueOrNull;
     final rawMessage = room?.welcomeMessage.trim() ?? '';
 
-    // Hide if empty or whitespace
-    if (rawMessage.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    final displayMessage = rawMessage.replaceAll(
-      '[Room Name]',
-      room?.name.isNotEmpty == true ? room!.name : 'the room',
-    );
+    final displayMessage = rawMessage.isNotEmpty
+        ? rawMessage.replaceAll(
+            '[Room Name]',
+            room?.name.isNotEmpty == true ? room!.name : 'the room',
+          )
+        : defaultPlatformWelcomeText;
 
     return RepaintBoundary(
       child: Container(
-        margin: margin ?? const EdgeInsets.fromLTRB(10, 4, 10, 4),
+        width: double.infinity,
+        margin: margin ?? const EdgeInsets.fromLTRB(4, 4, 8, 6),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xCC1A2B4C),
+          color: const Color(0xD9141F32),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0x404DEEEA),
+            color: const Color(0x334DEEEA),
             width: 0.8,
           ),
           boxShadow: [
@@ -59,39 +60,16 @@ class RoomWelcomeBanner extends ConsumerWidget {
             ),
           ],
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              margin: const EdgeInsets.only(top: 2, right: 8),
-              padding: const EdgeInsets.all(4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF4DEEEA).withValues(alpha: 0.16),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.auto_awesome_rounded,
-                color: Color(0xFF4DEEEA),
-                size: 13,
-              ),
-            ),
-            Flexible(
-              child: Text(
-                displayMessage,
-                textAlign: TextAlign.left,
-                maxLines: 8,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFF4DEEEA),
-                  fontSize: 13.5,
-                  height: 1.35,
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.1,
-                ),
-              ),
-            ),
-          ],
+        child: Text(
+          displayMessage,
+          textAlign: TextAlign.left,
+          style: const TextStyle(
+            color: Color(0xFF4DEEEA),
+            fontSize: 12.5,
+            height: 1.38,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 0.1,
+          ),
         ),
       ),
     );

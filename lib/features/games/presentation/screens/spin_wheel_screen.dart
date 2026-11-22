@@ -4232,16 +4232,22 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                                       ),
                                     ],
                                   )),
-                              // Salad & Pizza Display Podiums (Tapping disabled per requirements)
+                              // Salad & Pizza Display Podiums (Tapping strictly disabled per requirements)
                               Positioned(
                                 bottom: 0,
                                 left: 52,
-                                child: _buildJackpotTab("Salad", wheelScale, 0),
+                                child: IgnorePointer(
+                                  ignoring: true,
+                                  child: _buildJackpotTab("Salad", wheelScale, 0),
+                                ),
                               ),
                               Positioned(
                                 bottom: 0,
                                 right: 52,
-                                child: _buildJackpotTab("Pizza", wheelScale, 0),
+                                child: IgnorePointer(
+                                  ignoring: true,
+                                  child: _buildJackpotTab("Pizza", wheelScale, 0),
+                                ),
                               ),
                             ],
                           ),
@@ -4440,7 +4446,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                           color: Colors.white70, fontSize: 12 * scale)),
                   SpinWheelFoodIcon(
                     food: lastWinnerFood ?? 'Carrot',
-                    size: 16 * scale,
+                    size: 22 * scale,
                     semanticLabel: lastWinnerFood ?? 'Winner',
                   ),
                   SizedBox(width: 4 * scale),
@@ -4681,7 +4687,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(vertical: 2 * scale),
+      padding: EdgeInsets.symmetric(vertical: 4 * scale),
       decoration: BoxDecoration(
         color: Colors.black.withOpacity(0.15),
       ),
@@ -4795,8 +4801,8 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                         children: [
                           // Winning circle with "New" badge (Enlarged for clear visibility)
                           Container(
-                            width: 38 * scale,
-                            height: 38 * scale,
+                            width: 46 * scale,
+                            height: 46 * scale,
                             decoration: BoxDecoration(
                               color: Colors.white,
                               shape: BoxShape.circle,
@@ -4813,7 +4819,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                               children: [
                                 SpinWheelFoodIcon(
                                   food: winningName,
-                                  size: 28 * scale,
+                                  size: 38 * scale,
                                   semanticLabel: winningName,
                                 ),
                                 Positioned(
@@ -4927,9 +4933,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                     final food = rec['name']?.toString() ?? l;
 
                     return Container(
-                      margin: EdgeInsets.symmetric(horizontal: 3 * scale),
-                      width: 36 * scale,
-                      height: 36 * scale,
+                      margin: EdgeInsets.symmetric(horizontal: 4 * scale),
+                      width: 44 * scale,
+                      height: 44 * scale,
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.95),
                         shape: BoxShape.circle,
@@ -4941,7 +4947,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                       child: Center(
                         child: SpinWheelFoodIcon(
                           food: food,
-                          size: 26 * scale,
+                          size: 36 * scale,
                           semanticLabel: food,
                         ),
                       ),
