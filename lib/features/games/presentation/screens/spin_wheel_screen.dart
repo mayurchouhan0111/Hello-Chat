@@ -4733,17 +4733,19 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
       });
 
     // Winning item details for the highlighted result area
-    final winningName = _storedWinItem?.name ??
+    final winningName = SpinWheelFoodIcon.cleanDisplayName(_storedWinItem?.name ??
         _lastRoundResultForHistory?['name']?.toString() ??
-        '';
+        '');
     final winningMultiplier = _storedWinItem?.multiplier ??
         (int.tryParse(
                 _lastRoundResultForHistory?['multiplier']?.toString() ?? '5') ??
             5);
+    final rawLabel = _lastRoundResultForHistory?['label']?.toString();
     final winningLabel = _storedWinItem != null
         ? '${_storedWinItem!.multiplier}x'
-        : (_lastRoundResultForHistory?['label']?.toString() ??
-            '${winningMultiplier}x');
+        : (rawLabel != null && rawLabel.contains('x')
+            ? rawLabel
+            : '${winningMultiplier}x');
 
     final effectiveWager = _storedWager > 0 ? _storedWager : _lastRoundWager;
     final effectivePrize = _storedPrize > 0 ? _storedPrize : _lastRoundPrize;
