@@ -237,13 +237,6 @@ class RoomService with BaseFirebaseService {
         transaction
             .update(roomRef, {'currentUsersCount': FieldValue.increment(1)});
 
-        transaction.set(roomRef.collection('messages').doc(), {
-          'uid': uid,
-          'text': '$displayName enter the room',
-          'type': 'system',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
         final welcomeMsg = roomSnapshot.exists &&
                 roomSnapshot.data() != null &&
                 roomSnapshot.data()!.containsKey('welcomeMessage')
@@ -271,9 +264,12 @@ class RoomService with BaseFirebaseService {
         };
 
         if (isOwner) {
-          if (previousSeat != 0) updatePayload['seatIndex'] = 0;
-          if (previousRole != 'owner' && previousRole != 'host')
+          if (previousSeat != 0) {
+            updatePayload['seatIndex'] = 0;
+          }
+          if (previousRole != 'owner' && previousRole != 'host') {
             updatePayload['role'] = 'owner';
+          }
           updatePayload['isMuted'] = false;
           updatePayload['isAdmin'] = false;
         } else {
@@ -291,6 +287,19 @@ class RoomService with BaseFirebaseService {
         debugPrint(
             '[ROOM_JOIN] Existing participant $uid re-joined room $roomId (seatIndex=$previousSeat, role=${updatePayload['role'] ?? previousRole}, isOwner=$isOwner, isAdmin=${updatePayload['isAdmin']})');
       }
+
+      // Broadcast entry notification with ID to room message stream in real time
+      final userHelloId = userData?['helloId']?.toString() ?? '';
+      transaction.set(roomRef.collection('messages').doc(), {
+        'uid': uid,
+        'displayName': displayName,
+        'helloId': userHelloId,
+        'text': userHelloId.isNotEmpty
+            ? '$displayName (ID: $userHelloId) enter the room'
+            : '$displayName enter the room',
+        'type': 'system',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
 
       // Track active room on user profile (CRITICAL for presence sync)
       transaction.update(userRef, {'activeRoomId': roomId});

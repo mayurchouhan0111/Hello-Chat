@@ -20,6 +20,7 @@ import '../widgets/game_top_winner_banner.dart';
 import '../widgets/spin_wheel_layout.dart';
 import '../widgets/spin_wheel_food_icon.dart';
 import '../widgets/wheel_sounds.dart';
+import 'package:hello_chat/core/providers/room_provider.dart';
 
 /// The SINGLE AUTHORITATIVE SOURCE OF TRUTH for wallet balance in the Spin Wheel game.
 /// Immutable Wallet State Model
@@ -1025,6 +1026,16 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
 
   bool _audible = true;
   final _sounds = WheelSounds();
+
+  bool get _isSoundEnabled => _sounds.isEnabled;
+
+  void _toggleGameSound() {
+    final updated = !_sounds.isEnabled;
+    setState(() {
+      _sounds.setEnabled(updated);
+      _audible = updated;
+    });
+  }
 
   void _updateSegment(int segment, {bool spinTick = false}) {
     _currentSegment = segment;
@@ -3785,6 +3796,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
     _tickTimer?.cancel();
     _spinFallbackTimer?.cancel();
     _sounds.dispose();
+    try {
+      ref.read(voiceServiceProvider).ensureSpeakerphone();
+    } catch (_) {}
     _idleController.dispose();
     _spinController.dispose();
     _currentSegmentNotifier.dispose();
@@ -4411,24 +4425,73 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                     color: Colors.red,
                     fontWeight: FontWeight.bold,
                     fontSize: 16)),
-            GestureDetector(
-              onTap: () => _showRulesSheet(settings),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(20)),
-                child: const Text("Rules >",
-                    style: TextStyle(
-                        color: Colors.black87,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12)),
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                GestureDetector(
+                  onTap: _toggleGameSound,
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.12),
+                          blurRadius: 4,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isSoundEnabled
+                              ? Icons.volume_up_rounded
+                              : Icons.volume_off_rounded,
+                          size: 15,
+                          color: _isSoundEnabled
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFFEF4444),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _isSoundEnabled ? "Sound ON" : "Sound OFF",
+                          style: TextStyle(
+                            color: _isSoundEnabled
+                                ? const Color(0xFF047857)
+                                : const Color(0xFFB91C1C),
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => _showRulesSheet(settings),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20)),
+                    child: const Text("Rules >",
+                        style: TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12)),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-        if (lastWinnerLabel != null)
+        if (lastWinnerLabel != null || lastWinnerFood != null)
           Padding(
             padding: EdgeInsets.only(top: 4 * scale),
             child: Container(
@@ -4450,11 +4513,13 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                     semanticLabel: lastWinnerFood ?? 'Winner',
                   ),
                   SizedBox(width: 4 * scale),
-                  Text(lastWinnerLabel,
-                      style: TextStyle(
-                          color: Colors.amber,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12 * scale)),
+                  Text(
+                    '${SpinWheelFoodIcon.cleanDisplayName(lastWinnerFood ?? 'Carrot')} ${(lastWinnerLabel != null && lastWinnerLabel.contains('x')) ? lastWinnerLabel : ''}'.trim(),
+                    style: TextStyle(
+                        color: Colors.amber,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12 * scale),
+                  ),
                 ],
               ),
             ),

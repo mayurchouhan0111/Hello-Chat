@@ -48,6 +48,38 @@ class SpinWheelFoodIcon extends StatelessWidget {
     return 0;
   }
 
+  /// Canonical human-readable display name guaranteed to match the sprite icon.
+  static String cleanDisplayName(String foodName) {
+    final norm = foodName.trim().toLowerCase();
+    if (norm.contains('hot dog') || norm.contains('hotdog') || norm == '🌭') {
+      return 'Hot Dog';
+    }
+    if (norm.contains('tomato') || norm == '🍅') return 'Tomato';
+    if (norm.contains('kebab') || norm.contains('skewer') || norm == '🍢') {
+      return 'Skewer';
+    }
+    if (norm.contains('chicken') ||
+        norm.contains('drumstick') ||
+        norm.contains('ham') ||
+        norm == '🍗') {
+      return 'Ham';
+    }
+    if (norm.contains('steak') || norm.contains('meat') || norm == '🥩') {
+      return 'Steak';
+    }
+    if (norm.contains('carrot') || norm == '🥕') return 'Carrot';
+    if (norm.contains('corn') || norm == '🌽') return 'Corn';
+    if (norm.contains('cabbage') ||
+        norm.contains('leaf') ||
+        norm.contains('veg') ||
+        norm == '🥬') {
+      return 'Cabbage';
+    }
+    if (norm.contains('salad') || norm == '🥗') return 'Salad';
+    if (norm.contains('pizza') || norm == '🍕') return 'Pizza';
+    return foodName.isNotEmpty ? foodName : 'Winner';
+  }
+
   /// Retained for callers/tests that only need the source asset.
   static String assetFor(String _) => spriteAsset;
 

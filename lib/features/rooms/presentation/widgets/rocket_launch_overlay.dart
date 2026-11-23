@@ -72,6 +72,9 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
   @override
   void dispose() {
     _watchdogTimer?.cancel();
+    try {
+      ref.read(voiceServiceProvider).ensureSpeakerphone();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -79,6 +82,9 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
     if (_dismissed) return;
     _dismissed = true;
     _watchdogTimer?.cancel();
+    try {
+      ref.read(voiceServiceProvider).ensureSpeakerphone();
+    } catch (_) {}
     Future.delayed(const Duration(milliseconds: 200), () {
       if (mounted) widget.onComplete();
     });
@@ -123,7 +129,7 @@ class _RocketLaunchOverlayState extends ConsumerState<RocketLaunchOverlay> {
                 profileImageUrl: avatarUrl,
                 fit: BoxFit.contain,
                 loop: false,
-                mute: true,
+                mute: false,
                 onError: () {
                   widget.onError?.call();
                   _handleComplete();

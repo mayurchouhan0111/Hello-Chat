@@ -491,48 +491,77 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
 
   // ── Center Extra-Big 3D Rocket Display (Prominent & Centered)
   Widget _buildMainRocketDisplay(RoomModel room, String? profileImageUrl) {
-    final variant = _selectedLevel >= 3 ? 3 : 2;
-    final vapPath = RocketVapConfig.vapAssetPath(_selectedLevel, variant: variant);
-
     return Stack(
       alignment: Alignment.bottomCenter,
       clipBehavior: Clip.none,
       children: [
-        // Glowing purple cosmic aura beneath rocket pedestal
+        // Glowing futuristic cyber launch pedestal with dual glow halos
         Positioned(
-          bottom: 0,
-          left: 10,
-          right: 10,
-          height: 38,
+          bottom: 4,
+          left: 20,
+          right: 20,
+          height: 44,
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: const BorderRadius.all(Radius.elliptical(180, 35)),
+              borderRadius: const BorderRadius.all(Radius.elliptical(200, 44)),
+              gradient: const RadialGradient(
+                center: Alignment.center,
+                radius: 0.9,
+                colors: [
+                  Color(0xEE8E54E9),
+                  Color(0x992B0066),
+                  Colors.transparent,
+                ],
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xFFCC00FF).withValues(alpha: 0.75),
-                  blurRadius: 30,
-                  spreadRadius: 10,
+                  color: const Color(0xFF9D00FF).withValues(alpha: 0.8),
+                  blurRadius: 28,
+                  spreadRadius: 8,
+                ),
+                BoxShadow(
+                  color: const Color(0xFF00E5FF).withValues(alpha: 0.5),
+                  blurRadius: 18,
+                  spreadRadius: 2,
                 ),
               ],
             ),
           ),
         ),
 
-        // 3D VAP Rocket Animation aligned perfectly on top of purple cloud
+        // Cyber Launch Pad Platform Ring
         Positioned(
-          top: 50,
-          bottom: -30,
-          left: -20,
-          right: -20,
-          child: Transform.scale(
-            scale: 1.65,
-            child: VapAnimation(
-              key: ValueKey('main_rocket_${_selectedLevel}_$profileImageUrl'),
-              assetPath: vapPath,
-              profileImageUrl: profileImageUrl,
-              fit: BoxFit.contain,
-              loop: true,
+          bottom: 12,
+          child: Container(
+            width: 130,
+            height: 22,
+            decoration: BoxDecoration(
+              borderRadius: const BorderRadius.all(Radius.elliptical(130, 22)),
+              border: Border.all(
+                color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                width: 1.5,
+              ),
+              gradient: const LinearGradient(
+                colors: [
+                  Color(0x8800FFFF),
+                  Color(0x448E54E9),
+                  Color(0x8800FFFF),
+                ],
+              ),
             ),
+          ),
+        ),
+
+        // Prominent High-Definition Animated SVGA Rocket Ship
+        Positioned(
+          top: 0,
+          bottom: 16,
+          left: 0,
+          right: 0,
+          child: _MainRocketDisplayWidget(
+            key: ValueKey('main_rocket_svga_$_selectedLevel'),
+            level: _selectedLevel,
+            profileImageUrl: profileImageUrl,
           ),
         ),
 
@@ -545,7 +574,9 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
             decoration: BoxDecoration(
               color: const Color(0xFF8E54E9).withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFF00FFFF).withValues(alpha: 0.8), width: 1.2),
+              border: Border.all(
+                  color: const Color(0xFF00FFFF).withValues(alpha: 0.8),
+                  width: 1.2),
               boxShadow: [
                 BoxShadow(
                   color: const Color(0xFF8E54E9).withValues(alpha: 0.5),
@@ -556,15 +587,21 @@ class _RocketDetailSheetState extends ConsumerState<RocketDetailSheet> with Tick
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.stars_rounded, color: Color(0xFFFFD700), size: 14),
+                const Icon(Icons.stars_rounded,
+                    color: Color(0xFFFFD700), size: 14),
                 const Gap(4),
                 Text(
                   "Reward: ${_getMultiplierForLevel(_selectedLevel)}",
-                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900),
                 ),
               ],
             ),
-          ).animate(onPlay: (c) => c.repeat(reverse: true)).shimmer(duration: 2.seconds),
+          )
+              .animate(onPlay: (c) => c.repeat(reverse: true))
+              .shimmer(duration: 2.seconds),
         ),
 
         // System Cooldown Notice Overlay if applicable
@@ -1018,6 +1055,119 @@ class _RocketLevelSvgaButtonState extends State<_RocketLevelSvgaButton> with Sin
                       ),
                     )
                   : const Icon(Icons.rocket_launch_rounded, color: Colors.white24, size: 16),
+        ),
+      ),
+    );
+  }
+}
+
+class _MainRocketDisplayWidget extends StatefulWidget {
+  final int level;
+  final String? profileImageUrl;
+
+  const _MainRocketDisplayWidget({
+    super.key,
+    required this.level,
+    this.profileImageUrl,
+  });
+
+  @override
+  State<_MainRocketDisplayWidget> createState() => _MainRocketDisplayWidgetState();
+}
+
+class _MainRocketDisplayWidgetState extends State<_MainRocketDisplayWidget>
+    with SingleTickerProviderStateMixin {
+  SVGAAnimationController? _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = SVGAAnimationController(vsync: this);
+    _controller?.addStatusListener(_onStatusChanged);
+    _loadAnimation();
+  }
+
+  void _onStatusChanged(AnimationStatus status) {
+    if (status == AnimationStatus.completed && mounted && _controller != null) {
+      _controller?.reset();
+      _controller?.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MainRocketDisplayWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.level != widget.level) {
+      _loadAnimation();
+    }
+  }
+
+  Future<void> _loadAnimation() async {
+    try {
+      final svgaPath = RocketVapConfig.svgaIconPath(widget.level);
+      final data = await rootBundle.load(svgaPath);
+      final bytes = data.buffer.asUint8List();
+      final movie = await SVGAParser.shared.decodeFromBuffer(bytes);
+      movie.autorelease = false;
+
+      if (mounted && _controller != null) {
+        _controller?.videoItem = movie;
+        _controller?.reset();
+        _controller?.repeat();
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      debugPrint("Error loading main rocket SVGA for level ${widget.level}: $e");
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.removeStatusListener(_onStatusChanged);
+    _controller?.dispose();
+    _controller = null;
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_controller != null && !_controller!.isAnimating && _controller!.videoItem != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _controller != null && !_controller!.isAnimating && _controller!.videoItem != null) {
+          _controller?.repeat();
+        }
+      });
+    }
+
+    return RepaintBoundary(
+      child: Center(
+        child: SizedBox(
+          width: 170,
+          height: 180,
+          child: _isLoading
+              ? const Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Color(0xFF00FFFF),
+                    ),
+                  ),
+                )
+              : (_controller?.videoItem != null)
+                  ? SVGAImage(
+                      _controller!,
+                      fit: BoxFit.contain,
+                      clearsAfterStop: false,
+                    )
+                  : const Icon(
+                      Icons.rocket_launch_rounded,
+                      color: Colors.amberAccent,
+                      size: 64,
+                    ),
         ),
       ),
     );

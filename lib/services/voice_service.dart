@@ -5,6 +5,7 @@ abstract class VoiceService {
   Future<void> muteLocalAudio(bool mute);
   Future<void> muteRoomAudio(bool mute);
   Future<void> toggleSpeakerphone(bool enable);
+  Future<void> ensureSpeakerphone();
   Future<void> setBroadcasterRole();
   Future<void> setAudienceRole();
   Future<void> onAppPaused();

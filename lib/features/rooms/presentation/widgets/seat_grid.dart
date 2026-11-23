@@ -132,16 +132,11 @@ class SeatGrid extends ConsumerWidget {
             avatarRadius = 25;
             iconSize = 21;
             fontSize = 10;
-          } else if (capacity == 12) {
-            crossAxisCount = 4; // 3 rows of 4
-            avatarRadius = 22;
-            iconSize = 18;
-            fontSize = 9;
-          } else if (capacity == 13) {
+          } else if (capacity == 12 || capacity == 13) {
             crossAxisCount = 4; // 3 rows of 4 (+ host)
-            avatarRadius = 22;
-            iconSize = 18;
-            fontSize = 9;
+            avatarRadius = 20;
+            iconSize = 16;
+            fontSize = 8.5;
           } else if (capacity >= 16) {
             // 4 balanced columns, compact 16-seat density derived from dimensions & safe-area
             crossAxisCount = 4;
@@ -178,9 +173,9 @@ class SeatGrid extends ConsumerWidget {
             scaler.scale(fontSize - 1) * 1.25;
         final double spacing = capacity >= 16
             ? (screenHeight <= 600 ? 1.0 : 2.0)
-            : (capacity >= 12 ? 3.0 : 4.0);
+            : (capacity >= 12 ? 2.0 : 4.0);
         return Padding(
-          padding: isYoutubeActive
+          padding: (capacity >= 12 || isYoutubeActive)
               ? const EdgeInsets.only(top: 2, bottom: 2, left: 0, right: 0)
               : const EdgeInsets.only(top: 4, bottom: 4, left: 0, right: 0),
           child: GridView.builder(

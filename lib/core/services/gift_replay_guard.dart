@@ -98,8 +98,8 @@ class GiftReplayGuard {
     final ageMs = nowServerMs - createdAtMs;
     final effectiveDuration = durationMs > 0 ? durationMs : 5000;
 
-    // 6. Gate 2: Sent before user joined the room (-2000ms jitter tolerance)
-    if (joinTimeServerMs > 0 && createdAtMs < (joinTimeServerMs - 2000)) {
+    // 6. Gate 2: Sent before user joined the room (-15000ms jitter tolerance)
+    if (joinTimeServerMs > 0 && createdAtMs < (joinTimeServerMs - 15000)) {
       return GiftReplayDecision(
         shouldPlay: false,
         reason: GiftSkipReason.beforeJoin,
@@ -108,13 +108,13 @@ class GiftReplayGuard {
       );
     }
 
-    // 7. Gate 3: Message is old/expired (older than animation duration + 5000ms grace)
-    if (ageMs > (effectiveDuration + 5000)) {
+    // 7. Gate 3: Message is old/expired (older than animation duration + 30000ms grace)
+    if (ageMs > (effectiveDuration + 30000)) {
       return GiftReplayDecision(
         shouldPlay: false,
         reason: GiftSkipReason.expired,
         ageMs: ageMs,
-        logMessage: '🎁 [GIFT_SKIP] reason=old, msgId=$msgId, giftId=$giftId, age=${ageMs}ms, maxTTL=${effectiveDuration + 5000}ms',
+        logMessage: '🎁 [GIFT_SKIP] reason=old, msgId=$msgId, giftId=$giftId, age=${ageMs}ms, maxTTL=${effectiveDuration + 30000}ms',
       );
     }
 

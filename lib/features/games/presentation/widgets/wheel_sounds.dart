@@ -14,7 +14,14 @@ class WheelSounds {
   int _revision = 0;
   String? _revealedRound;
   bool _disposed = false;
+  static bool globalSoundEnabled = true;
+  bool get isEnabled => globalSoundEnabled;
   Future<void> _pending = Future.value();
+
+  void setEnabled(bool enabled) {
+    globalSoundEnabled = enabled;
+    if (!enabled) silence();
+  }
 
   void prepare() {
     _pending = Future.wait([
@@ -26,7 +33,7 @@ class WheelSounds {
   Future<void> _load(AudioPlayer player, String path) async {
     await player.setAudioContext(const AudioContext(
       android: AudioContextAndroid(
-        isSpeakerphoneOn: false,
+        isSpeakerphoneOn: true,
         stayAwake: false,
         contentType: AndroidContentType.sonification,
         usageType: AndroidUsageType.game,
@@ -41,9 +48,13 @@ class WheelSounds {
     await player.setSourceAsset(path);
   }
 
-  void tick() => _play(_tick);
+  void tick() {
+    if (!isEnabled) return;
+    _play(_tick);
+  }
 
   void reveal(String round) {
+    if (!isEnabled) return;
     if (round == _revealedRound) return;
     _revealedRound = round;
     _play(_chime);

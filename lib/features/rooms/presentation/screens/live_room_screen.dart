@@ -2461,9 +2461,8 @@ class _LiveRoomScreenState extends ConsumerState<LiveRoomScreen>
       );
       final profile =
           ref.watch(cachedUserProfileProvider(room.ownerUid)).valueOrNull;
-      final is16Seat = room.capacity >= 16;
-      final screenHeight = MediaQuery.sizeOf(context).height;
-      final isCompact = is16Seat && screenHeight <= 680;
+      final isHighCapacity = room.capacity >= 12;
+      final isCompact = isHighCapacity;
       return Padding(
         padding: const EdgeInsets.only(top: 2, bottom: 2),
         child: GestureDetector(

@@ -533,6 +533,19 @@ class AgoraVoiceService with BaseFirebaseService implements VoiceService {
   }
 
   @override
+  Future<void> ensureSpeakerphone() async {
+    if (_engine != null) {
+      try {
+        await _engine!.setDefaultAudioRouteToSpeakerphone(true);
+        await _engine!.setEnableSpeakerphone(true);
+        _isSpeakerPhone = true;
+      } catch (e) {
+        debugPrint("Notice: ensureSpeakerphone: $e");
+      }
+    }
+  }
+
+  @override
   Future<void> setBroadcasterRole() async {
     if (_engine != null) {
       try {

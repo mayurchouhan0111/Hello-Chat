@@ -175,29 +175,16 @@ class _ChatWidgetState extends ConsumerState<ChatWidget> {
   void _shedAndMergeQueue() {
     if (_incomingQueue.length <= 8) return;
 
-    // 1. Group consecutive room-join system events to prevent scroll spam
-    final joinMessages = _incomingQueue.where((m) => m.type == 'system' && m.uid != 'system').toList();
-    if (joinMessages.length > 2) {
-      _incomingQueue.removeWhere((m) => m.type == 'system' && m.uid != 'system');
-      
-      final mergedMsg = RoomMessage(
-        msgId: 'merged_joins_${DateTime.now().millisecondsSinceEpoch}',
-        uid: 'system',
-        text: '${joinMessages.length} members entered the room',
-        type: 'system',
-        createdAt: DateTime.now(),
-      );
-      _incomingQueue.insert(0, mergedMsg);
-    }
-
-    // 2. High-traffic shedding: prioritize gifts, drop oldest low-priority texts
-    if (_incomingQueue.length > 10) {
+    // High-traffic shedding: prioritize gifts and entry notices, drop oldest low-priority texts
+    if (_incomingQueue.length > 12) {
       final gifts = _incomingQueue.where((m) => m.type == 'gift').toList();
-      final others = _incomingQueue.where((m) => m.type != 'gift').toList();
+      final system = _incomingQueue.where((m) => m.type == 'system').toList();
+      final others = _incomingQueue.where((m) => m.type != 'gift' && m.type != 'system').toList();
       
       _incomingQueue.clear();
-      // Keep up to 4 of the latest regular messages, and all gifts
+      // Keep up to 4 of the latest regular messages, all system entry notices, and all gifts
       _incomingQueue.addAll(others.skip((others.length - 4).clamp(0, others.length)));
+      _incomingQueue.addAll(system);
       _incomingQueue.addAll(gifts);
       
       _incomingQueue.sort((a, b) => a.createdAt.compareTo(b.createdAt));

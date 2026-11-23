@@ -2526,7 +2526,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     let agencySharePercent = 0;
 
                     if (agencyId && agencyDoc && agencyDoc.exists) {
-                        hostSharePercent = 0.7;
                         agencySharePercent = 0.1;
                         const agencyBeans = Math.floor(perTargetCost * agencySharePercent);
                         transaction.update(db.collection("agencies").doc(agencyId), {
@@ -2534,7 +2533,8 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                             totalBeansEarned: FieldValue.increment(agencyBeans)
                         });
                     }
-                    beansEarned = Math.floor(perTargetCost * hostSharePercent);
+                    // Receiver gets 100% 1:1 parity (10,000 Diamonds = exactly 10,000 Beans, zero deductions)
+                    beansEarned = perTargetCost;
 
                     // Receiver XP: 1000 diamonds = 1 XP
                     const currentEarned = receiverData.totalDiamondsReceived || (receiverData.princeXP * 1000) || 0;
@@ -4395,7 +4395,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 type: resultType,
                 multiplier: Number(winnerSegment.multiplier) || 0,
                 emoji: winnerSegment.emoji || "🎰",
-                label: resultType === "standard" ? `${winnerSegment.multiplier}x` : resultType.toUpperCase(),
+                label: `${winnerSegment.multiplier}x`,
                 name: winnerSegment.name,
                 category: winnerSegment.category || "standard",
                 sectorIndex: displayIndex,

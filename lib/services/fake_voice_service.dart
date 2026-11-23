@@ -70,6 +70,9 @@ class FakeVoiceService implements VoiceService {
   }
 
   @override
+  Future<void> ensureSpeakerphone() async {}
+
+  @override
   Future<void> onAppPaused() async {
     print("Fake voice: app paused");
   }

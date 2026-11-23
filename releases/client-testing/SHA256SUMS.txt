@@ -1,1 +1,1 @@
-610fc20b605586042099584059153c7c59cdca9cbafbdff20932db748620c468  HelloChat-client-test-release.apk
+c10667c22a63a7c45c89febd0f6be4d0d04332bbd986a860ecde94dbb3ee4d8f  HelloChat-client-test-release.apk

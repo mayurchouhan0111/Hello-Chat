@@ -7,6 +7,74 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-23 (Client Issues Resolution: Winning Icon & Multiplier, Game Sound ON/OFF, Voice Chat Ducking Fix, Rocket Cyber Pad Redesign, Rocket Audio Restore & Agora Audio Guard, 12/16-Seat Boundary Fix, Real-Time All-User Gift Animations, 1:1 Diamond-to-Bean Parity, and Real-Time Room Entry ID Notification)
+
+- **What Client Asked / Problem**:
+  1. **Winning Icon & Name Display (Image 6)**: The winning result icon and corresponding name were mismatched (e.g., Steak icon displayed with label "PIZZA"). Ensure the exact winning food name and multiplier are displayed correctly alongside the winning icon.
+  2. **Game Sound ON/OFF Option**: There was no option to turn game audio ON/OFF. Add an easily accessible sound toggle so users can enable or disable game sound effects whenever they want.
+  3. **Room Voice Chat Audio Issue During Gameplay**: When a user opened and played a game, the room voice chat volume dropped drastically, making other users inaudible due to audio focus loss and earpiece routing. Ensure playing a game never ducks room VoIP voice audio.
+  4. **Rocket Design & Display Improvement (Image 7)**: When users tapped to view the rocket detail sheet, the middle display area was blank and unattractive. Redesign this interface to feature a prominent high-definition animated SVGA rocket ship on a glowing futuristic cybernetic launch pad with visual aura effects.
+  5. **Rocket Launch Sound Issue**: In the recent update, the rocket launch sound disappeared because the player was set to mute. Restore the launch sound effect.
+  6. **Room Seat Display & Positioning Issue (Image 8)**: In 12-seat and 16-seat rooms, the bottom row of seats (seats 9–12) overlapped and clipped outside the room boundaries into the bottom chat area. Make sure all seats are properly aligned, properly spaced, and completely visible inside the room boundary on all mobile screens.
+  7. **Rocket Launch – Room Voice Communication Issue**: When a rocket launched, afterward the voice chat volume decreased or became inaudible, forcing users to exit and re-enter the room. Ensure rocket audio never interrupts VoIP routing and Agora speakerphone is strictly restored upon launch completion.
+  8. **Gift Sending – Animation Visibility for All Room Users**: When a user sent a gift, only the sender could see the animation because remote users' replay guard rejected the incoming messages due to clock jitter and short TTL. Ensure all room users see gift animations in real time.
+  9. **Incorrect Beans Calculation**: When a user sent a 10,000 Diamond gift, the receiver received only 7,000 Beans due to a 30% platform cut. Client required exact 1:1 parity (10,000 Diamonds = 10,000 Beans) with 0 deductions.
+  10. **Room Bottom Display – Real-Time User Entry Notification with ID**: When any user enters the room (including re-entries and the host), their entry notification with their ID must appear immediately in the bottom chat feed for everyone in the room without requiring them to send a message.
+
+- **What We Did**:
+  1. **Winning Icon & Name Display (`spin_wheel_screen.dart`, `functions/index.js`, `spin_wheel_food_icon.dart`)**:
+     - Updated cloud function deterministic outcome label from category uppercase ("PIZZA") to `${winnerSegment.multiplier}x`.
+     - Added `SpinWheelFoodIcon.cleanDisplayName` and updated the "Last Winner:" pill to display the exact canonical food name (e.g., "Steak") and multiplier (e.g., "45x") directly with the matching food icon.
+  2. **Game Sound ON/OFF Toggle (`spin_wheel_screen.dart`, `wheel_sounds.dart`)**:
+     - Added a dedicated "Sound ON" / "Sound OFF" pill button in the game header next to "Rules >" with visual volume icon indicators.
+     - Connected the toggle to `WheelSounds.setEnabled` and session state so toggling audio instantly silences or enables wheel ticks and result chimes.
+  3. **Room Voice Audio Protection During Gameplay (`wheel_sounds.dart`, `spin_wheel_screen.dart`, `voice_service.dart`)**:
+     - Configured audio player context with `isSpeakerphoneOn: true` and `audioFocus: AndroidAudioFocus.none` so game sound effects never seize exclusive audio focus from Agora VoIP.
+     - On game exit / disposal, automatically re-asserted `ensureSpeakerphone()` on `voiceServiceProvider` to ensure room voice chat stays crisp and loud.
+  4. **Rocket Detail Sheet Redesign (`rocket_detail_sheet.dart`)**:
+     - Replaced the blank/failing TextureView with `_MainRocketDisplayWidget` utilizing isolated `SVGAParser` and `SVGAImage` to render the animated rocket ship cleanly without platform view dropouts.
+     - Designed an illuminated cybernetic launch pedestal with radial gradients, cyber neon ring, glowing cosmic aura, and floating reward multiplier badge.
+  5. **Rocket Launch Sound Restored (`rocket_launch_overlay.dart`)**:
+     - Changed `mute: true` to `mute: false` in `VapAnimation` so the full rocket launch sound effect plays every time.
+  6. **Room Seat Display & Positioning Fixed (`live_room_layout.dart`, `seat_grid.dart`, `live_room_screen.dart`)**:
+     - In `live_room_layout.dart`, dynamically clamped chat height for rooms with 12+ capacity from 25% (240dp max) down to 18% (125–175dp), opening up ample vertical room.
+     - In `seat_grid.dart`, adjusted avatar radius to 20dp, icon size to 16dp, and grid spacing to 2.0dp for 12/13 seats.
+     - In `live_room_screen.dart`, enabled compact host seat (64dp extent) for all 12+ capacity rooms, ensuring seats 9–12 are fully visible inside room boundaries without any clipping.
+  7. **Rocket Launch Agora Speakerphone Guard (`rocket_launch_overlay.dart`, `voice_service.dart`, `agora_voice_service.dart`)**:
+     - Added `ensureSpeakerphone()` method on `VoiceService` and `AgoraVoiceService` to force `setEnableSpeakerphone(true)` and `setDefaultAudioRouteToSpeakerphone(true)`.
+     - Called `ensureSpeakerphone()` in `_handleComplete()` and `dispose()` of `RocketLaunchOverlay` so VoIP volume is immediately restored at full volume after launch.
+  8. **All-User Real-Time Gift Animations (`gift_replay_guard.dart`)**:
+     - Relaxed `GiftReplayGuard` Gate 2 jitter tolerance to -15,000ms (15s) and Gate 3 expiration grace to 30,000ms (30s).
+     - Live gift messages from Firestore are no longer dropped on remote devices due to server timestamp lag, allowing all users to view full gift animations simultaneously.
+  9. **1:1 Diamond-to-Bean Parity (`functions/index.js`)**:
+     - Updated line 2525 from `hostSharePercent = 0.7` to `hostSharePercent = 1.0`, ensuring `beansEarned = perTargetCost`. Senders spending 10,000 Diamonds now credit the receiver with exactly 10,000 Beans (zero platform deductions).
+  10. **Real-Time Room Entry Notification with ID (`room_service.dart`, `chat_widget.dart`)**:
+      - Moved entry notification creation in `joinRoom` outside the new-participant check so that EVERY entry (including re-entry and host) records an entry message with `uid`, `displayName`, and `helloId`.
+      - Updated message text to include `(ID: $userHelloId)` and preserved each entry notification in `chat_widget.dart` without lossy merging.
+  11. **Verification, Testing & Deployment**:
+      - `dart analyze` verified with 0 errors.
+      - Unit test suites passed 100% (27/27).
+      - Built release APK and deployed to connected Vivo V2132 (`1374223603000CJ`).
+
+- **Files Touched**:
+  - `functions/index.js`
+  - `lib/features/games/presentation/screens/spin_wheel_screen.dart`
+  - `lib/features/games/presentation/widgets/wheel_sounds.dart`
+  - `lib/features/games/presentation/widgets/spin_wheel_food_icon.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_launch_overlay.dart`
+  - `lib/features/rooms/presentation/widgets/rocket_detail_sheet.dart`
+  - `lib/features/rooms/presentation/widgets/live_room_layout.dart`
+  - `lib/features/rooms/presentation/widgets/seat_grid.dart`
+  - `lib/features/rooms/presentation/screens/live_room_screen.dart`
+  - `lib/core/services/gift_replay_guard.dart`
+  - `lib/services/room_service.dart`
+  - `lib/features/rooms/presentation/widgets/chat_widget.dart`
+  - `lib/services/voice_service.dart`
+  - `lib/services/agora_voice_service.dart`
+  - `lib/services/fake_voice_service.dart`
+
+
+
 ### Date: 2026-11-23 (Greedy Game Card Image Update to assets/games/greedy.jpeg & Room Welcome Message Polish)
 
 - **What Client Asked / Problem**:

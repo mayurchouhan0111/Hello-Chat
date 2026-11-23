@@ -37,8 +37,11 @@ class LiveRoomLayout extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(4, 4, 8, 6),
             child: SizedBox(
-              height: (MediaQuery.sizeOf(context).height * 0.25)
-                  .clamp(160.0, 240.0),
+              height: room.capacity >= 12
+                  ? (MediaQuery.sizeOf(context).height * 0.18)
+                      .clamp(125.0, 175.0)
+                  : (MediaQuery.sizeOf(context).height * 0.25)
+                      .clamp(160.0, 240.0),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
