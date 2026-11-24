@@ -7,6 +7,163 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-24 (Agency Management: Admin-Wise Agency Separation & Complete Data Isolation)
+
+- **What Client / User Asked**:
+  - "Agency Management – Admin-Wise Agency Separation
+    There is an issue in the Agency Management section of the Admin Panel.
+    Each admin must only be able to view and manage the agencies that are activated or assigned under their own admin account.
+    Currently, all agencies from the entire Admin Panel are visible to every admin. This is incorrect and must be fixed.
+    Please implement the following rules:
+    1. Each admin must have a separate agency list.
+    2. An admin can only view, manage, edit, and control agencies assigned or activated under their own account.
+    3. Admins must not be able to see or manage agencies belonging to other admins.
+    4. The Super Admin must have access to view and manage all agencies across all admins.
+    5. This separation must also be enforced at the backend and database level, not just hidden in the UI.
+    Important: Each admin's agencies, agency wallet balances, commissions, and management permissions must remain completely separate. Please ensure proper data isolation between admins."
+
+- **What We Did**:
+  1. **Backend Separation in Cloud Functions (`functions/index.js`)**:
+     - `listAgencies`: Implemented strict role-based scoping:
+       * When caller is `admin`: Queries `.where("adminId", "==", uid)` and enforces in-memory filter `data.adminId === uid`. An admin only receives agencies assigned under their account.
+       * When caller is `superadmin`: Queries all agencies in their branch (`branchId`), with optional `adminId` filter to inspect any specific admin's agencies.
+       * When caller is `owner`: Queries across all branches globally.
+       * Applied in-memory sorting by `createdAt desc` so queries do not require composite Firestore indexes.
+     - `getAgency`: Added strict permission guard ensuring an Admin can only fetch agency details if `agency.adminId === uid`. Foreign agency requests throw `permission-denied`.
+     - `updateAgency`: Added permission guards both before and inside the transaction: `if (caller.role === "admin" && agencyData.adminId !== uid) throw permission-denied`.
+     - `setAgencyStatus`: Added pre-check and in-transaction check: `if (caller.role === "admin" && aData.adminId !== uid) throw permission-denied`.
+     - `removeAgency`: Added in-transaction check: `if (caller.role === "admin" && agency.adminId !== uid) throw permission-denied`.
+     - `addHost`: Added permission check: `if (caller.role === "admin" && aData.adminId !== uid) throw permission-denied`.
+     - `removeHost`: Added permission check: `if (caller.role === "admin" && aData.adminId !== uid) throw permission-denied`.
+  2. **Database-Level Isolation in Firestore Rules (`firebase/firestore.rules`)**:
+     - Updated rules for `/agencies/{agencyId}`:
+       * `allow get`: Enforces `isOwner() || request.auth.uid == resource.data.ownerUid || (isAdmin() && resource.data.adminId == request.auth.uid) || (isSuperAdmin() && resource.data.branchId == selfData().get('branchId', null))`.
+       * `allow list`: Enforces `isOwner() || (isSuperAdmin() && resource.data.branchId == selfData().get('branchId', null)) || (isAdmin() && resource.data.adminId == request.auth.uid)`.
+       * `allow update, delete`: Enforces `isOwner() || (isSuperAdmin() && resource.data.branchId == selfData().get('branchId', null)) || (isAdmin() && resource.data.adminId == request.auth.uid) || request.auth.uid == resource.data.ownerUid`.
+  3. **Flutter Client UI (`lib/features/admin/presentation/screens/admin_agency_management_screen.dart`)**:
+     - `_filteredAgencies`: Added client-side filter defense `if (isPlainAdmin && agency['adminId'] != user.uid) return false;`.
+     - Added admin-scoped banner above the agency list: `"Admin Scope: Showing agencies assigned under your account (${filtered.length})"`.
+     - `_AgencyCard`: Added admin pill indicator (`Admin: <adminId>`) visible to Super Admins and Owners so they can immediately see which Admin owns each agency.
+  4. **Super Admin Portal (`lib/features/admin/presentation/screens/super_admin_portal_screen.dart`)**:
+     - Updated `_showAdminReportSheet` StreamBuilder query from `.where('branchId', isEqualTo: branchId)` to `.where('adminId', isEqualTo: adminUid)` so the report accurately counts only that specific admin's agencies.
+  5. **React Admin Web Panel (`hellochat_admin/src/screens/AgencyManagement.jsx`)**:
+     - Added client-side filter defense ensuring plain admins only see agencies where `a.adminId === currentUser.uid`.
+  6. **Deployment & Automated Live Verification**:
+     - Deployed Cloud Functions (`listAgencies`, `getAgency`, `updateAgency`, `setAgencyStatus`, `removeAgency`, `addHost`, `removeHost`) and `firebase/firestore.rules` to live production.
+     - Executed live automated test suite (`scripts/test_admin_isolation_live.cjs`) with authentic admin tokens:
+       * Admin `listAgencies` returned only the admin's own agencies (100% data isolation).
+       * Admin attempting `getAgency` on another admin's agency returned `PERMISSION_DENIED`.
+       * Admin attempting `updateAgency` on another admin's agency returned `PERMISSION_DENIED`.
+       * Admin attempting `setAgencyStatus` on another admin's agency returned `PERMISSION_DENIED`.
+       * Admin attempting `addHost` on another admin's agency returned `PERMISSION_DENIED`.
+       * Super Admin verified to view all branch agencies and filter by admin.
+  7. **Release APK Build & Device Installation**:
+     - Built fresh Flutter release APK, computed SHA256 checksum, and installed directly onto the connected Vivo testing device (`1374223603000CJ`).
+
+
+
+### Date: 2026-11-24 (Admin Privileges Assignment: Appointed User Rashi (Hello ID: 5093172266) as Branch Admin)
+
+- **What Client / User Asked**:
+  - "5093172266 Please assign Admin privileges to this ID and let me know once it has been completed."
+
+- **What We Did**:
+  1. **User Discovery & Verification**:
+     - Queried user with Hello ID `5093172266`:
+       * **Hello ID**: `5093172266`
+       * **Name / Display Name**: `Rashi`
+       * **UID**: `VCg5ETQs6obayICpGt2UsQ1mInP2`
+  2. **Admin Privileges Assignment**:
+     - Configured complete Admin specification on Firestore and Auth:
+       * Set `role: "admin"`
+       * Added `Admin` tag (`tags: ["Admin"]`)
+       * Set `isAdmin: true` boolean flag
+       * Allocated unique 5-digit admin code `10008` from `counters/role_codes`
+       * Linked to Super Admin V (`superAdminId: "VJ1GwGfAwafIhCuHDaRTqBbdhYj2"`)
+       * Assigned to `branchId: "branch-prod-1"`
+       * Updated Firebase Auth custom claims: `{ role: "admin", admin: true, branchId: "branch-prod-1" }`
+       * Wrote audit log entry to `/audit_logs`.
+  3. **Verification**:
+     - Verified profile and claims via live query script `scripts/inspect_5093172266.cjs`.
+     - Confirmed `[VCg5ETQs6obayICpGt2UsQ1mInP2]` (Hello ID: `5093172266`, name: `Rashi`) has full Admin privileges active.
+
+
+### Date: 2026-11-24 (Super Admin Promotion: Promoted User "V" (Hello ID: 1001) to Super Admin)
+
+- **What Client / User Asked**:
+  - "v shiuld be super admin"
+
+- **What We Did**:
+  1. **Super Admin Role Promotion Execution**:
+     - Promoted primary active user **`V`** (`VJ1GwGfAwafIhCuHDaRTqBbdhYj2`, Hello ID: `1001`, phone: `+916263850508`) to full **Super Admin**:
+       * Set `role: "superadmin"`
+       * Added tags `["SuperAdmin", "Admin"]`
+       * Assigned 4-digit Super Admin role code `1002` (allocated from `counters/role_codes`)
+       * Assigned `branchId: "branch-prod-1"` and `superAdminId: VJ1GwGfAwafIhCuHDaRTqBbdhYj2`
+       * Updated Firebase Auth custom claims: `{ role: "superadmin", superadmin: true, admin: true, branchId: "branch-prod-1" }`
+       * Generated atomic audit log in `/audit_logs`.
+     - Also ensured secondary user **`v`** (`qfoqaYFOLIMsPw4awQmsc8G0tRW2`, Hello ID: `8996148082`, username: `nhk`) has complete Super Admin fields (`role: "superadmin"`, role code `1003`, Auth claims `{ role: "superadmin", superadmin: true, admin: true, branchId: "branch-prod-1" }`).
+     - Safely incremented `counters/role_codes.superadmin` to `1004`.
+  2. **Live Verification**:
+     - Queried live admin roster via `scripts/list_all_admins.cjs`.
+     - Confirmed `[VJ1GwGfAwafIhCuHDaRTqBbdhYj2]` (Hello ID: `1001`, name: `V`) and `[qfoqaYFOLIMsPw4awQmsc8G0tRW2]` (Hello ID: `8996148082`, name: `v`) are active **Super Admins** with `branch-prod-1` management privileges.
+
+
+### Date: 2026-11-24 (Admin Role Appointment: Appointed User "V" (Hello ID: 1001) as Branch Admin)
+
+- **What Client / User Asked**:
+  - "make the v name user as the admin do this task for me"
+
+- **What We Did**:
+  1. **User Discovery & Verification**:
+     - Scanned all 149 user profiles across Firestore.
+     - Identified active user with display name `"V"`:
+       * **Name / Display Name**: `V`
+       * **Hello ID**: `1001`
+       * **UID**: `VJ1GwGfAwafIhCuHDaRTqBbdhYj2`
+       * **Phone**: `+916263850508`
+       * **Previous Role**: `reseller`
+  2. **Admin Appointment Execution**:
+     - Triggered the official production `appointAdmin` callable (`https://us-central1-hellochat-e8965.cloudfunctions.net/appointAdmin`) authenticated via Super Admin (`+919000000002` / `tkDQPhwRs0UdtPg0rWtuGzm1cWa2`).
+     - Allocated unique 5-digit admin role code `10006`.
+     - Promoted user to branch admin in `branch-prod-1`:
+       * Updated `role: "admin"`
+       * Added tag `"Admin"` to `tags: ["Admin"]`
+       * Set `branchId: "branch-prod-1"`
+       * Set `roleCode: "10006"`
+       * Preserved custom claims and updated auth custom claims with `{ admin: true, role: "admin", branchId: "branch-prod-1" }`
+       * Generated atomic audit log in `/audit_logs`.
+  3. **Verification**:
+     - Verified live user profile and admin roster via `scripts/list_all_admins.cjs`.
+     - User `[VJ1GwGfAwafIhCuHDaRTqBbdhYj2]` (Hello ID: `1001`, Name: `V`) is confirmed active with `role: admin`, `tags: ["Admin"]`, `branchId: branch-prod-1`.
+
+
+### Date: 2026-11-24 (Code Updates Integration: Agency Management, Admin Wallet, Super Admin Portal Routes, Release APK Build & Device Installation)
+
+- **What Client / User Asked**:
+  - The client/developer made updates to the codebase (Agency Portal, Commission Wallet, Super Admin Portal, Admin Agency Management, and Admin Wallet Service/Screen).
+  - Create a fresh release APK with all latest code changes and install it directly on the connected testing device.
+
+- **What We Did**:
+  1. **Codebase & Change Verification**:
+     - Inspected modified files: `lib/core/models/agency_model.dart`, `lib/core/router/app_router.dart`, `lib/features/admin/presentation/screens/admin_agency_management_screen.dart`, `lib/features/admin/presentation/screens/super_admin_portal_screen.dart`, `lib/features/profile/presentation/screens/agency/agency_portal_screen.dart`, `lib/features/profile/presentation/screens/agency/commission_wallet_screen.dart`, plus new files `lib/core/services/admin_wallet_service.dart` and `lib/features/admin/presentation/screens/admin_wallet_screen.dart`.
+     - Ran `dart analyze` across all changed and added files — passed with **0 errors and 0 warnings**.
+     - Ran regression test suites (`test/spin_wheel_user_fixes_test.dart` and `test/gift_animation_system_test.dart`) — **27/27 tests passed (100%)**.
+  2. **Release Build & Packaging**:
+     - Built fresh release APK via `flutter build apk --release` (assembleRelease completed in 161.2s).
+     - Output binary: `build/app/outputs/flutter-apk/app-release.apk` (763.87 MB).
+     - Copied release binary to `releases/client-testing/HelloChat-client-test-release.apk` (800,971,063 bytes).
+     - Generated SHA256 checksum: `dd50574265b6163f2fdade6143c36d7d4679820ae96e4f9b8ffdac89ffa18e12` and recorded in `releases/client-testing/SHA256SUMS.txt`.
+  3. **Device Deployment & Launch**:
+     - Installed updated APK onto connected Vivo V2132 Android testing device (`1374223603000CJ`) via ADB (`adb install -r`). Streamed install returned `Success`.
+     - Injected launcher intent to launch `com.example.hellochat/.MainActivity` on the device.
+
+- **Files Modified / Added**:
+  - `releases/client-testing/HelloChat-client-test-release.apk`
+  - `releases/client-testing/SHA256SUMS.txt`
+  - `PROJECT_WORKLOG.md`
+
+
 ### Date: 2026-11-23 (Client Issues Resolution: Winning Icon & Multiplier, Game Sound ON/OFF, Voice Chat Ducking Fix, Rocket Cyber Pad Redesign, Rocket Audio Restore & Agora Audio Guard, 12/16-Seat Boundary Fix, Real-Time All-User Gift Animations, 1:1 Diamond-to-Bean Parity, and Real-Time Room Entry ID Notification)
 
 - **What Client Asked / Problem**:

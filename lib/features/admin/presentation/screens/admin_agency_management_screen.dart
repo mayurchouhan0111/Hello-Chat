@@ -399,8 +399,14 @@ class _AdminAgencyManagementScreenState
   }
 
   List<Map<String, dynamic>> get _filteredAgencies {
+    final user = ref.read(currentUserProfileProvider).valueOrNull;
+    final isPlain = user != null && _isPlainAdmin(user);
     final term = _search.trim().toLowerCase();
     return _agencies.where((agency) {
+      // Admin isolation: plain admin only sees agencies assigned under their account
+      if (isPlain && agency['adminId'] != null && agency['adminId'] != user.uid) {
+        return false;
+      }
       final active = agency['isActive'] != false;
       if (_statusFilter == 'active' && !active) return false;
       if (_statusFilter == 'suspended' && active) return false;
@@ -557,6 +563,33 @@ class _AdminAgencyManagementScreenState
               ),
             ],
           ),
+          if (user != null && _isPlainAdmin(user)) ...[
+            const Gap(14),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: _accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _accent.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.shield_rounded, color: _accent, size: 18),
+                  const Gap(10),
+                  Expanded(
+                    child: Text(
+                      'Admin Scope: Showing agencies assigned under your account (${filtered.length})',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const Gap(18),
           TextField(
             controller: _searchController,
@@ -654,6 +687,7 @@ class _AdminAgencyManagementScreenState
               _AgencyCard(
                 agency: agency,
                 onTap: () => _openAgency(agency['agencyId'].toString()),
+                showAdminTag: user != null && !_isPlainAdmin(user),
               ),
               const Gap(10),
             ],
@@ -1100,10 +1134,15 @@ class _StatusBadge extends StatelessWidget {
 }
 
 class _AgencyCard extends StatelessWidget {
-  const _AgencyCard({required this.agency, required this.onTap});
+  const _AgencyCard({
+    required this.agency,
+    required this.onTap,
+    this.showAdminTag = false,
+  });
 
   final Map<String, dynamic> agency;
   final VoidCallback onTap;
+  final bool showAdminTag;
 
   @override
   Widget build(BuildContext context) {
@@ -1194,6 +1233,13 @@ class _AgencyCard extends StatelessWidget {
                   if ((agency['code'] ?? '').toString().isNotEmpty) ...[
                     const Gap(6),
                     _Pill(icon: Icons.tag_rounded, text: '#${agency['code']}'),
+                  ],
+                  if (showAdminTag && (agency['adminId'] ?? '').toString().isNotEmpty) ...[
+                    const Gap(6),
+                    _Pill(
+                      icon: Icons.shield_outlined,
+                      text: 'Admin: ${(agency['adminId'].toString().length > 8) ? '${agency['adminId'].toString().substring(0, 6)}..' : agency['adminId']}',
+                    ),
                   ],
                   const Spacer(),
                   const Icon(Icons.chevron_right_rounded,
@@ -1343,7 +1389,7 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     _owner = TextEditingController();
     _admin = TextEditingController();
     _name = TextEditingController(text: initial?['name']?.toString() ?? '');
-    final commission = (initial?['commissionRate'] as num?)?.toDouble() ?? 0.1;
+    final commission = (initial?['commissionRate'] as num?)?.toDouble() ?? 0.30;
     _commission = TextEditingController(
       text: (commission * 100).toStringAsFixed(
         commission * 100 == (commission * 100).roundToDouble() ? 0 : 2,
@@ -1428,7 +1474,8 @@ class _AgencyFormDialogState extends State<_AgencyFormDialog> {
     final data = <String, dynamic>{
       'name': name,
       'commissionRate': commissionPercent / 100,
-      if (finalLogoUrl != null && finalLogoUrl.isNotEmpty) 'logoUrl': finalLogoUrl,
+      if (finalLogoUrl != null && finalLogoUrl.isNotEmpty)
+        'logoUrl': finalLogoUrl,
       'country': _country.text.trim(),
       'contactPhone': _phone.text.trim(),
       'description': _description.text.trim(),

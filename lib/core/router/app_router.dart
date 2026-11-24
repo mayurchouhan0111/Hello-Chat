@@ -8,7 +8,8 @@ import '../../features/auth/presentation/screens/login_screen.dart';
 import '../../features/auth/presentation/screens/otp_screen.dart';
 import '../../features/auth/presentation/screens/set_password_screen.dart';
 import '../../features/auth/presentation/screens/forgot_password_screen.dart';
-import '../../features/rooms/presentation/screens/search_screen.dart' as room_search;
+import '../../features/rooms/presentation/screens/search_screen.dart'
+    as room_search;
 import '../../features/auth/presentation/screens/splash_screen.dart';
 import '../../features/auth/presentation/screens/email_auth_screen.dart';
 import '../../features/profile/presentation/screens/profile_setup_screen.dart';
@@ -53,6 +54,8 @@ import '../../features/reseller/presentation/screens/reseller_dashboard_screen.d
 import '../../features/reseller/presentation/screens/reseller_list_screen.dart';
 import '../../features/profile/presentation/screens/agency/commission_wallet_screen.dart';
 import '../../features/admin/presentation/screens/super_admin_portal_screen.dart';
+import '../../features/admin/presentation/screens/admin_agency_management_screen.dart';
+import '../../features/admin/presentation/screens/admin_wallet_screen.dart';
 
 import '../../features/rooms/presentation/screens/home_screen.dart';
 import '../../features/moments/presentation/screens/add_moment_screen.dart';
@@ -83,77 +86,79 @@ import '../widgets/svg_page_transition.dart';
 
 class AppRoutes {
   // Auth
-  static const splash          = '/';
-  static const login           = '/login';
+  static const splash = '/';
+  static const login = '/login';
   static const customGiftRequest = '/custom-gift-request';
-  static const otpVerify       = '/otp-verify';
-  static const forgotPassword  = '/forgot-password';
-  static const setPassword     = '/set-password';
-  static const profileSetup    = '/profile-setup';
-  static const resetPassword   = '/reset-password';
-  static const editProfile     = '/edit-profile';
-  static const emailAuth       = '/email-auth';
-  static const userProfile     = '/user-profile';
-  static const followList      = '/follow-list';
-  static const addMoment       = '/add-moment';
+  static const otpVerify = '/otp-verify';
+  static const forgotPassword = '/forgot-password';
+  static const setPassword = '/set-password';
+  static const profileSetup = '/profile-setup';
+  static const resetPassword = '/reset-password';
+  static const editProfile = '/edit-profile';
+  static const emailAuth = '/email-auth';
+  static const userProfile = '/user-profile';
+  static const followList = '/follow-list';
+  static const addMoment = '/add-moment';
 
   // Main (with bottom nav)
-  static const home            = '/home';
-  static const wallet          = '/wallet';
-  
-  static const leaderboard     = '/leaderboard';
-  static const momentDetail    = '/moment-detail';
-  static const createRoom      = '/create-room';
-  static const liveRoom        = '/live-room';
+  static const home = '/home';
+  static const wallet = '/wallet';
+
+  static const leaderboard = '/leaderboard';
+  static const momentDetail = '/moment-detail';
+  static const createRoom = '/create-room';
+  static const liveRoom = '/live-room';
   static const roomWelcomeMessage = '/room-welcome-message';
-  static const vipShop         = '/vip-shop';
-  static const salaryHistory   = '/salary-history';
-  static const prestigeStore   = '/prestige-store';
-  static const nobleHall       = '/noble-hall';
-  static const vipCenter       = '/vip-center';
-  static const prestigeVault   = '/prestige-vault';
-  static const luckySpin       = '/lucky-spin';
-  static const agencyPortal     = '/agency-portal';
+  static const vipShop = '/vip-shop';
+  static const salaryHistory = '/salary-history';
+  static const prestigeStore = '/prestige-store';
+  static const nobleHall = '/noble-hall';
+  static const vipCenter = '/vip-center';
+  static const prestigeVault = '/prestige-vault';
+  static const luckySpin = '/lucky-spin';
+  static const agencyPortal = '/agency-portal';
   static const superAdminPortal = '/super-admin-portal';
-  static const search          = '/search';
-  static const svipPrivileges   = '/svip-privileges';
-  static const invite          = '/invite-get-coins';
-  static const loveHouse       = '/love-house';
-  static const cpLevel         = '/cp-level';
-  static const propWarehouse   = '/prop-warehouse';
-  static const familyPortal     = '/family-portal';
-  static const createFamily     = '/create-family';
-  static const familyList       = '/family-list';
-  static const joinRequests     = '/join-requests';
-  static const familyBattle     = '/family-battle';
-  static const familyMembers    = '/family-members';
-  static const familyDetail     = '/family-detail';
-  static const settings         = '/settings';
-  static const privacySettings  = '/privacy-settings';
+  static const adminAgencyManagement = '/admin-agency-management';
+  static const adminWallet = '/admin-wallet';
+  static const search = '/search';
+  static const svipPrivileges = '/svip-privileges';
+  static const invite = '/invite-get-coins';
+  static const loveHouse = '/love-house';
+  static const cpLevel = '/cp-level';
+  static const propWarehouse = '/prop-warehouse';
+  static const familyPortal = '/family-portal';
+  static const createFamily = '/create-family';
+  static const familyList = '/family-list';
+  static const joinRequests = '/join-requests';
+  static const familyBattle = '/family-battle';
+  static const familyMembers = '/family-members';
+  static const familyDetail = '/family-detail';
+  static const settings = '/settings';
+  static const privacySettings = '/privacy-settings';
   static const languageSettings = '/language-settings';
-  static const helpCenter       = '/help-center';
-  static const about            = '/about';
-  static const chatDetail       = '/chat-detail';
-  static const pkBattle         = '/pk-battle';
-  static const resellerCenter   = '/reseller-center';
-  static const resellerList     = '/reseller-list';
-  static const levelDetail      = '/level-detail';
-  static const verification     = '/verification';
+  static const helpCenter = '/help-center';
+  static const about = '/about';
+  static const chatDetail = '/chat-detail';
+  static const pkBattle = '/pk-battle';
+  static const resellerCenter = '/reseller-center';
+  static const resellerList = '/reseller-list';
+  static const levelDetail = '/level-detail';
+  static const verification = '/verification';
   static const withdrawalHistory = '/withdrawal-history';
-  static const withdrawBeans     = '/withdraw-beans';
-  static const commissionWallet  = '/commission-wallet';
-  static const roomSupport       = '/room-support';
+  static const withdrawBeans = '/withdraw-beans';
+  static const commissionWallet = '/commission-wallet';
+  static const roomSupport = '/room-support';
   static const roomGiftLeaderboard = '/room-gift-leaderboard';
-  static const inbox             = '/inbox';
-  static const vipRewards        = '/vip-rewards';
+  static const inbox = '/inbox';
+  static const vipRewards = '/vip-rewards';
   static const rechargeEventDetail = '/recharge-event-detail';
-  static const dynamicEvent        = '/event';
-  static const giftEvent           = '/gift-event';
-  static const yummyBingo          = '/yummy-bingo';
-  static const teenPatti           = '/teen-patti';
-  static const friendList         = '/friend-list';
-  static const friendRequests     = '/friend-requests';
-  static const friendshipPortal   = '/friendship-portal';
+  static const dynamicEvent = '/event';
+  static const giftEvent = '/gift-event';
+  static const yummyBingo = '/yummy-bingo';
+  static const teenPatti = '/teen-patti';
+  static const friendList = '/friend-list';
+  static const friendRequests = '/friend-requests';
+  static const friendshipPortal = '/friendship-portal';
   static const relationshipRanking = '/relationship-ranking';
   static const userContributionRanking = '/user-contribution-ranking';
 }
@@ -162,8 +167,8 @@ class GoRouterRefreshStream extends ChangeNotifier {
   GoRouterRefreshStream(Stream<dynamic> stream) {
     notifyListeners();
     _subscription = stream.asBroadcastStream().listen(
-      (dynamic _) => notifyListeners(),
-    );
+          (dynamic _) => notifyListeners(),
+        );
   }
 
   late final StreamSubscription<dynamic> _subscription;
@@ -189,7 +194,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (context, state) async {
       // Get the current user directly from the service
       final user = ref.read(authServiceProvider).currentUser;
-      
+
       final unauthenticatedOnlyRoutes = [
         AppRoutes.login,
         AppRoutes.otpVerify,
@@ -197,7 +202,8 @@ final routerProvider = Provider<GoRouter>((ref) {
         AppRoutes.forgotPassword,
         AppRoutes.splash,
       ];
-      final isUnauthRoute = unauthenticatedOnlyRoutes.contains(state.matchedLocation);
+      final isUnauthRoute =
+          unauthenticatedOnlyRoutes.contains(state.matchedLocation);
 
       if (user == null) {
         // 🔒 Unauthenticated: only allow unauthenticated routes
@@ -217,7 +223,8 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       // 🏠 Authenticated: If on login/splash/forgot-password, redirect to Home
       if (isUnauthRoute) {
-        debugPrint('--- [ROUTER: User Authenticated, Force Redirect to Home] ---');
+        debugPrint(
+            '--- [ROUTER: User Authenticated, Force Redirect to Home] ---');
         return AppRoutes.home;
       }
 
@@ -393,6 +400,14 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const SuperAdminPortalScreen(),
       ),
       GoRoute(
+        path: AppRoutes.adminAgencyManagement,
+        builder: (context, state) => const AdminAgencyManagementScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.adminWallet,
+        builder: (context, state) => const AdminWalletScreen(),
+      ),
+      GoRoute(
         path: AppRoutes.search,
         builder: (context, state) => const room_search.SearchScreen(),
       ),
@@ -485,7 +500,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>;
           return PrivateChatScreen(
-            chatId: extra['chatId'] as String, 
+            chatId: extra['chatId'] as String,
             otherUid: extra['otherUid'] as String,
           );
         },

@@ -20,27 +20,28 @@ import 'package:hello_chat/features/wallet/presentation/screens/withdraw_beans_s
 //  User Control / Agency Theme Tokens
 // ─────────────────────────────────────────────
 class UserControlTheme {
-  static const bgGradientTop    = Color(0xFF032626);
-  static const bgGradientMid    = Color(0xFF011717);
+  static const bgGradientTop = Color(0xFF032626);
+  static const bgGradientMid = Color(0xFF011717);
   static const bgGradientBottom = Color(0xFF010D0D);
 
-  static const cardBg           = Color(0xFF033B39);
-  static const cardBgDark       = Color(0xFF022424);
-  static const cardBorder       = Color(0xFF0E5D59);
+  static const cardBg = Color(0xFF033B39);
+  static const cardBgDark = Color(0xFF022424);
+  static const cardBorder = Color(0xFF0E5D59);
 
-  static const activeIndicator  = Color(0xFFEAB308); // Yellow/gold indicator from screenshot
+  static const activeIndicator =
+      Color(0xFFEAB308); // Yellow/gold indicator from screenshot
   static const activePillBorder = Color(0xFF2DD4BF); // Teal active border
-  static const activePillBg     = Color(0xFF0D3B39);
-  static const inactivePillBg   = Color(0xFF062222);
+  static const activePillBg = Color(0xFF0D3B39);
+  static const inactivePillBg = Color(0xFF062222);
 
-  static const primaryGreen     = Color(0xFF4ADE80); // Lime green action button
-  static const primaryGreenEnd  = Color(0xFF86EFAC);
+  static const primaryGreen = Color(0xFF4ADE80); // Lime green action button
+  static const primaryGreenEnd = Color(0xFF86EFAC);
   static const primaryGreenDark = Color(0xFF052E16);
 
-  static const textWhite        = Colors.white;
-  static const textMuted        = Color(0xFF80A6A4);
-  static const textTeal         = Color(0xFF2DD4BF);
-  static const coinYellow       = Color(0xFFFBBF24);
+  static const textWhite = Colors.white;
+  static const textMuted = Color(0xFF80A6A4);
+  static const textTeal = Color(0xFF2DD4BF);
+  static const coinYellow = Color(0xFFFBBF24);
 }
 
 // ─────────────────────────────────────────────
@@ -61,7 +62,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
   Future<void> _fetchAgencyStats(String agencyId, [String? month]) async {
     setState(() => _statsLoading = true);
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('getAgencyRechargeStats');
+      final callable =
+          FirebaseFunctions.instance.httpsCallable('getAgencyRechargeStats');
       final res = await callable.call({
         'agencyId': agencyId,
         if (month != null && month.isNotEmpty) 'yearMonth': month,
@@ -70,7 +72,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       if (data != null) {
         setState(() {
           _agencyStatsData = Map<String, dynamic>.from(data);
-          _selectedStatsMonth = _agencyStatsData!['yearMonth']?.toString() ?? '';
+          _selectedStatsMonth =
+              _agencyStatsData!['yearMonth']?.toString() ?? '';
           _statsLoading = false;
         });
       }
@@ -84,26 +87,43 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       context: context,
       backgroundColor: const Color(0xFF032626),
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) {
-        final records = (_agencyStatsData?['recentRecords'] as List<dynamic>?) ?? [];
+        final records =
+            (_agencyStatsData?['recentRecords'] as List<dynamic>?) ?? [];
         return Container(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.75),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
-                child: Container(width: 36, height: 4, decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+                child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2))),
               ),
               const Gap(16),
-              const Text("Host Recharge Records", style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+              const Text("Host Recharge Records",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold)),
               const Gap(4),
-              const Text("Individual recharge transactions for all hosts under this agency", style: TextStyle(color: Colors.white54, fontSize: 11)),
+              const Text(
+                  "Individual recharge transactions for all hosts under this agency",
+                  style: TextStyle(color: Colors.white54, fontSize: 11)),
               const Gap(16),
               Expanded(
                 child: records.isEmpty
-                    ? const Center(child: Text("No recharge transactions recorded for this period.", style: TextStyle(color: Colors.white54)))
+                    ? const Center(
+                        child: Text(
+                            "No recharge transactions recorded for this period.",
+                            style: TextStyle(color: Colors.white54)))
                     : ListView.separated(
                         itemCount: records.length,
                         separatorBuilder: (_, __) => const Gap(8),
@@ -111,30 +131,53 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                           final r = records[idx] as Map;
                           final hName = r['hostName']?.toString() ?? 'Host';
                           final hHello = r['hostHelloId']?.toString() ?? '';
-                          final usd = (r['usdAmount'] as num?)?.toDouble() ?? 0.0;
+                          final usd =
+                              (r['usdAmount'] as num?)?.toDouble() ?? 0.0;
                           final dia = (r['diamonds'] as num?)?.toInt() ?? 0;
                           final day = r['day']?.toString() ?? '';
                           return Container(
                             padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(color: const Color(0xFF063534), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFF0B4C4A))),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFF063534),
+                                borderRadius: BorderRadius.circular(12),
+                                border:
+                                    Border.all(color: const Color(0xFF0B4C4A))),
                             child: Row(
                               children: [
-                                const CircleAvatar(backgroundColor: Color(0xFF042A27), child: Icon(Icons.person, color: Color(0xFF7DE2A0), size: 18)),
+                                const CircleAvatar(
+                                    backgroundColor: Color(0xFF042A27),
+                                    child: Icon(Icons.person,
+                                        color: Color(0xFF7DE2A0), size: 18)),
                                 const Gap(12),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(hName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                                      Text("ID: " + hHello + " • " + day, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                                      Text(hName,
+                                          style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13)),
+                                      Text("ID: " + hHello + " • " + day,
+                                          style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 11)),
                                     ],
                                   ),
                                 ),
                                 Column(
                                   crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Text("\$" + usd.toStringAsFixed(2), style: const TextStyle(color: Color(0xFF7DE2A0), fontWeight: FontWeight.bold, fontSize: 14, fontFamily: 'monospace')),
-                                    Text(dia.toString() + " 💎", style: const TextStyle(color: Colors.amber, fontSize: 11)),
+                                    Text("\$" + usd.toStringAsFixed(2),
+                                        style: const TextStyle(
+                                            color: Color(0xFF7DE2A0),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            fontFamily: 'monospace')),
+                                    Text(dia.toString() + " 💎",
+                                        style: const TextStyle(
+                                            color: Colors.amber, fontSize: 11)),
                                   ],
                                 ),
                               ],
@@ -155,9 +198,13 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       _fetchAgencyStats(agency.id);
     }
 
-    final history = (_agencyStatsData?['monthlyHistory'] as List<dynamic>?) ?? [];
-    final combinedTotal = (_agencyStatsData?['combinedTotalRechargeUSD'] as num?)?.toDouble() ?? 0.0;
-    final hostCount = (_agencyStatsData?['hostCount'] as num?)?.toInt() ?? agency.hostUids.length;
+    final history =
+        (_agencyStatsData?['monthlyHistory'] as List<dynamic>?) ?? [];
+    final combinedTotal =
+        (_agencyStatsData?['combinedTotalRechargeUSD'] as num?)?.toDouble() ??
+            0.0;
+    final hostCount = (_agencyStatsData?['hostCount'] as num?)?.toInt() ??
+        agency.hostUids.length;
 
     return Container(
       width: double.infinity,
@@ -173,11 +220,20 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text("Monthly Data & Statistics", style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold)),
+              const Text("Monthly Data & Statistics",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold)),
               TextButton.icon(
                 onPressed: () => _showHostRechargeRecords(context, agency.id),
-                icon: const Icon(Icons.receipt_long_rounded, color: Color(0xFF7DE2A0), size: 16),
-                label: const Text("Recharge Records", style: TextStyle(color: Color(0xFF7DE2A0), fontSize: 11.5, fontWeight: FontWeight.bold)),
+                icon: const Icon(Icons.receipt_long_rounded,
+                    color: Color(0xFF7DE2A0), size: 16),
+                label: const Text("Recharge Records",
+                    style: TextStyle(
+                        color: Color(0xFF7DE2A0),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold)),
               ),
             ],
           ),
@@ -193,7 +249,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(ym, style: TextStyle(color: isSel ? Colors.black : Colors.white, fontWeight: FontWeight.bold, fontSize: 11)),
+                      label: Text(ym,
+                          style: TextStyle(
+                              color: isSel ? Colors.black : Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11)),
                       selected: isSel,
                       selectedColor: const Color(0xFF7DE2A0),
                       backgroundColor: const Color(0xFF063534),
@@ -209,9 +269,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF064E3B), Color(0xFF022C22)]),
+              gradient: const LinearGradient(
+                  colors: [Color(0xFF064E3B), Color(0xFF022C22)]),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFF059669).withValues(alpha: 0.5)),
+              border: Border.all(
+                  color: const Color(0xFF059669).withValues(alpha: 0.5)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -219,18 +281,28 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("COMBINED HOST RECHARGE", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.bold)),
+                    const Text("COMBINED HOST RECHARGE",
+                        style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold)),
                     const Gap(2),
                     Text(
                       "\$" + combinedTotal.toStringAsFixed(2),
-                      style: const TextStyle(color: Color(0xFF7DE2A0), fontSize: 20, fontWeight: FontWeight.w900, fontFamily: 'monospace'),
+                      style: const TextStyle(
+                          color: Color(0xFF7DE2A0),
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                          fontFamily: 'monospace'),
                     ),
                   ],
                 ),
                 Text(
-                  hostCount.toString() + " Hosts Managed\nStarts at 0 on 1st of month",
+                  hostCount.toString() +
+                      " Hosts Managed\nStarts at 0 on 1st of month",
                   textAlign: TextAlign.right,
-                  style: const TextStyle(color: Colors.white54, fontSize: 10, height: 1.3),
+                  style: const TextStyle(
+                      color: Colors.white54, fontSize: 10, height: 1.3),
                 ),
               ],
             ),
@@ -239,13 +311,23 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           // 5 Stats: Day, Time, Beans, Target, Recharge
           Row(
             children: [
-              Expanded(child: _buildMiniDataPill("Day", "Activity", Icons.calendar_today_rounded)),
+              Expanded(
+                  child: _buildMiniDataPill(
+                      "Day", "Activity", Icons.calendar_today_rounded)),
               const Gap(6),
-              Expanded(child: _buildMiniDataPill("Time", "Mic Hours", Icons.timer_outlined)),
+              Expanded(
+                  child: _buildMiniDataPill(
+                      "Time", "Mic Hours", Icons.timer_outlined)),
               const Gap(6),
-              Expanded(child: _buildMiniDataPill("Beans", agency.beansBalance.toString(), Icons.monetization_on_outlined)),
+              Expanded(
+                  child: _buildMiniDataPill(
+                      "Beans",
+                      agency.beansBalance.toString(),
+                      Icons.monetization_on_outlined)),
               const Gap(6),
-              Expanded(child: _buildMiniDataPill("Target", "Targets", Icons.track_changes_rounded)),
+              Expanded(
+                  child: _buildMiniDataPill(
+                      "Target", "Targets", Icons.track_changes_rounded)),
             ],
           ),
         ],
@@ -271,8 +353,18 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         children: [
           Icon(icon, color: const Color(0xFF7DE2A0), size: 14),
           const Gap(3),
-          Text(title, style: const TextStyle(color: Colors.white70, fontSize: 9.5, fontWeight: FontWeight.bold)),
-          Text(val, style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(title,
+              style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.bold)),
+          Text(val,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w500),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
         ],
       ),
     );
@@ -296,13 +388,16 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
   void initState() {
     super.initState();
     _updateCountdown();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) => _updateCountdown());
+    _countdownTimer =
+        Timer.periodic(const Duration(seconds: 1), (_) => _updateCountdown());
   }
 
   void _updateCountdown() {
     final now = DateTime.now();
     // End of current month
-    final nextMonth = (now.month == 12) ? DateTime(now.year + 1, 1, 1) : DateTime(now.year, now.month + 1, 1);
+    final nextMonth = (now.month == 12)
+        ? DateTime(now.year + 1, 1, 1)
+        : DateTime(now.year, now.month + 1, 1);
     final diff = nextMonth.difference(now);
     if (mounted) {
       setState(() {
@@ -381,7 +476,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   shape: BoxShape.circle,
                   color: Colors.white.withValues(alpha: 0.05),
                 ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                child: const Icon(Icons.arrow_back_ios_new_rounded,
+                    color: Colors.white, size: 18),
               ),
             ),
           ),
@@ -435,7 +531,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             width: 22,
             height: 3.5,
             decoration: BoxDecoration(
-              color: isSelected ? UserControlTheme.activeIndicator : Colors.transparent,
+              color: isSelected
+                  ? UserControlTheme.activeIndicator
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -445,7 +543,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
   }
 
   // ── 3. Agency Tab Content ─────────────────────────────────────
-  Widget _buildAgencyTabContent(AsyncValue<AgencyModel?> myAgencyAsync, UserModel? currentUser) {
+  Widget _buildAgencyTabContent(
+      AsyncValue<AgencyModel?> myAgencyAsync, UserModel? currentUser) {
     return myAgencyAsync.when(
       data: (agency) {
         // If user is not yet associated with an agency, show create/join state
@@ -454,16 +553,17 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         }
 
         // Active Agency Profile (or fallback preview for branch owner)
-        final effectiveAgency = agency ?? AgencyModel(
-          id: currentUser?.agencyId ?? '13266',
-          name: '${currentUser?.displayName ?? "User"}\'s Agency',
-          ownerUid: currentUser?.uid ?? '12478008',
-          ownerName: currentUser?.displayName ?? 'Agency Owner',
-          logoUrl: currentUser?.profilePhotoUrl ?? '',
-          description: 'Official Agency Platform',
-          hostUids: [currentUser?.uid ?? '12478008'],
-          createdAt: DateTime(2025, 3, 25),
-        );
+        final effectiveAgency = agency ??
+            AgencyModel(
+              id: currentUser?.agencyId ?? '13266',
+              name: '${currentUser?.displayName ?? "User"}\'s Agency',
+              ownerUid: currentUser?.uid ?? '12478008',
+              ownerName: currentUser?.displayName ?? 'Agency Owner',
+              logoUrl: currentUser?.profilePhotoUrl ?? '',
+              description: 'Official Agency Platform',
+              hostUids: [currentUser?.uid ?? '12478008'],
+              createdAt: DateTime(2025, 3, 25),
+            );
 
         return Column(
           children: [
@@ -480,7 +580,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                       ? _buildDataSubTab(effectiveAgency, currentUser)
                       : _agencySubTab == 1
                           ? _buildWalletSubTab(effectiveAgency, currentUser)
-                          : _buildManagementSubTab(effectiveAgency, currentUser),
+                          : _buildManagementSubTab(
+                              effectiveAgency, currentUser),
 
                   // Floating "Host Invitation" button on Data tab (matching screenshot)
                   if (_agencySubTab == 0)
@@ -496,9 +597,12 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           ],
         );
       },
-      loading: () => const Center(child: CircularProgressIndicator(color: UserControlTheme.primaryGreen)),
+      loading: () => const Center(
+          child:
+              CircularProgressIndicator(color: UserControlTheme.primaryGreen)),
       error: (e, _) => Center(
-        child: Text('Error loading agency data: $e', style: const TextStyle(color: Colors.redAccent)),
+        child: Text('Error loading agency data: $e',
+            style: const TextStyle(color: Colors.redAccent)),
       ),
     );
   }
@@ -528,17 +632,23 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         padding: const EdgeInsets.symmetric(vertical: 9),
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: isSelected ? UserControlTheme.activePillBg : UserControlTheme.inactivePillBg,
+          color: isSelected
+              ? UserControlTheme.activePillBg
+              : UserControlTheme.inactivePillBg,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: isSelected ? UserControlTheme.activePillBorder : Colors.white.withValues(alpha: 0.05),
+            color: isSelected
+                ? UserControlTheme.activePillBorder
+                : Colors.white.withValues(alpha: 0.05),
             width: 1.2,
           ),
         ),
         child: Text(
           title,
           style: TextStyle(
-            color: isSelected ? UserControlTheme.textTeal : UserControlTheme.textMuted,
+            color: isSelected
+                ? UserControlTheme.textTeal
+                : UserControlTheme.textMuted,
             fontSize: 13,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
@@ -627,7 +737,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             ? agency.ownerUid.substring(0, 8)
             : agency.ownerUid;
 
-    final createdStr = "${agency.createdAt.year}-${agency.createdAt.month.toString().padLeft(2, '0')}-${agency.createdAt.day.toString().padLeft(2, '0')}";
+    final createdStr =
+        "${agency.createdAt.year}-${agency.createdAt.month.toString().padLeft(2, '0')}-${agency.createdAt.day.toString().padLeft(2, '0')}";
 
     return Container(
       width: double.infinity,
@@ -639,7 +750,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.5), width: 1.2),
+        border: Border.all(
+            color: UserControlTheme.cardBorder.withValues(alpha: 0.5),
+            width: 1.2),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -687,12 +800,14 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     const Gap(3),
                     Text(
                       'Agency ID: ${agency.id}',
-                      style: const TextStyle(color: UserControlTheme.textMuted, fontSize: 11.5),
+                      style: const TextStyle(
+                          color: UserControlTheme.textMuted, fontSize: 11.5),
                     ),
                     const Gap(1),
                     Text(
                       'Agency Members: ${agency.hostUids.length}',
-                      style: const TextStyle(color: UserControlTheme.textMuted, fontSize: 11.5),
+                      style: const TextStyle(
+                          color: UserControlTheme.textMuted, fontSize: 11.5),
                     ),
                   ],
                 ),
@@ -707,7 +822,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     color: Colors.white.withValues(alpha: 0.08),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.settings_outlined, color: Colors.white70, size: 20),
+                  child: const Icon(Icons.settings_outlined,
+                      color: Colors.white70, size: 20),
                 ),
               ),
             ],
@@ -728,9 +844,13 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               children: [
                 Text(
                   'Agency Owner ID: $ownerId',
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600),
                 ),
-                const Icon(Icons.chevron_right_rounded, color: Colors.white60, size: 20),
+                const Icon(Icons.chevron_right_rounded,
+                    color: Colors.white60, size: 20),
               ],
             ),
           ),
@@ -741,7 +861,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           Center(
             child: Text(
               'Created Time: $createdStr',
-              style: const TextStyle(color: UserControlTheme.textMuted, fontSize: 11),
+              style: const TextStyle(
+                  color: UserControlTheme.textMuted, fontSize: 11),
             ),
           ),
         ],
@@ -770,7 +891,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         decoration: BoxDecoration(
           color: UserControlTheme.cardBgDark.withValues(alpha: 0.8),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
+          border: Border.all(
+              color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
         ),
         child: Row(
           children: [
@@ -780,16 +902,21 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 color: UserControlTheme.primaryGreen.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.account_balance_wallet_outlined, color: UserControlTheme.primaryGreen, size: 20),
+              child: const Icon(Icons.account_balance_wallet_outlined,
+                  color: UserControlTheme.primaryGreen, size: 20),
             ),
             const Gap(12),
             const Expanded(
               child: Text(
                 'Recharge Services',
-                style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: Colors.white54, size: 22),
+            const Icon(Icons.chevron_right_rounded,
+                color: Colors.white54, size: 22),
           ],
         ),
       ),
@@ -828,7 +955,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
     );
   }
 
-  Widget _buildMetricCard({required String topValue, required String bottomLabel, bool showUmeCoin = false}) {
+  Widget _buildMetricCard(
+      {required String topValue,
+      required String bottomLabel,
+      bool showUmeCoin = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(
@@ -838,7 +968,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           end: Alignment.bottomCenter,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.5)),
+        border: Border.all(
+            color: UserControlTheme.cardBorder.withValues(alpha: 0.5)),
       ),
       child: Column(
         children: [
@@ -863,7 +994,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     shape: BoxShape.circle,
                   ),
                   child: const Center(
-                    child: Text('U', style: TextStyle(color: Colors.black, fontSize: 9, fontWeight: FontWeight.w900)),
+                    child: Text('U',
+                        style: TextStyle(
+                            color: Colors.black,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w900)),
                   ),
                 ),
                 const Gap(4),
@@ -899,13 +1034,17 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             style: TextStyle(color: Colors.white70, fontSize: 12),
           ),
           _buildTimerChip(days),
-          const Text(' days ', style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+          const Text(' days ',
+              style: TextStyle(color: Colors.white70, fontSize: 11.5)),
           _buildTimerChip(hours),
-          const Text(' h ', style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+          const Text(' h ',
+              style: TextStyle(color: Colors.white70, fontSize: 11.5)),
           _buildTimerChip(mins),
-          const Text(' min ', style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+          const Text(' min ',
+              style: TextStyle(color: Colors.white70, fontSize: 11.5)),
           _buildTimerChip(secs),
-          const Text(' s', style: TextStyle(color: Colors.white70, fontSize: 11.5)),
+          const Text(' s',
+              style: TextStyle(color: Colors.white70, fontSize: 11.5)),
         ],
       ),
     );
@@ -916,7 +1055,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: UserControlTheme.activePillBorder.withValues(alpha: 0.8), width: 1),
+        border: Border.all(
+            color: UserControlTheme.activePillBorder.withValues(alpha: 0.8),
+            width: 1),
         color: Colors.black.withValues(alpha: 0.3),
       ),
       child: Text(
@@ -937,7 +1078,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       children: [
         const Text(
           'ID: ',
-          style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+          style: TextStyle(
+              color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
         ),
         const Gap(6),
         Expanded(
@@ -959,7 +1101,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(vertical: 11),
               ),
-              onChanged: (val) => setState(() => _memberSearchQuery = val.trim()),
+              onChanged: (val) =>
+                  setState(() => _memberSearchQuery = val.trim()),
             ),
           ),
         ),
@@ -974,7 +1117,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [UserControlTheme.primaryGreenEnd, UserControlTheme.primaryGreen],
+                colors: [
+                  UserControlTheme.primaryGreenEnd,
+                  UserControlTheme.primaryGreen
+                ],
               ),
               borderRadius: BorderRadius.circular(12),
             ),
@@ -1001,7 +1147,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         final filtered = hosts.where((h) {
           if (_memberSearchQuery.isEmpty) return true;
           return h.displayId.contains(_memberSearchQuery) ||
-                 h.displayName.toLowerCase().contains(_memberSearchQuery.toLowerCase());
+              h.displayName
+                  .toLowerCase()
+                  .contains(_memberSearchQuery.toLowerCase());
         }).toList();
 
         if (filtered.isEmpty) {
@@ -1010,11 +1158,14 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             child: Center(
               child: Column(
                 children: [
-                  Icon(Icons.person_search_rounded, size: 40, color: Colors.white.withValues(alpha: 0.2)),
+                  Icon(Icons.person_search_rounded,
+                      size: 40, color: Colors.white.withValues(alpha: 0.2)),
                   const Gap(8),
-                  const Text('No members found', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  const Text('No members found',
+                      style: TextStyle(color: Colors.white54, fontSize: 12)),
                   const Gap(12),
-                  const Text('No more', style: TextStyle(color: Colors.white30, fontSize: 11)),
+                  const Text('No more',
+                      style: TextStyle(color: Colors.white30, fontSize: 11)),
                 ],
               ),
             ),
@@ -1025,15 +1176,20 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           children: [
             ...filtered.map((host) => _buildMemberItemCard(host)),
             const Gap(12),
-            const Text('No more', style: TextStyle(color: Colors.white30, fontSize: 11)),
+            const Text('No more',
+                style: TextStyle(color: Colors.white30, fontSize: 11)),
           ],
         );
       },
       loading: () => const Padding(
         padding: EdgeInsets.all(24),
-        child: Center(child: CircularProgressIndicator(color: UserControlTheme.primaryGreen)),
+        child: Center(
+            child: CircularProgressIndicator(
+                color: UserControlTheme.primaryGreen)),
       ),
-      error: (_, __) => const Center(child: Text('Error loading hosts', style: TextStyle(color: Colors.redAccent))),
+      error: (_, __) => const Center(
+          child: Text('Error loading hosts',
+              style: TextStyle(color: Colors.redAccent))),
     );
   }
 
@@ -1054,7 +1210,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           CircleAvatar(
             radius: 20,
             backgroundColor: Colors.white12,
-            backgroundImage: host.profilePhotoUrl.isNotEmpty ? CachedNetworkImageProvider(host.profilePhotoUrl) : null,
+            backgroundImage: host.profilePhotoUrl.isNotEmpty
+                ? CachedNetworkImageProvider(host.profilePhotoUrl)
+                : null,
             child: host.profilePhotoUrl.isEmpty
                 ? const Icon(Icons.person, color: Colors.white70, size: 20)
                 : null,
@@ -1069,14 +1227,18 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               children: [
                 Text(
                   host.displayName,
-                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 const Gap(2),
                 Text(
                   'ID: ${host.displayId}',
-                  style: const TextStyle(color: UserControlTheme.textMuted, fontSize: 11),
+                  style: const TextStyle(
+                      color: UserControlTheme.textMuted, fontSize: 11),
                 ),
               ],
             ),
@@ -1089,21 +1251,35 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Task Income ', style: TextStyle(color: Colors.white70, fontSize: 10.5)),
-                  Text('${host.beansBalance}', style: const TextStyle(color: Colors.white, fontSize: 10.5, fontWeight: FontWeight.bold)),
+                  const Text('Task Income ',
+                      style: TextStyle(color: Colors.white70, fontSize: 10.5)),
+                  Text('${host.beansBalance}',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold)),
                   const Gap(2),
                   Container(
                     width: 10,
                     height: 10,
-                    decoration: const BoxDecoration(color: UserControlTheme.coinYellow, shape: BoxShape.circle),
-                    child: const Center(child: Text('U', style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.w900, color: Colors.black))),
+                    decoration: const BoxDecoration(
+                        color: UserControlTheme.coinYellow,
+                        shape: BoxShape.circle),
+                    child: const Center(
+                        child: Text('U',
+                            style: TextStyle(
+                                fontSize: 6.5,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.black))),
                   ),
                 ],
               ),
               const Gap(2),
-              const Text('Mic Days: 0', style: TextStyle(color: Colors.white54, fontSize: 10)),
+              const Text('Mic Days: 0',
+                  style: TextStyle(color: Colors.white54, fontSize: 10)),
               const Gap(1),
-              Text('Last Login: $lastLoginStr', style: const TextStyle(color: Colors.white38, fontSize: 9.5)),
+              Text('Last Login: $lastLoginStr',
+                  style: const TextStyle(color: Colors.white38, fontSize: 9.5)),
             ],
           ),
         ],
@@ -1120,7 +1296,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           gradient: const LinearGradient(
-            colors: [UserControlTheme.primaryGreenEnd, UserControlTheme.primaryGreen],
+            colors: [
+              UserControlTheme.primaryGreenEnd,
+              UserControlTheme.primaryGreen
+            ],
           ),
           borderRadius: BorderRadius.circular(25),
           boxShadow: [
@@ -1160,7 +1339,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.6), width: 1.2),
+              border: Border.all(
+                  color: UserControlTheme.cardBorder.withValues(alpha: 0.6),
+                  width: 1.2),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1169,28 +1350,42 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
-                      'Agency Beans: ',
-                      style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600),
+                      'USD Balance: ',
+                      style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600),
                     ),
                     Text(
-                      NumberFormat('#,##0').format(agency.beansBalance),
-                      style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900),
+                      NumberFormat.currency(symbol: '\$', decimalDigits: 2)
+                          .format(agency.usdCommissionBalance),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w900),
                     ),
                     const Gap(8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
+                        gradient: const LinearGradient(
+                            colors: [Color(0xFFF59E0B), Color(0xFFD97706)]),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.monetization_on, color: Colors.white, size: 12),
+                          Icon(Icons.attach_money_rounded,
+                              color: Colors.white, size: 12),
                           Gap(3),
                           Text(
-                            'BEANS',
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                            'USD',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5),
                           ),
                         ],
                       ),
@@ -1199,8 +1394,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 ),
                 const Gap(6),
                 Text(
-                  '${(agency.commissionRate * 100).toInt()}% gift commission from ${agency.hostUids.length} active hosts',
-                  style: TextStyle(color: Colors.white.withOpacity(0.55), fontSize: 11),
+                  '30% recharge commission from ${agency.hostUids.length} active users',
+                  style: TextStyle(
+                      color: Colors.white.withOpacity(0.55), fontSize: 11),
                 ),
               ],
             ),
@@ -1221,7 +1417,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   title: 'Transfer',
                   icon: Icons.monetization_on_outlined,
                   onTap: () {
-                    AppToast.showOverlay(context, message: 'Transfer to host wallet available', type: ToastType.info);
+                    AppToast.showOverlay(context,
+                        message: 'Transfer to host wallet available',
+                        type: ToastType.info);
                   },
                 ),
               ),
@@ -1231,7 +1429,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   title: 'Withdraw',
                   icon: Icons.account_balance_outlined,
                   onTap: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const WithdrawBeansScreen()));
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const WithdrawBeansScreen()));
                   },
                 ),
               ),
@@ -1274,7 +1475,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
         decoration: BoxDecoration(
           color: UserControlTheme.cardBgDark.withValues(alpha: 0.7),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
+          border: Border.all(
+              color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
         ),
         child: Column(
           children: [
@@ -1289,7 +1491,10 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             const Gap(8),
             Text(
               title,
-              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600),
             ),
           ],
         ),
@@ -1310,23 +1515,29 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             decoration: BoxDecoration(
               color: UserControlTheme.cardBgDark,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
+              border: Border.all(
+                  color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'AGENCY CONFIGURATION',
-                  style: TextStyle(color: UserControlTheme.textTeal, fontSize: 13, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: UserControlTheme.textTeal,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold),
                 ),
                 const Gap(14),
                 _buildConfigRow('Agency Name', agency.name),
                 const Divider(color: Colors.white10),
                 _buildConfigRow('Agency ID', agency.id),
                 const Divider(color: Colors.white10),
-                _buildConfigRow('Commission Rate', '${(agency.commissionRate * 100).toInt()}%'),
+                _buildConfigRow('Commission Rate',
+                    '${(agency.commissionRate * 100).toInt()}%'),
                 const Divider(color: Colors.white10),
-                _buildConfigRow('Supervised Hosts', '${agency.hostUids.length} active hosts'),
+                _buildConfigRow('Supervised Hosts',
+                    '${agency.hostUids.length} active hosts'),
               ],
             ),
           ),
@@ -1335,12 +1546,14 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
           ElevatedButton.icon(
             onPressed: () => _openHostInvitationModal(agency),
             icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-            label: const Text('Recruit & Invite Hosts', style: TextStyle(fontWeight: FontWeight.bold)),
+            label: const Text('Recruit & Invite Hosts',
+                style: TextStyle(fontWeight: FontWeight.bold)),
             style: ElevatedButton.styleFrom(
               backgroundColor: UserControlTheme.primaryGreen,
               foregroundColor: UserControlTheme.primaryGreenDark,
               minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16)),
             ),
           ),
         ],
@@ -1354,8 +1567,13 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
-          Text(value, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          Text(value,
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -1382,13 +1600,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.6)),
+              border: Border.all(
+                  color: UserControlTheme.cardBorder.withValues(alpha: 0.6)),
             ),
             child: Row(
               children: [
                 CircleAvatar(
                   radius: 26,
-                  backgroundImage: (currentUser?.profilePhotoUrl.isNotEmpty == true)
+                  backgroundImage: (currentUser?.profilePhotoUrl.isNotEmpty ==
+                          true)
                       ? CachedNetworkImageProvider(currentUser!.profilePhotoUrl)
                       : null,
                   child: (currentUser?.profilePhotoUrl.isEmpty == true)
@@ -1402,13 +1622,22 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     children: [
                       Text(
                         currentUser?.displayName ?? 'Host',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold),
                       ),
                       const Gap(2),
-                      Text('UME ID: ${currentUser?.displayId ?? "N/A"}', style: const TextStyle(color: UserControlTheme.textMuted, fontSize: 12)),
-                      Text('Affiliation: ${agency?.name ?? "Independent"}', style: const TextStyle(color: UserControlTheme.textTeal, fontSize: 12)),
+                      Text('UME ID: ${currentUser?.displayId ?? "N/A"}',
+                          style: const TextStyle(
+                              color: UserControlTheme.textMuted, fontSize: 12)),
+                      Text('Affiliation: ${agency?.name ?? "Independent"}',
+                          style: const TextStyle(
+                              color: UserControlTheme.textTeal, fontSize: 12)),
                       const Gap(2),
-                      Text('Last Login: $lastLoginStr', style: const TextStyle(color: Colors.white38, fontSize: 10)),
+                      Text('Last Login: $lastLoginStr',
+                          style: const TextStyle(
+                              color: Colors.white38, fontSize: 10)),
                     ],
                   ),
                 ),
@@ -1429,7 +1658,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             decoration: BoxDecoration(
               color: UserControlTheme.cardBgDark,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
+              border: Border.all(
+                  color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1437,8 +1667,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Monthly Target Progress', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    Text('${(progress * 100).toInt()}%', style: const TextStyle(color: UserControlTheme.textTeal, fontWeight: FontWeight.w900)),
+                    const Text('Monthly Target Progress',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14)),
+                    Text('${(progress * 100).toInt()}%',
+                        style: const TextStyle(
+                            color: UserControlTheme.textTeal,
+                            fontWeight: FontWeight.w900)),
                   ],
                 ),
                 const Gap(10),
@@ -1448,15 +1685,20 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     value: progress,
                     minHeight: 8,
                     backgroundColor: Colors.white10,
-                    valueColor: const AlwaysStoppedAnimation(UserControlTheme.primaryGreen),
+                    valueColor: const AlwaysStoppedAnimation(
+                        UserControlTheme.primaryGreen),
                   ),
                 ),
                 const Gap(12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Earned: $hostBeans Beans', style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                    Text('Target: $target Beans', style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    Text('Earned: $hostBeans Beans',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12)),
+                    Text('Target: $target Beans',
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12)),
                   ],
                 ),
               ],
@@ -1473,11 +1715,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               ),
               const Gap(10),
               Expanded(
-                child: _buildMetricCard(topValue: '0 h', bottomLabel: 'Mic Hours'),
+                child:
+                    _buildMetricCard(topValue: '0 h', bottomLabel: 'Mic Hours'),
               ),
               const Gap(10),
               Expanded(
-                child: _buildMetricCard(topValue: '$hostBeans', bottomLabel: 'Task Income', showUmeCoin: true),
+                child: _buildMetricCard(
+                    topValue: '$hostBeans',
+                    bottomLabel: 'Task Income',
+                    showUmeCoin: true),
               ),
             ],
           ),
@@ -1500,20 +1746,28 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF042424),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => Container(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Agency Settings', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Agency Settings',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
             const Gap(16),
-            Text('Agency Name: ${agency.name}', style: const TextStyle(color: Colors.white70)),
+            Text('Agency Name: ${agency.name}',
+                style: const TextStyle(color: Colors.white70)),
             const Gap(8),
-            Text('Owner ID: ${agency.ownerUid}', style: const TextStyle(color: Colors.white70)),
+            Text('Owner ID: ${agency.ownerUid}',
+                style: const TextStyle(color: Colors.white70)),
             const Gap(8),
-            Text('Commission Split: ${(agency.commissionRate * 100).toInt()}%', style: const TextStyle(color: Colors.white70)),
+            Text('Commission Split: ${(agency.commissionRate * 100).toInt()}%',
+                style: const TextStyle(color: Colors.white70)),
             const Gap(24),
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
@@ -1521,9 +1775,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 backgroundColor: UserControlTheme.primaryGreen,
                 foregroundColor: UserControlTheme.primaryGreenDark,
                 minimumSize: const Size(double.infinity, 44),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
               ),
-              child: const Text('Close', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text('Close',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -1535,17 +1791,24 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF042424),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => Container(
         padding: const EdgeInsets.all(24),
         child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Monthly Pay Slips', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            Text('Monthly Pay Slips',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold)),
             Gap(16),
-            Text('Current billing period: Paid directly to hosts per policy.', style: TextStyle(color: Colors.white70)),
+            Text('Current billing period: Paid directly to hosts per policy.',
+                style: TextStyle(color: Colors.white70)),
             Gap(12),
-            Text('No pending disputes.', style: TextStyle(color: UserControlTheme.textTeal)),
+            Text('No pending disputes.',
+                style: TextStyle(color: UserControlTheme.textTeal)),
           ],
         ),
       ),
@@ -1556,7 +1819,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF042424),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (_) => Container(
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -1566,7 +1830,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Agency Balance & Ledger', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Agency Balance & Ledger',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.white54),
                   onPressed: () => Navigator.of(context).pop(),
@@ -1586,10 +1854,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Current Beans Balance', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                      const Text('Current Beans Balance',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 13)),
                       Text(
                         '${NumberFormat('#,##0').format(agency.beansBalance)} Beans',
-                        style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 15, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: Color(0xFFF59E0B),
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1597,10 +1870,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Total Beans Earned', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                      const Text('Total Beans Earned',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 13)),
                       Text(
                         '${NumberFormat('#,##0').format(agency.totalBeansEarned)} Beans',
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1608,10 +1886,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Agency Commission Rate', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                      const Text('Agency Commission Rate',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 13)),
                       Text(
                         '${(agency.commissionRate * 100).toInt()}%',
-                        style: const TextStyle(color: UserControlTheme.primaryGreen, fontSize: 14, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: UserControlTheme.primaryGreen,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1619,10 +1902,15 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Roster Size', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                      const Text('Roster Size',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 13)),
                       Text(
                         '${agency.hostUids.length} Hosts',
-                        style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1639,12 +1927,14 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, color: Colors.tealAccent, size: 18),
+                  const Icon(Icons.info_outline,
+                      color: Colors.tealAccent, size: 18),
                   const Gap(8),
                   Expanded(
                     child: Text(
                       'Commission rule: The agency earns a ${(agency.commissionRate * 100).toInt()}% bean share whenever any gift is received by an agency host.',
-                      style: const TextStyle(color: Colors.tealAccent, fontSize: 11),
+                      style: const TextStyle(
+                          color: Colors.tealAccent, fontSize: 11),
                     ),
                   ),
                 ],
@@ -1657,7 +1947,8 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: UserControlTheme.primaryGreen,
                   padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: () {
                   Navigator.of(context).pop();
@@ -1668,8 +1959,11 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
                     ),
                   );
                 },
-                icon: const Icon(Icons.account_balance_wallet, color: Colors.black87),
-                label: const Text('Withdraw Beans', style: TextStyle(color: Colors.black87, fontWeight: FontWeight.bold)),
+                icon: const Icon(Icons.account_balance_wallet,
+                    color: Colors.black87),
+                label: const Text('Withdraw Beans',
+                    style: TextStyle(
+                        color: Colors.black87, fontWeight: FontWeight.bold)),
               ),
             ),
           ],
@@ -1685,11 +1979,19 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          const Icon(Icons.business_center_rounded, color: UserControlTheme.primaryGreen, size: 54),
+          const Icon(Icons.business_center_rounded,
+              color: UserControlTheme.primaryGreen, size: 54),
           const Gap(16),
-          const Text('Become an Agency Partner', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          const Text('Become an Agency Partner',
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold)),
           const Gap(8),
-          const Text('Manage hosts, earn distribution commissions, and participate in agency events.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white60, fontSize: 13)),
+          const Text(
+              'Manage hosts, earn distribution commissions, and participate in agency events.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white60, fontSize: 13)),
           const Gap(24),
           TextField(
             controller: agencyNameCtrl,
@@ -1699,7 +2001,9 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               hintStyle: const TextStyle(color: Colors.white30),
               filled: true,
               fillColor: UserControlTheme.cardBgDark,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none),
             ),
           ),
           const Gap(16),
@@ -1708,21 +2012,28 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               final name = agencyNameCtrl.text.trim();
               if (name.isEmpty) return;
               try {
-                await ref.read(agencyServiceProvider).createAgency(name, 'Official Agency', '');
+                await ref
+                    .read(agencyServiceProvider)
+                    .createAgency(name, 'Official Agency', '');
                 if (!mounted) return;
-                AppToast.showOverlay(context, message: 'Agency created successfully!', type: ToastType.success);
+                AppToast.showOverlay(context,
+                    message: 'Agency created successfully!',
+                    type: ToastType.success);
               } catch (e) {
                 if (!mounted) return;
-                AppToast.showOverlay(context, message: 'Failed: $e', type: ToastType.error);
+                AppToast.showOverlay(context,
+                    message: 'Failed: $e', type: ToastType.error);
               }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: UserControlTheme.primaryGreen,
               foregroundColor: UserControlTheme.primaryGreenDark,
               minimumSize: const Size(double.infinity, 48),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
             ),
-            child: const Text('Create Agency', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Create Agency',
+                style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1738,7 +2049,8 @@ class _HostInvitationSheet extends ConsumerStatefulWidget {
   const _HostInvitationSheet({required this.agency});
 
   @override
-  ConsumerState<_HostInvitationSheet> createState() => _HostInvitationSheetState();
+  ConsumerState<_HostInvitationSheet> createState() =>
+      _HostInvitationSheetState();
 }
 
 class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
@@ -1755,20 +2067,25 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
   Future<void> _handleInvite() async {
     final query = _idController.text.trim();
     if (query.isEmpty) {
-      AppToast.showOverlay(context, message: 'Please enter a valid User ID', type: ToastType.info);
+      AppToast.showOverlay(context,
+          message: 'Please enter a valid User ID', type: ToastType.info);
       return;
     }
 
     setState(() => _isInviting = true);
     try {
-      await ref.read(agencyServiceProvider).addHostToAgency(widget.agency.id, query);
+      await ref
+          .read(agencyServiceProvider)
+          .addHostToAgency(widget.agency.id, query);
       if (mounted) {
-        AppToast.showOverlay(context, message: 'Host invited successfully!', type: ToastType.success);
+        AppToast.showOverlay(context,
+            message: 'Host invited successfully!', type: ToastType.success);
         Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {
-        AppToast.showOverlay(context, message: 'Invitation failed: $e', type: ToastType.error);
+        AppToast.showOverlay(context,
+            message: 'Invitation failed: $e', type: ToastType.error);
       }
     } finally {
       if (mounted) setState(() => _isInviting = false);
@@ -1806,13 +2123,17 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
                         shape: BoxShape.circle,
                         color: Colors.white.withValues(alpha: 0.05),
                       ),
-                      child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                      child: const Icon(Icons.arrow_back_ios_new_rounded,
+                          color: Colors.white, size: 18),
                     ),
                   ),
                 ),
                 const Text(
                   'Host Invitation',
-                  style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -1860,7 +2181,9 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
             width: 26,
             height: 3,
             decoration: BoxDecoration(
-              color: isSelected ? UserControlTheme.activeIndicator : Colors.transparent,
+              color: isSelected
+                  ? UserControlTheme.activeIndicator
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(4),
             ),
           ),
@@ -1882,14 +2205,18 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
             decoration: BoxDecoration(
               color: UserControlTheme.cardBgDark.withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
+              border: Border.all(
+                  color: UserControlTheme.cardBorder.withValues(alpha: 0.4)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
                   'ID:',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800),
                 ),
                 const Gap(8),
                 TextField(
@@ -1916,19 +2243,27 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 gradient: const LinearGradient(
-                  colors: [UserControlTheme.primaryGreenEnd, UserControlTheme.primaryGreen],
+                  colors: [
+                    UserControlTheme.primaryGreenEnd,
+                    UserControlTheme.primaryGreen
+                  ],
                 ),
                 borderRadius: BorderRadius.circular(26),
                 boxShadow: [
                   BoxShadow(
-                    color: UserControlTheme.primaryGreen.withValues(alpha: 0.35),
+                    color:
+                        UserControlTheme.primaryGreen.withValues(alpha: 0.35),
                     blurRadius: 14,
                     offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: _isInviting
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.black, strokeWidth: 2))
                   : const Text(
                       'Invitation',
                       style: TextStyle(
@@ -1952,7 +2287,8 @@ class _HostInvitationSheetState extends ConsumerState<_HostInvitationSheet> {
         children: [
           Icon(Icons.inbox_rounded, size: 48, color: Colors.white24),
           Gap(12),
-          Text('No pending host applications', style: TextStyle(color: Colors.white54, fontSize: 13)),
+          Text('No pending host applications',
+              style: TextStyle(color: Colors.white54, fontSize: 13)),
         ],
       ),
     );

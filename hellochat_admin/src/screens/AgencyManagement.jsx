@@ -51,7 +51,7 @@ export const AgencyManagement = () => {
     ownerIdentifier: '',
     adminIdentifier: '',
     name: '',
-    commissionRate: 10, // percentage (e.g. 10%)
+    commissionRate: 30,
     country: '',
     contactPhone: '',
     description: ''
@@ -59,7 +59,7 @@ export const AgencyManagement = () => {
 
   const [editForm, setEditForm] = useState({
     name: '',
-    commissionRate: 10,
+    commissionRate: 30,
     country: '',
     contactPhone: '',
     description: ''
@@ -129,7 +129,7 @@ export const AgencyManagement = () => {
         setHosts(res.data.hosts || []);
         setEditForm({
           name: res.data.agency.name || '',
-          commissionRate: Math.round((res.data.agency.commissionRate || 0.1) * 100),
+          commissionRate: Math.round((res.data.agency.commissionRate ?? 0.30) * 100),
           country: res.data.agency.country || '',
           contactPhone: res.data.agency.contactPhone || '',
           description: res.data.agency.description || ''
@@ -154,7 +154,7 @@ export const AgencyManagement = () => {
     setActionLoading(true);
     try {
       const createFn = httpsCallable(functions, 'createAgency');
-      const rateDecimal = parseFloat(appointForm.commissionRate) / 100 || 0.1;
+      const rateDecimal = parseFloat(appointForm.commissionRate) / 100 || 0.30;
       const res = await createFn({
         ownerIdentifier: appointForm.ownerIdentifier.trim(),
         ...(appointForm.adminIdentifier.trim()
@@ -174,7 +174,7 @@ export const AgencyManagement = () => {
           ownerIdentifier: '',
           adminIdentifier: '',
           name: '',
-          commissionRate: 10,
+          commissionRate: 30,
           country: '',
           contactPhone: '',
           description: ''
@@ -196,7 +196,7 @@ export const AgencyManagement = () => {
     setActionLoading(true);
     try {
       const updateFn = httpsCallable(functions, 'updateAgency');
-      const rateDecimal = parseFloat(editForm.commissionRate) / 100 || 0.1;
+      const rateDecimal = parseFloat(editForm.commissionRate) / 100 || 0.30;
       const res = await updateFn({
         agencyId: selectedAgency.agencyId || selectedAgency.id,
         name: editForm.name.trim(),
@@ -343,6 +343,11 @@ export const AgencyManagement = () => {
 
   // Filtered agencies
   const filteredAgencies = agencies.filter(a => {
+    // Admin isolation: plain admin only sees agencies assigned under their account
+    if (!requiresAdminBinding && a.adminId && currentUser?.uid && a.adminId !== currentUser.uid) {
+      return false;
+    }
+
     const term = searchTerm.toLowerCase();
     const matchesSearch = !term || 
       (a.name && a.name.toLowerCase().includes(term)) ||
@@ -655,7 +660,7 @@ export const AgencyManagement = () => {
               <div className="flex flex-wrap items-center gap-3">
                 <div className="bg-white/[0.03] border border-white/5 px-4 py-3 rounded-2xl">
                   <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Commission Split</p>
-                  <p className="text-lg font-black text-white">{((selectedAgency.commissionRate || 0.1) * 100).toFixed(0)}%</p>
+                  <p className="text-lg font-black text-white">{((selectedAgency.commissionRate ?? 0.30) * 100).toFixed(0)}%</p>
                 </div>
                 <div className="bg-white/[0.03] border border-white/5 px-4 py-3 rounded-2xl">
                   <p className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Active Hosts</p>

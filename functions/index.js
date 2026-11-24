@@ -13463,14 +13463,14 @@ exports.listMyLedger = functions.https.onCall(async (payload, context) => {
         transfers: { col: "commission_reseller_transfers", field: "senderUid" },
         withdrawals: { col: "commission_withdrawals", field: "userId" },
         conversions: { col: "commission_diamond_conversions", field: "userId" },
-        inflows: { col: "commission_transactions", field: "recipientUid" }
+        inflows: { col: "commission_transactions", field: "recipientUid", orderField: "timestamp" }
     };
     const t = tables[tab];
     if (!t) throw new HttpsError("invalid-argument", `Unknown tab '${tab}'. Use one of: ${Object.keys(tables).join(", ")}.`);
 
     const snap = await db.collection(t.col)
         .where(t.field, "==", uid)
-        .orderBy("createdAt", "desc")
+        .orderBy(t.orderField || "createdAt", "desc")
         .limit(limit)
         .get();
 
@@ -13481,6 +13481,75 @@ exports.listMyLedger = functions.https.onCall(async (payload, context) => {
         }
         return row;
     });
+});
+
+/**
+ * Admin Wallet overview. Admins receive only their own wallet and inflows;
+ * Super Admins receive Admin wallets in their branch; Owners receive all.
+ */
+exports.getAdminWalletOverview = functions.https.onCall(async (payload, context) => {
+    const request = { data: payload, auth: context.auth };
+    const caller = await requireStaffCtx(request);
+    const limit = Math.min(Math.max(Number(request.data?.limit) || 100, 1), 250);
+
+    let adminQuery = db.collection("users").where("role", "==", "admin");
+    if (caller.role === "admin") {
+        adminQuery = adminQuery.where(FieldPath.documentId(), "==", caller.uid);
+    } else if (caller.role === "superadmin") {
+        if (!caller.branchId) {
+            throw new HttpsError("failed-precondition", "Super Admin must be assigned to a branch.");
+        }
+        adminQuery = adminQuery.where("branchId", "==", caller.branchId);
+    }
+
+    const adminSnap = await adminQuery.limit(250).get();
+    const admins = adminSnap.docs.map(doc => {
+        const d = doc.data();
+        return {
+            uid: doc.id,
+            helloId: d.helloId || null,
+            displayName: d.displayName || d.username || "Admin",
+            branchId: d.branchId || null,
+            usdCommissionBalance: round2(d.usdCommissionBalance || 0),
+            totalCommissionEarned: round2(d.totalCommissionEarned || 0),
+            totalRechargeGenerated: round2(d.totalRechargeGenerated || 0),
+        };
+    });
+    const allowedIds = new Set(admins.map(a => a.uid));
+    let transactions = [];
+    if (allowedIds.size > 0) {
+        const txSnap = await db.collection("commission_transactions")
+            .orderBy("timestamp", "desc")
+            .limit(Math.min(limit * 5, 500))
+            .get();
+        transactions = txSnap.docs
+            .filter(doc => doc.data().recipientRole === "admin" &&
+                allowedIds.has(doc.data().recipientUid))
+            .slice(0, limit)
+            .map(doc => {
+                const d = doc.data();
+                return {
+                    id: doc.id,
+                    recipientUid: d.recipientUid,
+                    agencyId: d.agencyId || null,
+                    hostUid: d.hostUid || null,
+                    rechargeUSD: round2(d.rechargeUSD || 0),
+                    commissionRate: Number(d.commissionRate || 0),
+                    commissionUSD: round2(d.commissionUSD || 0),
+                    timestamp: d.timestamp && typeof d.timestamp.toDate === "function"
+                        ? d.timestamp.toDate().toISOString() : null,
+                };
+            });
+    }
+
+    return {
+        scope: caller.role === "admin" ? "self" : caller.role === "superadmin" ? "branch" : "global",
+        totalBalanceUSD: round2(admins.reduce((sum, a) => sum + a.usdCommissionBalance, 0)),
+        totalEarnedUSD: round2(admins.reduce((sum, a) => sum + a.totalCommissionEarned, 0)),
+        totalRechargeUSD: round2(admins.reduce((sum, a) => sum + a.totalRechargeGenerated, 0)),
+        admins,
+        transactions,
+    };
 });
 
 /**
@@ -13649,13 +13718,41 @@ exports.listAgencies = functions.https.onCall(async (payload, context) => {
         throw new HttpsError("permission-denied", "Staff permissions (admin+) required to list agencies.");
     }
 
-    let agencyQuery = db.collection("agencies").orderBy("createdAt", "desc").limit(500);
-    if (caller.role !== "owner" && caller.branchId) {
-        agencyQuery = agencyQuery.where("branchId", "==", caller.branchId);
+    let agencyQuery;
+    if (caller.role === "admin") {
+        // Admin only queries and views agencies assigned under their account
+        agencyQuery = db.collection("agencies").where("adminId", "==", uid).limit(500);
+    } else if (caller.role === "superadmin") {
+        if (!caller.branchId) {
+            throw new HttpsError("failed-precondition", "Super Admin must be assigned to a branch.");
+        }
+        agencyQuery = db.collection("agencies").where("branchId", "==", caller.branchId);
+        if (request.data?.adminId && typeof request.data.adminId === "string" && request.data.adminId.trim()) {
+            agencyQuery = agencyQuery.where("adminId", "==", request.data.adminId.trim());
+        }
+        agencyQuery = agencyQuery.limit(500);
+    } else {
+        // Owner sees all, or can filter by branchId/adminId
+        agencyQuery = db.collection("agencies");
+        if (request.data?.branchId && typeof request.data.branchId === "string" && request.data.branchId.trim()) {
+            agencyQuery = agencyQuery.where("branchId", "==", request.data.branchId.trim());
+        }
+        if (request.data?.adminId && typeof request.data.adminId === "string" && request.data.adminId.trim()) {
+            agencyQuery = agencyQuery.where("adminId", "==", request.data.adminId.trim());
+        }
+        agencyQuery = agencyQuery.limit(500);
     }
 
     const snap = await agencyQuery.get();
-    const agencies = snap.docs.filter(doc => doc.data().status !== "removed").map(doc => {
+    let agencies = snap.docs
+        .filter(doc => {
+            const data = doc.data();
+            if (data.status === "removed") return false;
+            // Strict defense-in-depth: Admin can NEVER see another admin's agencies
+            if (caller.role === "admin" && data.adminId !== uid) return false;
+            return true;
+        })
+        .map(doc => {
         const d = doc.data();
         const hostUids = Array.isArray(d.hostUids) ? d.hostUids : [];
         return {
@@ -13673,16 +13770,22 @@ exports.listAgencies = functions.https.onCall(async (payload, context) => {
             description: d.description || "",
             contactPhone: d.contactPhone || "",
             country: d.country || "",
-            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : 0.1,
+            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate,
             isActive: d.isActive !== false,
             status: d.status || (d.isActive !== false ? "active" : "suspended"),
             hostCount: hostUids.length,
             beansBalance: d.beansBalance || 0,
             totalBeansEarned: d.totalBeansEarned || 0,
+            usdCommissionBalance: round2(d.usdCommissionBalance || 0),
+            totalCommissionEarned: round2(d.totalCommissionEarned || 0),
+            totalRechargeGenerated: round2(d.totalRechargeGenerated || 0),
             createdAt: d.createdAt && typeof d.createdAt.toDate === "function" ? d.createdAt.toDate().toISOString() : null,
             updatedAt: d.updatedAt && typeof d.updatedAt.toDate === "function" ? d.updatedAt.toDate().toISOString() : null,
         };
     });
+
+    // In-memory sort by createdAt desc to avoid composite index requirements
+    agencies.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 
     return { success: true, agencies, count: agencies.length };
 });
@@ -13708,6 +13811,10 @@ exports.getAgency = functions.https.onCall(async (payload, context) => {
     // Branch scoping: owner sees all; superadmin/admin see only their branch agency
     if (caller.role !== "owner" && d.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
+    // Admin isolation: an admin can only view agencies assigned under their account
+    if (caller.role === "admin" && d.adminId !== uid) {
+        throw new HttpsError("permission-denied", "You can only view agencies assigned under your admin account.");
     }
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && d.ownerUid !== uid) {
         throw new HttpsError("permission-denied", "You do not have access to this agency.");
@@ -13748,12 +13855,15 @@ exports.getAgency = functions.https.onCall(async (payload, context) => {
             description: d.description || "",
             contactPhone: d.contactPhone || "",
             country: d.country || "",
-            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : 0.1,
+            commissionRate: typeof d.commissionRate === "number" ? d.commissionRate : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate,
             isActive: d.isActive !== false,
             status: d.status || (d.isActive !== false ? "active" : "suspended"),
             hostCount: hostUids.length,
             beansBalance: d.beansBalance || 0,
             totalBeansEarned: d.totalBeansEarned || 0,
+            usdCommissionBalance: round2(d.usdCommissionBalance || 0),
+            totalCommissionEarned: round2(d.totalCommissionEarned || 0),
+            totalRechargeGenerated: round2(d.totalRechargeGenerated || 0),
             createdAt: d.createdAt && typeof d.createdAt.toDate === "function" ? d.createdAt.toDate().toISOString() : null,
         },
         hosts
@@ -13845,9 +13955,8 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
                 branchId = adminSnap.docs[0].data().branchId || targetBranch;
                 superAdminId = adminSnap.docs[0].data().superAdminId || uid;
             } else {
-                adminId = uid;
-                branchId = targetBranch;
-                superAdminId = caller.role === "superadmin" ? uid : (caller.data.superAdminId || null);
+                throw new HttpsError("failed-precondition",
+                    `No Admin is appointed for branch ${targetBranch}. Appoint an Admin before creating an Agency.`);
             }
         }
     }
@@ -13856,7 +13965,9 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
     const agencyId = agencyRef.id;
     const now = FieldValue.serverTimestamp();
     const rate = Number(commissionRate);
-    const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1 ? rate : 0.1;
+    const finalCommission = Number.isFinite(rate) && rate >= 0 && rate <= 1
+        ? rate
+        : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate;
     let agencyCode = null;
 
     await db.runTransaction(async (transaction) => {
@@ -13908,6 +14019,9 @@ exports.createAgency = functions.https.onCall(async (payload, context) => {
             hostCount: 0,
             beansBalance: 0,
             totalBeansEarned: 0,
+            usdCommissionBalance: 0,
+            totalCommissionEarned: 0,
+            totalRechargeGenerated: 0,
             createdBy: uid,
             createdAt: now,
             updatedAt: now,
@@ -13981,6 +14095,10 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
     if (caller.role !== "owner" && agencyData.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
     }
+    // Admin isolation: an admin can only update agencies assigned under their account
+    if (caller.role === "admin" && agencyData.adminId !== uid) {
+        throw new HttpsError("permission-denied", "You can only update agencies assigned under your admin account.");
+    }
 
     const isStaff = ["owner", "superadmin", "admin"].includes(caller.role);
     const isAgencyOwner = agencyData.ownerUid === uid;
@@ -14042,6 +14160,11 @@ exports.updateAgency = functions.https.onCall(async (payload, context) => {
             throw new HttpsError("permission-denied",
                 "Agency not in your branch scope.");
         }
+        if (caller.role === "admin" &&
+            currentAgency.data().adminId !== uid) {
+            throw new HttpsError("permission-denied",
+                "You can only update agencies assigned under your admin account.");
+        }
 
         transaction.update(agencyRef, updates);
         const auditRef = db.collection("audit_logs").doc();
@@ -14086,12 +14209,19 @@ exports.setAgencyStatus = functions.https.onCall(async (payload, context) => {
     if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
     }
+    // Admin isolation: an admin can only manage agencies assigned under their account
+    if (caller.role === "admin" && aData.adminId !== uid) {
+        throw new HttpsError("permission-denied", "You can only manage agencies assigned under your admin account.");
+    }
     const isActive = status === "active";
 
     await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(agencyRef);
         if (!snap.exists) throw new HttpsError("not-found", "Agency not found.");
         const aData = snap.data();
+        if (caller.role === "admin" && aData.adminId !== uid) {
+            throw new HttpsError("permission-denied", "You can only manage agencies assigned under your admin account.");
+        }
 
         // READS FIRST: Read ownerDoc before any mutations
         let ownerSnap = null;
@@ -14174,6 +14304,10 @@ exports.removeAgency = functions.https.onCall(async (payload, context) => {
         if (caller.role !== "owner" && agency.branchId !== caller.branchId) {
             throw new HttpsError("permission-denied",
                 "Agency not in your branch scope.");
+        }
+        if (caller.role === "admin" && agency.adminId !== uid) {
+            throw new HttpsError("permission-denied",
+                "You can only remove agencies assigned under your admin account.");
         }
 
         const hostUids = [...new Set(
@@ -14286,6 +14420,10 @@ exports.addHost = functions.https.onCall(async (payload, context) => {
     if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
     }
+    // Admin isolation: an admin can only add hosts to agencies assigned under their account
+    if (caller.role === "admin" && aData.adminId !== uid) {
+        throw new HttpsError("permission-denied", "You can only add hosts to agencies assigned under your admin account.");
+    }
 
     // Verify caller has permission to add hosts to this agency
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {
@@ -14353,6 +14491,10 @@ exports.removeHost = functions.https.onCall(async (payload, context) => {
     // Branch scoping: owner may remove host from any agency; staff may remove only from their branch agency
     if (caller.role !== "owner" && aData.branchId !== caller.branchId) {
         throw new HttpsError("permission-denied", "Agency not in your branch scope.");
+    }
+    // Admin isolation: an admin can only remove hosts from agencies assigned under their account
+    if (caller.role === "admin" && aData.adminId !== uid) {
+        throw new HttpsError("permission-denied", "You can only remove hosts from agencies assigned under your admin account.");
     }
 
     if (caller.role !== "owner" && caller.role !== "superadmin" && caller.role !== "admin" && aData.ownerUid !== uid) {

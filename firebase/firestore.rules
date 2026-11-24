@@ -391,9 +391,14 @@ service cloud.firestore {
       allow get: if request.auth != null && (
         isOwner() ||
         request.auth.uid == resource.data.ownerUid ||
-        isInMyHierarchyScope(agencyId)
+        (selfData().get('role', '') == 'admin' && resource.data.get('adminId', '') == request.auth.uid) ||
+        (selfData().get('role', '') == 'superadmin' && resource.data.get('branchId', null) == selfData().get('branchId', null))
       );
-      allow list: if isOwner();
+      allow list: if request.auth != null && (
+        isOwner() ||
+        (selfData().get('role', '') == 'superadmin' && resource.data.get('branchId', null) == selfData().get('branchId', null)) ||
+        (selfData().get('role', '') == 'admin' && resource.data.get('adminId', '') == request.auth.uid)
+      );
       allow create: if request.auth != null &&
         request.auth.uid == request.resource.data.ownerUid &&
         !request.resource.data.diff({}).affectedKeys().hasAny([
@@ -402,7 +407,10 @@ service cloud.firestore {
           'code', 'adminId', 'branchId', 'superAdminId'
         ]);
       allow update, delete: if request.auth != null && (
-        isOwner() || request.auth.uid == resource.data.ownerUid
+        isOwner() ||
+        (selfData().get('role', '') == 'superadmin' && resource.data.get('branchId', null) == selfData().get('branchId', null)) ||
+        (selfData().get('role', '') == 'admin' && resource.data.get('adminId', '') == request.auth.uid) ||
+        request.auth.uid == resource.data.ownerUid
       ) && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'beansBalance', 'totalBeansEarned', 'usdCommissionBalance', 'totalCommissionEarned',
           'totalRechargeGenerated', 'pendingWithdrawalBalance', 'totalWithdrawnUSD',

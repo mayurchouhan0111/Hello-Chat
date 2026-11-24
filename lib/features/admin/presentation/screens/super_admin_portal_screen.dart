@@ -871,7 +871,7 @@ class _SuperAdminPortalScreenState
                   StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                     stream: FirebaseFirestore.instance
                         .collection('agencies')
-                        .where('branchId', isEqualTo: branchId)
+                        .where('adminId', isEqualTo: adminUid)
                         .snapshots(),
                     builder: (context, agencySnap) {
                       final agencyCount = agencySnap.data?.docs.length ?? 0;
@@ -2121,7 +2121,8 @@ class _SuperAdminPortalScreenState
             children: [
               if (user.isOwner ||
                   user.isSuperAdmin ||
-                  user.tags.contains('SuperAdmin')) ...[
+                  user.tags.contains('SuperAdmin') ||
+                  user.role == 'superadmin') ...[
                 _buildActionTile(
                   icon: Icons.admin_panel_settings_rounded,
                   iconColor: const Color(0xFF818CF8),
@@ -2147,7 +2148,17 @@ class _SuperAdminPortalScreenState
                 iconColor: const Color(0xFFF59E0B),
                 title: "Agency Management",
                 subtitle: "Appoint agencies, recruit hosts, edit or suspend",
-                onTap: () => context.push(AppRoutes.agencyPortal),
+                onTap: () => context.push(AppRoutes.adminAgencyManagement),
+              ),
+              const Divider(color: Colors.white10, height: 1, indent: 56),
+              _buildActionTile(
+                icon: Icons.account_balance_rounded,
+                iconColor: const Color(0xFF22C55E),
+                title: "Admin Wallet",
+                subtitle: user.isSuperAdmin || user.isOwner
+                    ? "View total Admin USD balances & transaction details"
+                    : "View your 10% recharge commission in USD",
+                onTap: () => context.push(AppRoutes.adminWallet),
               ),
               const Divider(color: Colors.white10, height: 1, indent: 56),
               _buildActionTile(

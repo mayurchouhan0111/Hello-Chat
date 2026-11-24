@@ -5,23 +5,36 @@ import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../../../core/providers/profile_provider.dart';
+import '../../../../../core/providers/commission_wallet_provider.dart';
 import '../../../../../core/services/commission_wallet_service.dart';
 
 class CommissionWalletScreen extends ConsumerStatefulWidget {
   const CommissionWalletScreen({super.key});
 
   @override
-  ConsumerState<CommissionWalletScreen> createState() => _CommissionWalletScreenState();
+  ConsumerState<CommissionWalletScreen> createState() =>
+      _CommissionWalletScreenState();
 }
 
-class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen> with SingleTickerProviderStateMixin {
+class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
+    with SingleTickerProviderStateMixin {
   final CommissionWalletService _service = CommissionWalletService();
   late TabController _tabController;
   Map<String, dynamic> _policies = {
     'agencyCommissionRate': 0.30,
     'adminCommissionRate': 0.10,
     'usdToDiamondRate': 1000000,
-    'supportedGateways': ['bKash', 'Nagad', 'Rocket', 'Bank Transfer', 'PayPal', 'Wise', 'Binance Pay', 'USDT TRC20', 'USDT BEP20']
+    'supportedGateways': [
+      'bKash',
+      'Nagad',
+      'Rocket',
+      'Bank Transfer',
+      'PayPal',
+      'Wise',
+      'Binance Pay',
+      'USDT TRC20',
+      'USDT BEP20'
+    ]
   };
 
   @override
@@ -55,12 +68,14 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
         backgroundColor: const Color(0xFF18181B),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+          icon: const Icon(Icons.arrow_back_ios_new,
+              color: Colors.white, size: 20),
           onPressed: () => context.pop(),
         ),
         title: const Text(
           'USD Commission Wallet',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+          style: TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
         ),
         actions: [
           IconButton(
@@ -75,7 +90,9 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       body: userAsync.when(
         data: (user) {
           if (user == null) {
-            return const Center(child: Text('User profile not found', style: TextStyle(color: Colors.white70)));
+            return const Center(
+                child: Text('User profile not found',
+                    style: TextStyle(color: Colors.white70)));
           }
 
           if (user.isSuperAdmin && !user.isOwner) {
@@ -91,11 +108,23 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
             );
           }
 
-          final usdBalance = user.usdCommissionBalance;
-          final pendingBalance = user.pendingWithdrawalBalance;
-          final totalEarned = user.totalCommissionEarned;
-          final totalWithdrawn = user.totalWithdrawnUSD;
-          final totalRecharge = user.totalRechargeGenerated;
+          final agencyWallet = user.isAgencyOwner && user.agencyId != null
+              ? ref
+                  .watch(agencyWalletStreamProvider(user.agencyId!))
+                  .valueOrNull
+              : null;
+          double agencyValue(String key) =>
+              (agencyWallet?[key] as num? ?? 0).toDouble();
+          final usdBalance =
+              user.usdCommissionBalance + agencyValue('usdCommissionBalance');
+          final pendingBalance = user.pendingWithdrawalBalance +
+              agencyValue('pendingWithdrawalBalance');
+          final totalEarned =
+              user.totalCommissionEarned + agencyValue('totalCommissionEarned');
+          final totalWithdrawn =
+              user.totalWithdrawnUSD + agencyValue('totalWithdrawnUSD');
+          final totalRecharge = user.totalRechargeGenerated +
+              agencyValue('totalRechargeGenerated');
 
           return SafeArea(
             child: Column(
@@ -147,18 +176,23 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                                   ),
                                 ),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
                                     color: Colors.black26,
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: const Row(
                                     children: [
-                                      Icon(Icons.verified_user_rounded, color: Colors.white, size: 12),
+                                      Icon(Icons.verified_user_rounded,
+                                          color: Colors.white, size: 12),
                                       Gap(4),
                                       Text(
                                         'USD SECURE',
-                                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 9),
+                                        style: TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 9),
                                       ),
                                     ],
                                   ),
@@ -178,11 +212,15 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                               const Gap(6),
                               Row(
                                 children: [
-                                  const Icon(Icons.lock_clock, color: Colors.amberAccent, size: 14),
+                                  const Icon(Icons.lock_clock,
+                                      color: Colors.amberAccent, size: 14),
                                   const Gap(4),
                                   Text(
                                     'Pending Locked: ${_formatUSD(pendingBalance)}',
-                                    style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 12),
+                                    style: const TextStyle(
+                                        color: Colors.amberAccent,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12),
                                   ),
                                 ],
                               ),
@@ -231,17 +269,25 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                           // 1. Convert to Diamonds
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: usdBalance > 0 ? () => _showConvertToDiamondsModal(user.uid, usdBalance) : null,
+                              onPressed: usdBalance > 0
+                                  ? () => _showConvertToDiamondsModal(
+                                      user.uid, usdBalance)
+                                  : null,
                               icon: const Icon(Icons.diamond_rounded, size: 18),
                               label: const Text(
                                 'BUY DIAMONDS',
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11,
+                                    letterSpacing: 0.5),
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.cyanAccent.shade700,
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
                                 elevation: 4,
                               ),
                             ),
@@ -251,17 +297,26 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                           // 2. Direct Financial Withdrawal
                           Expanded(
                             child: ElevatedButton.icon(
-                              onPressed: usdBalance > 0 ? () => _showWithdrawalModal(user.uid, usdBalance) : null,
-                              icon: const Icon(Icons.payments_rounded, size: 18),
+                              onPressed: usdBalance > 0
+                                  ? () =>
+                                      _showWithdrawalModal(user.uid, usdBalance)
+                                  : null,
+                              icon:
+                                  const Icon(Icons.payments_rounded, size: 18),
                               label: const Text(
                                 'WITHDRAW',
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11,
+                                    letterSpacing: 0.5),
                               ),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF10B981),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
                                 elevation: 4,
                               ),
                             ),
@@ -271,17 +326,27 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                           // 3. Transfer to Reseller
                           Expanded(
                             child: OutlinedButton.icon(
-                              onPressed: usdBalance > 0 ? () => _showResellerTransferModal(user.uid, usdBalance) : null,
-                              icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                              onPressed: usdBalance > 0
+                                  ? () => _showResellerTransferModal(
+                                      user.uid, usdBalance)
+                                  : null,
+                              icon: const Icon(Icons.swap_horiz_rounded,
+                                  size: 18),
                               label: const Text(
                                 'RESELLER',
-                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11, letterSpacing: 0.5),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 11,
+                                    letterSpacing: 0.5),
                               ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: Colors.amberAccent,
-                                side: const BorderSide(color: Colors.amberAccent),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                side:
+                                    const BorderSide(color: Colors.amberAccent),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(14)),
                               ),
                             ),
                           ),
@@ -297,7 +362,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                   indicatorColor: Colors.greenAccent,
                   labelColor: Colors.greenAccent,
                   unselectedLabelColor: Colors.grey,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  labelStyle: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 12),
                   tabs: const [
                     Tab(text: 'DIAMONDS'),
                     Tab(text: 'WITHDRAWALS'),
@@ -321,8 +387,11 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
             ),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: Colors.greenAccent)),
-        error: (e, st) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.redAccent))),
+        loading: () => const Center(
+            child: CircularProgressIndicator(color: Colors.greenAccent)),
+        error: (e, st) => Center(
+            child: Text('Error: $e',
+                style: const TextStyle(color: Colors.redAccent))),
       ),
     );
   }
@@ -350,7 +419,10 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
               Expanded(
                 child: Text(
                   label,
-                  style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w800, fontSize: 8),
+                  style: const TextStyle(
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 8),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -360,7 +432,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
           const Gap(4),
           Text(
             value,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
           ),
         ],
       ),
@@ -369,7 +442,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
 
   // ─── Option 3: Convert USD -> Diamonds Modal ─────────────────────
   void _showConvertToDiamondsModal(String uid, double availableUSD) {
-    final TextEditingController amountController = TextEditingController(text: '1.00');
+    final TextEditingController amountController =
+        TextEditingController(text: '1.00');
     final int rate = _policies['usdToDiamondRate'] ?? 1000000;
     bool isProcessing = false;
     String? errorText;
@@ -384,7 +458,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final double enteredUSD = double.tryParse(amountController.text) ?? 0.0;
+            final double enteredUSD =
+                double.tryParse(amountController.text) ?? 0.0;
             final int previewDiamonds = (enteredUSD * rate).toInt();
 
             return Padding(
@@ -403,11 +478,15 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.diamond_rounded, color: Colors.cyanAccent, size: 24),
+                          Icon(Icons.diamond_rounded,
+                              color: Colors.cyanAccent, size: 24),
                           Gap(8),
                           Text(
                             'Convert USD to Diamonds',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18),
                           ),
                         ],
                       ),
@@ -423,16 +502,21 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     decoration: BoxDecoration(
                       color: Colors.cyanAccent.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
+                      border:
+                          Border.all(color: Colors.cyanAccent.withOpacity(0.3)),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.info_outline_rounded, color: Colors.cyanAccent, size: 16),
+                        const Icon(Icons.info_outline_rounded,
+                            color: Colors.cyanAccent, size: 16),
                         const Gap(8),
                         Expanded(
                           child: Text(
                             'Default Conversion Rate: 1 USD = ${_formatNum(rate)} Diamonds',
-                            style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.bold, fontSize: 11),
+                            style: const TextStyle(
+                                color: Colors.cyanAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 11),
                           ),
                         ),
                       ],
@@ -442,21 +526,31 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
 
                   Text(
                     'Available USD Balance: ${_formatUSD(availableUSD)}',
-                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12),
                   ),
                   const Gap(10),
 
                   TextField(
                     controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20),
                     decoration: InputDecoration(
                       labelText: 'USD Amount to Convert',
                       labelStyle: const TextStyle(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.attach_money_rounded, color: Colors.greenAccent),
+                      prefixIcon: const Icon(Icons.attach_money_rounded,
+                          color: Colors.greenAccent),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                       errorText: errorText,
                     ),
                     onChanged: (_) {
@@ -478,19 +572,29 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     ),
                     child: Column(
                       children: [
-                        const Text('YOU WILL RECEIVE', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.w800, fontSize: 10)),
+                        const Text('YOU WILL RECEIVE',
+                            style: TextStyle(
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10)),
                         const Gap(4),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.diamond_rounded, color: Colors.cyanAccent, size: 22),
+                            const Icon(Icons.diamond_rounded,
+                                color: Colors.cyanAccent, size: 22),
                             const Gap(6),
                             Text(
                               _formatNum(previewDiamonds),
-                              style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 26),
+                              style: const TextStyle(
+                                  color: Colors.cyanAccent,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 26),
                             ),
                             const Gap(4),
-                            const Text('Diamonds', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                            const Text('Diamonds',
+                                style: TextStyle(
+                                    color: Colors.white70, fontSize: 12)),
                           ],
                         ),
                       ],
@@ -504,24 +608,31 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       onPressed: isProcessing
                           ? null
                           : () async {
-                              final amt = double.tryParse(amountController.text) ?? 0.0;
+                              final amt =
+                                  double.tryParse(amountController.text) ?? 0.0;
                               if (amt <= 0) {
-                                setModalState(() => errorText = 'Enter a valid positive amount.');
+                                setModalState(() => errorText =
+                                    'Enter a valid positive amount.');
                                 return;
                               }
                               if (amt > availableUSD) {
-                                setModalState(() => errorText = 'Insufficient USD commission balance.');
+                                setModalState(() => errorText =
+                                    'Insufficient USD commission balance.');
                                 return;
                               }
 
                               setModalState(() => isProcessing = true);
                               try {
-                                final res = await _service.convertCommissionToDiamonds(amt);
+                                final res = await _service
+                                    .convertCommissionToDiamonds(amt);
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-                                      content: Text('✅ Successfully converted \$${amt.toStringAsFixed(2)} USD to ${_formatNum(res['diamondsReceived'] as int)} Diamonds!'),
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    TopSnackBar(
+                                      context: context,
+                                      content: Text(
+                                          '✅ Successfully converted \$${amt.toStringAsFixed(2)} USD to ${_formatNum(res['diamondsReceived'] as int)} Diamonds!'),
                                       backgroundColor: Colors.green,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -530,7 +641,9 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                               } catch (e) {
                                 setModalState(() {
                                   isProcessing = false;
-                                  errorText = e.toString().replaceAll('Exception: ', '');
+                                  errorText = e
+                                      .toString()
+                                      .replaceAll('Exception: ', '');
                                 });
                               }
                             },
@@ -538,11 +651,18 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                         backgroundColor: Colors.cyanAccent.shade700,
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
                       ),
                       child: isProcessing
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Text('CONFIRM & CONVERT NOW', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
+                          : const Text('CONFIRM & CONVERT NOW',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900, fontSize: 13)),
                     ),
                   ),
                 ],
@@ -556,9 +676,22 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
 
   // ─── Option 2: Direct Withdrawal Modal ────────────────────────────
   void _showWithdrawalModal(String uid, double availableUSD) {
-    final TextEditingController amountController = TextEditingController(text: '10.00');
+    final TextEditingController amountController =
+        TextEditingController(text: '10.00');
     final TextEditingController accountController = TextEditingController();
-    final List<String> gateways = List<String>.from(_policies['supportedGateways'] ?? ['bKash', 'Nagad', 'Rocket', 'Bank Transfer', 'PayPal', 'Wise', 'Binance Pay', 'USDT TRC20', 'USDT BEP20']);
+    final List<String> gateways =
+        List<String>.from(_policies['supportedGateways'] ??
+            [
+              'bKash',
+              'Nagad',
+              'Rocket',
+              'Bank Transfer',
+              'PayPal',
+              'Wise',
+              'Binance Pay',
+              'USDT TRC20',
+              'USDT BEP20'
+            ]);
     String selectedGateway = gateways.isNotEmpty ? gateways.first : 'bKash';
     bool isProcessing = false;
     String? errorText;
@@ -589,11 +722,15 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.payments_rounded, color: Color(0xFF10B981), size: 24),
+                          Icon(Icons.payments_rounded,
+                              color: Color(0xFF10B981), size: 24),
                           Gap(8),
                           Text(
                             'Withdraw USD Commission',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18),
                           ),
                         ],
                       ),
@@ -606,73 +743,91 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                   const Gap(6),
                   Text(
                     'Available Balance: ${_formatUSD(availableUSD)}',
-                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 12),
+                    style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12),
                   ),
                   const Gap(16),
-
                   DropdownButtonFormField<String>(
                     value: selectedGateway,
                     dropdownColor: Colors.black,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       labelText: 'Select Payment Gateway / Method',
                       labelStyle: const TextStyle(color: Colors.grey),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                     ),
-                    items: gateways.map((g) => DropdownMenuItem(value: g, child: Text(g))).toList(),
+                    items: gateways
+                        .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                        .toList(),
                     onChanged: (val) {
-                      if (val != null) setModalState(() => selectedGateway = val);
+                      if (val != null)
+                        setModalState(() => selectedGateway = val);
                     },
                   ),
                   const Gap(12),
-
                   TextField(
                     controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       labelText: 'Withdrawal Amount (USD)',
                       labelStyle: const TextStyle(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.attach_money_rounded, color: Colors.greenAccent),
+                      prefixIcon: const Icon(Icons.attach_money_rounded,
+                          color: Colors.greenAccent),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                       errorText: errorText,
                     ),
                   ),
                   const Gap(12),
-
                   TextField(
                     controller: accountController,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
-                      labelText: 'Payment Account Details (IBAN / Phone / Address)',
+                      labelText:
+                          'Payment Account Details (IBAN / Phone / Address)',
                       labelStyle: const TextStyle(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.account_balance_rounded, color: Colors.greenAccent),
+                      prefixIcon: const Icon(Icons.account_balance_rounded,
+                          color: Colors.greenAccent),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                     ),
                   ),
                   const Gap(20),
-
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: isProcessing
                           ? null
                           : () async {
-                              final amt = double.tryParse(amountController.text) ?? 0.0;
+                              final amt =
+                                  double.tryParse(amountController.text) ?? 0.0;
                               final details = accountController.text.trim();
 
                               if (amt <= 0 || details.isEmpty) {
-                                setModalState(() => errorText = 'Amount and account details required.');
+                                setModalState(() => errorText =
+                                    'Amount and account details required.');
                                 return;
                               }
                               if (amt > availableUSD) {
-                                setModalState(() => errorText = 'Amount exceeds available balance.');
+                                setModalState(() => errorText =
+                                    'Amount exceeds available balance.');
                                 return;
                               }
 
@@ -686,8 +841,11 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-                                      content: Text('✅ Withdrawal request submitted! Awaiting Owner review.'),
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    TopSnackBar(
+                                      context: context,
+                                      content: Text(
+                                          '✅ Withdrawal request submitted! Awaiting Owner review.'),
                                       backgroundColor: Colors.green,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -696,7 +854,9 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                               } catch (e) {
                                 setModalState(() {
                                   isProcessing = false;
-                                  errorText = e.toString().replaceAll('Exception: ', '');
+                                  errorText = e
+                                      .toString()
+                                      .replaceAll('Exception: ', '');
                                 });
                               }
                             },
@@ -704,11 +864,18 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                         backgroundColor: const Color(0xFF10B981),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
                       ),
                       child: isProcessing
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                          : const Text('SUBMIT WITHDRAWAL REQUEST', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  color: Colors.white, strokeWidth: 2))
+                          : const Text('SUBMIT WITHDRAWAL REQUEST',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900, fontSize: 13)),
                     ),
                   ),
                 ],
@@ -723,7 +890,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
   // ─── Option 1: Reseller Transfer Modal ───────────────────────────
   void _showResellerTransferModal(String uid, double availableUSD) {
     final TextEditingController resellerIdController = TextEditingController();
-    final TextEditingController amountController = TextEditingController(text: '10.00');
+    final TextEditingController amountController =
+        TextEditingController(text: '10.00');
     bool isProcessing = false;
     String? errorText;
 
@@ -753,11 +921,15 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.swap_horiz_rounded, color: Colors.amberAccent, size: 24),
+                          Icon(Icons.swap_horiz_rounded,
+                              color: Colors.amberAccent, size: 24),
                           Gap(8),
                           Text(
                             'Transfer to Reseller Wallet',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18),
                           ),
                         ],
                       ),
@@ -768,38 +940,44 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     ],
                   ),
                   const Gap(16),
-
                   TextField(
                     controller: resellerIdController,
                     keyboardType: TextInputType.number,
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       labelText: 'Target Reseller Hello ID',
                       labelStyle: const TextStyle(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.badge_rounded, color: Colors.amberAccent),
+                      prefixIcon: const Icon(Icons.badge_rounded,
+                          color: Colors.amberAccent),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                     ),
                   ),
                   const Gap(12),
-
                   TextField(
                     controller: amountController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.bold),
                     decoration: InputDecoration(
                       labelText: 'Transfer Amount (USD)',
                       labelStyle: const TextStyle(color: Colors.grey),
-                      prefixIcon: const Icon(Icons.attach_money_rounded, color: Colors.amberAccent),
+                      prefixIcon: const Icon(Icons.attach_money_rounded,
+                          color: Colors.amberAccent),
                       filled: true,
                       fillColor: Colors.black,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none),
                       errorText: errorText,
                     ),
                   ),
                   const Gap(20),
-
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -807,25 +985,32 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                           ? null
                           : () async {
                               final rId = resellerIdController.text.trim();
-                              final amt = double.tryParse(amountController.text) ?? 0.0;
+                              final amt =
+                                  double.tryParse(amountController.text) ?? 0.0;
 
                               if (rId.isEmpty || amt <= 0) {
-                                setModalState(() => errorText = 'Target Reseller ID and amount required.');
+                                setModalState(() => errorText =
+                                    'Target Reseller ID and amount required.');
                                 return;
                               }
                               if (amt > availableUSD) {
-                                setModalState(() => errorText = 'Amount exceeds available balance.');
+                                setModalState(() => errorText =
+                                    'Amount exceeds available balance.');
                                 return;
                               }
 
                               setModalState(() => isProcessing = true);
                               try {
-                                final res = await _service.transferCommissionToReseller(rId, amt);
+                                final res = await _service
+                                    .transferCommissionToReseller(rId, amt);
                                 if (mounted) {
                                   Navigator.pop(ctx);
                                   ref.invalidate(currentUserProfileProvider);
-                                  ScaffoldMessenger.of(context).showSnackBar(TopSnackBar(context: context, 
-                                      content: Text('✅ Transferred \$${amt.toStringAsFixed(2)} USD to Reseller ${res['targetName']}!'),
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    TopSnackBar(
+                                      context: context,
+                                      content: Text(
+                                          '✅ Transferred \$${amt.toStringAsFixed(2)} USD to Reseller ${res['targetName']}!'),
                                       backgroundColor: Colors.amber.shade800,
                                       behavior: SnackBarBehavior.floating,
                                     ),
@@ -834,7 +1019,9 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                               } catch (e) {
                                 setModalState(() {
                                   isProcessing = false;
-                                  errorText = e.toString().replaceAll('Exception: ', '');
+                                  errorText = e
+                                      .toString()
+                                      .replaceAll('Exception: ', '');
                                 });
                               }
                             },
@@ -842,11 +1029,18 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                         backgroundColor: Colors.amberAccent.shade700,
                         foregroundColor: Colors.black,
                         padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16)),
                       ),
                       child: isProcessing
-                          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2))
-                          : const Text('EXECUTE RESELLER TRANSFER', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13)),
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                  color: Colors.black, strokeWidth: 2))
+                          : const Text('EXECUTE RESELLER TRANSFER',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.w900, fontSize: 13)),
                     ),
                   ),
                 ],
@@ -864,11 +1058,14 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       stream: _service.streamDiamondConversions(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.cyanAccent));
+          return const Center(
+              child: CircularProgressIndicator(color: Colors.cyanAccent));
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-          return const Center(child: Text('No diamond conversion records', style: TextStyle(color: Colors.grey)));
+          return const Center(
+              child: Text('No diamond conversion records',
+                  style: TextStyle(color: Colors.grey)));
         }
 
         return ListView.separated(
@@ -895,7 +1092,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       color: Colors.cyanAccent.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.diamond_rounded, color: Colors.cyanAccent, size: 20),
+                    child: const Icon(Icons.diamond_rounded,
+                        color: Colors.cyanAccent, size: 20),
                   ),
                   const Gap(12),
                   Expanded(
@@ -904,12 +1102,16 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       children: [
                         Text(
                           'Converted ${_formatUSD(usd)}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14),
                         ),
                         const Gap(2),
                         Text(
                           'Rate: 1 USD = ${_formatNum(item['conversionRate'] as int? ?? 1000000)} Diamonds',
-                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 11),
                         ),
                       ],
                     ),
@@ -919,12 +1121,18 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     children: [
                       Text(
                         '+${_formatNum(diamonds)}',
-                        style: const TextStyle(color: Colors.cyanAccent, fontWeight: FontWeight.w900, fontSize: 15),
+                        style: const TextStyle(
+                            color: Colors.cyanAccent,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 15),
                       ),
                       const Gap(2),
                       const Text(
                         'Completed',
-                        style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 10),
+                        style: TextStyle(
+                            color: Colors.greenAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 10),
                       ),
                     ],
                   ),
@@ -943,11 +1151,14 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       stream: _service.streamWithdrawals(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.greenAccent));
+          return const Center(
+              child: CircularProgressIndicator(color: Colors.greenAccent));
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-          return const Center(child: Text('No withdrawal records', style: TextStyle(color: Colors.grey)));
+          return const Center(
+              child: Text('No withdrawal records',
+                  style: TextStyle(color: Colors.grey)));
         }
 
         return ListView.separated(
@@ -957,11 +1168,13 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
           itemBuilder: (context, index) {
             final item = list[index];
             final usd = (item['usdAmount'] as num? ?? 0.0).toDouble();
-            final status = (item['status'] as String? ?? 'pending').toLowerCase();
+            final status =
+                (item['status'] as String? ?? 'pending').toLowerCase();
             final method = item['paymentMethod'] as String? ?? 'Bank';
 
             Color statusColor = Colors.amber;
-            if (status == 'paid' || status == 'approved') statusColor = Colors.greenAccent;
+            if (status == 'paid' || status == 'approved')
+              statusColor = Colors.greenAccent;
             if (status == 'rejected') statusColor = Colors.redAccent;
             if (status == 'processing') statusColor = Colors.blueAccent;
 
@@ -980,7 +1193,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       color: statusColor.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(Icons.payments_rounded, color: statusColor, size: 20),
+                    child: Icon(Icons.payments_rounded,
+                        color: statusColor, size: 20),
                   ),
                   const Gap(12),
                   Expanded(
@@ -989,12 +1203,16 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       children: [
                         Text(
                           _formatUSD(usd),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15),
                         ),
                         const Gap(2),
                         Text(
                           'Method: $method • ${item['paymentAccountDetails'] ?? ''}',
-                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 11),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -1002,7 +1220,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: statusColor.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(10),
@@ -1010,7 +1229,10 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                     ),
                     child: Text(
                       status.toUpperCase(),
-                      style: TextStyle(color: statusColor, fontWeight: FontWeight.w900, fontSize: 10),
+                      style: TextStyle(
+                          color: statusColor,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 10),
                     ),
                   ),
                 ],
@@ -1028,11 +1250,14 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       stream: _service.streamResellerTransfers(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.amberAccent));
+          return const Center(
+              child: CircularProgressIndicator(color: Colors.amberAccent));
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-          return const Center(child: Text('No reseller transfer records', style: TextStyle(color: Colors.grey)));
+          return const Center(
+              child: Text('No reseller transfer records',
+                  style: TextStyle(color: Colors.grey)));
         }
 
         return ListView.separated(
@@ -1058,7 +1283,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       color: Colors.amber.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.swap_horiz_rounded, color: Colors.amberAccent, size: 20),
+                    child: const Icon(Icons.swap_horiz_rounded,
+                        color: Colors.amberAccent, size: 20),
                   ),
                   const Gap(12),
                   Expanded(
@@ -1067,19 +1293,26 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       children: [
                         Text(
                           'Transferred ${_formatUSD(usd)}',
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14),
                         ),
                         const Gap(2),
                         Text(
                           'Target: ${item['targetName'] ?? 'Reseller'} (ID: ${item['targetHelloId'] ?? ''})',
-                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
                   const Text(
                     'COMPLETED',
-                    style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.w900, fontSize: 10),
+                    style: TextStyle(
+                        color: Colors.greenAccent,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 10),
                   ),
                 ],
               ),
@@ -1096,11 +1329,14 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
       stream: _service.streamCommissionEarnings(uid),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator(color: Colors.greenAccent));
+          return const Center(
+              child: CircularProgressIndicator(color: Colors.greenAccent));
         }
         final list = snapshot.data ?? [];
         if (list.isEmpty) {
-          return const Center(child: Text('No commission earnings logged yet', style: TextStyle(color: Colors.grey)));
+          return const Center(
+              child: Text('No commission earnings logged yet',
+                  style: TextStyle(color: Colors.grey)));
         }
 
         return ListView.separated(
@@ -1111,7 +1347,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
             final item = list[index];
             final commUSD = (item['commissionUSD'] as num? ?? 0.0).toDouble();
             final rechargeUSD = (item['rechargeUSD'] as num? ?? 0.0).toDouble();
-            final rate = ((item['commissionRate'] as num? ?? 0.3) * 100).toInt();
+            final rate =
+                ((item['commissionRate'] as num? ?? 0.3) * 100).toInt();
 
             return Container(
               padding: const EdgeInsets.all(14),
@@ -1128,7 +1365,8 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       color: Colors.green.withOpacity(0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.trending_up_rounded, color: Colors.greenAccent, size: 20),
+                    child: const Icon(Icons.trending_up_rounded,
+                        color: Colors.greenAccent, size: 20),
                   ),
                   const Gap(12),
                   Expanded(
@@ -1137,17 +1375,22 @@ class _CommissionWalletScreenState extends ConsumerState<CommissionWalletScreen>
                       children: [
                         Text(
                           '+${_formatUSD(commUSD)} ($rate% Comm)',
-                          style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 14),
+                          style: const TextStyle(
+                              color: Colors.greenAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14),
                         ),
                         const Gap(2),
                         Text(
                           'Host Recharge: ${_formatUSD(rechargeUSD)} • Host UID: ${(item['hostUid'] as String? ?? '').slice(0, 8)}...',
-                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 11),
                         ),
                       ],
                     ),
                   ),
-                  const Icon(Icons.check_circle_outline, color: Colors.greenAccent, size: 16),
+                  const Icon(Icons.check_circle_outline,
+                      color: Colors.greenAccent, size: 16),
                 ],
               ),
             );

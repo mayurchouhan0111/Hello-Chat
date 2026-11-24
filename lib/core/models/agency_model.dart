@@ -8,9 +8,12 @@ class AgencyModel {
   final String logoUrl;
   final String description;
   final List<String> hostUids;
-  final double commissionRate; // e.g. 0.1 for 10%
+  final double commissionRate; // 0.30 = 30% recharge commission
   final int totalBeansEarned;
   final int beansBalance;
+  final double usdCommissionBalance;
+  final double totalCommissionEarned;
+  final double totalRechargeGenerated;
   final DateTime createdAt;
 
   final bool isActive;
@@ -23,13 +26,15 @@ class AgencyModel {
     this.logoUrl = '',
     this.description = '',
     this.hostUids = const [],
-    this.commissionRate = 0.1,
+    this.commissionRate = 0.30,
     this.totalBeansEarned = 0,
     this.beansBalance = 0,
+    this.usdCommissionBalance = 0,
+    this.totalCommissionEarned = 0,
+    this.totalRechargeGenerated = 0,
     required this.createdAt,
     this.isActive = true,
   });
-
 
   factory AgencyModel.fromMap(Map<String, dynamic> map, String id) {
     return AgencyModel(
@@ -40,11 +45,16 @@ class AgencyModel {
       logoUrl: map['logoUrl'] ?? '',
       description: map['description'] ?? '',
       hostUids: List<String>.from(map['hostUids'] ?? []),
-      commissionRate: (map['commissionRate'] as num?)?.toDouble() ?? 0.1,
+      commissionRate: (map['commissionRate'] as num?)?.toDouble() ?? 0.30,
       totalBeansEarned: map['totalBeansEarned'] ?? 0,
       beansBalance: map['beansBalance'] ?? 0,
+      usdCommissionBalance:
+          (map['usdCommissionBalance'] as num? ?? 0).toDouble(),
+      totalCommissionEarned:
+          (map['totalCommissionEarned'] as num? ?? 0).toDouble(),
+      totalRechargeGenerated:
+          (map['totalRechargeGenerated'] as num? ?? 0).toDouble(),
       createdAt: (map['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
-
       isActive: map['isActive'] ?? true,
     );
   }
@@ -60,8 +70,10 @@ class AgencyModel {
       'commissionRate': commissionRate,
       'totalBeansEarned': totalBeansEarned,
       'beansBalance': beansBalance,
+      'usdCommissionBalance': usdCommissionBalance,
+      'totalCommissionEarned': totalCommissionEarned,
+      'totalRechargeGenerated': totalRechargeGenerated,
       'createdAt': Timestamp.fromDate(createdAt),
-
       'isActive': isActive,
     };
   }
