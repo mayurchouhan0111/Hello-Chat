@@ -1219,15 +1219,29 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
     required int prize,
     int? balanceAfter,
     int? totalBet,
+    String? winningFood,
+    String? emoji,
+    String? label,
+    int? multiplier,
   }) {
     if (roundId.isEmpty) return;
     final cur = _sessionRoundsHistory[roundId] ??= <String, dynamic>{
       'roundId': roundId
     };
     cur['settled'] = true;
+    cur['status'] = 'ROUND_SETTLED';
     cur['prize'] =
         prize; // Exactly match authoritative backend settlement (even if 0 for loss)
     cur['amount'] = prize;
+    if (winningFood != null && winningFood.isNotEmpty) {
+      cur['winningFood'] = winningFood;
+      cur['name'] = winningFood;
+    }
+    if (emoji != null && emoji.isNotEmpty) cur['emoji'] = emoji;
+    if (label != null && label.isNotEmpty) cur['label'] = label;
+    if (multiplier != null && multiplier > 0) {
+      cur['multiplier'] = '${multiplier}x';
+    }
     if (totalBet != null && totalBet > 0) {
       cur['totalBet'] = totalBet;
     }
@@ -1391,6 +1405,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
         bets: _currentBets,
         totalBet: newTotalBet,
       );
+      ref
+          .read(spinWheelBackgroundSettlerProvider)
+          .trackRound(curRound, serverTimeOffsetMs: _serverTimeOffset);
     }
 
     _debounceTimer?.cancel();
@@ -1609,6 +1626,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
           bets: snapshotBets,
           totalBet: totalBet,
         );
+        ref
+            .read(spinWheelBackgroundSettlerProvider)
+            .trackRound(resultRoundId, serverTimeOffsetMs: _serverTimeOffset);
         if (_currentBets.isEmpty) {
           GameRecoveryService().clearBetState();
         } else {
@@ -1629,8 +1649,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
             roundId: resultRoundId,
             bets: snapshotBets,
             totalBet: totalBet,
-            settled: true,
+            settled: false,
           );
+          ref
+              .read(spinWheelBackgroundSettlerProvider)
+              .trackRound(resultRoundId, serverTimeOffsetMs: _serverTimeOffset);
         }
         setState(() {
           _walletManager.reconcileBetSuccess(
@@ -2099,6 +2122,9 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await WakelockService().acquire();
       debugPrint('[SPIN_WHEEL_EVENT] 🔒 Wakelock acquired for spin wheel game');
+      if (mounted) {
+        _checkAndRecoverUnsettledRounds();
+      }
     });
 
     _subscribeToRealtimeRoundState();
@@ -3112,6 +3138,11 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
         final serverTotalBet = (result['totalBet'] as num?)?.toInt();
         final serverSeq = (result['seq'] as num?)?.toInt() ?? requestSeq;
         final txnId = result['txnId'] as String? ?? 'spin_win_$roundId';
+        final serverWinningFood =
+            (result['winningFood'] ?? result['name'])?.toString();
+        final serverEmoji = result['emoji']?.toString();
+        final serverLabel = result['label']?.toString();
+        final serverMult = (result['multiplier'] as num?)?.toInt();
         debugPrint(
             '[SPIN_WHEEL_EVENT] 🏆 Round $roundId settled: prize=$serverPrize, balance=$serverBal, totalBet=$serverTotalBet, seq=$serverSeq');
         _recordSessionSettle(
@@ -3119,6 +3150,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
           prize: serverPrize,
           balanceAfter: serverBal,
           totalBet: serverTotalBet,
+          winningFood: serverWinningFood,
+          emoji: serverEmoji,
+          label: serverLabel,
+          multiplier: serverMult,
         );
         setState(() {
           _storedPrize = serverPrize;
@@ -3166,14 +3201,54 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
 
   void _checkAndRecoverUnsettledRounds() {
     if (!mounted) return;
-    for (final entry in _sessionRoundsHistory.entries) {
+    final nowMs = _synchronizedTimeMs;
+    const roundDurationMs = 40000;
+    final currentSyncRound = nowMs ~/ roundDurationMs;
+    final secIntoCycle = (nowMs % roundDurationMs) ~/ 1000;
+
+    bool isRoundCompleted(String roundId) {
+      final rNum = int.tryParse(roundId);
+      if (rNum == null || rNum <= 0) return false;
+      if (rNum < currentSyncRound) return true;
+      return rNum == currentSyncRound && secIntoCycle >= 35;
+    }
+
+    // 1. Check in-session cached rounds
+    for (final entry in _sessionRoundsHistory.entries.toList()) {
       final roundId = entry.key;
       final ticket = entry.value;
-      final isSettled = ticket['settled'] == true;
+      final isSettled = ticket['settled'] == true ||
+          ticket['status'] == 'ROUND_SETTLED' ||
+          ticket['status'] == 'REVERTED';
       final totalBet = (ticket['totalBet'] as num?)?.toInt() ?? 0;
-      if (!isSettled && totalBet > 0 && roundId.isNotEmpty) {
+      if (!isSettled && totalBet > 0 && roundId.isNotEmpty && isRoundCompleted(roundId)) {
         debugPrint(
-            '[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled round $roundId (wager: $totalBet)');
+            '[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled session round $roundId (wager: $totalBet)');
+        _executeRoundSettlement(
+          roundId: roundId,
+          effectiveTotalBet: totalBet,
+          isCatchUp: true,
+        );
+      }
+    }
+
+    // 2. Check remote Firestore game_history stream for any exited/unsettled past rounds
+    final remoteHistory = ref.read(userGameHistoryProvider).value ?? [];
+    for (final item in remoteHistory) {
+      final isSpin = item['game'] == 'spin_wheel' ||
+          (item['docId']?.toString().startsWith('spin_') ?? false);
+      if (!isSpin) continue;
+      final roundId = item['roundId']?.toString() ??
+          item['docId']?.toString().replaceFirst('spin_', '') ??
+          '';
+      if (roundId.isEmpty) continue;
+      final isSettled = item['settled'] == true ||
+          item['status'] == 'ROUND_SETTLED' ||
+          item['status'] == 'REVERTED';
+      final totalBet = (item['totalBet'] as num?)?.toInt() ?? 0;
+      if (!isSettled && totalBet > 0 && isRoundCompleted(roundId)) {
+        debugPrint(
+            '[SPIN_WHEEL_EVENT] 🔄 Auto-recovering unsettled remote round $roundId (wager: $totalBet)');
         _executeRoundSettlement(
           roundId: roundId,
           effectiveTotalBet: totalBet,
@@ -3780,10 +3855,52 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
       child: Text(text,
           style: const TextStyle(color: Colors.white70, fontSize: 13)));
 
+  bool _exitedAndFlushed = false;
+
+  void _flushPendingBetsOnExit() {
+    if (_exitedAndFlushed) return;
+    _exitedAndFlushed = true;
+    _debounceTimer?.cancel();
+
+    try {
+      final settler = ref.read(spinWheelBackgroundSettlerProvider);
+      final now = _synchronizedTimeMs;
+      const serverRoundMs = 40000;
+      final activeRoundId = _currentRoundId ?? (now ~/ serverRoundMs).toString();
+      final secIntoCycle = (now % serverRoundMs) ~/ 1000;
+
+      if (_confirmedRoundId != null && _confirmedBets.isNotEmpty) {
+        settler.trackRound(_confirmedRoundId!, serverTimeOffsetMs: _serverTimeOffset);
+      }
+
+      if (_currentBets.isNotEmpty) {
+        settler.trackRound(activeRoundId, serverTimeOffsetMs: _serverTimeOffset);
+        if (_hasUnconfirmedBets() &&
+            secIntoCycle < 36 &&
+            !_isOffline &&
+            _platformHasNetwork &&
+            NetworkConnectivityService().isOnline) {
+          final betsCopy = Map<String, int>.from(_currentBets);
+          unawaited(
+            settler.flushBetAndScheduleSettlement(
+              roundId: activeRoundId,
+              bets: betsCopy,
+              roomId: widget.roomId,
+              serverTimeOffsetMs: _serverTimeOffset,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[SPIN_WHEEL_EVENT] ⚠️ Flush on exit note: $e');
+    }
+  }
+
   @override
   void dispose() {
     debugPrint(
         '[SPIN_WHEEL_EVENT] 🛑 Game Screen Disposing: Cleaning up controllers, timers, and listeners.');
+    _flushPendingBetsOnExit();
     _dismissBottomSheet();
     WidgetsBinding.instance.removeObserver(this);
     WakelockService().release();
@@ -3869,7 +3986,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
     return PopScope(
       canPop: canPopScreen,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
+        if (didPop) {
+          _flushPendingBetsOnExit();
+          return;
+        }
         if (_bottomSheetRoute != null && _bottomSheetRoute!.isActive) {
           debugPrint(
               '[SPIN_WHEEL_EVENT] 🛡️ Pop intercepted: Dismissing bottom sheet only, preventing screen exit');
@@ -3978,7 +4098,10 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
                     children: [
                       SpinWheelLayout(
                         header: Row(children: [
-                          BackButton(onPressed: () => Navigator.pop(context)),
+                          BackButton(onPressed: () {
+                            _flushPendingBetsOnExit();
+                            Navigator.pop(context);
+                          }),
                           Expanded(
                               child: _buildHeader(
                                   settings,
@@ -6065,6 +6188,7 @@ class _SpinWheelScreenState extends ConsumerState<SpinWheelScreen>
   }
 
   void _showGameHistorySheet() {
+    _checkAndRecoverUnsettledRounds();
     int activeTab = 0;
     showModalBottomSheet(
       context: context,

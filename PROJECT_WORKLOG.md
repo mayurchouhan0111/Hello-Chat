@@ -7,6 +7,29 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-25 (Spin Wheel / Greedy: Automatic Settlement & Balance Update When Exiting Early)
+
+- **What Client / User Asked**:
+  - When a user enters a Spin Wheel ("Greedy") game round, places a bet in the Bag during the 30-second betting window, and exits the game before the round finishes, the bet remained stuck as `IN PLAY` / `PENDING` in Game Records instead of settling automatically.
+  - Required that all bets placed before the round finishes are never cancelled or excluded, and once the round outcome is finalized:
+    - Losses remain deducted and immediately show the final Loss result and winning item (never stuck in `PENDING`).
+    - Wins automatically credit the winning Diamonds to the user's balance and update the bet status to `WIN` without needing to re-enter the game or manually claim.
+
+- **What We Did**:
+  1. **Backend Automatic Settlement & Cloud Scheduler (`functions/index.js`)**:
+     - Extracted `settleSpinRoundForUser` as an atomic Firestore transaction that settles both Wins and Losses, writes `settled: true`, `status: 'ROUND_SETTLED'`, `winningFood`, `emoji`, `label`, `multiplier`, and `prize`, credits winnings to `diamondBalance`, updates `round_player_bets` and `daily_players`, and heals any partially settled history entries.
+     - Added `settleUserPendingSpinRounds` helper and wired it into `syncSpinWheelRound`, `playSpinWheel`, and `settleSpinWheelRound` so any completed unsettled rounds are automatically swept and settled immediately.
+     - Added `scheduledSettleSpinWheelRounds` (runs every 1 minute via Pub/Sub schedule) to automatically settle all finished rounds for players who exited the game screen or closed the app completely.
+     - Fixed `playSpinWheel`'s previous-round auto-settlement to also write `status: 'ROUND_SETTLED'`, winning item fields, and mark `round_player_bets` as settled for losses as well as wins.
+  2. **App-Wide Background Settlement & Exit Flush (`lib/core/providers/game_provider.dart`, `lib/features/games/presentation/screens/spin_wheel_screen.dart`, `lib/features/wallet/presentation/screens/wallet_screen.dart`)**:
+     - Added `SpinWheelBackgroundSettler` (`spinWheelBackgroundSettlerProvider`, kept alive across navigation after leaving the game screen) to schedule exact post-reveal (`35.55s`) settlement timers with automatic retries and reconcile unsettled `game_history` entries when viewing Wallet or re-opening Game Records.
+     - Added `_flushPendingBetsOnExit()` in `SpinWheelScreen` (invoked on Back press, `PopScope`, and `dispose`) so any tapped/queued bet inside the 200ms debounce window or active betting phase is flushed to the server and registered with the background settler on exit.
+     - Fixed stale-round late submission handling in `_autoSubmitBets` so late submissions during an active betting phase mark `settled: false` instead of prematurely marking `settled: true`.
+  3. **Deployment, Verification & Release APK**:
+     - Deployed `playSpinWheel`, `syncSpinWheelRound`, `getSpinWheelRoundOutcome`, `settleSpinWheelRound`, and `scheduledSettleSpinWheelRounds` to `hellochat-e8965`.
+     - Verified unit tests (`flutter test test/spin_wheel_exited_bet_settlement_test.dart test/spin_wheel_history_immutability_test.dart test/authoritative_wallet_manager_test.dart test/game_balance_deduction_test.dart` — 51/51 passed) and live backend settlement (`syncSpinWheelRound` settling both exited Win and Loss rounds atomically and idempotently).
+     - Built the release APK (`flutter build apk --release`) and updated `releases/client-testing/HelloChat-client-test-release.apk`.
+
 ### Date: 2026-11-24 (Agency Management: Admin-Wise Agency Separation & Complete Data Isolation)
 
 - **What Client / User Asked**:

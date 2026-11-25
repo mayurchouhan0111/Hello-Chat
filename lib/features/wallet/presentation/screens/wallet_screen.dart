@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:hello_chat/core/models/transaction_model.dart';
+import 'package:hello_chat/core/providers/game_provider.dart';
 import 'package:hello_chat/providers/wallet_provider.dart';
 import 'package:hello_chat/features/wallet/presentation/widgets/wallet/diamond_tab.dart';
 import 'package:hello_chat/features/wallet/presentation/widgets/wallet/beans_tab.dart';
@@ -31,6 +32,7 @@ class _WalletScreenState extends ConsumerState<WalletScreen> with SingleTickerPr
   @override
   Widget build(BuildContext context) {
     final balanceAsync = ref.watch(walletBalanceProvider);
+    ref.watch(userGameHistoryProvider);
 
     return Scaffold(
       backgroundColor: Colors.white,

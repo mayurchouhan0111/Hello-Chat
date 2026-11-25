@@ -2197,6 +2197,12 @@ const ROOM_SUPPORT = {
     }
 };
 
+function giftDisplayId(user, uid) {
+    const prettyId = String(user.prettyId || "").trim();
+    if (prettyId && prettyId.toLowerCase() !== "none") return prettyId;
+    return user.helloId > 0 ? String(user.helloId) : uid;
+}
+
 /**
  * Pure helper to resolve and normalize gift targets from request payload.
  * Supports legacy single `targetUid` and fan-out `targetUids` array.
@@ -2232,7 +2238,10 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
         const { roomId, giftId, quantity, isMoment, comboCount } = data;
         const senderUid = context.auth.uid;
-        const qty = Math.max(1, parseInt(quantity) || 1);
+        const qty = quantity === undefined ? 1 : quantity;
+        if (!Number.isSafeInteger(qty) || qty < 1 || qty > 9999) {
+            throw new functions.https.HttpsError("invalid-argument", "Quantity must be an integer between 1 and 9999.");
+        }
         const combo = Math.max(0, parseInt(comboCount) || 0);
 
         const MAX_TARGETS = 40;
@@ -2322,16 +2331,30 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
             if (!senderDoc.exists) throw new functions.https.HttpsError("not-found", "Sender profile not found.");
             if (!giftDoc.exists) throw new functions.https.HttpsError("not-found", "Gift type not found.");
+            if (receiverDocs.some(doc => !doc.exists)) {
+                throw new functions.https.HttpsError("not-found", "A recipient profile no longer exists. Please select recipients again.");
+            }
 
             const giftData = giftDoc.data();
-            const perTargetCost = (giftData.priceInDiamonds || 0) * qty;
+            if (giftData.isActive === false) {
+                throw new functions.https.HttpsError("failed-precondition", "This gift is no longer available.");
+            }
+            // Match the catalog's supported schemas, without silently making a
+            // paid legacy gift free when priceInDiamonds is absent.
+            const unitPrice = giftData.priceInDiamonds ?? giftData.price_diamonds ?? giftData.price;
+            if (!Number.isSafeInteger(unitPrice) || unitPrice < 0) {
+                throw new functions.https.HttpsError("failed-precondition", "This gift has an invalid price.");
+            }
+            const perTargetCost = unitPrice * qty;
             const totalCost = perTargetCost * targets.length;
-            const isLuckyCategory = (giftData.category || '').toLowerCase().trim() === "lucky" || giftData.isLucky === true || (giftData.name || '').toLowerCase().includes("bell");
-            const giftCat = (giftData.category || '').toLowerCase().trim();
+            if (!Number.isSafeInteger(totalCost)) {
+                throw new functions.https.HttpsError("invalid-argument", "Gift total exceeds the supported amount.");
+            }
+            const isLuckyCategory = (giftData.category || '').toLowerCase().trim() === "lucky" || giftData.isLucky === true;
+            const giftCat = (giftData.category || 'Normal').toLowerCase().trim();
 
-            // 🛑 Strict Category Guard: allow Normal, Medium, Luxury, Relationship, VIP, and SVIP gifts. Reject all Lucky gifts.
-            const ALLOWED_GIFT_CATEGORIES = ['normal', 'medium', 'luxury', 'standard', 'gift', 'relationship', 'vip', 'svip', 'classic'];
-            if (isLuckyCategory || !ALLOWED_GIFT_CATEGORIES.includes(giftCat)) {
+            // Lucky gifts stay disabled; all other catalog categories share the payment path.
+            if (isLuckyCategory || giftCat.includes('lucky')) {
                 throw new functions.https.HttpsError(
                     "failed-precondition",
                     "Lucky gifts are temporarily disabled. Standard, Relationship, and VIP gifts are active."
@@ -2373,7 +2396,7 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     ? senderRawData.diamondBalance
                     : (senderRawData.diamonds || 0)
             );
-            if (isNaN(currentBalance) || currentBalance < totalCost) {
+            if (!Number.isSafeInteger(currentBalance) || currentBalance < totalCost) {
                 throw new functions.https.HttpsError("failed-precondition", `Insufficient diamond balance. Required: ${totalCost}, available: ${isNaN(currentBalance) ? 0 : currentBalance}`);
             }
 
@@ -2469,7 +2492,9 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
             const senderMonthly = (senderInfo.lastMonthlySentDate === thisMonthStr) ? (senderInfo.monthlyDiamondsSent || 0) : 0;
 
             const senderUpdate = {
-                diamondBalance: FieldValue.increment(luckyRefundTotal - totalCost),
+                diamondBalance: senderRawData.diamondBalance === undefined
+                    ? currentBalance + luckyRefundTotal - totalCost
+                    : FieldValue.increment(luckyRefundTotal - totalCost),
                 totalDiamondsSpent: FieldValue.increment(totalCost),
                 totalDiamondsSent: FieldValue.increment(totalCost),
                 dailyDiamondsSent: senderDaily + totalCost,
@@ -2511,9 +2536,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
 
             for (const t of targets) {
                 const receiverDoc = receiverByUid[t];
-                if (!receiverDoc.exists) {
-                    console.warn(`[GIFT] Receiver profile ${t} does not exist; skipping bean credit.`);
-                }
                 const { luckyMultiplier, luckyRewardCoins } = luckyByTarget[t] || { luckyMultiplier: 0, luckyRewardCoins: 0 };
 
                 let beansEarned = 0;
@@ -2522,7 +2544,6 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     const agencyId = receiverData.agencyId;
                     const agencyDoc = agencyId ? agencyById[agencyId] : null;
 
-                    let hostSharePercent = 1.0; // 1:1 Parity (1 Diamond = 1 Bean)
                     let agencySharePercent = 0;
 
                     if (agencyId && agencyDoc && agencyDoc.exists) {
@@ -2628,6 +2649,10 @@ exports.sendGiftWithCombo = functions.region("us-central1").https.onCall(async (
                     transaction.set(msgRef, {
                         uid: senderUid,
                         senderName: senderDoc.data().displayName || "User",
+                        senderDisplayId: giftDisplayId(senderDoc.data(), senderUid),
+                        senderPhotoUrl: senderDoc.data().profilePhotoUrl || "",
+                        receiverName,
+                        receiverDisplayId: giftDisplayId(receiverDoc.data(), t),
                         type: "gift",
                         giftId: giftId,
                         quantity: qty,
@@ -4232,16 +4257,27 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
 
     const uid = context.auth.uid;
     const clientRoundId = data.roundId ? String(data.roundId).trim() : null;
-    const rawBets = data.bets || (data.betAmount ? { [data.label || "any"]: Number(data.betAmount) || 0 } : {});
+    const rawBets = data.bets ?? (data.betAmount === undefined || data.betAmount === 0
+        ? {} : { [data.label || "any"]: data.betAmount });
+    if (!rawBets || typeof rawBets !== "object" || Array.isArray(rawBets)) {
+        throw new functions.https.HttpsError("invalid-argument", "Invalid wagers.");
+    }
     // Disallow category podium bets (salad / pizza): users cannot send bets on these icons
-    const bets = {};
+    const entries = [];
     for (const [k, v] of Object.entries(rawBets)) {
         const lowerK = String(k || "").toLowerCase().trim();
-        if (lowerK !== "salad" && lowerK !== "pizza" && Number(v) > 0) {
-            bets[k] = Number(v);
+        if (!Number.isSafeInteger(v) || v < 0) {
+            throw new functions.https.HttpsError("invalid-argument", "Wagers must be nonnegative integers.");
+        }
+        if (lowerK !== "salad" && lowerK !== "pizza" && v > 0) {
+            entries.push([k, v]);
         }
     }
-    const totalBet = Object.values(bets).reduce((acc, b) => acc + Math.max(0, Number(b) || 0), 0);
+    const bets = Object.fromEntries(entries);
+    const totalBet = Object.values(bets).reduce((acc, b) => acc + b, 0);
+    if (!Number.isSafeInteger(totalBet)) {
+        throw new functions.https.HttpsError("invalid-argument", "Total wager exceeds the supported amount.");
+    }
 
     if (totalBet !== 0 && totalBet < 10) {
         throw new functions.https.HttpsError("invalid-argument", "Minimum total bet is 10 Diamonds.");
@@ -4284,6 +4320,13 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
     const prevWinTxRef = userRef.collection("transactions").doc(`spin_win_${prevRoundId}`);
     const prevPrivateRef = db.collection("games_meta_private").doc(`spin_${prevRoundId}`);
     const prevStandingRoundRef = statsRef.collection("daily_settled_rounds").doc(`${prevRoundId}_${uid}`);
+    const prevRoundBetRef = statsRef.collection("round_player_bets").doc(`${prevRoundId}_${uid}`);
+
+    // Settle any older unsettled spin rounds (beyond prevRoundId) BEFORE checking balance/placing new bet,
+    // so exited rounds are automatically credited/finalized immediately.
+    if (totalBet > 0) {
+        await settleUserPendingSpinRounds(uid, currentRoundId, msIntoRound, { excludeRoundId: prevRoundId });
+    }
 
     const spinResult = await db.runTransaction(async (transaction) => {
         const [
@@ -4453,19 +4496,25 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         }
 
         const deltaBet = totalBet - previousTotalBet;
-        if (deltaBet < 0) {
+        if (!Number.isSafeInteger(previousTotalBet) || previousTotalBet < 0 || deltaBet < 0 ||
+            Object.entries(previousData.bets || {}).some(([sector, amount]) =>
+                (Object.hasOwn(bets, sector) ? bets[sector] : 0) < amount)) {
             throw new functions.https.HttpsError("invalid-argument", "Wagers cannot be reduced once placed.");
         }
 
-        let balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
-        let beansBalance = Number(userDoc.data().beansBalance || 0);
+        // The legacy diamonds mirror was previously client-writable.
+        let balance = userData.diamondBalance === undefined ? 0 : userData.diamondBalance;
+        let beansBalance = userData.beansBalance === undefined ? 0 : userData.beansBalance;
+        if (![balance, beansBalance].every(value => Number.isSafeInteger(value) && value >= 0)) {
+            throw new functions.https.HttpsError("failed-precondition", "Wallet balance is invalid.");
+        }
 
         if (deltaBet > 0) {
             if (balance < deltaBet) {
                 const needed = deltaBet - balance;
-                const starsRequired = Math.ceil((needed * 7) / 2);
-                if (beansBalance >= starsRequired) {
-                    beansBalance -= starsRequired;
+                const starsRequired = (BigInt(needed) * 7n + 1n) / 2n;
+                if (BigInt(beansBalance) >= starsRequired) {
+                    beansBalance -= Number(starsRequired);
                     balance = deltaBet;
                     transaction.update(userRef, { beansBalance: beansBalance });
                 } else {
@@ -4498,30 +4547,66 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
         };
         transaction.update(userRef, userUpdates);
 
-        if (unclaimedPrize > 0) {
+        const prevOutcome = prevPrivateDoc && prevPrivateDoc.exists ? prevPrivateDoc.data()?.outcome : null;
+        if (prevLogDoc.exists && !prevData.settled && !prevWinTxDoc.exists && prevOutcome) {
             const alreadyPrevRanked = prevStandingRoundDoc && prevStandingRoundDoc.exists;
-            if (!alreadyPrevRanked) {
-                recordWheelStanding(transaction, dailyPlayerRef, userData, Number(prevData.totalBet) || 0, unclaimedPrize, recoveredWins);
+            const prevWager = Number(prevData.totalBet) || 0;
+            if (!alreadyPrevRanked && (prevWager > 0 || unclaimedPrize > 0)) {
+                recordWheelStanding(transaction, dailyPlayerRef, userData, prevWager, unclaimedPrize, recoveredWins);
                 transaction.set(prevStandingRoundRef, {
                     uid: uid,
                     roundId: String(prevRoundId),
                     prize: unclaimedPrize,
-                    wager: Number(prevData.totalBet) || 0,
+                    wager: prevWager,
                     settledAt: Date.now()
                 });
             }
-            transaction.set(prevLogRef, { settled: true, balanceAfter: finalBalance }, { merge: true });
-            transaction.set(prevWinTxRef, {
-                type: "game_win",
+            transaction.set(prevLogRef, {
+                settled: true,
+                status: "ROUND_SETTLED",
+                type: unclaimedPrize > 0 ? "game_win" : "game_bet",
+                prize: unclaimedPrize,
                 amount: unclaimedPrize,
-                roundId: prevRoundId,
-                game: "spin_wheel",
-                balanceBefore: balance - unclaimedPrize,
+                resultType: prevOutcome.type || "",
+                name: prevOutcome.name || "",
+                winningFood: prevOutcome.name || "",
+                label: prevOutcome.label || "",
+                multiplier: prevOutcome.multiplier || 0,
+                emoji: prevOutcome.emoji || "",
                 balanceAfter: finalBalance,
-                timestamp: FieldValue.serverTimestamp(),
-                description: `Lucky Spin Win (Round #${prevRoundId})`
-            });
-            console.log(`[SpinWheel] Auto-settled previous round ${prevRoundId} win: +${unclaimedPrize} for ${uid}`);
+                settledAt: FieldValue.serverTimestamp()
+            }, { merge: true });
+            transaction.set(prevRoundBetRef, {
+                settled: true,
+                prize: unclaimedPrize,
+                winnings: unclaimedPrize
+            }, { merge: true });
+            if (unclaimedPrize > 0) {
+                transaction.set(prevWinTxRef, {
+                    type: "game_win",
+                    amount: unclaimedPrize,
+                    roundId: prevRoundId,
+                    game: "spin_wheel",
+                    balanceBefore: balance - unclaimedPrize,
+                    balanceAfter: finalBalance,
+                    timestamp: FieldValue.serverTimestamp(),
+                    description: `Lucky Spin Win (Round #${prevRoundId})`
+                });
+                console.log(`[SpinWheel] Auto-settled previous round ${prevRoundId} win: +${unclaimedPrize} for ${uid}`);
+            } else {
+                transaction.set(prevWinTxRef, {
+                    type: "game_settle_loss",
+                    amount: 0,
+                    prize: 0,
+                    roundId: prevRoundId,
+                    game: "spin_wheel",
+                    balanceBefore: balance,
+                    balanceAfter: finalBalance,
+                    timestamp: FieldValue.serverTimestamp(),
+                    description: `Lucky Spin Settlement (Round #${prevRoundId} - Loss)`
+                });
+                console.log(`[SpinWheel] Auto-settled previous round ${prevRoundId} loss for ${uid}`);
+            }
         }
 
         if (deltaBet > 0 || totalBet > 0) {
@@ -4549,6 +4634,7 @@ exports.playSpinWheel = functions.region("us-central1").https.onCall(async (data
                 totalBet: totalBet,
                 prize: calculatedPrize,
                 winnings: calculatedPrize,
+                settled: false,
                 updatedAt: now
             };
             transaction.set(roundBetRef, playerBetRecord, { merge: true });
@@ -4754,6 +4840,14 @@ exports.syncSpinWheelRound = functions.region("us-central1").https.onCall(async 
         }
     }
 
+    if (context && context.auth && context.auth.uid) {
+        try {
+            await settleUserPendingSpinRounds(context.auth.uid, currentRoundId, cycleMs);
+        } catch (err) {
+            console.warn(`[SpinWheel] syncSpinWheelRound auto-settle note for ${context.auth.uid}:`, err?.message || err);
+        }
+    }
+
     return {
         roundId: requestedRoundId,
         currentRoundId: currentRoundId,
@@ -4764,26 +4858,27 @@ exports.syncSpinWheelRound = functions.region("us-central1").https.onCall(async 
 
 exports.getSpinWheelRoundOutcome = exports.syncSpinWheelRound;
 
-exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(async (data, context) => {
-    if (!context.auth) {
-        throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
-    }
-
-    const uid = context.auth.uid;
-    const roundId = data.roundId ? String(data.roundId).trim() : null;
-    if (!roundId) {
-        throw new functions.https.HttpsError("invalid-argument", "roundId is required.");
+/**
+ * Shared atomic settlement engine for a single (uid, roundId) Spin Wheel bet.
+ * Used by settleSpinWheelRound (interactive/background client settle),
+ * syncSpinWheelRound / playSpinWheel (catch-up settle), and
+ * scheduledSettleSpinWheelRounds (server cron for exited/offline players).
+ */
+async function settleSpinRoundForUser(uid, roundId, { isBackground = false } = {}) {
+    const cleanRoundId = String(roundId || "").trim();
+    if (!uid || !cleanRoundId) {
+        return { settled: false, reason: "INVALID_ARGS" };
     }
 
     const userRef = db.collection("users").doc(uid);
-    const logRef = userRef.collection("game_history").doc(`spin_${roundId}`);
-    const winTxRef = userRef.collection("transactions").doc(`spin_win_${roundId}`);
-    const privateStatsRef = db.collection("games_meta_private").doc(`spin_${roundId}`);
+    const logRef = userRef.collection("game_history").doc(`spin_${cleanRoundId}`);
+    const winTxRef = userRef.collection("transactions").doc(`spin_win_${cleanRoundId}`);
+    const privateStatsRef = db.collection("games_meta_private").doc(`spin_${cleanRoundId}`);
     const statsRef = db.collection("games_meta").doc("lucky_spin");
-    const roundBetRef = statsRef.collection("round_player_bets").doc(`${roundId}_${uid}`);
+    const roundBetRef = statsRef.collection("round_player_bets").doc(`${cleanRoundId}_${uid}`);
     const roundPlayersQuery = statsRef.collection("round_player_bets")
-        .where("roundId", "==", roundId);
-    const standingRoundRef = statsRef.collection("daily_settled_rounds").doc(`${roundId}_${uid}`);
+        .where("roundId", "==", cleanRoundId);
+    const standingRoundRef = statsRef.collection("daily_settled_rounds").doc(`${cleanRoundId}_${uid}`);
 
     return db.runTransaction(async (transaction) => {
         const [userDoc, logDoc, winTxDoc, privateDoc, statsDoc, roundBetDoc, roundPlayersDoc, standingRoundDoc] = await Promise.all([
@@ -4796,9 +4891,17 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             transaction.get(roundPlayersQuery),
             transaction.get(standingRoundRef)
         ]);
-        if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
+        if (!userDoc.exists) {
+            if (isBackground) {
+                if (roundBetDoc.exists) {
+                    transaction.set(roundBetRef, { settled: true, userMissing: true }, { merge: true });
+                }
+                return { settled: false, reason: "USER_NOT_FOUND" };
+            }
+            throw new functions.https.HttpsError("not-found", "User not found.");
+        }
 
-        let balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
+        let balance = userDoc.data().diamondBalance ?? 0;
 
         if (!logDoc.exists && !roundBetDoc.exists) {
             return { settled: true, prize: 0, balance: balance };
@@ -4807,16 +4910,65 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
         const logData = logDoc.exists ? logDoc.data() : {};
         const roundBetData = roundBetDoc.exists ? roundBetDoc.data() : {};
         const userBets = logData.bets || roundBetData.bets || {};
+        const settledWager = Number(logData.totalBet || roundBetData.totalBet) || 0;
         const roundResult = (privateDoc.exists && privateDoc.data() && privateDoc.data().outcome) ? privateDoc.data().outcome : null;
+
+        if (isBackground && !roundResult) {
+            const roundAgeMs = Date.now() - (Number(cleanRoundId) * 40000);
+            if (roundBetDoc.exists && roundAgeMs > 3600000) {
+                transaction.set(roundBetRef, { settled: true, missingOutcome: true }, { merge: true });
+            }
+            return { settled: false, reason: "OUTCOME_NOT_READY", balance };
+        }
+
+        if (settledWager <= 0 && Object.keys(userBets).length === 0) {
+            if (roundBetDoc.exists && roundBetData.settled !== true) {
+                transaction.set(roundBetRef, { settled: true, prize: 0, winnings: 0 }, { merge: true });
+            }
+            if (logDoc.exists && logData.settled !== true) {
+                transaction.set(logRef, { settled: true, status: "ROUND_SETTLED", prize: 0, amount: 0 }, { merge: true });
+            }
+            return { settled: true, prize: 0, balance };
+        }
+
         // History is written outcome-free at bet time, so recompute the prize
         // from the stored bets + this round's private outcome.
         const prize = computeSpinPayout(userBets, roundResult);
 
-        if (logData.settled === true) {
-            return { settled: true, prize: prize, balance: balance, alreadySettled: true };
-        }
-        if (winTxDoc.exists) {
-            return { settled: true, prize: prize, balance: balance, alreadySettled: true };
+        if (logData.settled === true || winTxDoc.exists) {
+            // Heal any partially settled records where transaction existed or settled=true lacked status/food/roundBet flag
+            if (logDoc.exists && (logData.settled !== true || logData.status !== "ROUND_SETTLED" || (roundResult && !logData.winningFood))) {
+                transaction.set(logRef, {
+                    settled: true,
+                    status: "ROUND_SETTLED",
+                    type: prize > 0 ? "game_win" : "game_bet",
+                    prize: prize,
+                    amount: prize,
+                    resultType: roundResult ? (roundResult.type || "") : (logData.resultType || ""),
+                    name: roundResult ? (roundResult.name || "") : (logData.name || ""),
+                    winningFood: roundResult ? (roundResult.name || "") : (logData.winningFood || ""),
+                    label: roundResult ? (roundResult.label || "") : (logData.label || ""),
+                    multiplier: roundResult ? (roundResult.multiplier || 0) : (logData.multiplier || 0),
+                    emoji: roundResult ? (roundResult.emoji || "") : (logData.emoji || ""),
+                    balanceAfter: balance,
+                    settledAt: logData.settledAt || FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+            if (roundBetDoc.exists && roundBetData.settled !== true) {
+                transaction.set(roundBetRef, { settled: true, prize: prize, winnings: prize }, { merge: true });
+            }
+            return {
+                settled: true,
+                prize: prize,
+                balance: balance,
+                alreadySettled: true,
+                roundId: cleanRoundId,
+                name: roundResult ? roundResult.name : (logData.name || ""),
+                emoji: roundResult ? roundResult.emoji : (logData.emoji || ""),
+                winningFood: roundResult ? roundResult.name : (logData.winningFood || ""),
+                multiplier: roundResult ? roundResult.multiplier : (logData.multiplier || 0),
+                label: roundResult ? roundResult.label : (logData.label || "")
+            };
         }
 
         const dailyPlayerRef = statsRef.collection("daily_players").doc(uid);
@@ -4825,7 +4977,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             : null;
 
         let newBalance = balance;
-        const winTxnId = `spin_win_${roundId}`;
+        const winTxnId = `spin_win_${cleanRoundId}`;
         const prevSeq = Number(userDoc.data().seq) || 0;
         const newSeq = prevSeq + 1;
         if (prize > 0) {
@@ -4844,14 +4996,14 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             transaction.set(winTxRef, {
                 type: "game_win",
                 amount: prize,
-                roundId: roundId,
+                roundId: cleanRoundId,
                 game: "spin_wheel",
                 balanceBefore: balance,
                 balanceAfter: newBalance,
                 seq: newSeq,
                 txnId: winTxnId,
                 timestamp: FieldValue.serverTimestamp(),
-                description: `Lucky Spin Win (Round #${roundId})`
+                description: `Lucky Spin Win (Round #${cleanRoundId})`
             });
         } else {
             // Loss settlement still bumps seq + lastTxnId so the wallet stream
@@ -4861,14 +5013,14 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 type: "game_settle_loss",
                 amount: 0,
                 prize: 0,
-                roundId: roundId,
+                roundId: cleanRoundId,
                 game: "spin_wheel",
                 balanceBefore: balance,
                 balanceAfter: newBalance,
                 seq: newSeq,
                 txnId: winTxnId,
                 timestamp: FieldValue.serverTimestamp(),
-                description: `Lucky Spin Settlement (Round #${roundId} - Loss)`
+                description: `Lucky Spin Settlement (Round #${cleanRoundId} - Loss)`
             });
         }
 
@@ -4890,15 +5042,16 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             settledAt: FieldValue.serverTimestamp()
         }, { merge: true });
 
+        transaction.set(roundBetRef, {
+            settled: true,
+            prize: prize,
+            winnings: prize
+        }, { merge: true });
+
         // Record completed round in public recentResults, update previous winner, and update game_rounds status to ROUND_SETTLED
         const currentStats = (statsDoc && statsDoc.exists) ? statsDoc.data() : {};
         const statsUpdates = {};
 
-        // Publish one deterministic Top-1 broadcast event for this completed
-        // round. Every wager row was computed server-side before settlement, so
-        // the first settlement can rank the entire round without trusting the
-        // caller. The round id is the idempotency key: transaction retries and
-        // later player settlements cannot publish Top 2/3 or replay Top 1.
         const roundTopWinner = roundPlayersDoc.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(row => Number(row.winnings || row.prize || 0) > 0)
@@ -4910,10 +5063,11 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
                 return String(a.uid || a.id).localeCompare(String(b.uid || b.id));
             })[0];
         if (roundTopWinner &&
-            String(currentStats.topWinnerEvent?.roundId || '') !== String(roundId)) {
+            String(currentStats.topWinnerEvent?.roundId || '') !== String(cleanRoundId) &&
+            (!currentStats.topWinnerEvent?.roundId || Number(cleanRoundId) >= Number(currentStats.topWinnerEvent.roundId || 0))) {
             statsUpdates.topWinnerEvent = {
-                eventId: `spin_${roundId}`,
-                roundId: String(roundId),
+                eventId: `spin_${cleanRoundId}`,
+                roundId: String(cleanRoundId),
                 game: "spin_wheel",
                 amount: Math.floor(Number(roundTopWinner.winnings || roundTopWinner.prize || 0)),
                 avatar: roundTopWinner.avatar || "",
@@ -4944,15 +5098,15 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             statsUpdates.topWinnerAvatar = todayWinners[0]?.avatar || "";
             statsUpdates.topWinnerAmount = todayWinners[0]?.amount || 0;
 
-            const isNewerRound = !currentStats.lastWinnerRoundId || Number(roundId) >= Number(currentStats.lastWinnerRoundId);
-            const isBiggerInSameRound = String(currentStats.lastWinnerRoundId) === String(roundId) && prize > (Number(currentStats.lastWinnerAmount) || 0);
+            const isNewerRound = !currentStats.lastWinnerRoundId || Number(cleanRoundId) >= Number(currentStats.lastWinnerRoundId);
+            const isBiggerInSameRound = String(currentStats.lastWinnerRoundId) === String(cleanRoundId) && prize > (Number(currentStats.lastWinnerAmount) || 0);
             if (isNewerRound || isBiggerInSameRound) {
                 statsUpdates.lastWinnerName = userName;
                 statsUpdates.lastWinnerAvatar = userAvatar;
                 statsUpdates.lastWinnerAmount = prize;
-                statsUpdates.lastWinnerRoundId = String(roundId);
+                statsUpdates.lastWinnerRoundId = String(cleanRoundId);
                 statsUpdates.lastRound = {
-                    roundId: String(roundId),
+                    roundId: String(cleanRoundId),
                     winnerName: userName,
                     winnerAvatar: userAvatar,
                     winnerAmount: prize,
@@ -4962,7 +5116,7 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
 
         if (roundResult) {
             const roundSummaryItem = {
-                roundId: String(roundId),
+                roundId: String(cleanRoundId),
                 name: roundResult.name,
                 emoji: roundResult.emoji,
                 label: roundResult.label || `${roundResult.multiplier}x`,
@@ -4974,24 +5128,28 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             const currentRecent = (statsDoc && statsDoc.exists && Array.isArray(statsDoc.data().recentResults))
                 ? statsDoc.data().recentResults
                 : [];
-            if (!currentRecent.some(r => r && String(r.roundId) === String(roundId))) {
-                const updatedRecent = [roundSummaryItem, ...currentRecent].slice(0, 30);
+            if (!currentRecent.some(r => r && String(r.roundId) === String(cleanRoundId))) {
+                const updatedRecent = [roundSummaryItem, ...currentRecent]
+                    .sort((a, b) => Number(b?.roundId || 0) - Number(a?.roundId || 0))
+                    .slice(0, 30);
                 statsUpdates.recentResults = updatedRecent;
+            }
+            if (!currentStats.lastGlobalRound || Number(cleanRoundId) >= Number(currentStats.lastGlobalRound || 0)) {
                 statsUpdates.lastGlobalOutcome = roundSummaryItem;
-                statsUpdates.lastGlobalRound = String(roundId);
+                statsUpdates.lastGlobalRound = String(cleanRoundId);
             }
             if (statsUpdates.lastRound) {
                 statsUpdates.lastRound.outcome = roundSummaryItem;
-            } else if (!currentStats.lastRound || Number(roundId) >= Number(currentStats.lastRound.roundId || 0)) {
+            } else if (!currentStats.lastRound || Number(cleanRoundId) >= Number(currentStats.lastRound.roundId || 0)) {
                 statsUpdates.lastRound = {
-                    roundId: String(roundId),
+                    roundId: String(cleanRoundId),
                     winnerName: currentStats.lastWinnerName || "None",
                     winnerAmount: currentStats.lastWinnerAmount || 0,
                     outcome: roundSummaryItem
                 };
             }
-            transaction.set(db.collection("game_rounds").doc(String(roundId)), {
-                roundId: String(roundId),
+            transaction.set(db.collection("game_rounds").doc(String(cleanRoundId)), {
+                roundId: String(cleanRoundId),
                 status: "ROUND_SETTLED",
                 outcome: roundSummaryItem,
                 serverTime: Date.now()
@@ -4999,13 +5157,12 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
         }
 
         // Update Daily Players Collection for the Daily Top Players Leaderboard (strictly idempotent per round)
-        const settledWager = Number(logData.totalBet || roundBetData.totalBet) || 0;
         const alreadyRanked = standingRoundDoc && standingRoundDoc.exists;
         if (!alreadyRanked && (settledWager > 0 || prize > 0)) {
             recordWheelStanding(transaction, dailyPlayerRef, userDoc.data(), settledWager, prize, totalWins);
             transaction.set(standingRoundRef, {
                 uid: uid,
-                roundId: String(roundId),
+                roundId: String(cleanRoundId),
                 prize: prize,
                 wager: settledWager,
                 settledAt: Date.now()
@@ -5016,11 +5173,14 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             transaction.set(statsRef, statsUpdates, { merge: true });
         }
 
-        console.log(`[SpinWheel] Settled round ${roundId} for user ${uid}: prize=${prize}, newBalance=${newBalance}`);
+        console.log(`[SpinWheel] Settled round ${cleanRoundId} for user ${uid}: prize=${prize}, newBalance=${newBalance}`);
         return {
             settled: true,
             prize: prize,
             balance: newBalance,
+            seq: newSeq,
+            txnId: winTxnId,
+            roundId: cleanRoundId,
             name: roundResult ? roundResult.name : "",
             emoji: roundResult ? roundResult.emoji : "",
             winningFood: roundResult ? roundResult.name : "",
@@ -5028,6 +5188,116 @@ exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(asyn
             label: roundResult ? roundResult.label : ""
         };
     });
+}
+
+/**
+ * Finds and settles all completed (ms >= 35s) unsettled Spin Wheel rounds for a specific user.
+ */
+async function settleUserPendingSpinRounds(uid, currentRoundId, msIntoRound = 0, { excludeRoundId = null } = {}) {
+    if (!uid) return [];
+    const unsettledSnap = await db.collection("users").doc(uid).collection("game_history")
+        .where("settled", "==", false)
+        .limit(50)
+        .get();
+
+    if (unsettledSnap.empty) return [];
+    const nowMs = Date.now();
+    const settledResults = [];
+
+    for (const doc of unsettledSnap.docs) {
+        const d = doc.data() || {};
+        if (d.game !== "spin_wheel" && !doc.id.startsWith("spin_")) continue;
+        const rId = String(d.roundId || doc.id.replace(/^spin_/, "")).trim();
+        if (!rId || (excludeRoundId && rId === String(excludeRoundId))) continue;
+        const rNum = Number(rId);
+        if (!Number.isFinite(rNum) || rNum <= 0) continue;
+
+        const roundRevealMs = (rNum * 40000) + 35000;
+        const isCompletedRound = nowMs >= roundRevealMs && (rId !== String(currentRoundId) || msIntoRound >= 35000);
+        if (!isCompletedRound) continue;
+
+        try {
+            const res = await settleSpinRoundForUser(uid, rId, { isBackground: true });
+            settledResults.push(res);
+        } catch (err) {
+            console.warn(`[SpinWheel] Auto-settle failed for uid=${uid}, round=${rId}:`, err?.message || err);
+        }
+    }
+    return settledResults;
+}
+
+exports.settleSpinWheelRound = functions.region("us-central1").https.onCall(async (data, context) => {
+    if (!context.auth) {
+        throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
+    }
+
+    const uid = context.auth.uid;
+    const roundId = data && data.roundId ? String(data.roundId).trim() : null;
+    if (!roundId) {
+        throw new functions.https.HttpsError("invalid-argument", "roundId is required.");
+    }
+
+    const result = await settleSpinRoundForUser(uid, roundId);
+
+    // Also opportunistically sweep any other completed unsettled rounds for this user
+    try {
+        const nowMs = Date.now();
+        const curRoundId = Math.floor(nowMs / 40000).toString();
+        await settleUserPendingSpinRounds(uid, curRoundId, nowMs % 40000, { excludeRoundId: roundId });
+    } catch (err) {
+        console.warn(`[SpinWheel] Extra unsettled sweep note for ${uid}:`, err?.message || err);
+    }
+
+    return result;
+});
+
+/**
+ * Background scheduler: every 1 minute, automatically settles all completed Spin Wheel rounds
+ * for users who exited the game screen or closed the app before the round finished.
+ */
+exports.scheduledSettleSpinWheelRounds = functions.pubsub.schedule("every 1 minutes").onRun(async () => {
+    const nowMs = Date.now();
+    const ROUND_DURATION_MS = 40000;
+    const betsCol = db.collection("games_meta").doc("lucky_spin").collection("round_player_bets");
+
+    const [explicitUnsettledSnap, recentSnap] = await Promise.all([
+        betsCol.where("settled", "==", false).limit(200).get(),
+        betsCol.orderBy("updatedAt", "desc").limit(100).get()
+    ]);
+
+    const seenPairs = new Map();
+    for (const doc of [...explicitUnsettledSnap.docs, ...recentSnap.docs]) {
+        const d = doc.data() || {};
+        if (d.settled === true) continue;
+        const rId = String(d.roundId || "").trim();
+        const uid = String(d.uid || "").trim();
+        if (!rId || !uid) continue;
+        const rNum = Number(rId);
+        if (!Number.isFinite(rNum) || rNum <= 0) continue;
+
+        const roundRevealMs = (rNum * ROUND_DURATION_MS) + 35000;
+        if (nowMs < roundRevealMs) continue; // Round still in betting or spinning
+
+        const key = `${rId}_${uid}`;
+        if (!seenPairs.has(key)) {
+            seenPairs.set(key, { uid, roundId: rId });
+        }
+    }
+
+    let settledCount = 0;
+    for (const { uid, roundId } of seenPairs.values()) {
+        try {
+            const res = await settleSpinRoundForUser(uid, roundId, { isBackground: true });
+            if (res && res.settled) settledCount++;
+        } catch (err) {
+            console.error(`[CRON][SpinWheel] Failed settling uid=${uid}, round=${roundId}:`, err?.message || err);
+        }
+    }
+
+    if (seenPairs.size > 0) {
+        console.log(`[CRON][SpinWheel] Processed ${settledCount}/${seenPairs.size} exited/pending bets.`);
+    }
+    return null;
 });
 
 exports.resetDailyLuckySpin = functions.pubsub.schedule("0 0 * * *").onRun(async (context) => {
@@ -5089,7 +5359,9 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
     if (!context.auth) throw new functions.https.HttpsError("unauthenticated", "Auth required.");
 
     const { betAmount } = data;
-    if (!betAmount || betAmount < 50) throw new functions.https.HttpsError("invalid-argument", "Minimum bet 50 Diamonds.");
+    if (!Number.isSafeInteger(betAmount) || betAmount < 50) {
+        throw new functions.https.HttpsError("invalid-argument", "Bet must be a whole number of at least 50 Diamonds.");
+    }
 
     const uid = context.auth.uid;
     const userRef = db.collection("users").doc(uid);
@@ -5098,8 +5370,10 @@ exports.playLuckyDraw = functions.https.onCall(async (data, context) => {
         const userDoc = await transaction.get(userRef);
         if (!userDoc.exists) throw new functions.https.HttpsError("not-found", "User not found.");
 
-        const balance = Number(userDoc.data().diamondBalance !== undefined ? userDoc.data().diamondBalance : (userDoc.data().diamonds || 0));
-        if (balance < betAmount) throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds.");
+        const balance = userDoc.data().diamondBalance ?? 0;
+        if (!Number.isSafeInteger(balance) || balance < betAmount) {
+            throw new functions.https.HttpsError("failed-precondition", "Insufficient Diamonds.");
+        }
 
         // 8% chance to win 10x
         const isWin = getRandomInt(100) < 8;
@@ -8752,21 +9026,15 @@ async function executeRoomSupportRewardDistribution(options = {}) {
             });
             const assignedCount = validPartners.length;
 
-            // RULE 3: Partner fill-in expiration check
-            // If owner did not fill required partners by Tuesday deadline, reward expires!
-            if (assignedCount < requiredPartners) {
-                console.log(`[ROOM_SUPPORT] Room ${roomId} achieved Level ${achievedLevel} but only assigned ${assignedCount}/${requiredPartners} partners. Reward EXPIRED.`);
-                await weekDoc.ref.update({
-                    distributionStatus: "expired",
-                    expirationReason: `Required ${requiredPartners} partners, but only ${assignedCount} assigned by Tuesday deadline.`,
-                    expiredAt: FieldValue.serverTimestamp()
-                });
-                // Auto-reset / clear expired partners from active Salary List
-                // Retain assignments for audit. Never remove another week's data.
-                continue;
+            // A room owner's salary is earned by reaching the configured room
+            // coin target. Partner salaries have the additional configured
+            // head-count requirement, but an incomplete partner list must never
+            // suppress the eligible owner's salary.
+            const partnersEligible = assignedCount >= requiredPartners;
+            if (!partnersEligible) {
+                console.log(`[ROOM_SUPPORT] Room ${roomId} achieved Level ${achievedLevel}; owner salary remains eligible, partner salaries skipped (${assignedCount}/${requiredPartners} assigned).`);
             }
 
-            // Room is fully qualified!
             const roomDoc = await db.collection("rooms").doc(roomId).get();
             const roomData = roomDoc.exists ? roomDoc.data() : {};
             const ownerUid = roomDoc.exists ? roomData.ownerUid : null;
@@ -8787,20 +9055,24 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                 });
             }
 
-            // Add partner candidates (Rule 1: Room owners cannot receive partner rewards for their own room)
-            for (const pDoc of validPartners) {
-                const partnerUid = pDoc.data().uid || pDoc.id;
-                if (partnerUid && partnerUid !== ownerUid) {
-                    proposedPlan.push({
-                        uid: partnerUid,
-                        roomId,
-                        roomName,
-                        weekId: weekDoc.id,
-                        role: "partner",
-                        level: achievedLevel,
-                        coinsTarget: levelConfig.coinsTarget || 0,
-                        amount: levelConfig.partnerReward
-                    });
+            // Add partner candidates only when the configured number of partner
+            // IDs was filled by the deadline (Rule 1: owners cannot also receive
+            // a partner reward for their own room).
+            if (partnersEligible) {
+                for (const pDoc of validPartners) {
+                    const partnerUid = pDoc.data().uid || pDoc.id;
+                    if (partnerUid && partnerUid !== ownerUid) {
+                        proposedPlan.push({
+                            uid: partnerUid,
+                            roomId,
+                            roomName,
+                            weekId: weekDoc.id,
+                            role: "partner",
+                            level: achievedLevel,
+                            coinsTarget: levelConfig.coinsTarget || 0,
+                            amount: levelConfig.partnerReward
+                        });
+                    }
                 }
             }
             if (!ownerUid) throw new HttpsError("failed-precondition", `Room ${roomId} has no salary recipient.`);
@@ -8823,7 +9095,13 @@ async function executeRoomSupportRewardDistribution(options = {}) {
                     JSON.stringify(currentLevels) !== JSON.stringify(dynamicLevels)) {
                     throw new HttpsError("aborted", "Salary assignments or configuration changed. Retry distribution.");
                 }
-                transaction.update(weekDoc.ref, { payoutPlan: proposedPlan, payoutPlannedAt: FieldValue.serverTimestamp() });
+                transaction.update(weekDoc.ref, {
+                    payoutPlan: proposedPlan,
+                    payoutPlannedAt: FieldValue.serverTimestamp(),
+                    partnerDistributionStatus: partnersEligible ? "eligible" : "insufficient_partners",
+                    assignedPartners: assignedCount,
+                    requiredPartners
+                });
                 return proposedPlan;
             });
             processedWeeks.set(weekDoc.ref.path, { ref: weekDoc.ref, roomId, weekId: weekDoc.id, plan });

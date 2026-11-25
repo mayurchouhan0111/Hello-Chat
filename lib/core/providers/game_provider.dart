@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart'
     show FirebaseFirestore, Query, Timestamp;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/base_firebase_service.dart';
+import '../../core/services/game_recovery_service.dart';
 import '../../core/services/game_service.dart';
+import 'auth_provider.dart';
 
 enum GameType { spinWheel, luckyDraw }
 
@@ -208,14 +212,173 @@ final luckySpinStatsProvider =
   });
 });
 
+/// App-scoped coordinator that guarantees any Spin Wheel bet placed before
+/// a round completes is flushed and automatically settled at round completion
+/// (~35.3s), even if the user leaves [SpinWheelScreen] early.
+class SpinWheelBackgroundSettler {
+  SpinWheelBackgroundSettler(this._ref);
+
+  final Ref _ref;
+  final Map<String, Timer> _timers = {};
+  final Set<String> _inFlight = {};
+  final Set<String> _settled = {};
+  bool _disposed = false;
+
+  static const int roundDurationMs = 40000;
+  static const int roundRevealOffsetMs = 35300;
+
+  void trackRound(String roundId, {int serverTimeOffsetMs = 0}) {
+    if (_disposed || roundId.isEmpty || _settled.contains(roundId)) return;
+    final roundNum = int.tryParse(roundId);
+    if (roundNum == null || roundNum <= 0) return;
+
+    final revealEpochMs = (roundNum * roundDurationMs) + roundRevealOffsetMs;
+    final nowMs = DateTime.now().millisecondsSinceEpoch + serverTimeOffsetMs;
+    final delayMs = revealEpochMs - nowMs;
+
+    if (delayMs <= 0) {
+      _timers.remove(roundId)?.cancel();
+      unawaited(settleNow(roundId));
+      return;
+    }
+
+    if (_timers.containsKey(roundId)) return;
+    _timers[roundId] = Timer(Duration(milliseconds: delayMs + 250), () {
+      _timers.remove(roundId);
+      if (!_disposed) {
+        unawaited(settleNow(roundId));
+      }
+    });
+    debugPrint(
+        '[SPIN_WHEEL_SETTLER] Scheduled background settlement for round $roundId in ${delayMs + 250}ms');
+  }
+
+  Future<void> flushBetAndScheduleSettlement({
+    required String roundId,
+    required Map<String, int> bets,
+    String? roomId,
+    int serverTimeOffsetMs = 0,
+  }) async {
+    if (_disposed || bets.isEmpty || roundId.isEmpty) return;
+    final totalBet = bets.values.fold<int>(0, (sum, v) => sum + v);
+    if (totalBet <= 0) return;
+
+    String effectiveRoundId = roundId;
+    try {
+      final result = await _ref.read(gameServiceProvider).playSpinWheel(
+            betAmount: totalBet,
+            bets: bets,
+            roundId: roundId,
+            roomId: roomId,
+            txnId: 'bet_$roundId',
+          );
+      final serverRound = result['roundId']?.toString();
+      if (serverRound != null && serverRound.isNotEmpty) {
+        effectiveRoundId = serverRound;
+      }
+      await GameRecoveryService().clearBetState();
+      debugPrint(
+          '[SPIN_WHEEL_SETTLER] Flushed on-exit bets for round $effectiveRoundId (totalBet=$totalBet)');
+    } catch (e) {
+      debugPrint(
+          '[SPIN_WHEEL_SETTLER] Exit bet flush note for round $roundId: $e');
+    } finally {
+      if (!_disposed) {
+        trackRound(effectiveRoundId, serverTimeOffsetMs: serverTimeOffsetMs);
+      }
+    }
+  }
+
+  Future<void> settleNow(String roundId, {int attempt = 0}) async {
+    if (_disposed ||
+        roundId.isEmpty ||
+        _settled.contains(roundId) ||
+        _inFlight.contains(roundId)) {
+      return;
+    }
+    _inFlight.add(roundId);
+    try {
+      final res = await _ref
+          .read(gameServiceProvider)
+          .settleSpinWheelRound(roundId: roundId);
+      if (res['settled'] == true) {
+        _settled.add(roundId);
+        _timers.remove(roundId)?.cancel();
+        _ref.invalidate(luckySpinStatsProvider);
+        _ref.invalidate(luckySpinLeaderboardProvider);
+        debugPrint(
+            '[SPIN_WHEEL_SETTLER] Auto-settled exited/pending round $roundId (prize=${res['prize']}, balance=${res['balance']})');
+      }
+    } catch (e) {
+      debugPrint(
+          '[SPIN_WHEEL_SETTLER] Auto-settle attempt ${attempt + 1} failed for round $roundId: $e');
+      if (!_disposed && attempt < 3) {
+        _timers.remove(roundId)?.cancel();
+        _timers[roundId] = Timer(const Duration(seconds: 3), () {
+          _timers.remove(roundId);
+          unawaited(settleNow(roundId, attempt: attempt + 1));
+        });
+      }
+    } finally {
+      _inFlight.remove(roundId);
+    }
+  }
+
+  void syncFromHistory(
+    List<Map<String, dynamic>> history, {
+    int serverTimeOffsetMs = 0,
+  }) {
+    if (_disposed) return;
+    for (final item in history) {
+      final isSpin = item['game'] == 'spin_wheel' ||
+          (item['docId']?.toString().startsWith('spin_') ?? false);
+      if (!isSpin) continue;
+
+      final rId = item['roundId']?.toString() ??
+          item['docId']?.toString().replaceFirst('spin_', '') ??
+          '';
+      if (rId.isEmpty) continue;
+
+      final isSettled = item['settled'] == true ||
+          item['status'] == 'ROUND_SETTLED' ||
+          item['status'] == 'REVERTED';
+      if (isSettled) {
+        _settled.add(rId);
+        _timers.remove(rId)?.cancel();
+        continue;
+      }
+
+      trackRound(rId, serverTimeOffsetMs: serverTimeOffsetMs);
+    }
+  }
+
+  void dispose() {
+    _disposed = true;
+    for (final timer in _timers.values) {
+      timer.cancel();
+    }
+    _timers.clear();
+  }
+}
+
+final spinWheelBackgroundSettlerProvider =
+    Provider<SpinWheelBackgroundSettler>((ref) {
+  final settler = SpinWheelBackgroundSettler(ref);
+  ref.onDispose(settler.dispose);
+  return settler;
+});
+
 // 📜 User's private game history
 final userGameHistoryProvider =
     StreamProvider.autoDispose<List<Map<String, dynamic>>>((ref) {
   // Keep alive so active stream isn't destroyed when sub-widgets toggle or rebuild
   ref.keepAlive();
 
-  final user = FirebaseAuth.instance.currentUser;
+  final user = ref.watch(authStateProvider).value ??
+      FirebaseAuth.instance.currentUser;
   if (user == null) return Stream.value([]);
+
+  final settler = ref.read(spinWheelBackgroundSettlerProvider);
 
   return FirebaseFirestore.instance
       .collection('users')
@@ -276,6 +439,10 @@ final userGameHistoryProvider =
       }
       deduplicated.add(item);
     }
+
+    // Automatically track & settle any completed unsettled Spin Wheel rounds
+    settler.syncFromHistory(deduplicated);
+
     return deduplicated;
   }).handleError((e) {
     debugPrint("userGameHistoryProvider error: $e");
