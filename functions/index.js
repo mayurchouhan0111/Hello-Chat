@@ -21,7 +21,8 @@ const {
     HB_TIERS, HB_RANK, DEFAULT_FINANCIAL_POLICIES, FALLBACK_GATEWAYS, DEFAULT_SALARY_SLABS,
     normalizeTier, round2, commissionWalletTotal, splitCommissionDebit,
     assertValidRates, assertValidConversionRate, validateSalarySlabs,
-    canManageTier, hierarchyScope, isTargetInScope, isSalaryEligible
+    canManageTier, hierarchyScope, isTargetInScope, isSalaryEligible,
+    isEligibleHostForCommission
 } = require("./lib/hb_pms");
 
 /**
@@ -11231,17 +11232,55 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
     const bonusAmount = parsedAmount * 2; // 2x bonus event diamonds (e.g. 1M -> 2M bonus)
     const totalCredited = parsedAmount + bonusAmount;
 
-    let txId = "";
+    const policy = await loadFinancialPolicy();
+    const usdToDiamondRate = Number(policy.usdToDiamondRate) || DEFAULT_FINANCIAL_POLICIES.usdToDiamondRate;
+    const usdAmount = round2(parsedAmount / usdToDiamondRate);
+
+    const txRef = db.collection("reseller_transactions").doc();
+    const txId = txRef.id;
+
+    let commission = { processed: false, agencyCommissionUSD: 0, adminCommissionUSD: 0 };
     await db.runTransaction(async (transaction) => {
+        // 1. All reads MUST happen before any writes in Firestore transactions
+        const [senderSnap, targetSnap] = await transaction.getAll(senderRef, targetRef);
+        if (!senderSnap.exists) throw new functions.https.HttpsError("not-found", "Sender not found.");
+        if (!targetSnap.exists) throw new functions.https.HttpsError("not-found", "Target user not found.");
+
+        const liveStock = Number(senderSnap.data().diamondStock || 0);
+        if (liveStock < parsedAmount) {
+            throw new functions.https.HttpsError("failed-precondition", `Insufficient diamond stock. Current stock: ${liveStock.toLocaleString()}`);
+        }
+
+        const liveTargetData = targetSnap.data();
+
+        // 2. Apply Agency & Admin recharge commission BEFORE any writes (reads agency/admin/ledger docs)
+        if (usdAmount > 0) {
+            commission = await applyRechargeCommission(
+                transaction,
+                targetUid,
+                usdAmount,
+                `res_${txId}`,
+                policy,
+                targetSnap
+            );
+        }
+
+        // 3. Perform all atomic writes
         transaction.update(senderRef, {
             diamondStock: FieldValue.increment(-parsedAmount)
         });
-        transaction.update(targetRef, {
-            diamondBalance: FieldValue.increment(totalCredited)
-        });
+        const targetUpdates = {
+            diamondBalance: FieldValue.increment(totalCredited),
+            monthlyRecharge: FieldValue.increment(parsedAmount),
+        };
+        if (usdAmount > 0) {
+            targetUpdates.totalRechargeGenerated = FieldValue.increment(usdAmount);
+        }
+        transaction.update(targetRef, targetUpdates);
+        if (usdAmount > 0) {
+            processSvipPointsForRecharge(transaction, targetRef, liveTargetData, usdAmount);
+        }
 
-        const txRef = db.collection("reseller_transactions").doc();
-        txId = txRef.id;
         transaction.set(txRef, {
             senderUid: senderUid,
             senderName: sellerName,
@@ -11252,6 +11291,7 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
             amount: parsedAmount,
             bonusAmount: bonusAmount,
             totalCredited: totalCredited,
+            usd: usdAmount,
             timestamp: FieldValue.serverTimestamp()
         });
 
@@ -11355,7 +11395,19 @@ exports.resellerTransferDiamonds = functions.https.onCall(async (data, context) 
         { route: "/wallet", type: "RECHARGE_BONUS", transactionId: txId }
     );
 
-    return { success: true, targetName: targetData.displayName, amount: parsedAmount, bonusAmount: bonusAmount, totalCredited: totalCredited, transactionId: txId };
+    return {
+        success: true,
+        targetName: targetData.displayName,
+        amount: parsedAmount,
+        bonusAmount: bonusAmount,
+        totalCredited: totalCredited,
+        usd: usdAmount,
+        commission: {
+            agencyCommissionUSD: commission.agencyCommissionUSD || 0,
+            adminCommissionUSD: commission.adminCommissionUSD || 0
+        },
+        transactionId: txId
+    };
 });
 
 
@@ -11480,54 +11532,6 @@ exports.acceptFamilyBattle = functions.https.onCall(async (data, context) => {
     }
 
     const challengerId = reqData.challengerFamilyId;
-    const opponentId = reqData.opponentFamilyId;
-
-    // 🔒 Hard Concurrency Check & Overwrite Protection: 1 Family = Max 1 Active Battle
-    const [challengerActive, opponentActive] = await Promise.all([
-        db.collection("families").doc(challengerId).collection("battles").where("status", "==", "active").limit(1).get(),
-        db.collection("families").doc(opponentId).collection("battles").where("status", "==", "active").limit(1).get()
-    ]);
-
-    if (!challengerActive.empty || !opponentActive.empty) {
-        throw new functions.https.HttpsError("failed-precondition", "Your Family is already participating in an active Family Battle.");
-    }
-
-    const challengerDoc = await db.collection("families").doc(challengerId).get();
-    const opponentDoc = await db.collection("families").doc(opponentId).get();
-
-    if (!challengerDoc.exists || !opponentDoc.exists) {
-        throw new functions.https.HttpsError("not-found", "Family profiles not found.");
-    }
-
-    const cData = challengerDoc.data();
-    const oData = opponentDoc.data();
-    const battleId = db.collection("families").doc(challengerId).collection("battles").doc().id;
-    const now = Timestamp.now();
-    const durationSeconds = 300; // 5 minute standard duration
-
-    const battlePayload = {
-        id: battleId,
-        familyAId: challengerId,
-        familyBId: opponentId,
-        familyAName: cData.name || "Family A",
-        familyBName: oData.name || "Family B",
-        familyAAvatar: cData.avatarUrl || "",
-        familyBAvatar: oData.avatarUrl || "",
-        imageUrl: reqData.imageUrl || "",
-        familyAPoints: 0,
-        familyBPoints: 0,
-        startedAt: now,
-        durationSeconds: durationSeconds,
-        status: "active",
-        createdAt: now
-    };
-
-    const batch = db.batch();
-    // Update request status
-    batch.update(reqRef, { status: "accepted", acceptedAt: now });
-
-    // Write isolated battle document to BOTH families' battles subcollection
-    batch.set(db.collection("families").doc(challengerId).collection("battles").doc(battleId), battlePayload);
     batch.set(db.collection("families").doc(opponentId).collection("battles").doc(battleId), battlePayload);
 
     await batch.commit();
@@ -11852,12 +11856,16 @@ exports.getFinancialPolicies = functions.https.onCall(async (data, context) => {
  * USD is derived SERVER-SIDE by callers (round2(diamonds / 1e6)) - a client
  * -supplied amount would let anyone inflate their own agency's wallet.
  */
-async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId, policy, preloadedHostDoc = null) {
+async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId, policy = {}, preloadedHostDoc = null) {
     if (!(usdAmount > 0) || !sourceId) return { processed: false };
 
     const hostDoc = preloadedHostDoc || await transaction.get(db.collection("users").doc(hostUid));
     if (!hostDoc.exists) return { processed: false, reason: "host not found" };
     const hData = hostDoc.data();
+
+    if (!isEligibleHostForCommission(hData)) {
+        return { processed: false, reason: "user not eligible for commission" };
+    }
 
     const agencyId = hData.agencyId;
     if (!agencyId) return { processed: false, reason: "host has no agency" };
@@ -11869,22 +11877,32 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
     const adminId = agencyData.adminId || null;
     const agencyOwnerUid = agencyData.ownerUid || null;
 
-    const agencyRate = policy.agencyCommissionRate !== undefined ? policy.agencyCommissionRate : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate;
-    const adminRate = policy.adminCommissionRate !== undefined ? policy.adminCommissionRate : DEFAULT_FINANCIAL_POLICIES.adminCommissionRate;
+    const agencyRate = policy && policy.agencyCommissionRate !== undefined
+        ? Number(policy.agencyCommissionRate)
+        : (typeof agencyData.commissionRate === "number" && Number.isFinite(agencyData.commissionRate)
+            ? agencyData.commissionRate
+            : DEFAULT_FINANCIAL_POLICIES.agencyCommissionRate);
+    const adminRate = policy && policy.adminCommissionRate !== undefined
+        ? Number(policy.adminCommissionRate)
+        : DEFAULT_FINANCIAL_POLICIES.adminCommissionRate;
 
     const agencyLedgerRef = db.collection("commission_transactions").doc(`${sourceId}_agency`);
     const adminLedgerRef = adminId ? db.collection("commission_transactions").doc(`${sourceId}_admin`) : null;
-    const ledgerDocs = await transaction.getAll(
-        agencyLedgerRef,
-        ...(adminLedgerRef ? [adminLedgerRef] : [])
-    );
+    const adminRef = adminId ? db.collection("users").doc(adminId) : null;
+    const readRefs = [agencyLedgerRef];
+    if (adminLedgerRef) readRefs.push(adminLedgerRef);
+    if (adminRef) readRefs.push(adminRef);
+
+    const ledgerDocs = await transaction.getAll(...readRefs);
     const agencyLedgerExists = ledgerDocs[0].exists;
     const adminLedgerExists = adminLedgerRef ? ledgerDocs[1].exists : false;
+    const adminDoc = adminRef ? ledgerDocs[2] : null;
+    const adminExists = Boolean(adminDoc && adminDoc.exists);
 
     const agencyCommissionUSD = round2(usdAmount * agencyRate);
-    const adminCommissionUSD = adminId ? round2(usdAmount * adminRate) : 0;
+    const adminCommissionUSD = adminExists ? round2(usdAmount * adminRate) : 0;
 
-    if (!agencyLedgerExists) {
+    if (!agencyLedgerExists && agencyCommissionUSD > 0) {
         transaction.update(agencyRef, {
             usdCommissionBalance: FieldValue.increment(agencyCommissionUSD),
             totalCommissionEarned: FieldValue.increment(agencyCommissionUSD),
@@ -11905,8 +11923,7 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
         });
     }
 
-    if (adminId && adminLedgerRef && !adminLedgerExists) {
-        const adminRef = db.collection("users").doc(adminId);
+    if (adminExists && adminRef && adminLedgerRef && !adminLedgerExists && adminCommissionUSD > 0) {
         transaction.update(adminRef, {
             usdCommissionBalance: FieldValue.increment(adminCommissionUSD),
             totalCommissionEarned: FieldValue.increment(adminCommissionUSD),
@@ -11929,8 +11946,8 @@ async function applyRechargeCommission(transaction, hostUid, usdAmount, sourceId
 
     return {
         processed: true,
-        agencyCommissionUSD: agencyLedgerExists ? 0 : agencyCommissionUSD,
-        adminCommissionUSD: (adminLedgerExists || !adminId) ? 0 : adminCommissionUSD
+        agencyCommissionUSD: (!agencyLedgerExists && agencyCommissionUSD > 0) ? agencyCommissionUSD : 0,
+        adminCommissionUSD: (!adminLedgerExists && adminExists && adminCommissionUSD > 0) ? adminCommissionUSD : 0
     };
 }
 
@@ -13796,10 +13813,16 @@ exports.getAdminWalletOverview = functions.https.onCall(async (payload, context)
     const allowedIds = new Set(admins.map(a => a.uid));
     let transactions = [];
     if (allowedIds.size > 0) {
-        const txSnap = await db.collection("commission_transactions")
-            .orderBy("timestamp", "desc")
-            .limit(Math.min(limit * 5, 500))
-            .get();
+        const txSnap = caller.role === "admin"
+            ? await db.collection("commission_transactions")
+                .where("recipientUid", "==", caller.uid)
+                .orderBy("timestamp", "desc")
+                .limit(limit)
+                .get()
+            : await db.collection("commission_transactions")
+                .orderBy("timestamp", "desc")
+                .limit(Math.min(limit * 5, 500))
+                .get();
         transactions = txSnap.docs
             .filter(doc => doc.data().recipientRole === "admin" &&
                 allowedIds.has(doc.data().recipientUid))
@@ -16804,7 +16827,8 @@ const { DEFAULT_RECHARGE_PACKAGES, PaymentGatewayEngine } = require("./lib/payme
 const paymentEngine = new PaymentGatewayEngine(db, {
     applyCommissionFn: applyRechargeCommission,
     processSvipFn: processSvipPointsForRecharge,
-    processBonusFn: processRechargeBonusInline
+    processBonusFn: processRechargeBonusInline,
+    loadPolicyFn: loadFinancialPolicy
 });
 
 /**

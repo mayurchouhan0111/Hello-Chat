@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
@@ -13,6 +14,7 @@ import 'package:hello_chat/core/providers/agency_provider.dart';
 import 'package:hello_chat/core/models/agency_model.dart';
 import 'package:hello_chat/core/models/user_model.dart';
 import 'package:hello_chat/core/router/app_router.dart';
+import 'package:hello_chat/core/services/commission_wallet_service.dart';
 import 'package:hello_chat/core/widgets/app_toast.dart';
 import 'package:hello_chat/features/wallet/presentation/screens/withdraw_beans_screen.dart';
 
@@ -1816,130 +1818,241 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
   }
 
   void _showRecordsModal(AgencyModel agency) {
+    final money = NumberFormat.currency(symbol: r'$', decimalDigits: 2);
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF042424),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Agency Balance & Ledger',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.white54),
-                  onPressed: () => Navigator.of(context).pop(),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.72,
+        minChildSize: 0.45,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (_, scrollController) => Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Agency Balance & Ledger',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold)),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white54),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+              const Gap(12),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: UserControlTheme.cardBgDark,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: UserControlTheme.cardBorder),
                 ),
-              ],
-            ),
-            const Gap(16),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: UserControlTheme.cardBgDark,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: UserControlTheme.cardBorder),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Current Beans Balance',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '${NumberFormat('#,##0').format(agency.beansBalance)} Beans',
-                        style: const TextStyle(
-                            color: Color(0xFFF59E0B),
-                            fontSize: 15,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12, height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Total Beans Earned',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '${NumberFormat('#,##0').format(agency.totalBeansEarned)} Beans',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12, height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Agency Commission Rate',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '${(agency.commissionRate * 100).toInt()}%',
-                        style: const TextStyle(
-                            color: UserControlTheme.primaryGreen,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.white12, height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Roster Size',
-                          style:
-                              TextStyle(color: Colors.white70, fontSize: 13)),
-                      Text(
-                        '${agency.hostUids.length} Hosts',
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Gap(16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.teal.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.teal.withOpacity(0.3)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.info_outline,
-                      color: Colors.tealAccent, size: 18),
-                  const Gap(8),
-                  Expanded(
-                    child: Text(
-                      'Commission rule: The agency earns a ${(agency.commissionRate * 100).toInt()}% bean share whenever any gift is received by an agency host.',
-                      style: const TextStyle(
-                          color: Colors.tealAccent, fontSize: 11),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('USD Commission Balance',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          money.format(agency.usdCommissionBalance),
+                          style: const TextStyle(
+                              color: Color(0xFF34D399),
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    const Divider(color: Colors.white12, height: 18),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total USD Commission Earned',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          money.format(agency.totalCommissionEarned),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 18),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Total Recharge Volume',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          money.format(agency.totalRechargeGenerated),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 18),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Current Beans Balance',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          '${NumberFormat('#,##0').format(agency.beansBalance)} Beans',
+                          style: const TextStyle(
+                              color: Color(0xFFF59E0B),
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 18),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Agency Commission Rate',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 13)),
+                        Text(
+                          '${(agency.commissionRate * 100).toInt()}%',
+                          style: const TextStyle(
+                              color: UserControlTheme.primaryGreen,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
+              const Gap(14),
+              const Text(
+                'COMMISSION TRANSACTIONS',
+                style: TextStyle(
+                  color: Colors.white54,
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const Gap(8),
+              Expanded(
+                child: StreamBuilder<List<Map<String, dynamic>>>(
+                  stream: CommissionWalletService()
+                      .streamCommissionEarnings(agency.ownerUid),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final txs = snapshot.data ?? const [];
+                    if (txs.isEmpty) {
+                      return Center(
+                        child: Text(
+                          'No recharge commission transactions yet.',
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.5),
+                              fontSize: 12),
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      controller: scrollController,
+                      itemCount: txs.length,
+                      separatorBuilder: (_, __) => const Gap(8),
+                      itemBuilder: (_, index) {
+                        final tx = txs[index];
+                        final commUsd =
+                            (tx['commissionUSD'] as num? ?? 0).toDouble();
+                        final rechUsd =
+                            (tx['rechargeUSD'] as num? ?? 0).toDouble();
+                        final ratePct =
+                            ((tx['commissionRate'] as num? ?? 0.30) * 100)
+                                .round();
+                        final rawTs = tx['timestamp'];
+                        DateTime? dt;
+                        if (rawTs is Timestamp) dt = rawTs.toDate();
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: UserControlTheme.cardBgDark,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: UserControlTheme.cardBorder
+                                    .withValues(alpha: 0.5)),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '+${money.format(commUsd)} ($ratePct%)',
+                                      style: const TextStyle(
+                                        color: Color(0xFF34D399),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const Gap(2),
+                                    Text(
+                                      'Recharge: ${money.format(rechUsd)} · ${dt == null ? 'Recent' : DateFormat.yMMMd().add_jm().format(dt.toLocal())}',
+                                      style: const TextStyle(
+                                          color: Colors.white54, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              const Gap(10),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.teal.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border:
+                      Border.all(color: Colors.teal.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.info_outline,
+                        color: Colors.tealAccent, size: 18),
+                    const Gap(8),
+                    Expanded(
+                      child: Text(
+                        'Automatic commission: ${(agency.commissionRate * 100).toInt()}% USD on host recharges & ${(agency.commissionRate * 100).toInt()}% bean share on host gifts.',
+                        style: const TextStyle(
+                            color: Colors.tealAccent, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             const Gap(20),
             SizedBox(
               width: double.infinity,
@@ -1967,6 +2080,7 @@ class _AgencyPortalScreenState extends ConsumerState<AgencyPortalScreen> {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

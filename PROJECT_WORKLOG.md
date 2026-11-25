@@ -7,6 +7,25 @@ Whenever any task or feature is worked on, this file is updated so anyone (clien
 
 ## Work Log Entries (Newest First)
 
+### Date: 2026-11-25 (Admin & Agency Automatic Recharge Commission Fix)
+
+- **What Client / User Asked**:
+  - When users successfully recharged Diamonds, the Admin Commission (10%) and Agency Commission (30%) were not being credited automatically to the Admin Wallet and Agency Wallet.
+  - Required automatic, immediate, duplicate-free commission calculation and crediting across both wallets, visible in both Admin Panel and Agency Panel.
+
+- **What We Did**:
+  1. **Fixed Payment Gateway Commission Bug (`functions/lib/payment_gateway.js`, `functions/index.js`)**:
+     - Fixed `PaymentGatewayEngine.creditOrderIfPaid` (used by both `verifyAndCreditPayment` and `paymentWebhook`) where `applyCommissionFn` was previously called *after* `transaction.update(userRef, ...)`, causing Firestore to throw "reads after writes" inside the transaction and silently skip crediting both Admin and Agency wallets.
+     - Moved `applyCommissionFn` before all transaction writes and passed the live `financial_policies` configuration (`loadPolicyFn: loadFinancialPolicy`) so Owner-configured commission rates are always applied accurately.
+  2. **Added Automatic Commission to Official Reseller Recharges (`functions/index.js`)**:
+     - Updated `resellerTransferDiamonds` to read `senderRef` and `targetRef` inside the transaction, derive USD value from `usdToDiamondRate`, and invoke `applyRechargeCommission` atomically before writes so Official Seller recharges also credit Agency (30%) and Admin (10%) USD wallets and record `commission_transactions` entries.
+  3. **Hardened Commission Engine & Admin/Agency Views (`functions/index.js`, `lib/features/profile/presentation/screens/agency/agency_portal_screen.dart`)**:
+     - Added host/user eligibility check (`isEligibleHostForCommission`), safe `adminRef` read-before-write inside `applyRechargeCommission`, and direct `recipientUid` filtering in `getAdminWalletOverview` for Admins.
+     - Upgraded the Agency Wallet **Records** modal in `agency_portal_screen.dart` to show `USD Commission Balance`, `Total USD Commission Earned`, `Total Recharge Volume`, and a live `commission_transactions` stream.
+  4. **Deployed & Verified**:
+     - Deployed `verifyAndCreditPayment`, `paymentWebhook`, `resellerTransferDiamonds`, `approveRecharge`, `rechargeDiamonds`, `enhancedRecharge`, `processRechargeCommission`, and `getAdminWalletOverview`.
+     - Verified `node functions/test_recharge_commission.js` (5/5 passed) and live end-to-end `verifyAndCreditPayment` against `hellochat-e8965` (30% Agency + 10% Admin credited immediately, visible in `getAdminWalletOverview`, zero duplicate commission on retry).
+
 ### Date: 2026-11-25 (Spin Wheel / Greedy: Automatic Settlement & Balance Update When Exiting Early)
 
 - **What Client / User Asked**:

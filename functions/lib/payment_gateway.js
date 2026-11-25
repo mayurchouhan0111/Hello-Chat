@@ -93,6 +93,7 @@ class PaymentGatewayEngine {
         this.applyCommissionFn = options.applyCommissionFn || null;
         this.processSvipFn = options.processSvipFn || null;
         this.processBonusFn = options.processBonusFn || null;
+        this.loadPolicyFn = options.loadPolicyFn || null;
     }
 
     /**
@@ -225,6 +226,9 @@ class PaymentGatewayEngine {
             };
         }
 
+        // Load financial policy once before the transaction so configured rates apply
+        const policy = this.loadPolicyFn ? await this.loadPolicyFn() : {};
+
         // Run Single Atomic Multi-Document Transaction
         const txResult = await this.db.runTransaction(async (transaction) => {
             // 1. Transactional reads must happen before any writes
@@ -241,6 +245,10 @@ class PaymentGatewayEngine {
             if (order.status === "completed") {
                 return { alreadyProcessed: true, status: "completed" };
             }
+
+            const uid = order.uid;
+            const userRef = this.db.collection("users").doc(uid);
+            const userSnap = await transaction.get(userRef);
 
             // Scenario D3: Verify amount and currency if provided by gateway
             if (options.amountPaidMinor !== undefined && options.amountPaidMinor !== null) {
@@ -263,21 +271,32 @@ class PaymentGatewayEngine {
                 throw new Error(`Currency tampering detected: expected ${order.currency}, got ${options.currencyPaid}`);
             }
 
-            const uid = order.uid;
-            const userRef = this.db.collection("users").doc(uid);
-            const userSnap = await transaction.get(userRef);
             if (!userSnap.exists) {
                 throw new Error(`User '${uid}' not found.`);
             }
 
             const userData = userSnap.data();
             const totalDiamonds = order.packageSnapshot.totalDiamonds || (order.packageSnapshot.diamonds + (order.packageSnapshot.bonusDiamonds || 0));
-            // Calculate approximate USD amount for agency commission and SVIP tracking
+            // Calculate USD amount for agency/admin commission and SVIP tracking
             const usdAmount = order.currency === "usd"
-                ? (order.amount / 100)
-                : Number((order.amount / 100 / 85.0).toFixed(2)); // Approx INR to USD conversion
+                ? Number((order.amount / 100).toFixed(2))
+                : Number((order.amount / 100 / 85.0).toFixed(2));
 
-            // 2. Perform All Atomic Mutations
+            // 2. Apply Agency & Admin Commission BEFORE any writes in the transaction
+            // (applyCommissionFn performs Firestore reads for agency/admin/ledger docs)
+            let commissionResult = { processed: false, agencyCommissionUSD: 0, adminCommissionUSD: 0 };
+            if (this.applyCommissionFn) {
+                commissionResult = await this.applyCommissionFn(
+                    transaction,
+                    uid,
+                    usdAmount,
+                    `pay_${orderId}`,
+                    policy,
+                    userSnap
+                );
+            }
+
+            // 3. Perform All Remaining Atomic Writes
             // A. Update User Balances
             transaction.update(userRef, {
                 diamondBalance: FieldValue.increment(totalDiamonds),
@@ -285,16 +304,7 @@ class PaymentGatewayEngine {
                 totalRechargeGenerated: FieldValue.increment(usdAmount)
             });
 
-            // B. Apply Agency Commission inside transaction
-            if (this.applyCommissionFn) {
-                try {
-                    await this.applyCommissionFn(transaction, uid, usdAmount, `pay_${orderId}`, {}, userSnap);
-                } catch (commErr) {
-                    console.error("[PAYMENT_COMMISSION_WARN] Agency commission calculation skipped:", commErr);
-                }
-            }
-
-            // C. Apply SVIP Points
+            // B. Apply SVIP Points
             if (this.processSvipFn) {
                 try {
                     this.processSvipFn(transaction, userRef, userData, usdAmount);
@@ -358,6 +368,11 @@ class PaymentGatewayEngine {
                 orderId,
                 paymentId: cleanPaymentId,
                 diamondsCredited: totalDiamonds,
+                usd: usdAmount,
+                commission: {
+                    agencyCommissionUSD: commissionResult?.agencyCommissionUSD || 0,
+                    adminCommissionUSD: commissionResult?.adminCommissionUSD || 0
+                },
                 uid
             };
         });
